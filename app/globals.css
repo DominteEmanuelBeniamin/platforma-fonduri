@@ -1,8 +1,15 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* --- CULORI DESIGN BONIE (LIGHT MODE FORȚAT) --- */
+  
+  /* Am schimbat fundalul pe Slate-50 (#F8FAFC). 
+     Este un alb-gri foarte subtil, mai "rece" și mai premium decât gri-ul standard.
+  */
+  --background: #F8FAFC;
+  
+  /* Text Slate-900 pentru contrast maxim și lizibilitate */
+  --foreground: #0F172A; 
 }
 
 @theme inline {
@@ -12,15 +19,82 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* Setări de bază pentru corp */
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  
+  /* Asigură umplerea ecranului */
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  
+  /* Antialiasing pentru fonturi clare pe ecrane bune */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* --------------------------------------------------------- */
+/* --- ANIMAȚII CUSTOM (PENTRU UX/UI MODERN) --- */
+/* --------------------------------------------------------- */
+
+/* 1. Animația "Blob" - pentru fundalul de la Login (acele pete de culoare care se mișcă) */
+@keyframes blob {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}
+
+.animate-blob {
+  animation: blob 7s infinite;
+}
+
+/* Utilitar pentru a întârzia animația (ca cele două pete să nu se miște identic) */
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+/* 2. Animația "Fade In Up" - pentru încărcarea elegantă a dashboard-ului */
+/* Face ca elementele să apară de jos în sus, fluid */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in-up {
+  animation: fadeInUp 0.6s ease-out forwards;
+}
+
+/* 3. Scrollbar personalizat (opțional, dar arată mai bine pe Windows) */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #CBD5E1; /* Slate-300 */
+  border-radius: 20px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #94A3B8; /* Slate-400 */
 }
