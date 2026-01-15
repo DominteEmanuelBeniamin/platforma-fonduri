@@ -13,6 +13,19 @@ interface ClientProfile {
 
 export default function NewProjectPage() {
   const router = useRouter()
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        // Dacă nu e logat, îl trimitem la Login
+        router.push('/login')
+      } 
+    }
+    
+    checkAuth()
+  }, [router])
+
   const [clients, setClients] = useState<ClientProfile[]>([])
   const [title, setTitle] = useState('')
   const [selectedClientId, setSelectedClientId] = useState('')

@@ -21,6 +21,19 @@ import DocumentRequests from '@/components/DocumentRequests'
 
 export default function ProjectDetailsPage() {
   const router = useRouter()
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        // Dacă nu e logat, îl trimitem la Login
+        router.push('/login')
+      } 
+    }
+    
+    checkAuth()
+  }, [router])
+
   const params = useParams()
   const projectId = params?.id as string
   const [project, setProject] = useState<any>(null)
