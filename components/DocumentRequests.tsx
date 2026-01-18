@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, JSX } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { 
   FileText, 
@@ -17,8 +17,14 @@ import {
   ChevronRight,
   Eye,
   MessageSquare,
-  RefreshCw
+  RefreshCw,
+  FileSpreadsheet,
+  FileCheck,
+  FileClock,
+  FileX,
+  FileQuestion
 } from 'lucide-react'
+import DocumentModal from './DocumentModal'
 
 interface DocumentRequest {
   id: string
@@ -51,7 +57,6 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
   // Modal state
   const [selectedRequest, setSelectedRequest] = useState<DocumentRequest | null>(null)
   const [notes, setNotes] = useState('')
-  const [actionLoading, setActionLoading] = useState(false)
   
   // Form state pentru cerere nouă (admin/consultant)
   const [name, setName] = useState('')
@@ -245,74 +250,13 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
     URL.revokeObjectURL(url)
   }
 
-  // Approve request
-  const handleApprove = async () => {
-    if (!selectedRequest) return
-    setActionLoading(true)
-
-    try {
-      if (notes.trim() && selectedRequest.files && selectedRequest.files.length > 0) {
-        const lastFile = selectedRequest.files[selectedRequest.files.length - 1]
-        await supabase
-          .from('files')
-          .update({ comments: notes.trim() })
-          .eq('id', lastFile.id)
-      }
-
-      await supabase
-        .from('document_requirements')
-        .update({ status: 'approved' })
-        .eq('id', selectedRequest.id)
-
-      setSelectedRequest(null)
-      setNotes('')
-      fetchRequests()
-    } catch (error: any) {
-      alert('Eroare: ' + error.message)
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  // Reject request
-  const handleReject = async () => {
-    if (!selectedRequest) return
-    if (!notes.trim()) {
-      alert('Te rog scrie motivul respingerii în notițe.')
-      return
-    }
-    setActionLoading(true)
-
-    try {
-      if (selectedRequest.files && selectedRequest.files.length > 0) {
-        const lastFile = selectedRequest.files[selectedRequest.files.length - 1]
-        await supabase
-          .from('files')
-          .update({ comments: notes.trim() })
-          .eq('id', lastFile.id)
-      }
-
-      await supabase
-        .from('document_requirements')
-        .update({ status: 'rejected' })
-        .eq('id', selectedRequest.id)
-
-      setSelectedRequest(null)
-      setNotes('')
-      fetchRequests()
-    } catch (error: any) {
-      alert('Eroare: ' + error.message)
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
   // Status configuration
   const statusConfig: Record<string, { 
     bg: string
     text: string
     border: string
     icon: JSX.Element
+    docIcon: JSX.Element
     label: string
     iconBg: string
   }> = {
@@ -321,6 +265,7 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
       text: 'text-amber-700',
       border: 'border-amber-200',
       icon: <Clock className="w-4 h-4" />,
+      docIcon: <FileClock className="w-5 h-5" />,
       label: 'Așteaptă',
       iconBg: 'bg-amber-100'
     },
@@ -329,6 +274,7 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
       text: 'text-blue-700',
       border: 'border-blue-200',
       icon: <Eye className="w-4 h-4" />,
+      docIcon: <FileQuestion className="w-5 h-5" />,
       label: 'În verificare',
       iconBg: 'bg-blue-100'
     },
@@ -337,6 +283,7 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
       text: 'text-emerald-700',
       border: 'border-emerald-200',
       icon: <CheckCircle2 className="w-4 h-4" />,
+      docIcon: <FileCheck className="w-5 h-5" />,
       label: 'Aprobat',
       iconBg: 'bg-emerald-100'
     },
@@ -345,6 +292,7 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
       text: 'text-red-700',
       border: 'border-red-200',
       icon: <XCircle className="w-4 h-4" />,
+      docIcon: <FileX className="w-5 h-5" />,
       label: 'Respins',
       iconBg: 'bg-red-100'
     }
@@ -509,9 +457,9 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
                 >
                   {/* Main Content Row */}
                   <div className="flex items-start gap-3 sm:gap-4">
-                    {/* Status Icon */}
+                    {/* Status Icon - ICONIȚA DE DOCUMENT */}
                     <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl ${status.iconBg} flex items-center justify-center flex-shrink-0 ${status.text}`}>
-                      {status.icon}
+                      {status.docIcon}
                     </div>
 
                     {/* Content */}
@@ -531,7 +479,7 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
                         <p className="text-sm text-slate-600 mb-3 line-clamp-2">{req.description}</p>
                       )}
                       
-                      {/* Meta Row - CU SPAȚIERE MĂRITĂ */}
+                      {/* Meta Row */}
                       <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-xs text-slate-500">
                         <span className="flex items-center gap-1.5">
                           <Calendar className="w-3.5 h-3.5 text-slate-400" />
@@ -649,204 +597,11 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
 
       {/* MODAL pentru Admin/Consultant */}
       {selectedRequest && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          {/* Overlay */}
-          <div 
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() => { setSelectedRequest(null); setNotes('') }}
-          />
-          
-          {/* Modal Content */}
-          <div className="relative bg-white w-full sm:rounded-2xl sm:max-w-xl max-h-[90vh] overflow-hidden shadow-2xl rounded-t-3xl">
-            {/* Drag Handle for mobile */}
-            <div className="sm:hidden w-12 h-1.5 bg-slate-300 rounded-full mx-auto mt-3 mb-2" />
-            
-            {/* Header */}
-            <div className="p-5 border-b border-slate-100">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-2">
-                    {(() => {
-                      const status = statusConfig[selectedRequest.status]
-                      return (
-                        <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${status.bg} ${status.text} ${status.border} border flex items-center gap-1.5`}>
-                          {status.icon}
-                          {status.label}
-                        </span>
-                      )
-                    })()}
-                  </div>
-                  <h2 className="text-lg font-bold text-slate-900">{selectedRequest.name}</h2>
-                  {selectedRequest.description && (
-                    <p className="text-sm text-slate-600 mt-1">{selectedRequest.description}</p>
-                  )}
-                </div>
-                <button
-                  onClick={() => { setSelectedRequest(null); setNotes('') }}
-                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all flex-shrink-0"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Body */}
-            <div className="p-5 space-y-5 max-h-[50vh] overflow-y-auto">
-              {/* Info Grid */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <div className="flex items-center gap-2 text-slate-500 mb-1">
-                    <User className="w-4 h-4" />
-                    <span className="text-xs font-medium">Creat de</span>
-                  </div>
-                  <p className="text-sm font-semibold text-slate-900 truncate">
-                    {selectedRequest.creator?.full_name || selectedRequest.creator?.email || 'Necunoscut'}
-                  </p>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <div className="flex items-center gap-2 text-slate-500 mb-1">
-                    <Calendar className="w-4 h-4" />
-                    <span className="text-xs font-medium">Data</span>
-                  </div>
-                  <p className="text-sm font-semibold text-slate-900">
-                    {new Date(selectedRequest.created_at).toLocaleDateString('ro-RO')}
-                  </p>
-                </div>
-                {selectedRequest.deadline_at && (
-                  <div className="p-3 bg-amber-50 rounded-xl col-span-2">
-                    <div className="flex items-center gap-2 text-amber-600 mb-1">
-                      <Clock className="w-4 h-4" />
-                      <span className="text-xs font-medium">Termen limită</span>
-                    </div>
-                    <p className="text-sm font-semibold text-amber-700">
-                      {new Date(selectedRequest.deadline_at).toLocaleDateString('ro-RO', {
-                        weekday: 'long',
-                        day: 'numeric',
-                        month: 'long'
-                      })}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Documents */}
-              <div>
-                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Documente</h3>
-                <div className="space-y-2">
-                  {selectedRequest.attachment_path && (
-                    <button
-                      onClick={() => downloadFile(selectedRequest.attachment_path!)}
-                      className="w-full flex items-center gap-3 p-3 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition-all text-left group"
-                    >
-                      <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
-                        <Download className="w-5 h-5 text-indigo-600" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-slate-900">Model atașat</p>
-                        <p className="text-xs text-slate-500">Click pentru descărcare</p>
-                      </div>
-                    </button>
-                  )}
-                  
-                  {selectedRequest.files && selectedRequest.files.map((f) => (
-                    <button
-                      key={f.id}
-                      onClick={() => downloadFile(f.storage_path)}
-                      className="w-full flex items-center gap-3 p-3 bg-emerald-50 rounded-xl hover:bg-emerald-100 transition-all text-left group"
-                    >
-                      <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center group-hover:bg-emerald-200 transition-colors">
-                        <FileText className="w-5 h-5 text-emerald-600" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-slate-900">Răspuns client (v{f.version_number})</p>
-                        <p className="text-xs text-slate-500">{new Date(f.created_at).toLocaleDateString('ro-RO')}</p>
-                      </div>
-                    </button>
-                  ))}
-
-                  {!selectedRequest.attachment_path && (!selectedRequest.files || selectedRequest.files.length === 0) && (
-                    <div className="text-center py-6 border-2 border-dashed border-slate-100 rounded-xl bg-slate-50/50">
-                      <FileText className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                      <p className="text-sm text-slate-400">Niciun document încă</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Notes Field */}
-              {selectedRequest.status === 'review' && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                    Notițe / Feedback
-                  </label>
-                  <textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Scrie notițe pentru client (obligatoriu pentru respingere)..."
-                    rows={3}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none resize-none transition-all"
-                  />
-                </div>
-              )}
-
-              {/* Previous comments */}
-              {selectedRequest.files && selectedRequest.files.length > 0 && selectedRequest.files[selectedRequest.files.length - 1]?.comments && (
-                <div className="p-4 bg-slate-50 rounded-xl">
-                  <div className="flex items-center gap-2 text-slate-500 mb-2">
-                    <MessageSquare className="w-4 h-4" />
-                    <span className="text-xs font-semibold">Comentariu anterior</span>
-                  </div>
-                  <p className="text-sm text-slate-700">{selectedRequest.files[selectedRequest.files.length - 1].comments}</p>
-                </div>
-              )}
-            </div>
-
-            {/* Footer Actions */}
-            <div className="p-5 border-t border-slate-100 bg-slate-50/50">
-              {selectedRequest.status === 'review' && (
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleReject}
-                    disabled={actionLoading}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-red-600 bg-red-50 border border-red-200 rounded-xl text-sm font-semibold hover:bg-red-100 disabled:opacity-50 transition-all"
-                  >
-                    <XCircle className="w-4 h-4" />
-                    {actionLoading ? 'Se procesează...' : 'Respinge'}
-                  </button>
-                  <button
-                    onClick={handleApprove}
-                    disabled={actionLoading}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-all shadow-lg shadow-emerald-600/20"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    {actionLoading ? 'Se procesează...' : 'Aprobă'}
-                  </button>
-                </div>
-              )}
-
-              {selectedRequest.status === 'approved' && (
-                <div className="flex items-center justify-center gap-2 text-emerald-600 py-2">
-                  <CheckCircle2 className="w-5 h-5" />
-                  <p className="font-semibold">Document aprobat</p>
-                </div>
-              )}
-
-              {selectedRequest.status === 'rejected' && (
-                <div className="flex items-center justify-center gap-2 text-red-600 py-2">
-                  <RefreshCw className="w-5 h-5" />
-                  <p className="font-semibold">Așteaptă reîncărcare de la client</p>
-                </div>
-              )}
-
-              {selectedRequest.status === 'pending' && (
-                <div className="flex items-center justify-center gap-2 text-amber-600 py-2">
-                  <Clock className="w-5 h-5" />
-                  <p className="font-semibold">Așteaptă răspuns de la client</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <DocumentModal 
+          request={selectedRequest}
+          onClose={() => { setSelectedRequest(null); setNotes('') }}
+          onUpdate={fetchRequests}
+        />
       )}
     </>
   )
