@@ -62,6 +62,7 @@ export default function Dashboard() {
 
   // --- DASHBOARD UI ---
   const isAdmin = currentUser?.role === 'admin'
+  // console.log('Current User:', currentUser)
   const firstName = currentUser?.full_name?.split(' ')[0] || 'Utilizator'
   const currentDate = new Date().toLocaleDateString('ro-RO', { weekday: 'long', day: 'numeric', month: 'long' })
   

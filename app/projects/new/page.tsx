@@ -47,25 +47,48 @@ export default function NewProjectPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
-
-    // 1. Inserăm proiectul
-    const { data, error } = await supabase
-      .from('projects')
-      .insert({
-        title: title,
-        client_id: selectedClientId,
-        status: 'contractare'
+  
+    try {
+      // 1) luăm session ca să trimitem token-ul către API
+      const {
+        data: { session }
+      } = await supabase.auth.getSession()
+  
+      if (!session) {
+        alert('Nu ești logat.')
+        router.push('/login')
+        return
+      }
+  
+      // 2) apelăm endpoint-ul server-side
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          title,                 // string
+          client_id: selectedClientId // string
+        })
       })
-      .select() // Selectăm ca să primim ID-ul noului proiect
-
-    if (error) {
-      alert('Eroare: ' + error.message)
-    } else {
+  
+      const result = await response.json()
+  
+      if (!response.ok) {
+        alert('Eroare: ' + (result?.error || 'Unknown error'))
+        return
+      }
+  
       alert('Proiect creat cu succes! 🎉')
-      router.push('/') // Ne întoarcem pe Dashboard
+      router.push('/') // Dashboard
+    } catch (err: any) {
+      alert('Eroare: ' + (err?.message || 'Unknown error'))
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
+  
 
   return (
     <div style={{ maxWidth: '500px', margin: '0 auto', border: '1px solid #ccc', padding: '30px', borderRadius: '10px' }}>

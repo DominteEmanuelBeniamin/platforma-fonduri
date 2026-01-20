@@ -1,22 +1,28 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 import { useState, useEffect } from 'react'
+import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/navigation'
 import { UserPlus, Trash2, Users } from 'lucide-react'
 
 export default function AdminUsersPage() {
   const router = useRouter()
-  useEffect(() => {
+  const [session, setSession] = useState<Session | null>(null)
+    useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      
+      const {
+        data: { session }
+      } = await supabase.auth.getSession()
+  
       if (!session) {
-        // Dacă nu e logat, îl trimitem la Login
         router.push('/login')
-      } 
+        return
+      }
+  
+      setSession(session)
     }
-    
+  
     checkAuth()
   }, [router])
 
@@ -50,9 +56,12 @@ export default function AdminUsersPage() {
     setIsCreating(true)
 
     try {
-      const response = await fetch('/api/create-user', {
+
+      const response = await fetch('/api/users', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`
+         },
         body: JSON.stringify({
           email: newEmail,
           password: newPassword,
@@ -79,9 +88,35 @@ export default function AdminUsersPage() {
   }
 
   const updateUserRole = async (userId: string, newRole: string) => {
+
     if (!confirm(`Schimbi rolul?`)) return
-    await supabase.from('profiles').update({ role: newRole }).eq('id', userId)
+    // await supabase.from('profiles').update({ role: newRole }).eq('id', userId)
+    try{
+      if (!session) {
+        alert('Not authenticated')
+        return
+      }
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ role: newRole })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) throw new Error(result.error)
+
+
+    }
+    catch (error: any) {
+      alert('Eroare la update: ' + error.message)
+      return
+    }
     fetchUsers()
+    alert('Rol actualizat cu succes!')
   }
 
   // --- FUNCȚIA DE ȘTERGERE USER ---
@@ -90,12 +125,16 @@ export default function AdminUsersPage() {
     
     setLoading(true)
     try {
-      const response = await fetch('/api/delete-user', {
+      if (!session) {
+        alert('Not authenticated')
+        return
+      }
+      const response = await fetch(`/api/users/${userId}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId })
+        headers: {
+          Authorization: `Bearer ${session.access_token}`
+        }
       })
-
       const result = await response.json()
 
       if (!response.ok) throw new Error(result.error)

@@ -64,6 +64,7 @@ export default function TeamManager({ projectId }: { projectId: string }) {
     if (error) alert('Eroare: ' + error.message)
     else {
       await fetchData()
+      alert('Membru adăugat cu succes!')
       setSelectedId('')
     }
     setLoading(false)
