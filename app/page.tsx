@@ -3,13 +3,14 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation' // Avem nevoie de router pentru redirect
+import { useRouter } from 'next/navigation'
 
 export default function Dashboard() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [projects, setProjects] = useState<any[]>([])
   const [currentUser, setCurrentUser] = useState<any>(null)
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
 
   // Status Colors Config
   const statusConfig: Record<string, { bg: string; text: string; dot: string; label: string; border: string }> = {
@@ -34,15 +35,39 @@ export default function Dashboard() {
     }
   }
 
+  // Delete project function - direct, fără confirmare
+  const handleDeleteProject = async (project: any) => {
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', project.id)
+      
+      if (error) throw error
+      
+      setProjects(prev => prev.filter(p => p.id !== project.id))
+    } catch (error) {
+      console.error('Eroare la ștergere:', error)
+      alert('Nu s-a putut șterge proiectul. Încearcă din nou.')
+    }
+  }
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => setOpenMenuId(null)
+    if (openMenuId) {
+      document.addEventListener('click', handleClickOutside)
+      return () => document.removeEventListener('click', handleClickOutside)
+    }
+  }, [openMenuId])
+
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       
       if (!session) {
-        // Dacă nu e logat, îl trimitem la Login
         router.push('/login')
       } else {
-        // Dacă e logat, încărcăm datele
         await Promise.all([fetchMyProjects(), fetchCurrentUser()])
         setLoading(false)
       }
@@ -142,30 +167,75 @@ export default function Dashboard() {
             const status = statusConfig[project.status] || statusConfig.pending
             
             return (
-              <Link href={`/projects/${project.id}`} key={project.id}>
-                <div 
-                  className="group bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:shadow-indigo-900/5 hover:-translate-y-1 transition-all duration-300 cursor-pointer h-full flex flex-col justify-between"
-                  style={{ animationDelay: `${idx * 50}ms` }}
-                >
-                  <div>
-                    <div className="flex items-start justify-between mb-5">
-                      <div className="w-12 h-12 bg-gradient-to-br from-slate-50 to-indigo-50/50 border border-slate-100 rounded-xl flex items-center justify-center text-indigo-900/80 shadow-sm">
-                         {/* Icon folder simplificat */}
-                         <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg>
-                      </div>
-                      <div className={`px-3 py-1 rounded-full border text-[11px] font-bold uppercase flex items-center gap-1.5 ${status.bg} ${status.border} ${status.text}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
-                        {status.label}
-                      </div>
+              <div 
+                key={project.id}
+                className="group bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-xl hover:shadow-indigo-900/5 hover:-translate-y-1 transition-all duration-300 h-full flex flex-col"
+                style={{ animationDelay: `${idx * 50}ms` }}
+              >
+                {/* Header cu icon și menu */}
+                <div className="flex items-start justify-between p-6 pb-0">
+                  <div className="w-12 h-12 bg-gradient-to-br from-slate-50 to-indigo-50/50 border border-slate-100 rounded-xl flex items-center justify-center text-indigo-900/80 shadow-sm">
+                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    {/* Status Badge */}
+                    <div className={`px-3 py-1 rounded-full border text-[11px] font-bold uppercase flex items-center gap-1.5 ${status.bg} ${status.border} ${status.text}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
+                      {status.label}
                     </div>
                     
-                    <h3 className="text-lg font-bold text-slate-900 mb-2 group-hover:text-indigo-600 transition-colors">
-                      {project.title}
-                    </h3>
-                    <p className="text-sm text-slate-500">{project.profiles?.full_name || 'Fără client'}</p>
+                    {/* 3 Dots Menu - doar pentru admin */}
+                    {isAdmin && (
+                      <div className="relative">
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setOpenMenuId(openMenuId === project.id ? null : project.id)
+                          }}
+                          className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                          {/* 3 dots vertical icon */}
+                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <circle cx="12" cy="5" r="1.5"/>
+                            <circle cx="12" cy="12" r="1.5"/>
+                            <circle cx="12" cy="19" r="1.5"/>
+                          </svg>
+                        </button>
+                        
+                        {/* Dropdown Menu */}
+                        {openMenuId === project.id && (
+                          <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-20">
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setOpenMenuId(null)
+                                handleDeleteProject(project)
+                              }}
+                              className="w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                              Șterge proiectul
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
-              </Link>
+
+                {/* Content - clickable */}
+                <Link href={`/projects/${project.id}`} className="flex-1 p-6 pt-5">
+                  <h3 className="text-lg font-bold text-slate-900 mb-2 group-hover:text-indigo-600 transition-colors">
+                    {project.title}
+                  </h3>
+                  <p className="text-sm text-slate-500">{project.profiles?.full_name || 'Fără client'}</p>
+                </Link>
+              </div>
             )
           })}
         </div>
