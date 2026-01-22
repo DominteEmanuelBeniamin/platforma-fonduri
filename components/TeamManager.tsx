@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { Users, UserPlus, X } from 'lucide-react'
+import { apiFetch } from '../lib/apiFetch'
 
 export default function TeamManager({ projectId }: { projectId: string }) {
   const [team, setTeam] = useState<any[]>([])
@@ -12,34 +13,16 @@ export default function TeamManager({ projectId }: { projectId: string }) {
   const [loading, setLoading] = useState(false)
 
   const fetchData = async () => {
-    // 1. Luăm echipa - SPECIFICĂM explicit foreign key-ul
-    const { data: teamData, error } = await supabase
-      .from('project_members')
-      .select(`
-        *,
-        profiles:consultant_id (
-          id,
-          email,
-          full_name,
-          role
-        )
-      `)
-      .eq('project_id', projectId)
-
-    if (error) {
-      console.error('Eroare la citire echipa:', error)
-    } else {
-      console.log('Echipa descărcată:', teamData)
-      setTeam(teamData || [])
-    }
-
-    // 2. Luăm lista de consultanți disponibili
-    const { data: allConsultants } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('role', 'consultant')
-
-    if (allConsultants) setConsultants(allConsultants)
+    // 1. Luăm echipa 
+    const json = await apiFetch(supabase, `/api/projects/${projectId}/members`)
+    setTeam(json.members || [])
+  
+    const available = await apiFetch(
+      supabase,
+      `/api/projects/${projectId}/available-consultants`
+    )
+    setConsultants(available.consultants || [])
+    
   }
 
   useEffect(() => {
@@ -49,32 +32,42 @@ export default function TeamManager({ projectId }: { projectId: string }) {
   const addMember = async () => {
     if (!selectedId) return
     setLoading(true)
-
-    // Verificăm duplicat
-    if (team.some(m => m.consultant_id === selectedId)) {
-      alert('Este deja în echipă!')
-      setLoading(false)
-      return
-    }
-
-    const { error } = await supabase
-      .from('project_members')
-      .insert({ project_id: projectId, consultant_id: selectedId })
-
-    if (error) alert('Eroare: ' + error.message)
-    else {
-      await fetchData()
-      alert('Membru adăugat cu succes!')
+    try {
+      const json = await apiFetch(supabase, `/api/projects/${projectId}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ consultant_id: selectedId })
+      })
+      setTeam(prev => [json.member, ...prev])
       setSelectedId('')
+      alert('Membru adăugat cu succes!')
+    } catch (e: any) {
+      alert(e.message)
+    } finally {
+      setSelectedId('')
+      setLoading(false)
     }
-    setLoading(false)
   }
-
-  const removeMember = async (id: string) => {
+  
+  
+  const removeMember = async (memberId: string) => {
     if (!confirm('Elimini membrul?')) return
-    await supabase.from('project_members').delete().eq('id', id)
-    fetchData()
+  
+    try {
+      await apiFetch(
+        supabase,
+        `/api/projects/${projectId}/members/${memberId}`,
+        { method: 'DELETE' }
+      )
+  
+      // update UI
+      setTeam(prev => prev.filter(m => m.id !== memberId))
+      alert('Membru eliminat cu succes!')
+    } catch (e: any) {
+      alert(e.message)
+    }
   }
+  
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">

@@ -5,6 +5,84 @@ function isNonEmptyString(x: unknown) {
   return typeof x === 'string' && x.trim().length > 0
 }
 
+export async function GET(request: Request) {
+  try {
+    // 1) Auth
+    const auth = await requireAuth(request)
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
+    }
+
+    const callerId = auth.user.id
+
+    // 2) Rol
+    const { data: callerProfile, error: callerErr } = await supabaseAdmin
+      .from('profiles')
+      .select('id, role')
+      .eq('id', callerId)
+      .single()
+
+    if (callerErr || !callerProfile) {
+      return NextResponse.json({ error: 'Failed to verify caller role' }, { status: 500 })
+    }
+
+    // 3) Admin: toate proiectele
+    if (callerProfile.role === 'admin') {
+      const { data, error } = await supabaseAdmin
+        .from('projects')
+        .select('*, profiles(full_name, cui_firma)')
+        .order('created_at', { ascending: false })
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+      return NextResponse.json({ projects: data ?? [] })
+    }
+
+    // 4) Client: doar proiectele lui
+    if (callerProfile.role === 'client') {
+      const { data, error } = await supabaseAdmin
+        .from('projects')
+        .select('*, profiles(full_name, cui_firma)')
+        .eq('client_id', callerId)
+        .order('created_at', { ascending: false })
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+      return NextResponse.json({ projects: data ?? [] })
+    }
+
+    // 5) Consultant: doar proiectele unde e membru
+    if (callerProfile.role === 'consultant') {
+      // luăm întâi project_id-urile din project_members
+      const { data: memberships, error: memErr } = await supabaseAdmin
+        .from('project_members')
+        .select('project_id')
+        .eq('consultant_id', callerId)
+
+      if (memErr) return NextResponse.json({ error: 'Failed to load memberships' }, { status: 500 })
+
+      const projectIds = (memberships ?? []).map(m => m.project_id).filter(Boolean)
+
+      if (projectIds.length === 0) {
+        return NextResponse.json({ projects: [] })
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('projects')
+        .select('*, profiles(full_name, cui_firma)')
+        .in('id', projectIds)
+        .order('created_at', { ascending: false })
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+      return NextResponse.json({ projects: data ?? [] })
+    }
+
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  } catch (e: any) {
+    console.error('GET /api/projects error:', e)
+    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+  }
+}
+
+
 export async function POST(request: Request) {
   try {
     // 1) Auth: cine face requestul

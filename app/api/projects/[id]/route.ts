@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin, requireAuth } from '../../_utils/auth'
 
+export async function DELETE() {
+  return NextResponse.json({ error: 'Not implemented' }, { status: 501 })
+}
+
+export async function PATCH() {
+  return NextResponse.json({ error: 'Not implemented' }, { status: 501 })
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }

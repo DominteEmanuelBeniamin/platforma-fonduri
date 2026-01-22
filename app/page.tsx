@@ -22,9 +22,33 @@ export default function Dashboard() {
 
   // Fetch logic
   const fetchMyProjects = async () => {
-    const { data } = await supabase.from('projects').select('*, profiles(full_name, cui_firma)').order('created_at', { ascending: false })
-    setProjects(data || [])
+    const {
+      data: { session }
+    } = await supabase.auth.getSession()
+  
+    if (!session) {
+      router.push('/login')
+      return
+    }
+  
+    const response = await fetch('/api/projects', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`
+      }
+    })
+  
+    const result = await response.json()
+  
+    if (!response.ok) {
+      console.error('Eroare:', result?.error)
+      setProjects([])
+      return
+    }
+  
+    setProjects(result.projects || [])
   }
+  
 
   const fetchCurrentUser = async () => {
     const { data: { user } } = await supabase.auth.getUser()
