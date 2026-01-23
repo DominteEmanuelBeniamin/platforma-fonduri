@@ -21,27 +21,55 @@ import DocumentRequests from '@/components/DocumentRequests'
 
 export default function ProjectDetailsPage() {
   const router = useRouter()
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        // Dacă nu e logat, îl trimitem la Login
+        router.push('/login')
+      } 
+    }
+    
+    checkAuth()
+  }, [router])
+
   const params = useParams()
   const projectId = params?.id as string
   const [project, setProject] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-
+  
   const fetchProjectDetails = async () => {
     if (!projectId) return
-    
-    const { data, error } = await supabase
-      .from('projects')
-      .select('*, profiles(*)')
-      .eq('id', projectId)
-      .single()
-    
-    if (error) {
-      console.error('Eroare:', error)
-    } else {
-      setProject(data)
+  
+    const {
+      data: { session }
+    } = await supabase.auth.getSession()
+  
+    if (!session) {
+      router.push('/login')
+      return
     }
+  
+    const response = await fetch(`/api/projects/${projectId}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`
+      }
+    })
+  
+    const result = await response.json()
+  
+    if (!response.ok) {
+      console.error('Eroare:', result?.error)
+      setLoading(false)
+      return
+    }
+  
+    setProject(result.project)
     setLoading(false)
   }
+  
 
   useEffect(() => { 
     fetchProjectDetails() 

@@ -20,6 +20,19 @@ interface ClientProfile {
 
 export default function NewProjectPage() {
   const router = useRouter()
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        // Dacă nu e logat, îl trimitem la Login
+        router.push('/login')
+      } 
+    }
+    
+    checkAuth()
+  }, [router])
+
   const [clients, setClients] = useState<ClientProfile[]>([])
   const [title, setTitle] = useState('')
   const [selectedClientId, setSelectedClientId] = useState('')
@@ -42,25 +55,48 @@ export default function NewProjectPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
-
-    const { data, error } = await supabase
-      .from('projects')
-      .insert({
-        title: title,
-        client_id: selectedClientId,
-        status: 'contractare'
+  
+    try {
+      // 1) luăm session ca să trimitem token-ul către API
+      const {
+        data: { session }
+      } = await supabase.auth.getSession()
+  
+      if (!session) {
+        alert('Nu ești logat.')
+        router.push('/login')
+        return
+      }
+  
+      // 2) apelăm endpoint-ul server-side
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          title,                 // string
+          client_id: selectedClientId // string
+        })
       })
-      .select()
-
-    if (error) {
-      alert('Eroare: ' + error.message)
+  
+      const result = await response.json()
+  
+      if (!response.ok) {
+        alert('Eroare: ' + (result?.error || 'Unknown error'))
+        return
+      }
+  
+      alert('Proiect creat cu succes! 🎉')
+      router.push('/') // Dashboard
+    } catch (err: any) {
+      alert('Eroare: ' + (err?.message || 'Unknown error'))
+    } finally {
       setLoading(false)
-    } else {
-      // Success animation
-      setLoading(false)
-      router.push('/')
     }
   }
+  
 
   return (
     <div className="min-h-screen bg-slate-50/50">

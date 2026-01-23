@@ -1,10 +1,31 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 import { useState, useEffect } from 'react'
+import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabaseClient'
+import { useRouter } from 'next/navigation'
 import { UserPlus, Trash2, Users } from 'lucide-react'
 
 export default function AdminUsersPage() {
+  const router = useRouter()
+  const [session, setSession] = useState<Session | null>(null)
+    useEffect(() => {
+    const checkAuth = async () => {
+      const {
+        data: { session }
+      } = await supabase.auth.getSession()
+  
+      if (!session) {
+        router.push('/login')
+        return
+      }
+  
+      setSession(session)
+    }
+  
+    checkAuth()
+  }, [router])
+
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [updatingRoleId, setUpdatingRoleId] = useState<string | null>(null)
@@ -39,9 +60,12 @@ export default function AdminUsersPage() {
     setIsCreating(true)
 
     try {
-      const response = await fetch('/api/create-user', {
+
+      const response = await fetch('/api/users', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`
+         },
         body: JSON.stringify({
           email: newEmail,
           password: newPassword,
@@ -69,34 +93,35 @@ export default function AdminUsersPage() {
 
   // --- FUNCȚIA DE SCHIMBARE ROL (REPARATĂ) ---
   const updateUserRole = async (userId: string, newRole: string) => {
-    setUpdatingRoleId(userId)
-    
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .update({ role: newRole })
-        .eq('id', userId)
-        .select()
 
-      if (error) {
-        console.error('Eroare Supabase:', error)
-        alert('Eroare la actualizare rol: ' + error.message)
+    if (!confirm(`Schimbi rolul?`)) return
+    // await supabase.from('profiles').update({ role: newRole }).eq('id', userId)
+    try{
+      if (!session) {
+        alert('Not authenticated')
         return
       }
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ role: newRole })
+      })
 
-      console.log('Rol actualizat:', data)
-      
-      // Actualizează local fără să mai faci fetch
-      setUsers(prev => prev.map(user => 
-        user.id === userId ? { ...user, role: newRole } : user
-      ))
+      const result = await response.json()
 
-    } catch (error: any) {
-      console.error('Eroare:', error)
-      alert('Eroare la actualizare: ' + error.message)
-    } finally {
-      setUpdatingRoleId(null)
+      if (!response.ok) throw new Error(result.error)
+
+
     }
+    catch (error: any) {
+      alert('Eroare la update: ' + error.message)
+      return
+    }
+    fetchUsers()
+    alert('Rol actualizat cu succes!')
   }
 
   // --- FUNCȚIA DE ȘTERGERE USER ---
@@ -105,12 +130,16 @@ export default function AdminUsersPage() {
     
     setLoading(true)
     try {
-      const response = await fetch('/api/delete-user', {
+      if (!session) {
+        alert('Not authenticated')
+        return
+      }
+      const response = await fetch(`/api/users/${userId}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId })
+        headers: {
+          Authorization: `Bearer ${session.access_token}`
+        }
       })
-
       const result = await response.json()
 
       if (!response.ok) throw new Error(result.error)

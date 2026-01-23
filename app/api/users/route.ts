@@ -13,8 +13,44 @@ const supabaseAdmin = createClient(
   }
 )
 
+function getBearerToken(request: Request) {
+  const authHeader = request.headers.get('authorization') || ''
+  const match = authHeader.match(/^Bearer\s+(.+)$/i)
+  return match?.[1]
+}
+
 export async function POST(request: Request) {
   try {
+   // 1) Identificăm caller-ul
+   const token = getBearerToken(request)
+   if (!token) {
+     return NextResponse.json({ error: 'Lipsește Authorization Bearer token' }, { status: 401 })
+   }
+
+   const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token)
+   if (userError || !userData?.user) {
+     return NextResponse.json({ error: 'Token invalid sau expirat' }, { status: 401 })
+   }
+
+   const callerId = userData.user.id
+
+      // 2) Verificăm rolul din profiles (sau alt tabel)
+      const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('role')
+      .eq('id', callerId)
+      .single()
+ 
+    if (profileError) {
+      return NextResponse.json({ error: 'Nu pot verifica rolul utilizatorului' }, { status: 500 })
+    }
+ 
+    if (profile?.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden: doar adminii pot crea utilizatori' }, { status: 403 })
+    }
+ 
+
+
     const body = await request.json()
     const { email, password, role, fullName } = body
 

@@ -4,6 +4,44 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { Users, UserPlus, X } from 'lucide-react'
+import { apiFetch } from '../lib/apiFetch'
+
+// Culori pentru avatare
+const avatarColors = [
+  { from: '#3b82f6', to: '#2563eb' }, // blue
+  { from: '#a855f7', to: '#9333ea' }, // purple
+  { from: '#ec4899', to: '#db2777' }, // pink
+  { from: '#6366f1', to: '#4f46e5' }, // indigo
+  { from: '#06b6d4', to: '#0891b2' }, // cyan
+  { from: '#14b8a6', to: '#0d9488' }, // teal
+  { from: '#10b981', to: '#059669' }, // green
+  { from: '#f59e0b', to: '#d97706' }, // amber
+  { from: '#f97316', to: '#ea580c' }, // orange
+  { from: '#ef4444', to: '#dc2626' }, // red
+]
+
+// Funcție pentru a genera initiale
+const getInitials = (name?: string, email?: string): string => {
+  if (name && name.trim()) {
+    const words = name.trim().split(/\s+/)
+    if (words.length >= 2) {
+      return (words[0][0] + words[1][0]).toUpperCase()
+    }
+    return words[0].slice(0, 2).toUpperCase()
+  }
+  if (email) {
+    return email.charAt(0).toUpperCase()
+  }
+  return '?'
+}
+
+// Funcție pentru a selecta culoare bazată pe nume/email
+const getAvatarColor = (identifier: string) => {
+  const hash = identifier.split('').reduce((acc, char) => {
+    return char.charCodeAt(0) + ((acc << 5) - acc)
+  }, 0)
+  return avatarColors[Math.abs(hash) % avatarColors.length]
+}
 
 // Culori pentru avatare
 const avatarColors = [
@@ -49,32 +87,16 @@ export default function TeamManager({ projectId }: { projectId: string }) {
   const [loading, setLoading] = useState(false)
 
   const fetchData = async () => {
-    const { data: teamData, error } = await supabase
-      .from('project_members')
-      .select(`
-        *,
-        profiles:consultant_id (
-          id,
-          email,
-          full_name,
-          role
-        )
-      `)
-      .eq('project_id', projectId)
-
-    if (error) {
-      console.error('Eroare la citire echipa:', error)
-    } else {
-      console.log('Echipa descărcată:', teamData)
-      setTeam(teamData || [])
-    }
-
-    const { data: allConsultants } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('role', 'consultant')
-
-    if (allConsultants) setConsultants(allConsultants)
+    // 1. Luăm echipa 
+    const json = await apiFetch(supabase, `/api/projects/${projectId}/members`)
+    setTeam(json.members || [])
+  
+    const available = await apiFetch(
+      supabase,
+      `/api/projects/${projectId}/available-consultants`
+    )
+    setConsultants(available.consultants || [])
+    
   }
 
   useEffect(() => {
@@ -84,30 +106,42 @@ export default function TeamManager({ projectId }: { projectId: string }) {
   const addMember = async () => {
     if (!selectedId) return
     setLoading(true)
-
-    if (team.some(m => m.consultant_id === selectedId)) {
-      alert('Este deja în echipă!')
-      setLoading(false)
-      return
-    }
-
-    const { error } = await supabase
-      .from('project_members')
-      .insert({ project_id: projectId, consultant_id: selectedId })
-
-    if (error) alert('Eroare: ' + error.message)
-    else {
-      await fetchData()
+    try {
+      const json = await apiFetch(supabase, `/api/projects/${projectId}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ consultant_id: selectedId })
+      })
+      setTeam(prev => [json.member, ...prev])
       setSelectedId('')
+      alert('Membru adăugat cu succes!')
+    } catch (e: any) {
+      alert(e.message)
+    } finally {
+      setSelectedId('')
+      setLoading(false)
     }
-    setLoading(false)
   }
-
-  const removeMember = async (id: string) => {
+  
+  
+  const removeMember = async (memberId: string) => {
     if (!confirm('Elimini membrul?')) return
-    await supabase.from('project_members').delete().eq('id', id)
-    fetchData()
+  
+    try {
+      await apiFetch(
+        supabase,
+        `/api/projects/${projectId}/members/${memberId}`,
+        { method: 'DELETE' }
+      )
+  
+      // update UI
+      setTeam(prev => prev.filter(m => m.id !== memberId))
+      alert('Membru eliminat cu succes!')
+    } catch (e: any) {
+      alert(e.message)
+    }
   }
+  
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
