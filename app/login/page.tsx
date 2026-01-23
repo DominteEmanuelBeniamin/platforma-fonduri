@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import { useRouter } from 'next/navigation' // Important pentru redirect
+import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -20,20 +20,15 @@ export default function LoginPage() {
       alert(error.message)
       setAuthLoading(false)
     } else {
-      // Dacă login-ul e cu succes, te trimitem pe prima pagină
       router.push('/')
-      router.refresh() // Facem refresh ca Navbar-ul să se actualizeze
+      router.refresh()
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-slate-50">
-      {/* Decorative Background Elements */}
-      <div className="absolute top-[-10%] right-[-5%] w-96 h-96 bg-indigo-200/40 rounded-full blur-3xl mix-blend-multiply opacity-70 animate-blob"></div>
-      <div className="absolute bottom-[-10%] left-[-5%] w-96 h-96 bg-blue-200/40 rounded-full blur-3xl mix-blend-multiply opacity-70 animate-blob animation-delay-2000"></div>
-      
-      <div className="w-full max-w-md relative z-10">
-        <div className="bg-white/80 backdrop-blur-xl p-10 rounded-3xl shadow-2xl shadow-slate-200/50 border border-white">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="w-full max-w-md">
+        <div className="bg-white p-10 rounded-3xl shadow-xl border border-slate-200">
           
           <div className="text-center mb-8">
             <div className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-slate-900/20">
@@ -74,9 +69,7 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-8 pt-6 border-t border-slate-100 text-center">
-            <p className="text-xs text-slate-400">
-              Protejat de Bonie Security Systems.
-            </p>
+
           </div>
         </div>
       </div>

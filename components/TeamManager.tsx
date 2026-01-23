@@ -6,6 +6,43 @@ import { supabase } from '../lib/supabaseClient'
 import { Users, UserPlus, X } from 'lucide-react'
 import { apiFetch } from '../lib/apiFetch'
 
+// Culori pentru avatare
+const avatarColors = [
+  { from: '#3b82f6', to: '#2563eb' }, // blue
+  { from: '#a855f7', to: '#9333ea' }, // purple
+  { from: '#ec4899', to: '#db2777' }, // pink
+  { from: '#6366f1', to: '#4f46e5' }, // indigo
+  { from: '#06b6d4', to: '#0891b2' }, // cyan
+  { from: '#14b8a6', to: '#0d9488' }, // teal
+  { from: '#10b981', to: '#059669' }, // green
+  { from: '#f59e0b', to: '#d97706' }, // amber
+  { from: '#f97316', to: '#ea580c' }, // orange
+  { from: '#ef4444', to: '#dc2626' }, // red
+]
+
+// Funcție pentru a genera initiale
+const getInitials = (name?: string, email?: string): string => {
+  if (name && name.trim()) {
+    const words = name.trim().split(/\s+/)
+    if (words.length >= 2) {
+      return (words[0][0] + words[1][0]).toUpperCase()
+    }
+    return words[0].slice(0, 2).toUpperCase()
+  }
+  if (email) {
+    return email.charAt(0).toUpperCase()
+  }
+  return '?'
+}
+
+// Funcție pentru a selecta culoare bazată pe nume/email
+const getAvatarColor = (identifier: string) => {
+  const hash = identifier.split('').reduce((acc, char) => {
+    return char.charCodeAt(0) + ((acc << 5) - acc)
+  }, 0)
+  return avatarColors[Math.abs(hash) % avatarColors.length]
+}
+
 export default function TeamManager({ projectId }: { projectId: string }) {
   const [team, setTeam] = useState<any[]>([])
   const [consultants, setConsultants] = useState<any[]>([])
@@ -71,7 +108,6 @@ export default function TeamManager({ projectId }: { projectId: string }) {
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      {/* Header */}
       <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
@@ -85,7 +121,6 @@ export default function TeamManager({ projectId }: { projectId: string }) {
       </div>
 
       <div className="p-6 space-y-6">
-        {/* Add Member Form */}
         <div className="flex gap-3">
           <select 
             value={selectedId}
@@ -109,7 +144,6 @@ export default function TeamManager({ projectId }: { projectId: string }) {
           </button>
         </div>
 
-        {/* Team List */}
         <div className="space-y-3">
           {team.length === 0 ? (
             <div className="text-center py-8 border-2 border-dashed border-slate-100 rounded-xl bg-slate-50/50">
@@ -122,12 +156,8 @@ export default function TeamManager({ projectId }: { projectId: string }) {
           ) : (
             team.map(member => {
               const profile = member.profiles
-              const initials = profile?.full_name
-                ?.split(' ')
-                .map((n: string) => n[0])
-                .join('')
-                .toUpperCase()
-                .slice(0, 2) || profile?.email?.charAt(0).toUpperCase() || '?'
+              const initials = getInitials(profile?.full_name, profile?.email)
+              const color = getAvatarColor(profile?.full_name || profile?.email || member.id)
               
               return (
                 <div 
@@ -135,7 +165,12 @@ export default function TeamManager({ projectId }: { projectId: string }) {
                   className="flex items-center justify-between p-4 rounded-xl border border-slate-100 bg-white hover:border-slate-200 hover:shadow-sm transition-all group"
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-600 text-white flex items-center justify-center text-sm font-bold flex-shrink-0 shadow-sm">
+                    <div 
+                      className="w-10 h-10 rounded-full text-white flex items-center justify-center text-sm font-bold flex-shrink-0 shadow-sm"
+                      style={{
+                        background: `linear-gradient(to bottom right, ${color.from}, ${color.to})`
+                      }}
+                    >
                       {initials}
                     </div>
                     <div className="flex-1 min-w-0">

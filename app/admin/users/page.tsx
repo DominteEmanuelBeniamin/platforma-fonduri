@@ -28,6 +28,7 @@ export default function AdminUsersPage() {
 
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [updatingRoleId, setUpdatingRoleId] = useState<string | null>(null)
 
   // State-uri pentru formularul de adăugare
   const [newEmail, setNewEmail] = useState('')
@@ -42,6 +43,9 @@ export default function AdminUsersPage() {
       .select('*')
       .order('created_at', { ascending: false })
     
+    if (error) {
+      console.error('Eroare la încărcare utilizatori:', error)
+    }
     if (data) setUsers(data)
     setLoading(false)
   }
@@ -87,6 +91,7 @@ export default function AdminUsersPage() {
     }
   }
 
+  // --- FUNCȚIA DE SCHIMBARE ROL (REPARATĂ) ---
   const updateUserRole = async (userId: string, newRole: string) => {
 
     if (!confirm(`Schimbi rolul?`)) return
@@ -318,15 +323,23 @@ export default function AdminUsersPage() {
 
                 {/* Actions */}
                 <div className="flex items-center gap-3">
-                  <select 
-                    value={user.role || 'client'}
-                    onChange={(e) => updateUserRole(user.id, e.target.value)}
-                    className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:border-slate-400 focus:ring-2 focus:ring-slate-400/10 outline-none transition-all"
-                  >
-                    <option value="client">Client</option>
-                    <option value="consultant">Consultant</option>
-                    <option value="admin">Admin</option>
-                  </select>
+                  <div className="relative">
+                    <select 
+                      value={user.role || 'client'}
+                      onChange={(e) => updateUserRole(user.id, e.target.value)}
+                      disabled={updatingRoleId === user.id}
+                      className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:border-slate-400 focus:ring-2 focus:ring-slate-400/10 outline-none transition-all disabled:opacity-50"
+                    >
+                      <option value="client">Client</option>
+                      <option value="consultant">Consultant</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                    {updatingRoleId === user.id && (
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                        <div className="w-3 h-3 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin"></div>
+                      </div>
+                    )}
+                  </div>
                   <button
                     onClick={() => handleDeleteUser(user.id, user.email)}
                     className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
