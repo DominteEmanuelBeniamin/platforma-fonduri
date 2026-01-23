@@ -8,7 +8,7 @@ import { apiFetch } from '../lib/apiFetch'
 
 // Culori pentru avatare
 const avatarColors = [
-  { from: '#3b82f6', to: '#2563eb' }, // blue
+  { from: '#2456a7', to: '#2563eb' }, // blue
   { from: '#a855f7', to: '#9333ea' }, // purple
   { from: '#ec4899', to: '#db2777' }, // pink
   { from: '#6366f1', to: '#4f46e5' }, // indigo
