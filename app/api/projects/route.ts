@@ -104,7 +104,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Failed to verify caller role' }, { status: 500 })
     }
 
-    const allowedRoles = new Set(['admin', 'consultant'])
+    const allowedRoles = new Set(['admin'])//, 'consultant'])
     if (!allowedRoles.has(callerProfile?.role)) {
       return NextResponse.json(
         { error: 'Forbidden: only admin/consultant can create projects' },
