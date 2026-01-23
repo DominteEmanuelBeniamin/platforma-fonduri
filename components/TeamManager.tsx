@@ -43,6 +43,43 @@ const getAvatarColor = (identifier: string) => {
   return avatarColors[Math.abs(hash) % avatarColors.length]
 }
 
+// Culori pentru avatare
+const avatarColors = [
+  { from: '#3b82f6', to: '#2563eb' }, // blue
+  { from: '#a855f7', to: '#9333ea' }, // purple
+  { from: '#ec4899', to: '#db2777' }, // pink
+  { from: '#6366f1', to: '#4f46e5' }, // indigo
+  { from: '#06b6d4', to: '#0891b2' }, // cyan
+  { from: '#14b8a6', to: '#0d9488' }, // teal
+  { from: '#10b981', to: '#059669' }, // green
+  { from: '#f59e0b', to: '#d97706' }, // amber
+  { from: '#f97316', to: '#ea580c' }, // orange
+  { from: '#ef4444', to: '#dc2626' }, // red
+]
+
+// Funcție pentru a genera initiale
+const getInitials = (name?: string, email?: string): string => {
+  if (name && name.trim()) {
+    const words = name.trim().split(/\s+/)
+    if (words.length >= 2) {
+      return (words[0][0] + words[1][0]).toUpperCase()
+    }
+    return words[0].slice(0, 2).toUpperCase()
+  }
+  if (email) {
+    return email.charAt(0).toUpperCase()
+  }
+  return '?'
+}
+
+// Funcție pentru a selecta culoare bazată pe nume/email
+const getAvatarColor = (identifier: string) => {
+  const hash = identifier.split('').reduce((acc, char) => {
+    return char.charCodeAt(0) + ((acc << 5) - acc)
+  }, 0)
+  return avatarColors[Math.abs(hash) % avatarColors.length]
+}
+
 export default function TeamManager({ projectId }: { projectId: string }) {
   const [team, setTeam] = useState<any[]>([])
   const [consultants, setConsultants] = useState<any[]>([])
