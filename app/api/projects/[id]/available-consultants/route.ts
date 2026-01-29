@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { supabaseAdmin, requireAdmin } from '../../../_utils/auth'
+import { guardToResponse, requireAdmin } from '../../../_utils/auth'
+import { createSupabaseServiceClient } from '../../../_utils/supabase'
 
 export async function GET(
   request: Request,
@@ -12,49 +13,58 @@ export async function GET(
     }
 
     // Admin-only
-    const admin = await requireAdmin(request)
-    if (!admin.ok) {
-      return NextResponse.json({ error: admin.error }, { status: admin.status })
-    }
+    const ctx = await requireAdmin(request)
+    if (!ctx.ok) return guardToResponse(ctx)
+
+    const admin = createSupabaseServiceClient()
 
     // Project exists?
-    const { data: project, error: projErr } = await supabaseAdmin
+    const { data: project, error: projErr } = await admin
       .from('projects')
       .select('id')
       .eq('id', projectId)
-      .single()
+      .maybeSingle()
 
-    if (projErr || !project) {
+    if (projErr) {
+      console.error('Project lookup error:', projErr)
+      return NextResponse.json({ error: 'Failed to load project' }, { status: 500 })
+    }
+    if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     }
 
     // Existing member consultant ids
-    const { data: members, error: membersErr } = await supabaseAdmin
+    const { data: members, error: membersErr } = await admin
       .from('project_members')
       .select('consultant_id')
       .eq('project_id', projectId)
 
     if (membersErr) {
+      console.error('Members lookup error:', membersErr)
       return NextResponse.json({ error: 'Failed to load project members' }, { status: 500 })
     }
 
-    const excludedIds = (members ?? []).map(m => m.consultant_id).filter(Boolean)
+    const excludedIds = (members ?? [])
+      .map(m => m.consultant_id)
+      .filter((x): x is string => typeof x === 'string' && x.length > 0)
 
     // Consultants not already in this project
-    let query = supabaseAdmin
+    let query = admin
       .from('profiles')
       .select('id, email, full_name, role')
       .eq('role', 'consultant')
       .order('full_name', { ascending: true })
 
+
     if (excludedIds.length > 0) {
-      // IMPORTANT: uneori trebuie ghilimele în lista de UUID-uri. Dacă primești eroare, zi-mi.
-      query = query.not('id', 'in', `(${excludedIds.join(',')})`)
+      const inList = `(${excludedIds.map(id => `"${id}"`).join(',')})`
+      query = query.not('id', 'in', inList)
     }
 
     const { data: consultants, error: consErr } = await query
 
     if (consErr) {
+      console.error('Consultants query error:', consErr)
       return NextResponse.json({ error: consErr.message }, { status: 400 })
     }
 

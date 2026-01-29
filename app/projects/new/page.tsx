@@ -1,6 +1,5 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/navigation'
 import { 
   FolderPlus, 
@@ -9,7 +8,7 @@ import {
   ArrowLeft,
   AlertCircle
 } from 'lucide-react'
-
+import { useAuth } from '@/app/providers/AuthProvider'
 interface ClientProfile {
   id: string
   full_name?: string | null
@@ -19,19 +18,9 @@ interface ClientProfile {
 }
 
 export default function NewProjectPage() {
+  const { apiFetch } = useAuth()
   const router = useRouter()
-  useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      
-      if (!session) {
-        // Dacă nu e logat, îl trimitem la Login
-        router.push('/login')
-      } 
-    }
-    
-    checkAuth()
-  }, [router])
+
 
   const [clients, setClients] = useState<ClientProfile[]>([])
   const [title, setTitle] = useState('')
@@ -41,12 +30,11 @@ export default function NewProjectPage() {
 
   useEffect(() => {
     const fetchClients = async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('role', 'client')
-      
-      setClients(data || [])
+    const res = await apiFetch('/api/clients')
+    const json = await res.json()
+    if (!res.ok) throw new Error(json?.error || 'Failed to load projects')
+
+      setClients(json.clients)
       setLoadingClients(false)
     }
     fetchClients()
@@ -57,23 +45,11 @@ export default function NewProjectPage() {
     setLoading(true)
   
     try {
-      // 1) luăm session ca să trimitem token-ul către API
-      const {
-        data: { session }
-      } = await supabase.auth.getSession()
-  
-      if (!session) {
-        alert('Nu ești logat.')
-        router.push('/login')
-        return
-      }
-  
       // 2) apelăm endpoint-ul server-side
-      const response = await fetch('/api/projects', {
+      const response = await apiFetch('/api/projects', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`
         },
         body: JSON.stringify({
           title,                 // string

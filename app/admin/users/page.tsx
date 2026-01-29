@@ -1,34 +1,16 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 import { useState, useEffect } from 'react'
-import type { Session } from '@supabase/supabase-js'
-import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/navigation'
 import { UserPlus, Trash2, Users } from 'lucide-react'
+import { useAuth } from '@/app/providers/AuthProvider'
 
 export default function AdminUsersPage() {
   const router = useRouter()
-  const [session, setSession] = useState<Session | null>(null)
-    useEffect(() => {
-    const checkAuth = async () => {
-      const {
-        data: { session }
-      } = await supabase.auth.getSession()
-  
-      if (!session) {
-        router.push('/login')
-        return
-      }
-  
-      setSession(session)
-    }
-  
-    checkAuth()
-  }, [router])
-
   const [users, setUsers] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const { loading: authLoading, token, apiFetch } = useAuth()
   const [updatingRoleId, setUpdatingRoleId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   // State-uri pentru formularul de adăugare
   const [newEmail, setNewEmail] = useState('')
@@ -38,21 +20,35 @@ export default function AdminUsersPage() {
   const [isCreating, setIsCreating] = useState(false)
 
   const fetchUsers = async () => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .order('created_at', { ascending: false })
-    
-    if (error) {
-      console.error('Eroare la încărcare utilizatori:', error)
+    try{  
+      setLoading(true)
+      const ctx = await apiFetch('/api/users')
+      if (!ctx.ok) {
+          alert('Eroare la încărcarea utilizatorilor.')
+          setLoading(false)
+          return
+        }
+        const { users: data } = await ctx.json()
+        setUsers(data)
+      }
+      catch(error){
+        alert('Eroare la încărcarea utilizatorilor.')
+        setLoading(false)
     }
-    if (data) setUsers(data)
-    setLoading(false)
+    finally{
+      setLoading(false)
+    }
+    
   }
 
   useEffect(() => {
+    if(authLoading) return
+    if (!token) {
+      router.replace('/login')
+      return
+    }
     fetchUsers()
-  }, [])
+  }, [authLoading, token, router])
 
   // --- FUNCȚIA DE CREARE USER ---
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -61,10 +57,9 @@ export default function AdminUsersPage() {
 
     try {
 
-      const response = await fetch('/api/users', {
+      const ctx = await apiFetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token}`
          },
         body: JSON.stringify({
           email: newEmail,
@@ -74,9 +69,10 @@ export default function AdminUsersPage() {
         })
       })
 
-      const result = await response.json()
-
-      if (!response.ok) throw new Error(result.error)
+      if(!ctx.ok){
+        const err = await ctx.json()
+        throw new Error(err.error)
+      }
 
       alert('Utilizator creat cu succes!')
       setNewEmail('')
@@ -97,28 +93,26 @@ export default function AdminUsersPage() {
     if (!confirm(`Schimbi rolul?`)) return
     // await supabase.from('profiles').update({ role: newRole }).eq('id', userId)
     try{
-      if (!session) {
-        alert('Not authenticated')
-        return
-      }
-      const response = await fetch(`/api/users/${userId}`, {
+      setUpdatingRoleId(userId)
+      const ctx = await apiFetch(`/api/users/${userId}`, {
         method: 'PATCH',
         headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ role: newRole })
       })
 
-      const result = await response.json()
-
-      if (!response.ok) throw new Error(result.error)
-
-
+      if (!ctx.ok) {
+        const err = await ctx.json()
+        throw new Error(err.error)
+      }
     }
     catch (error: any) {
       alert('Eroare la update: ' + error.message)
       return
+    }
+    finally {
+      setUpdatingRoleId(null)
     }
     fetchUsers()
     alert('Rol actualizat cu succes!')
@@ -130,20 +124,14 @@ export default function AdminUsersPage() {
     
     setLoading(true)
     try {
-      if (!session) {
-        alert('Not authenticated')
-        return
-      }
-      const response = await fetch(`/api/users/${userId}`, {
+
+      const ctx = await apiFetch(`/api/users/${userId}`, {
         method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${session.access_token}`
-        }
       })
-      const result = await response.json()
-
-      if (!response.ok) throw new Error(result.error)
-
+      if (!ctx.ok) {
+        const err = await ctx.json()
+        throw new Error(err.error)
+      }
       alert('Utilizator șters cu succes!')
       fetchUsers()
 
@@ -152,6 +140,17 @@ export default function AdminUsersPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  if (authLoading) {
+    return (
+      <div className="flex h-[60vh] items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-4 border-slate-100 border-t-indigo-600 rounded-full animate-spin"></div>
+          <p className="text-sm text-slate-500 font-medium">Se verifică autentificarea…</p>
+        </div>
+      </div>
+    )
   }
 
   if (loading) {

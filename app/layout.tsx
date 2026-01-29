@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import Navbar from "@/components/Navbar"; // <-- Importăm noul Navbar
+import { AuthProvider } from './providers/AuthProvider'
 
 const inter = Inter({ subsets: ["latin"], variable: '--font-inter' });
 
@@ -18,7 +19,7 @@ export default function RootLayout({
   return (
     <html lang="ro" className="h-full">
       <body className={`${inter.className} h-full bg-slate-50 text-slate-900 antialiased`}>
-        
+      <AuthProvider>
         {/* Navbar-ul Inteligent */}
         <Navbar />
 
@@ -33,7 +34,7 @@ export default function RootLayout({
             {children}
           </div>
         </main>
-
+        </AuthProvider>
       </body>
     </html>
   );

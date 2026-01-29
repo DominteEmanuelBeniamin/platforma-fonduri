@@ -1,36 +1,22 @@
 'use client'
 
 import Link from "next/link"
-import { useEffect, useState } from "react"
-import { supabase } from "@/lib/supabaseClient"
 import { usePathname, useRouter } from "next/navigation"
+import {useAuth} from "@/app/providers/AuthProvider"
 
 export default function Navbar() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [user, setUser] = useState<any>(null)
+  const { loading: authLoading, user, profile, signOut } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
+  const isLoggedIn = !authLoading && !!user
 
-  useEffect(() => {
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      setUser(session?.user || null)
-    }
-    checkSession()
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user || null)
-    })
-
-    return () => subscription.unsubscribe()
-  }, [])
 
   const handleLogout = async () => {
-    await supabase.auth.signOut()
-    setUser(null)
-    router.push('/login')
-    router.refresh()
+    await signOut()
+    router.replace('/login')
   }
+  
 
   const isActive = (path: string) => pathname === path 
     ? "text-slate-900 bg-white shadow-sm border-slate-200/60" 
@@ -55,7 +41,7 @@ export default function Navbar() {
       {/* 2. Navigație Centrală (Doar dacă e logat) */}
       {/* Folosim flex-1 și justify-center pentru a-l centra natural, fără overlap */}
       <div className="flex-1 flex justify-center px-4">
-        {user && (
+        {isLoggedIn && (
           <div className="flex items-center gap-1 bg-slate-100/50 p-1 rounded-full border border-slate-200/50 overflow-hidden">
             <Link 
               href="/" 
@@ -63,12 +49,14 @@ export default function Navbar() {
             >
               Proiecte
             </Link>
+            {profile?.role === 'admin' && (
             <Link 
               href="/admin/users" 
               className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/admin/users')}`}
             >
               Utilizatori
             </Link>
+            )}
           </div>
         )}
       </div>
