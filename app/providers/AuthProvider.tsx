@@ -10,7 +10,7 @@ type Profile = {
   email?: string | null
   full_name?: string | null
   phone_number?: string | null
-  cui_firma?: string | null
+  cif?: string | null
 } | null
 
 type AuthCtx = {

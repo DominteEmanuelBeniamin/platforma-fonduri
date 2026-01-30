@@ -13,7 +13,7 @@ interface ClientProfile {
   id: string
   full_name?: string | null
   email?: string | null
-  cui_firma?: string | null
+  cif?: string | null
   role?: string | null
 }
 
@@ -142,11 +142,11 @@ export default function NewProjectPage() {
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all cursor-pointer"
                   >
                     <option value="">Alege beneficiarul</option>
-                    {clients.map(client => (
-                      <option key={client.id} value={client.id}>
-                        {client.full_name || client.email} {client.cui_firma ? `(CUI: ${client.cui_firma})` : ''}
-                      </option>
-                    ))}
+{clients.map(client => (
+  <option key={client.id} value={client.id}>
+    {client.full_name || client.email} {client.cif ? `(CIF: ${client.cif})` : ''}
+  </option>
+))}
                   </select>
                   
                   {clients.length === 0 && (

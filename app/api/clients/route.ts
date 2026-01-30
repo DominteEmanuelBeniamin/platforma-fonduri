@@ -9,7 +9,7 @@ export async function GET(request: Request) {
         const admin = createSupabaseServiceClient()
         const {data, error} = await admin
             .from('profiles')
-            .select('id, email, full_name, cui_firma')
+            .select('id, email, full_name, cif')
             .eq('role', 'client')
             .order('full_name')
         if (error) throw error

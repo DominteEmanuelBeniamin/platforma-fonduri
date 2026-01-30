@@ -7,7 +7,7 @@ type PatchBody = Partial<{
   full_name: unknown
   role: unknown
   phone_number: unknown
-  cui_firma: unknown
+  cif: unknown
   email: unknown
 }>
 
@@ -73,15 +73,15 @@ export async function PATCH(
       }
     }
 
-    // cui_firma (permis user + admin) - acceptăm string sau null
-    if (body.cui_firma !== undefined) {
-      if (!isStringOrNullOrUndef(body.cui_firma)) {
-        return NextResponse.json({ error: 'cui_firma must be a string or null' }, { status: 400 })
+    // cif (permis user + admin) - acceptăm string sau null
+    if (body.cif !== undefined) {
+      if (!isStringOrNullOrUndef(body.cif)) {
+        return NextResponse.json({ error: 'cif must be a string or null' }, { status: 400 })
       }
-      if (typeof body.cui_firma === 'string') {
-        update.cui_firma = normalizeCui(body.cui_firma)
+      if (typeof body.cif === 'string') {
+        update.cif = normalizeCui(body.cif)
       } else {
-        update.cui_firma = body.cui_firma // null
+        update.cif = body.cif // null
       }
     }
 
@@ -106,7 +106,7 @@ export async function PATCH(
     // Dacă nu avem nimic de updatat
     if (Object.keys(update).length === 0) {
       return NextResponse.json(
-        { error: 'Nothing to update. Allowed fields: full_name, phone_number, cui_firma, role (admin only).' },
+        { error: 'Nothing to update. Allowed fields: full_name, phone_number, cif, role (admin only).' },
         { status: 400 }
       )
     }
@@ -115,7 +115,7 @@ export async function PATCH(
       .from('profiles')
       .update(update)
       .eq('id', targetUserId)
-      .select('id, email, full_name, role, phone_number, cui_firma')
+      .select('id, email, full_name, role, phone_number, cif')
       .single()
 
     if (error) {
