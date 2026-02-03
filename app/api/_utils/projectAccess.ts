@@ -1,6 +1,7 @@
-import { supabaseAdmin } from './auth'
+import { createSupabaseServiceClient } from './supabase'
 
 export async function getRoleByUserId(userId: string) {
+  const supabaseAdmin = createSupabaseServiceClient()
   const { data, error } = await supabaseAdmin
     .from('profiles')
     .select('role')
@@ -15,6 +16,7 @@ export async function getRoleByUserId(userId: string) {
 }
 
 export async function getProjectClientId(projectId: string) {
+  const supabaseAdmin = createSupabaseServiceClient()
   const { data, error } = await supabaseAdmin
     .from('projects')
     .select('id, client_id')
@@ -29,6 +31,7 @@ export async function getProjectClientId(projectId: string) {
 }
 
 export async function isConsultantMemberOfProject(projectId: string, consultantId: string) {
+  const supabaseAdmin = createSupabaseServiceClient()
   const { data, error } = await supabaseAdmin
     .from('project_members')
     .select('id')
