@@ -1,4 +1,5 @@
-import { requireUserOrAdmin, requireAdmin, supabaseAdmin } from '../../_utils/auth'
+import { requireUserOrAdmin, requireAdmin, guardToResponse } from '../../_utils/auth'
+import { createSupabaseServiceClient } from '../../_utils/supabase'
 import { NextResponse } from 'next/server'
 
 
@@ -6,7 +7,7 @@ type PatchBody = Partial<{
   full_name: unknown
   role: unknown
   phone_number: unknown
-  cui_firma: unknown
+  cif: unknown
   email: unknown
 }>
 
@@ -34,10 +35,10 @@ export async function PATCH(
     }
 
     // Auth: user poate edita pe el, admin poate edita pe oricine
-    const auth = await requireUserOrAdmin(request, targetUserId)
-    if (!auth.ok) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status })
-    }
+    const ctx = await requireUserOrAdmin(request, targetUserId)
+    if(!ctx.ok) return guardToResponse(ctx)
+    const admin = createSupabaseServiceClient()
+
 
     const body = (await request.json().catch(() => null)) as PatchBody | null
     if (!body || typeof body !== 'object') {
@@ -72,21 +73,21 @@ export async function PATCH(
       }
     }
 
-    // cui_firma (permis user + admin) - acceptăm string sau null
-    if (body.cui_firma !== undefined) {
-      if (!isStringOrNullOrUndef(body.cui_firma)) {
-        return NextResponse.json({ error: 'cui_firma must be a string or null' }, { status: 400 })
+    // cif (permis user + admin) - acceptăm string sau null
+    if (body.cif !== undefined) {
+      if (!isStringOrNullOrUndef(body.cif)) {
+        return NextResponse.json({ error: 'cif must be a string or null' }, { status: 400 })
       }
-      if (typeof body.cui_firma === 'string') {
-        update.cui_firma = normalizeCui(body.cui_firma)
+      if (typeof body.cif === 'string') {
+        update.cif = normalizeCui(body.cif)
       } else {
-        update.cui_firma = body.cui_firma // null
+        update.cif = body.cif // null
       }
     }
 
     // role (DOAR admin)
     if (body.role !== undefined) {
-      if (!auth.isAdmin) {
+      if (!ctx.isAdmin) {
         return NextResponse.json({ error: 'Forbidden: only admin can update role' }, { status: 403 })
       }
       if (typeof body.role !== 'string' || body.role.trim().length === 0) {
@@ -105,16 +106,16 @@ export async function PATCH(
     // Dacă nu avem nimic de updatat
     if (Object.keys(update).length === 0) {
       return NextResponse.json(
-        { error: 'Nothing to update. Allowed fields: full_name, phone_number, cui_firma, role (admin only).' },
+        { error: 'Nothing to update. Allowed fields: full_name, phone_number, cif, role (admin only).' },
         { status: 400 }
       )
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await admin
       .from('profiles')
       .update(update)
       .eq('id', targetUserId)
-      .select('id, email, full_name, role, phone_number, cui_firma')
+      .select('id, email, full_name, role, phone_number, cif')
       .single()
 
     if (error) {
@@ -133,19 +134,17 @@ export async function DELETE(  request: Request,
   { params }: { params: Promise<{ userId: string }> }) {
   try {
     // Auth: doar admin poate șterge utilizatori
-    const auth = await requireAdmin(request)
-    if (!auth.ok) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status })
-    }
-
+    const ctx = await requireAdmin(request)
+    if(!ctx.ok) return guardToResponse(ctx)
+    const admin = createSupabaseServiceClient()
     const {userId : userId} = await params
 
     if (!userId) {
       return NextResponse.json({ error: 'User ID lipsește' }, { status: 400 })
     }
 
-    // 1. Ștergem toate proiectele create de user (dacă e client)
-    const { error: projectsError } = await supabaseAdmin
+    // Ștergem toate proiectele create de user (dacă e client)
+    const { error: projectsError } = await admin
       .from('projects')
       .delete()
       .eq('client_id', userId)
@@ -153,7 +152,7 @@ export async function DELETE(  request: Request,
     if (projectsError) console.warn('Eroare la ștergere proiecte:', projectsError)
 
     // 2. Ștergem din project_members (dacă e consultant)
-    const { error: membersError } = await supabaseAdmin
+    const { error: membersError } = await admin
       .from('project_members')
       .delete()
       .eq('consultant_id', userId)
@@ -161,7 +160,7 @@ export async function DELETE(  request: Request,
     if (membersError) console.warn('Eroare la ștergere members:', membersError)
 
     // 3. Ștergem cererile de documente create de user
-    const { error: docsError } = await supabaseAdmin
+    const { error: docsError } = await admin
       .from('document_requirements')
       .delete()
       .eq('created_by', userId)
@@ -169,7 +168,7 @@ export async function DELETE(  request: Request,
     if (docsError) console.warn('Eroare la ștergere documente:', docsError)
 
     // 4. Ștergem fișierele încărcate de user
-    const { error: filesError } = await supabaseAdmin
+    const { error: filesError } = await admin
       .from('files')
       .delete()
       .eq('uploaded_by', userId)
@@ -177,7 +176,7 @@ export async function DELETE(  request: Request,
     if (filesError) console.warn('Eroare la ștergere files:', filesError)
 
     // 5. Acum ștergem utilizatorul din Auth (asta va șterge și din profiles)
-    const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId)
+    const { error: deleteError } = await admin.auth.admin.deleteUser(userId)
 
     if (deleteError) throw deleteError
 
