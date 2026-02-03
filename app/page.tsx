@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from './providers/AuthProvider'
+import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 
 export default function Dashboard() {
   const router = useRouter()
@@ -14,6 +15,9 @@ export default function Dashboard() {
   const [projects, setProjects] = useState<any[]>([])
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [projectToDelete, setProjectToDelete] = useState<any>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
 
   const statusConfig: Record<string, { bg: string; text: string; dot: string; label: string; border: string }> = {
     contractare: { bg: 'bg-amber-100', text: 'text-amber-800', dot: 'bg-amber-600', border: 'border-amber-200', label: 'În Contractare' },
@@ -37,12 +41,25 @@ export default function Dashboard() {
     setCurrentUser(json.profile)
   }
 
-  // Delete project (admin only in UI)
-  const handleDeleteProject = async (project: any) => {
-    const res = await apiFetch(`/api/projects/${project.id}`, { method: 'DELETE' })
-    const json = await res.json()
-    if (!res.ok) throw new Error(json?.error || 'Failed to delete project')
-    setProjects(prev => prev.filter(p => p.id !== project.id))
+  // Delete project - cu modal de confirmare și API
+  const handleDeleteProject = async () => {
+    if (!projectToDelete) return
+    
+    setDeleteLoading(true)
+    try {
+      const res = await apiFetch(`/api/projects/${projectToDelete.id}`, { method: 'DELETE' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error || 'Failed to delete project')
+      
+      setProjects(prev => prev.filter(p => p.id !== projectToDelete.id))
+      setShowDeleteModal(false)
+      setProjectToDelete(null)
+    } catch (error: any) {
+      console.error('Eroare la ștergere:', error)
+      alert('Nu s-a putut șterge proiectul: ' + error.message)
+    } finally {
+      setDeleteLoading(false)
+    }
   }
 
   // Close menu when clicking outside
@@ -58,8 +75,6 @@ export default function Dashboard() {
   useEffect(() => {
     if (authLoading) return
 
-    // dacă providerul nu are token, te va redirecta el,
-    // dar păstrăm și aici un guard ca să nu ruleze fetch-uri.
     if (!token) {
       router.push('/login')
       return
@@ -196,7 +211,8 @@ export default function Dashboard() {
                                 e.preventDefault()
                                 e.stopPropagation()
                                 setOpenMenuId(null)
-                                handleDeleteProject(project)
+                                setProjectToDelete(project)
+                                setShowDeleteModal(true)
                               }}
                               className="w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors"
                             >
@@ -223,6 +239,21 @@ export default function Dashboard() {
           })}
         </div>
       )}
+
+      {/* Modal Confirmare Ștergere */}
+      <ConfirmDeleteModal
+        isOpen={showDeleteModal}
+        onClose={() => {
+          setShowDeleteModal(false)
+          setProjectToDelete(null)
+        }}
+        onConfirm={handleDeleteProject}
+        title={`Șterge "${projectToDelete?.title || 'proiectul'}"`}
+        description="Toate datele asociate vor fi șterse permanent. Această acțiune nu poate fi anulată."
+        confirmText="Șterge proiectul"
+        confirmWord="sterge"
+        loading={deleteLoading}
+      />
     </div>
   )
 }
