@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { Eye, EyeOff } from 'lucide-react'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -11,9 +12,10 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [authLoading, setAuthLoading] = useState(false)
 
-  // Dacă e deja logat, nu mai are ce căuta pe /login
+  // Redirect dacă e deja logat
   useEffect(() => {
     if (authInitLoading) return
     if (token) router.replace('/')
@@ -27,11 +29,9 @@ export default function LoginPage() {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
 
       if (error) {
-        alert(error.message)
+        alert(error.message) // Ideal ar fi un toast notification aici
         return
       }
-
-      // AuthProvider va prinde sesiunea și va seta token-ul.
       router.replace('/')
     } finally {
       setAuthLoading(false)
@@ -53,24 +53,45 @@ export default function LoginPage() {
           <form onSubmit={handleLogin} className="space-y-5">
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider ml-1">Email</label>
+              {/* Am adăugat clasele [&:-webkit-autofill] pentru a scoate fundalul galben urât din Chrome */}
               <input
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all duration-200"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all duration-200 [&:-webkit-autofill]:shadow-[0_0_0_1000px_#f8fafc_inset] [&:-webkit-autofill]:-webkit-text-fill-color-slate-900"
                 placeholder="nume@companie.ro"
               />
             </div>
 
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider ml-1">Parolă</label>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all duration-200"
-                placeholder="••••••••"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  // Padding-right (pr-12) este esențial ca textul să nu intre sub iconiță
+                  className="w-full px-4 py-3 pr-12 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all duration-200 [&:-webkit-autofill]:shadow-[0_0_0_1000px_#f8fafc_inset] [&:-webkit-autofill]:-webkit-text-fill-color-slate-900"
+                  placeholder="••••••••"
+                />
+                
+                {/* BUTTON FIX: 
+                    1. z-10: Asigură că stă DEASUPRA input-ului (chiar și peste autofill).
+                    2. cursor-pointer: Feedback vizual la hover.
+                    3. right-3: O poziționare ușor mai relaxată decât right-4.
+                */}
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors duration-200 z-10 cursor-pointer p-1"
+                >
+                  {showPassword ? (
+                    <EyeOff className="w-5 h-5" />
+                  ) : (
+                    <Eye className="w-5 h-5" />
+                  )}
+                </button>
+              </div>
             </div>
 
             <button
