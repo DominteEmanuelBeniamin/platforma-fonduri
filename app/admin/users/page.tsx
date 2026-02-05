@@ -2,8 +2,46 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { UserPlus, Trash2, Users } from 'lucide-react'
+import { UserPlus, Trash2, Users, Building2, Briefcase, Shield, Info } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+
+// Configurație pentru fiecare tip de rol
+// AM ADĂUGAT: btnBg și btnHover pentru a fi recunoscute de Tailwind
+const roleConfig = {
+  admin: {
+    icon: Shield,
+    color: 'red',
+    bg: 'bg-red-50',
+    border: 'border-red-200',
+    text: 'text-red-700',
+    iconBg: 'bg-red-100',
+    label: 'Administrator',
+    btnBg: 'bg-red-600',
+    btnHover: 'hover:bg-red-700'
+  },
+  consultant: {
+    icon: Briefcase,
+    color: 'purple',
+    bg: 'bg-purple-50',
+    border: 'border-purple-200',
+    text: 'text-purple-700',
+    iconBg: 'bg-purple-100',
+    label: 'Consultant',
+    btnBg: 'bg-purple-600',
+    btnHover: 'hover:bg-purple-700'
+  },
+  client: {
+    icon: Building2,
+    color: 'emerald',
+    bg: 'bg-emerald-50',
+    border: 'border-emerald-200',
+    text: 'text-emerald-700',
+    iconBg: 'bg-emerald-100',
+    label: 'Client (Firmă)',
+    btnBg: 'bg-emerald-600',
+    btnHover: 'hover:bg-emerald-700'
+  }
+}
 
 export default function AdminUsersPage() {
   const router = useRouter()
@@ -12,37 +50,46 @@ export default function AdminUsersPage() {
   const [updatingRoleId, setUpdatingRoleId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // State-uri pentru formularul de adăugare
+  // State-uri formular
+  const [newRole, setNewRole] = useState<'admin' | 'consultant' | 'client'>('client')
   const [newEmail, setNewEmail] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newName, setNewName] = useState('')
-  const [newRole, setNewRole] = useState('client')
+  const [telefon, setTelefon] = useState('')
+  
+  // Câmpuri specifice CLIENT
+  const [cif, setCif] = useState('')
+  const [numeFirma, setNumeFirma] = useState('')
+  const [adresaFirma, setAdresaFirma] = useState('')
+  const [persoanaContact, setPersoanaContact] = useState('')
+  
+  // Câmpuri specifice CONSULTANT
+  const [specializare, setSpecializare] = useState('')
+  const [departament, setDepartament] = useState('')
+  
   const [isCreating, setIsCreating] = useState(false)
 
   const fetchUsers = async () => {
-    try{  
+    try {
       setLoading(true)
       const ctx = await apiFetch('/api/users')
       if (!ctx.ok) {
-          alert('Eroare la încărcarea utilizatorilor.')
-          setLoading(false)
-          return
-        }
-        const { users: data } = await ctx.json()
-        setUsers(data)
-      }
-      catch(error){
         alert('Eroare la încărcarea utilizatorilor.')
         setLoading(false)
-    }
-    finally{
+        return
+      }
+      const { users: data } = await ctx.json()
+      setUsers(data)
+    } catch (error) {
+      alert('Eroare la încărcarea utilizatorilor.')
+      setLoading(false)
+    } finally {
       setLoading(false)
     }
-    
   }
 
   useEffect(() => {
-    if(authLoading) return
+    if (authLoading) return
     if (!token) {
       router.replace('/login')
       return
@@ -50,36 +97,68 @@ export default function AdminUsersPage() {
     fetchUsers()
   }, [authLoading, token, router])
 
-  // --- FUNCȚIA DE CREARE USER ---
+  // Reset câmpuri specifice când se schimbă rolul
+  useEffect(() => {
+    setCif('')
+    setNumeFirma('')
+    setAdresaFirma('')
+    setPersoanaContact('')
+    setSpecializare('')
+    setDepartament('')
+  }, [newRole])
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsCreating(true)
 
     try {
+      const payload: any = {
+        email: newEmail,
+        password: newPassword,
+        role: newRole,
+        fullName: newName,
+        telefon: telefon || null
+      }
+
+      // Adaugă câmpuri specifice pe bază de rol
+      if (newRole === 'client') {
+        payload.cif = cif || null
+        payload.numeFirma = numeFirma || null
+        payload.adresaFirma = adresaFirma || null
+        payload.persoanaContact = persoanaContact || null
+      } else if (newRole === 'consultant') {
+        payload.specializare = specializare || null
+        payload.departament = departament || null
+      } else if (newRole === 'admin') {
+        payload.departament = departament || null
+      }
 
       const ctx = await apiFetch('/api/users', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json',
-         },
-        body: JSON.stringify({
-          email: newEmail,
-          password: newPassword,
-          role: newRole,
-          fullName: newName
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       })
 
-      if(!ctx.ok){
+      if (!ctx.ok) {
         const err = await ctx.json()
         throw new Error(err.error)
       }
 
       alert('Utilizator creat cu succes!')
+      
+      // Reset formular
       setNewEmail('')
       setNewPassword('')
       setNewName('')
+      setTelefon('')
+      setCif('')
+      setNumeFirma('')
+      setAdresaFirma('')
+      setPersoanaContact('')
+      setSpecializare('')
+      setDepartament('')
+      
       fetchUsers()
-
     } catch (error: any) {
       alert('Eroare: ' + error.message)
     } finally {
@@ -87,18 +166,14 @@ export default function AdminUsersPage() {
     }
   }
 
-  // --- FUNCȚIA DE SCHIMBARE ROL (REPARATĂ) ---
   const updateUserRole = async (userId: string, newRole: string) => {
-
     if (!confirm(`Schimbi rolul?`)) return
-    // await supabase.from('profiles').update({ role: newRole }).eq('id', userId)
-    try{
+    
+    try {
       setUpdatingRoleId(userId)
       const ctx = await apiFetch(`/api/users/${userId}`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: newRole })
       })
 
@@ -106,25 +181,21 @@ export default function AdminUsersPage() {
         const err = await ctx.json()
         throw new Error(err.error)
       }
-    }
-    catch (error: any) {
+    } catch (error: any) {
       alert('Eroare la update: ' + error.message)
       return
-    }
-    finally {
+    } finally {
       setUpdatingRoleId(null)
     }
     fetchUsers()
     alert('Rol actualizat cu succes!')
   }
 
-  // --- FUNCȚIA DE ȘTERGERE USER ---
   const handleDeleteUser = async (userId: string, userEmail: string) => {
     if (!confirm(`Ești sigur că vrei să ștergi utilizatorul "${userEmail}"?\n\nAceastă acțiune este PERMANENTĂ!`)) return
     
     setLoading(true)
     try {
-
       const ctx = await apiFetch(`/api/users/${userId}`, {
         method: 'DELETE',
       })
@@ -134,7 +205,6 @@ export default function AdminUsersPage() {
       }
       alert('Utilizator șters cu succes!')
       fetchUsers()
-
     } catch (error: any) {
       alert('Eroare la ștergere: ' + error.message)
     } finally {
@@ -163,6 +233,9 @@ export default function AdminUsersPage() {
       </div>
     )
   }
+
+  const currentRoleConfig = roleConfig[newRole]
+  const RoleIcon = currentRoleConfig.icon
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 fade-in-up">
@@ -195,10 +268,72 @@ export default function AdminUsersPage() {
           </div>
         </div>
         
-        <div className="p-6">
-          <form onSubmit={handleCreateUser} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-            <div className="md:col-span-1">
-              <label className="block text-xs font-medium text-slate-700 mb-2">Email</label>
+        <form onSubmit={handleCreateUser} className="p-6 space-y-6">
+          
+          {/* SELECTOR ROL */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-3 uppercase tracking-wider">
+              Tip utilizator
+            </label>
+            <div className="grid grid-cols-3 gap-3">
+              {(['client', 'consultant', 'admin'] as const).map((role) => {
+                const config = roleConfig[role]
+                const Icon = config.icon
+                const isSelected = newRole === role
+                
+                return (
+                  <button
+                    key={role}
+                    type="button"
+                    onClick={() => setNewRole(role)}
+                    className={`
+                      relative p-4 rounded-xl border-2 transition-all duration-200
+                      ${isSelected 
+                        ? `${config.border} ${config.bg} shadow-md` 
+                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }
+                    `}
+                  >
+                    <div className="flex flex-col items-center gap-2">
+                      <div className={`
+                        w-12 h-12 rounded-lg flex items-center justify-center
+                        ${isSelected ? config.iconBg : 'bg-slate-100'}
+                        ${isSelected ? config.text : 'text-slate-500'}
+                        transition-colors duration-200
+                      `}>
+                        <Icon className="w-6 h-6" />
+                      </div>
+                      <span className={`
+                        text-sm font-semibold
+                        ${isSelected ? config.text : 'text-slate-600'}
+                      `}>
+                        {config.label}
+                      </span>
+                    </div>
+                    
+                    {/* Checkmark */}
+                    {isSelected && (
+                      <div className={`
+                        absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center
+                        ${config.iconBg} ${config.text}
+                      `}>
+                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* CÂMPURI COMUNE */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-2">
+                Email *
+              </label>
               <input 
                 type="email" 
                 required 
@@ -209,8 +344,10 @@ export default function AdminUsersPage() {
               />
             </div>
 
-            <div className="md:col-span-1">
-              <label className="block text-xs font-medium text-slate-700 mb-2">Nume complet</label>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-2">
+                Nume complet *
+              </label>
               <input 
                 type="text" 
                 required 
@@ -221,8 +358,10 @@ export default function AdminUsersPage() {
               />
             </div>
 
-            <div className="md:col-span-1">
-              <label className="block text-xs font-medium text-slate-700 mb-2">Parolă temporară</label>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-2">
+                Parolă temporară *
+              </label>
               <input 
                 type="text" 
                 required 
@@ -233,40 +372,202 @@ export default function AdminUsersPage() {
               />
             </div>
 
-            <div className="md:col-span-1">
-              <label className="block text-xs font-medium text-slate-700 mb-2">Rol inițial</label>
-              <select 
-                value={newRole} 
-                onChange={e => setNewRole(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm bg-white focus:border-slate-400 focus:ring-2 focus:ring-slate-400/10 outline-none transition-all"
-              >
-                <option value="client">Client</option>
-                <option value="consultant">Consultant</option>
-                <option value="admin">Admin</option>
-              </select>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-2">
+                Telefon
+              </label>
+              <input 
+                type="tel" 
+                placeholder="0740123456"
+                value={telefon} 
+                onChange={e => setTelefon(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-400/10 outline-none transition-all"
+              />
+            </div>
+          </div>
+
+          {/* SECȚIUNE DINAMICĂ */}
+          <div 
+            className={`
+              border-2 rounded-xl p-5 transition-all duration-300
+              ${currentRoleConfig.border} ${currentRoleConfig.bg}
+            `}
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <RoleIcon className={`w-5 h-5 ${currentRoleConfig.text}`} />
+              <h3 className={`text-sm font-bold ${currentRoleConfig.text}`}>
+                Detalii specifice {currentRoleConfig.label}
+              </h3>
             </div>
 
-            <div className="md:col-span-1">
-              <button 
-                type="submit" 
-                disabled={isCreating}
-                className="w-full py-2.5 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
-              >
-                {isCreating ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                    Se creează...
-                  </>
-                ) : (
-                  <>
-                    <UserPlus className="w-4 h-4" />
-                    Creează cont
-                  </>
-                )}
-              </button>
+            {/* CÂMPURI CLIENT */}
+            {newRole === 'client' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fadeIn">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-2 flex items-center gap-1">
+                    CIF / CUI *
+                    <div className="group relative">
+                      <Info className="w-3.5 h-3.5 text-slate-400 cursor-help" />
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-slate-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap">
+                        Ex: RO12345678
+                      </div>
+                    </div>
+                  </label>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="RO12345678"
+                    value={cif} 
+                    onChange={e => setCif(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/10 outline-none transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-2">
+                    Nume firmă *
+                  </label>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="SC TECH SOLUTIONS SRL"
+                    value={numeFirma} 
+                    onChange={e => setNumeFirma(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/10 outline-none transition-all"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-slate-700 mb-2">
+                    Adresă firmă
+                  </label>
+                  <input 
+                    type="text" 
+                    placeholder="Str. Principală nr. 10, București"
+                    value={adresaFirma} 
+                    onChange={e => setAdresaFirma(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/10 outline-none transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-2 flex items-center gap-1">
+                    Persoană de contact
+                    <div className="group relative">
+                      <Info className="w-3.5 h-3.5 text-slate-400 cursor-help" />
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-slate-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap">
+                        Dacă diferă de utilizator
+                      </div>
+                    </div>
+                  </label>
+                  <input 
+                    type="text" 
+                    placeholder="Ana Popescu"
+                    value={persoanaContact} 
+                    onChange={e => setPersoanaContact(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/10 outline-none transition-all"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* CÂMPURI CONSULTANT */}
+            {newRole === 'consultant' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fadeIn">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-2 flex items-center gap-1">
+                    Specializare *
+                    <div className="group relative">
+                      <Info className="w-3.5 h-3.5 text-slate-400 cursor-help" />
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-slate-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap">
+                        Ex: PNRR, Digitalizare IMM
+                      </div>
+                    </div>
+                  </label>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="Digitalizare IMM, PNRR"
+                    value={specializare} 
+                    onChange={e => setSpecializare(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm focus:border-purple-400 focus:ring-2 focus:ring-purple-400/10 outline-none transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-2">
+                    Departament
+                  </label>
+                  <input 
+                    type="text" 
+                    placeholder="Departament Proiecte"
+                    value={departament} 
+                    onChange={e => setDepartament(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm focus:border-purple-400 focus:ring-2 focus:ring-purple-400/10 outline-none transition-all"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* CÂMPURI ADMIN */}
+            {newRole === 'admin' && (
+              <div className="animate-fadeIn">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-2">
+                    Departament
+                  </label>
+                  <input 
+                    type="text" 
+                    placeholder="Management, IT, etc."
+                    value={departament} 
+                    onChange={e => setDepartament(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-400/10 outline-none transition-all"
+                  />
+                </div>
+                <p className="text-xs text-slate-500 mt-3 flex items-start gap-2">
+                  <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <span>Administratorii au acces complet la toate funcționalitățile platformei.</span>
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* PREVIEW ȘI SUBMIT */}
+          <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+            <div className="text-sm text-slate-600">
+              <span className="font-medium">Vei crea:</span>{' '}
+              <span className={`font-bold ${currentRoleConfig.text}`}>
+                {newName || 'Utilizator nou'} ({currentRoleConfig.label})
+              </span>
             </div>
-          </form>
-        </div>
+
+            <button 
+              type="submit" 
+              disabled={isCreating}
+              // AM MODIFICAT AICI: Folosim clasele explicite (btnBg, btnHover)
+              className={`
+                px-6 py-2.5 rounded-lg text-sm font-bold text-white
+                transition-all shadow-lg
+                ${currentRoleConfig.btnBg}
+                ${currentRoleConfig.btnHover}
+                disabled:opacity-50 disabled:cursor-not-allowed
+                flex items-center gap-2
+              `}
+            >
+              {isCreating ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  Se creează...
+                </>
+              ) : (
+                <>
+                  <UserPlus className="w-4 h-4" />
+                  Creează {currentRoleConfig.label}
+                </>
+              )}
+            </button>
+          </div>
+        </form>
       </div>
 
       {/* TABEL UTILIZATORI */}

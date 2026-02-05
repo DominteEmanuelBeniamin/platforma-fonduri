@@ -1,14 +1,17 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// app/api/projects/[id]/route.ts
 import { NextResponse } from 'next/server'
 import { guardToResponse, requireAdmin, requireProjectAccess } from '../../_utils/auth'
 import { createSupabaseServiceClient } from '../../_utils/supabase'
+import { logProjectAction, getClientIP, getUserAgent } from '../../_utils/audit'
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const {id : projectId} = await params
-    if (!projectId ) {
+    const { id: projectId } = await params
+    if (!projectId) {
       return NextResponse.json({ error: 'Project ID lipsește din URL' }, { status: 400 })
     }
 
@@ -20,7 +23,7 @@ export async function GET(
 
     const { data: project, error } = await admin
       .from('projects')
-      .select('*, profiles(*)') // profiles = client profile (FK projects.client_id -> profiles.id)
+      .select('*, profiles(*)')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -45,7 +48,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const {id: projectId} = await params
+    const { id: projectId } = await params
     if (!projectId) {
       return NextResponse.json({ error: 'Project ID lipsește din URL' }, { status: 400 })
     }
@@ -56,10 +59,10 @@ export async function DELETE(
 
     const admin = createSupabaseServiceClient()
 
-    // (opțional) verifică existența proiectului înainte
+    // ✅ 1. Citim datele proiectului ÎNAINTE de ștergere (pentru audit)
     const { data: project, error: findErr } = await admin
       .from('projects')
-      .select('id')
+      .select('id, title, client_id, status, cod_intern, profiles(email, full_name, cif)')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -71,7 +74,16 @@ export async function DELETE(
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     }
 
-    // Storage cleanup (înainte de delete DB)
+    // ✅ Helper pentru a extrage safe client info (fix pentru TypeScript)
+    const clientProfile = Array.isArray(project.profiles) 
+      ? project.profiles[0] 
+      : project.profiles
+    
+    const clientEmail = clientProfile?.email || 'N/A'
+    const clientName = clientProfile?.full_name || 'N/A'
+    const clientCif = clientProfile?.cif || 'N/A'
+
+    // 2. Storage cleanup (înainte de delete DB)
     const bucket = 'project-files'
 
     const { data: fileRows, error: filesErr } = await admin
@@ -110,13 +122,34 @@ export async function DELETE(
       }
     }
 
-    // Delete DB (cascade va șterge members, requirements, files)
+    // 3. Delete DB (cascade va șterge members, requirements, files)
     const { error: delErr } = await admin.from('projects').delete().eq('id', projectId)
 
     if (delErr) {
       console.error('Delete project error:', delErr)
       return NextResponse.json({ error: delErr.message }, { status: 400 })
     }
+
+    // ✅ 4. AUDIT LOG - Ștergere proiect
+    await logProjectAction({
+      adminId: ctx.user.id,
+      actionType: 'delete',
+      projectId: project.id,
+      projectTitle: project.title,
+      oldValues: {
+        title: project.title,
+        client_id: project.client_id,
+        client_email: clientEmail,
+        client_name: clientName,
+        client_cif: clientCif,
+        status: project.status,
+        cod_intern: project.cod_intern
+      },
+      newValues: null,
+      description: `Șters proiect "${project.title}" (client: ${clientEmail})`,
+      ipAddress: getClientIP(request),
+      userAgent: getUserAgent(request)
+    })
 
     return NextResponse.json({ message: 'Project deleted' })
   } catch (e: any) {
