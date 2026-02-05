@@ -1,14 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
-import { useState, useEffect, JSX } from 'react'
-import { supabase } from '../lib/supabaseClient'
-import { 
-  FileText, 
-  Plus, 
-  Download, 
-  Upload, 
-  CheckCircle2, 
-  XCircle, 
+import { useEffect, useMemo, useState, JSX, useRef } from 'react'
+import {
+  FileText,
+  Plus,
+  Download,
+  Upload,
+  CheckCircle2,
+  XCircle,
   Clock,
   Calendar,
   User,
@@ -22,9 +21,12 @@ import {
   FileCheck,
   FileClock,
   FileX,
-  FileQuestion
+  FileQuestion,
+  FolderUp,
+  Files
 } from 'lucide-react'
 import DocumentModal from './DocumentModal'
+import { useAuth } from '@/app/providers/AuthProvider'
 
 interface DocumentRequest {
   id: string
@@ -35,10 +37,7 @@ interface DocumentRequest {
   deadline_at: string | null
   created_by: string | null
   created_at: string
-  creator?: {
-    full_name: string | null
-    email: string | null
-  }
+  creator?: { full_name: string | null; email: string | null }
   files?: {
     id: string
     storage_path: string
@@ -49,258 +48,258 @@ interface DocumentRequest {
   }[]
 }
 
+type PickedFile = {
+  file: File
+  name: string
+  size: number
+  type: string
+  relativePath: string | null
+}
+
+function fileMetaFromFileList(fileList: FileList): PickedFile[] {
+  return Array.from(fileList).map((f) => ({
+    file: f,
+    name: f.name,
+    size: f.size,
+    type: f.type || 'application/octet-stream',
+    relativePath: (f as any).webkitRelativePath || null,
+  }))
+}
+
 export default function DocumentRequests({ projectId }: { projectId: string }) {
+  const { loading: authLoading, token, profile, apiFetch } = useAuth()
+
   const [requests, setRequests] = useState<DocumentRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   
+  const folderInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (!folderInputRef.current) return
+    // setăm atributul doar în browser
+    folderInputRef.current.setAttribute('webkitdirectory', '')
+    folderInputRef.current.setAttribute('directory', '')
+  }, [])
+
   // Modal state
   const [selectedRequest, setSelectedRequest] = useState<DocumentRequest | null>(null)
-  const [notes, setNotes] = useState('')
-  
-  // Form state pentru cerere nouă (admin/consultant)
+
+  // Create request form
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [file, setFile] = useState<File | null>(null)
+  const [templateFile, setTemplateFile] = useState<File | null>(null)
   const [deadline, setDeadline] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  // Upload state pentru client
+  // Client upload state
   const [uploadingFor, setUploadingFor] = useState<string | null>(null)
-  const [clientFile, setClientFile] = useState<File | null>(null)
+  const [clientFiles, setClientFiles] = useState<PickedFile[]>([])
 
-  // Current user
-  const [currentUser, setCurrentUser] = useState<any>(null)
+  const canUploadFolder =
+    typeof window !== 'undefined' &&
+    'webkitdirectory' in HTMLInputElement.prototype &&
+    !window.matchMedia?.('(pointer: coarse)').matches &&
+    !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 
-  // Fetch current user
-  useEffect(() => {
-    const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single()
-        setCurrentUser(profile)
-      }
-    }
-    getUser()
-  }, [])
+  const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
+  const isClient = profile?.role === 'client'
 
-  // Fetch document requests
+  const forceDownload = (url: string) => {
+    const a = document.createElement('a')
+    a.href = url
+    a.download = ''
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  }
+
   const fetchRequests = async () => {
+    if (!projectId) return
     setLoading(true)
-    
-    const { data, error } = await supabase
-      .from('document_requirements')
-      .select(`
-        *,
-        creator:created_by(full_name, email),
-        files(id, storage_path, version_number, comments, created_at, uploaded_by)
-      `)
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      console.error('Eroare la încărcare cereri:', error)
-    } else {
-      setRequests(data || [])
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/document-requests`, { method: 'GET' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || res.statusText)
+      setRequests(data?.requests || [])
+    } catch (e: any) {
+      console.error('Eroare la încărcare cereri:', e.message)
+      setRequests([])
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   useEffect(() => {
-    if (projectId) fetchRequests()
-  }, [projectId])
+    if (authLoading) return
+    if (!token) return
+    fetchRequests()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, token, projectId])
 
-  // Handle file selection pentru cerere nouă
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0])
+  const handleTemplateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.[0]) setTemplateFile(e.target.files[0])
+  }
+
+  const handleClientFilesPick = (files: FileList | null, requestId: string) => {
+    if (!files || files.length === 0) return
+    setClientFiles(fileMetaFromFileList(files))
+    setUploadingFor(requestId)
+  }
+
+  // Upload helper (init -> PUT -> complete)
+  const uploadFilesToRequest = async (requestId: string, picked: PickedFile[]) => {
+    const initRes = await apiFetch(`/api/document-requests/${requestId}/uploads/init`, {
+      method: 'POST',
+      body: JSON.stringify({
+        files: picked.map((p) => ({
+          name: p.name,
+          size: p.size,
+          type: p.type,
+          relativePath: p.relativePath,
+        })),
+      }),
+    })
+    const init = await initRes.json().catch(() => ({}))
+    if (!initRes.ok) throw new Error(init?.error || 'Init upload failed')
+
+    await Promise.all(
+      init.uploads.map(async (u: any) => {
+        const p = picked[u.clientFileId]
+        const res = await fetch(u.signedUploadUrl, {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${u.token}`,
+            'Content-Type': p.type,
+          },
+          body: p.file,
+        })
+        if (!res.ok) throw new Error(`Upload failed: ${p.name}`)
+      })
+    )
+
+    const completeRes = await apiFetch(`/api/document-requests/${requestId}/uploads/complete`, {
+      method: 'POST',
+      body: JSON.stringify({
+        batchId: init.batchId,
+        versionNumber: init.versionNumber,
+        uploaded: init.uploads.map((u: any) => ({
+          storagePath: u.storagePath,
+          originalName: picked[u.clientFileId].name,
+          relativePath: picked[u.clientFileId].relativePath,
+        })),
+      }),
+    })
+    const complete = await completeRes.json().catch(() => ({}))
+    if (!completeRes.ok) throw new Error(complete?.error || 'Complete upload failed')
+  }
+
+  const handleClientUpload = async (requestId: string) => {
+    if (!clientFiles.length) return
+    setSubmitting(true)
+    try {
+      await uploadFilesToRequest(requestId, clientFiles)
+      setClientFiles([])
+      setUploadingFor(null)
+      await fetchRequests()
+      alert('Document(e) încărcat(e) cu succes!')
+    } catch (e: any) {
+      alert('Eroare la încărcare: ' + e.message)
+    } finally {
+      setSubmitting(false)
     }
   }
 
-  // Handle file selection pentru răspuns client
-  const handleClientFileChange = (e: React.ChangeEvent<HTMLInputElement>, requestId: string) => {
-    if (e.target.files && e.target.files[0]) {
-      setClientFile(e.target.files[0])
-      setUploadingFor(requestId)
-    }
+  const downloadUploadedFileById = async (fileId: string) => {
+    const res = await apiFetch(`/api/files/${fileId}/signed-download`, {
+      method: 'POST',
+      body: JSON.stringify({ expiresIn: 60 * 5 }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) return alert('Eroare la descărcare: ' + (data?.error || res.statusText))
+    forceDownload(data.url)
   }
 
-  // Create new document request (Admin/Consultant)
+  const downloadAttachmentModel = async (requestId: string) => {
+    const res = await apiFetch(`/api/document-requests/${requestId}/attachment/signed-download`, {
+      method: 'POST',
+      body: JSON.stringify({ expiresIn: 60 * 5 }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) return alert('Eroare la descărcare: ' + (data?.error || res.statusText))
+    forceDownload(data.url)
+  }
+
+  // Create request (admin/consultant) via API, with optional template upload
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) return
-
     setSubmitting(true)
 
     try {
-      let attachmentPath = null
+      let attachment_path: string | null = null
 
-      if (file) {
-        const fileName = `${Date.now()}_${file.name}`
-        const filePath = `${projectId}/cereri/${fileName}`
+      if (templateFile) {
+        // 1) init template upload
+        const initRes = await apiFetch(`/api/projects/${projectId}/document-requests/attachment/init`, {
+          method: 'POST',
+          body: JSON.stringify({
+            name: templateFile.name,
+            size: templateFile.size,
+            type: templateFile.type || 'application/octet-stream',
+          }),
+        })
+        const init = await initRes.json().catch(() => ({}))
+        if (!initRes.ok) throw new Error(init?.error || 'Init attachment upload failed')
 
-        const { error: uploadError } = await supabase.storage
-          .from('project-files')
-          .upload(filePath, file)
-
-        if (uploadError) throw uploadError
-        attachmentPath = filePath
+        // 2) PUT to storage
+        const putRes = await fetch(init.signedUploadUrl, {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${init.token}`,
+            'Content-Type': templateFile.type || 'application/octet-stream',
+          },
+          body: templateFile,
+        })
+        if (!putRes.ok) throw new Error('Attachment upload failed')
+        attachment_path = init.storagePath
       }
 
-      const { error: insertError } = await supabase
-        .from('document_requirements')
-        .insert({
-          project_id: projectId,
+      // 3) create request row
+      const res = await apiFetch(`/api/projects/${projectId}/document-requests`, {
+        method: 'POST',
+        body: JSON.stringify({
           name: name.trim(),
           description: description.trim() || null,
-          attachment_path: attachmentPath,
           deadline_at: deadline || null,
-          created_by: currentUser?.id,
-          status: 'pending'
-        })
-
-      if (insertError) throw insertError
+          attachment_path,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || 'Create request failed')
 
       setName('')
       setDescription('')
-      setFile(null)
+      setTemplateFile(null)
       setDeadline('')
       setShowForm(false)
-      fetchRequests()
-
-    } catch (error: any) {
-      alert('Eroare: ' + error.message)
+      await fetchRequests()
+    } catch (e: any) {
+      alert('Eroare: ' + e.message)
     } finally {
       setSubmitting(false)
     }
   }
 
-  // Upload răspuns client
-  const handleClientUpload = async (requestId: string) => {
-    if (!clientFile) return
-
-    setSubmitting(true)
-
-    try {
-      const existingFiles = requests.find(r => r.id === requestId)?.files || []
-      const newVersion = existingFiles.length + 1
-
-      const fileName = `${Date.now()}_${clientFile.name}`
-      const filePath = `${projectId}/raspunsuri/${requestId}/${fileName}`
-
-      const { error: uploadError } = await supabase.storage
-        .from('project-files')
-        .upload(filePath, clientFile)
-
-      if (uploadError) throw uploadError
-
-      const { error: insertError } = await supabase
-        .from('files')
-        .insert({
-          requirement_id: requestId,
-          storage_path: filePath,
-          version_number: newVersion,
-          uploaded_by: currentUser?.id
-        })
-
-      if (insertError) throw insertError
-
-      const { error: updateError } = await supabase
-        .from('document_requirements')
-        .update({ status: 'review' })
-        .eq('id', requestId)
-
-      if (updateError) throw updateError
-
-      setClientFile(null)
-      setUploadingFor(null)
-      fetchRequests()
-
-      alert('Document încărcat cu succes!')
-
-    } catch (error: any) {
-      alert('Eroare la încărcare: ' + error.message)
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  // Download file
-  const downloadFile = async (path: string, fileName?: string) => {
-    const { data, error } = await supabase.storage
-      .from('project-files')
-      .download(path)
-
-    if (error) {
-      alert('Eroare la descărcare: ' + error.message)
-      return
-    }
-
-    const url = URL.createObjectURL(data)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = fileName || path.split('/').pop() || 'document'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  }
-
-  // Status configuration
-  const statusConfig: Record<string, { 
-    bg: string
-    text: string
-    border: string
-    icon: JSX.Element
-    docIcon: JSX.Element
-    label: string
-    iconBg: string
+  const statusConfig: Record<string, {
+    bg: string; text: string; border: string; icon: JSX.Element; docIcon: JSX.Element; label: string; iconBg: string
   }> = {
-    pending: {
-      bg: 'bg-amber-50',
-      text: 'text-amber-700',
-      border: 'border-amber-200',
-      icon: <Clock className="w-4 h-4" />,
-      docIcon: <FileClock className="w-5 h-5" />,
-      label: 'Așteaptă',
-      iconBg: 'bg-amber-100'
-    },
-    review: {
-      bg: 'bg-blue-50',
-      text: 'text-blue-700',
-      border: 'border-blue-200',
-      icon: <Eye className="w-4 h-4" />,
-      docIcon: <FileQuestion className="w-5 h-5" />,
-      label: 'În verificare',
-      iconBg: 'bg-blue-100'
-    },
-    approved: {
-      bg: 'bg-emerald-50',
-      text: 'text-emerald-700',
-      border: 'border-emerald-200',
-      icon: <CheckCircle2 className="w-4 h-4" />,
-      docIcon: <FileCheck className="w-5 h-5" />,
-      label: 'Aprobat',
-      iconBg: 'bg-emerald-100'
-    },
-    rejected: {
-      bg: 'bg-red-50',
-      text: 'text-red-700',
-      border: 'border-red-200',
-      icon: <XCircle className="w-4 h-4" />,
-      docIcon: <FileX className="w-5 h-5" />,
-      label: 'Respins',
-      iconBg: 'bg-red-100'
-    }
+    pending: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: <Clock className="w-4 h-4" />, docIcon: <FileClock className="w-5 h-5" />, label: 'Așteaptă', iconBg: 'bg-amber-100' },
+    review: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', icon: <Eye className="w-4 h-4" />, docIcon: <FileQuestion className="w-5 h-5" />, label: 'În verificare', iconBg: 'bg-blue-100' },
+    approved: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: <CheckCircle2 className="w-4 h-4" />, docIcon: <FileCheck className="w-5 h-5" />, label: 'Aprobat', iconBg: 'bg-emerald-100' },
+    rejected: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', icon: <XCircle className="w-4 h-4" />, docIcon: <FileX className="w-5 h-5" />, label: 'Respins', iconBg: 'bg-red-100' },
   }
-
-  // Verificări rol
-  const isAdminOrConsultant = currentUser?.role === 'admin' || currentUser?.role === 'consultant'
-  const isClient = currentUser?.role === 'client'
 
   if (loading) {
     return (
@@ -316,7 +315,6 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
   return (
     <>
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        {/* Header */}
         <div className="p-4 sm:p-5 border-b border-slate-100">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
@@ -328,60 +326,40 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
                   {isClient ? 'Documente de completat' : 'Cereri documente'}
                 </h2>
                 <p className="text-xs text-slate-500 truncate hidden sm:block">
-                  {isClient 
-                    ? 'Descarcă, completează și încarcă' 
-                    : `${requests.length} cereri în total`}
+                  {isClient ? 'Descarcă, completează și încarcă' : `${requests.length} cereri în total`}
                 </p>
               </div>
             </div>
-            
+
             {isAdminOrConsultant && (
               <button
                 onClick={() => setShowForm(!showForm)}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all flex-shrink-0 ${
-                  showForm 
-                    ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' 
-                    : 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-900/10'
+                  showForm ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-900/10'
                 }`}
               >
-                {showForm ? (
-                  <>
-                    <X className="w-4 h-4" />
-                    <span className="hidden sm:inline">Anulează</span>
-                  </>
-                ) : (
-                  <>
-                    <Plus className="w-4 h-4" />
-                    <span className="hidden sm:inline">Cerere nouă</span>
-                  </>
-                )}
+                {showForm ? (<><X className="w-4 h-4" /><span className="hidden sm:inline">Anulează</span></>) : (<><Plus className="w-4 h-4" /><span className="hidden sm:inline">Cerere nouă</span></>)}
               </button>
             )}
           </div>
         </div>
 
-        {/* Form pentru cerere nouă */}
         {showForm && isAdminOrConsultant && (
           <div className="p-4 sm:p-5 bg-slate-50/80 border-b border-slate-200">
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">
-                    Titlu document
-                  </label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">Titlu document</label>
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Ex: Certificat Fiscal"
                     required
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">
-                    Termen limită
-                  </label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">Termen limită</label>
                   <input
                     type="date"
                     value={deadline}
@@ -392,13 +370,10 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">
-                  Instrucțiuni
-                </label>
+                <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">Instrucțiuni</label>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Detalii pentru client despre ce trebuie să conțină documentul..."
                   rows={3}
                   className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none resize-none transition-all bg-white"
                 />
@@ -407,19 +382,18 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                 <label className="flex-1 cursor-pointer">
                   <div className={`px-4 py-3 border-2 border-dashed rounded-xl text-center transition-all ${
-                    file 
-                      ? 'border-indigo-300 bg-indigo-50' 
-                      : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                    templateFile ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                   }`}>
                     <div className="flex items-center justify-center gap-2 text-sm">
-                      <Paperclip className={`w-4 h-4 ${file ? 'text-indigo-600' : 'text-slate-400'}`} />
-                      <span className={file ? 'text-indigo-700 font-medium' : 'text-slate-500'}>
-                        {file ? file.name : 'Atașează model (opțional)'}
+                      <Paperclip className={`w-4 h-4 ${templateFile ? 'text-indigo-600' : 'text-slate-400'}`} />
+                      <span className={templateFile ? 'text-indigo-700 font-medium' : 'text-slate-500'}>
+                        {templateFile ? templateFile.name : 'Atașează model (opțional)'}
                       </span>
                     </div>
                   </div>
-                  <input type="file" onChange={handleFileChange} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" />
+                  <input type="file" onChange={handleTemplateFileChange} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" />
                 </label>
+
                 <button
                   type="submit"
                   disabled={submitting || !name.trim()}
@@ -432,7 +406,6 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
           </div>
         )}
 
-        {/* Lista de cereri */}
         <div className="divide-y divide-slate-100">
           {requests.length === 0 ? (
             <div className="p-8 sm:p-12 text-center">
@@ -448,64 +421,51 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
             requests.map((req) => {
               const status = statusConfig[req.status] || statusConfig.pending
               const isOverdue = req.deadline_at && new Date(req.deadline_at) < new Date() && req.status === 'pending'
-              
+
               return (
                 <div
                   key={req.id}
                   className={`p-4 sm:p-5 transition-all ${isAdminOrConsultant ? 'cursor-pointer hover:bg-slate-50/80' : ''}`}
                   onClick={() => isAdminOrConsultant && setSelectedRequest(req)}
                 >
-                  {/* Main Content Row */}
                   <div className="flex items-start gap-3 sm:gap-4">
-                    {/* Status Icon - ICONIȚA DE DOCUMENT */}
                     <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl ${status.iconBg} flex items-center justify-center flex-shrink-0 ${status.text}`}>
                       {status.docIcon}
                     </div>
 
-                    {/* Content */}
                     <div className="flex-1 min-w-0">
-                      {/* Title Row */}
                       <div className="flex items-start justify-between gap-2 mb-1">
-                        <h3 className="font-semibold text-slate-900 text-sm sm:text-base truncate pr-2">
-                          {req.name}
-                        </h3>
+                        <h3 className="font-semibold text-slate-900 text-sm sm:text-base truncate pr-2">{req.name}</h3>
                         <span className={`flex-shrink-0 px-2.5 py-1 rounded-lg text-xs font-semibold ${status.bg} ${status.text} ${status.border} border`}>
                           {status.label}
                         </span>
                       </div>
-                      
-                      {/* Description */}
-                      {req.description && (
-                        <p className="text-sm text-slate-600 mb-3 line-clamp-2">{req.description}</p>
-                      )}
-                      
-                      {/* Meta Row */}
+
+                      {req.description && <p className="text-sm text-slate-600 mb-3 line-clamp-2">{req.description}</p>}
+
                       <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-xs text-slate-500">
                         <span className="flex items-center gap-1.5">
                           <Calendar className="w-3.5 h-3.5 text-slate-400" />
                           {new Date(req.created_at).toLocaleDateString('ro-RO')}
                         </span>
-                        
+
                         {req.deadline_at && (
                           <span className={`flex items-center gap-1.5 ${isOverdue ? 'text-red-600 font-medium' : 'text-amber-600'}`}>
                             <Clock className="w-3.5 h-3.5" />
                             Termen: {new Date(req.deadline_at).toLocaleDateString('ro-RO')}
                           </span>
                         )}
-                        
-                        {req.files && req.files.length > 0 && (
+
+                        {req.files?.length ? (
                           <span className="flex items-center gap-1.5 text-emerald-600">
                             <Upload className="w-3.5 h-3.5" />
                             {req.files.length} {req.files.length === 1 ? 'răspuns' : 'răspunsuri'}
                           </span>
-                        )}
+                        ) : null}
 
                         {req.attachment_path && (
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              downloadFile(req.attachment_path!)
-                            }}
+                            onClick={(e) => { e.stopPropagation(); downloadAttachmentModel(req.id) }}
                             className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 transition-colors"
                           >
                             <Download className="w-3.5 h-3.5" />
@@ -515,47 +475,115 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
                       </div>
                     </div>
 
-                    {/* Arrow for clickable items */}
                     {isAdminOrConsultant && (
                       <ChevronRight className="w-5 h-5 text-slate-300 flex-shrink-0 hidden sm:block" />
                     )}
                   </div>
 
-                  {/* Client Upload Zone */}
                   {isClient && (req.status === 'pending' || req.status === 'rejected') && (
                     <div className="mt-4 pt-4 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
                       {uploadingFor === req.id ? (
-                        <div className="flex items-center gap-3 p-3 bg-indigo-50 rounded-xl border border-indigo-100">
-                          <Paperclip className="w-4 h-4 text-indigo-500 flex-shrink-0" />
-                          <span className="flex-1 text-sm text-indigo-700 truncate font-medium">{clientFile?.name}</span>
-                          <button
-                            onClick={() => handleClientUpload(req.id)}
-                            disabled={submitting}
-                            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-all"
-                          >
-                            {submitting ? 'Se încarcă...' : 'Încarcă'}
-                          </button>
-                          <button 
-                            onClick={() => { setClientFile(null); setUploadingFor(null) }}
-                            className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-white transition-all"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
+                        <div className="flex flex-col gap-3 p-3 bg-indigo-50 rounded-xl border border-indigo-100">
+                          <div className="flex items-center gap-2">
+                            <Paperclip className="w-4 h-4 text-indigo-500 flex-shrink-0" />
+                            <span className="flex-1 text-sm text-indigo-700 truncate font-medium">
+                              {clientFiles.length === 1 ? clientFiles[0].name : `${clientFiles.length} fișiere selectate`}
+                            </span>
+
+                            <button
+                              onClick={() => handleClientUpload(req.id)}
+                              disabled={submitting}
+                              className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-all"
+                            >
+                              {submitting ? 'Se încarcă...' : 'Încarcă'}
+                            </button>
+
+                            <button
+                              onClick={() => { setClientFiles([]); setUploadingFor(null) }}
+                              className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-white transition-all"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <label className="cursor-pointer block">
+                              <div className="flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-indigo-200 rounded-xl text-indigo-700 hover:bg-white transition-all">
+                                <Files className="w-4 h-4" />
+                                <span className="text-xs font-semibold">Schimbă fișiere</span>
+                              </div>
+                              <input type="file" multiple onChange={(e) => {
+                                  handleClientFilesPick(e.currentTarget.files, req.id)
+                                  e.currentTarget.value = '' // permite re-select
+                                }} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" />
+                            </label>
+
+                            {canUploadFolder ? (
+                              <label className="cursor-pointer block">
+                                <div className="flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-indigo-200 rounded-xl text-indigo-700 hover:bg-white transition-all">
+                                  <FolderUp className="w-4 h-4" />
+                                  <span className="text-xs font-semibold">Schimbă folder</span>
+                                </div>
+                                <input
+                                  type="file"
+                                  multiple
+                                  ref={(el) => {
+                                    if (!el) return
+                                    el.setAttribute('webkitdirectory', '')
+                                    el.setAttribute('directory', '')
+                                  }}
+                                  onChange={(e) => {
+                                    handleClientFilesPick(e.currentTarget.files, req.id)
+                                    e.currentTarget.value = '' // permite re-select
+                                  }}                                  
+                                  className="hidden"
+                                />
+                              </label>
+                            ) : (
+                              <div className="px-4 py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 flex items-center justify-center text-xs font-semibold">
+                                Folder upload indisponibil
+                              </div>
+                            )}
+                          </div>
                         </div>
                       ) : (
-                        <label className="cursor-pointer block">
-                          <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-slate-200 rounded-xl text-slate-500 hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-600 transition-all">
-                            <Upload className="w-4 h-4" />
-                            <span className="text-sm font-medium">
-                              {req.status === 'rejected' ? 'Reîncarcă documentul' : 'Încarcă răspuns'}
-                            </span>
-                          </div>
-                          <input type="file" onChange={(e) => handleClientFileChange(e, req.id)} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" />
-                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <label className="cursor-pointer block">
+                            <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-slate-200 rounded-xl text-slate-500 hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-600 transition-all">
+                              <Upload className="w-4 h-4" />
+                              <span className="text-sm font-medium">{req.status === 'rejected' ? 'Reîncarcă fișiere' : 'Încarcă fișiere'}</span>
+                            </div>
+                            <input type="file" multiple onChange={(e) => handleClientFilesPick(e.currentTarget.files, req.id)} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" />
+                          </label>
+
+                          {canUploadFolder ? (
+                            <label className="cursor-pointer block">
+                              <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-slate-200 rounded-xl text-slate-500 hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-600 transition-all">
+                                <FolderUp className="w-4 h-4" />
+                                <span className="text-sm font-medium">{req.status === 'rejected' ? 'Reîncarcă folder' : 'Încarcă folder'}</span>
+                              </div>
+                              <input
+                                type="file"
+                                multiple
+                                ref={(el) => {
+                                  if (!el) return
+                                  el.setAttribute('webkitdirectory', '')
+                                  el.setAttribute('directory', '')
+                                }}
+                                onChange={(e) => handleClientFilesPick(e.currentTarget.files, req.id)}
+                                className="hidden"
+                              />
+                            </label>
+                          ) : (
+                            <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-slate-200 rounded-xl text-slate-300">
+                              <FolderUp className="w-4 h-4" />
+                              <span className="text-sm font-medium">Folder indisponibil</span>
+                            </div>
+                          )}
+                        </div>
                       )}
-                      
-                      {/* Rejection reason */}
-                      {req.status === 'rejected' && req.files && req.files.length > 0 && req.files[req.files.length - 1]?.comments && (
+
+                      {req.status === 'rejected' && req.files?.length && req.files[req.files.length - 1]?.comments && (
                         <div className="mt-3 p-3 bg-red-50 border border-red-100 rounded-xl">
                           <div className="flex items-start gap-2">
                             <MessageSquare className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
@@ -569,7 +597,6 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
                     </div>
                   )}
 
-                  {/* Approved State for Client */}
                   {isClient && req.status === 'approved' && (
                     <div className="mt-4 pt-4 border-t border-slate-100">
                       <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-4 py-2.5 rounded-xl">
@@ -579,7 +606,6 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
                     </div>
                   )}
 
-                  {/* Review State for Client */}
                   {isClient && req.status === 'review' && (
                     <div className="mt-4 pt-4 border-t border-slate-100">
                       <div className="flex items-center gap-2 text-blue-600 bg-blue-50 px-4 py-2.5 rounded-xl">
@@ -588,6 +614,18 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
                       </div>
                     </div>
                   )}
+{/* 
+                  {isClient && req.files?.length ? (
+                    <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => downloadUploadedFileById(req.files![req.files!.length - 1].id)}
+                        className="text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1.5"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Descarcă ultimul fișier încărcat (test)
+                      </button>
+                    </div>
+                  ) : null} */}
                 </div>
               )
             })
@@ -595,11 +633,10 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      {/* MODAL pentru Admin/Consultant */}
       {selectedRequest && (
-        <DocumentModal 
+        <DocumentModal
           request={selectedRequest}
-          onClose={() => { setSelectedRequest(null); setNotes('') }}
+          onClose={() => setSelectedRequest(null)}
           onUpdate={fetchRequests}
         />
       )}
