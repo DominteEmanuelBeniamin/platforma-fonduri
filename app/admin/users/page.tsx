@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { UserPlus, Trash2, Users, Building2, Briefcase, Shield, Info } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 
 // Configurație pentru fiecare tip de rol
 // AM ADĂUGAT: btnBg și btnHover pentru a fi recunoscute de Tailwind
@@ -68,6 +69,11 @@ export default function AdminUsersPage() {
   const [departament, setDepartament] = useState('')
   
   const [isCreating, setIsCreating] = useState(false)
+
+  // State-uri pentru modal ștergere
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [userToDelete, setUserToDelete] = useState<{ id: string; email: string } | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const fetchUsers = async () => {
     try {
@@ -191,24 +197,32 @@ export default function AdminUsersPage() {
     alert('Rol actualizat cu succes!')
   }
 
-  const handleDeleteUser = async (userId: string, userEmail: string) => {
-    if (!confirm(`Ești sigur că vrei să ștergi utilizatorul "${userEmail}"?\n\nAceastă acțiune este PERMANENTĂ!`)) return
+  // Deschide modalul de ștergere
+  const openDeleteModal = (userId: string, userEmail: string) => {
+    setUserToDelete({ id: userId, email: userEmail })
+    setDeleteModalOpen(true)
+  }
+
+  // Confirmă ștergerea
+  const handleConfirmDelete = async () => {
+    if (!userToDelete) return
     
-    setLoading(true)
+    setIsDeleting(true)
     try {
-      const ctx = await apiFetch(`/api/users/${userId}`, {
+      const ctx = await apiFetch(`/api/users/${userToDelete.id}`, {
         method: 'DELETE',
       })
       if (!ctx.ok) {
         const err = await ctx.json()
         throw new Error(err.error)
       }
-      alert('Utilizator șters cu succes!')
+      setDeleteModalOpen(false)
+      setUserToDelete(null)
       fetchUsers()
     } catch (error: any) {
       alert('Eroare la ștergere: ' + error.message)
     } finally {
-      setLoading(false)
+      setIsDeleting(false)
     }
   }
 
@@ -240,6 +254,21 @@ export default function AdminUsersPage() {
   return (
     <div className="max-w-7xl mx-auto space-y-6 fade-in-up">
       
+      {/* MODAL ȘTERGERE */}
+      <ConfirmDeleteModal
+        isOpen={deleteModalOpen}
+        onClose={() => {
+          setDeleteModalOpen(false)
+          setUserToDelete(null)
+        }}
+        onConfirm={handleConfirmDelete}
+        title="Șterge utilizator"
+        description={`Ești sigur că vrei să ștergi utilizatorul "${userToDelete?.email}"? Această acțiune este permanentă și nu poate fi anulată.`}
+        confirmText="Șterge utilizator"
+        confirmWord="sterge"
+        loading={isDeleting}
+      />
+
       {/* HEADER */}
       <div className="flex items-center justify-between">
         <div>
@@ -641,7 +670,7 @@ export default function AdminUsersPage() {
                     )}
                   </div>
                   <button
-                    onClick={() => handleDeleteUser(user.id, user.email)}
+                    onClick={() => openDeleteModal(user.id, user.email)}
                     className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
                     title="Șterge utilizator"
                   >
