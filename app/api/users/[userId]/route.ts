@@ -1,7 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// app/api/users/[userId]/route.ts
 import { requireUserOrAdmin, requireAdmin, guardToResponse } from '../../_utils/auth'
 import { createSupabaseServiceClient } from '../../_utils/supabase'
+import { logUserAction, getClientIP, getUserAgent } from '../../_utils/audit' // ✅ IMPORT NOU
 import { NextResponse } from 'next/server'
-
 
 type PatchBody = Partial<{
   full_name: unknown
@@ -34,26 +36,28 @@ export async function PATCH(
       return NextResponse.json({ error: 'User ID lipsește din URL' }, { status: 400 })
     }
 
-    // Auth: user poate edita pe el, admin poate edita pe oricine
     const ctx = await requireUserOrAdmin(request, targetUserId)
     if(!ctx.ok) return guardToResponse(ctx)
     const admin = createSupabaseServiceClient()
 
+    const { data: oldProfile } = await admin
+      .from('profiles')
+      .select('email, role, full_name, telefon, cif, nume_firma, adresa_firma, departament, specializare')
+      .eq('id', targetUserId)
+      .single()
 
     const body = (await request.json().catch(() => null)) as PatchBody | null
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    // Refuzăm orice încercare de a modifica email-ul
     if (body.email !== undefined) {
       return NextResponse.json({ error: 'Email cannot be updated via this endpoint' }, { status: 400 })
     }
 
-    // Construim update doar cu câmpuri permise și valide
     const update: Record<string, any> = {}
 
-    // full_name (permis user + admin)
+    // full_name
     if (body.full_name !== undefined) {
       if (typeof body.full_name !== 'string' || body.full_name.trim().length === 0) {
         return NextResponse.json({ error: 'full_name must be a non-empty string' }, { status: 400 })
@@ -61,7 +65,7 @@ export async function PATCH(
       update.full_name = body.full_name.trim()
     }
 
-    // phone_number (permis user + admin) - acceptăm string sau null (ca să poți șterge)
+    // phone_number
     if (body.phone_number !== undefined) {
       if (!isStringOrNullOrUndef(body.phone_number)) {
         return NextResponse.json({ error: 'phone_number must be a string or null' }, { status: 400 })
@@ -69,11 +73,11 @@ export async function PATCH(
       if (typeof body.phone_number === 'string') {
         update.phone_number = normalizePhone(body.phone_number)
       } else {
-        update.phone_number = body.phone_number // null
+        update.phone_number = body.phone_number
       }
     }
 
-    // cif (permis user + admin) - acceptăm string sau null
+    // cif
     if (body.cif !== undefined) {
       if (!isStringOrNullOrUndef(body.cif)) {
         return NextResponse.json({ error: 'cif must be a string or null' }, { status: 400 })
@@ -81,7 +85,7 @@ export async function PATCH(
       if (typeof body.cif === 'string') {
         update.cif = normalizeCui(body.cif)
       } else {
-        update.cif = body.cif // null
+        update.cif = body.cif
       }
     }
 
@@ -103,7 +107,6 @@ export async function PATCH(
       update.role = role
     }
 
-    // Dacă nu avem nimic de updatat
     if (Object.keys(update).length === 0) {
       return NextResponse.json(
         { error: 'Nothing to update. Allowed fields: full_name, phone_number, cif, role (admin only).' },
@@ -122,6 +125,18 @@ export async function PATCH(
       return NextResponse.json({ error: error.message }, { status: 400 })
     }
 
+    await logUserAction({
+      adminId: ctx.user.id,
+      actionType: 'update',
+      userId: targetUserId,
+      userEmail: data.email,
+      oldValues: oldProfile || {},              
+      newValues: update,                       
+      description: `Actualizat utilizator ${data.email}: ${Object.keys(update).join(', ')}`,
+      ipAddress: getClientIP(request),
+      userAgent: getUserAgent(request)
+    })
+
     return NextResponse.json({ message: 'Profile updated', profile: data })
   } catch (e: any) {
     console.error('PATCH /api/users/[id] error:', e)
@@ -130,10 +145,11 @@ export async function PATCH(
 }
 
 
-export async function DELETE(  request: Request,
-  { params }: { params: Promise<{ userId: string }> }) {
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ userId: string }> }
+) {
   try {
-    // Auth: doar admin poate șterge utilizatori
     const ctx = await requireAdmin(request)
     if(!ctx.ok) return guardToResponse(ctx)
     const admin = createSupabaseServiceClient()
@@ -143,7 +159,13 @@ export async function DELETE(  request: Request,
       return NextResponse.json({ error: 'User ID lipsește' }, { status: 400 })
     }
 
-    // Ștergem toate proiectele create de user (dacă e client)
+    // ✅ 1. Citim datele utilizatorului ÎNAINTE de ștergere (pentru audit)
+    const { data: userToDelete } = await admin
+      .from('profiles')
+      .select('email, role, full_name, telefon, cif, nume_firma, adresa_firma, departament, specializare')
+      .eq('id', userId)
+      .single()
+
     const { error: projectsError } = await admin
       .from('projects')
       .delete()
@@ -151,7 +173,6 @@ export async function DELETE(  request: Request,
     
     if (projectsError) console.warn('Eroare la ștergere proiecte:', projectsError)
 
-    // 2. Ștergem din project_members (dacă e consultant)
     const { error: membersError } = await admin
       .from('project_members')
       .delete()
@@ -159,7 +180,6 @@ export async function DELETE(  request: Request,
     
     if (membersError) console.warn('Eroare la ștergere members:', membersError)
 
-    // 3. Ștergem cererile de documente create de user
     const { error: docsError } = await admin
       .from('document_requirements')
       .delete()
@@ -167,7 +187,6 @@ export async function DELETE(  request: Request,
     
     if (docsError) console.warn('Eroare la ștergere documente:', docsError)
 
-    // 4. Ștergem fișierele încărcate de user
     const { error: filesError } = await admin
       .from('files')
       .delete()
@@ -175,17 +194,28 @@ export async function DELETE(  request: Request,
     
     if (filesError) console.warn('Eroare la ștergere files:', filesError)
 
-    // 5. Acum ștergem utilizatorul din Auth (asta va șterge și din profiles)
     const { error: deleteError } = await admin.auth.admin.deleteUser(userId)
 
     if (deleteError) throw deleteError
 
+    if (userToDelete) {
+      await logUserAction({
+        adminId: ctx.user.id,
+        actionType: 'delete',
+        userId: userId,
+        userEmail: userToDelete.email,
+        oldValues: userToDelete,                  
+        newValues: null,                         
+        description: `Șters utilizator ${userToDelete.email} (${userToDelete.role})`,
+        ipAddress: getClientIP(request),
+        userAgent: getUserAgent(request)
+      })
+    }
+
     return NextResponse.json({ message: 'Utilizator șters cu succes!' })
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error('Eroare la ștergere user:', error)
     return NextResponse.json({ error: error.message }, { status: 400 })
   }
 }
-

@@ -1,15 +1,16 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// app/api/projects/route.ts
 import { NextResponse } from 'next/server'
 import { requireProfile, guardToResponse } from '../_utils/auth'
 import { createSupabaseServiceClient } from '../_utils/supabase'
+import { logUserAction, getClientIP, getUserAgent } from '../_utils/audit' // ✅ IMPORT NOU
 
 function isNonEmptyString(x: unknown): x is string {
   return typeof x === 'string' && x.trim().length > 0
 }
 
-
 export async function GET(request: Request) {
   try {
-    // 1) Auth + profile
     const ctx = await requireProfile(request)
     if (!ctx.ok) return guardToResponse(ctx)
 
@@ -18,7 +19,7 @@ export async function GET(request: Request) {
 
     const admin = createSupabaseServiceClient()
 
-    // 2) Admin: toate proiectele
+    // Admin: toate proiectele
     if (profile.role === 'admin') {
       const { data, error } = await admin
         .from('projects')
@@ -29,7 +30,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ projects: data ?? [] })
     }
 
-    // 3) Client: doar proiectele lui
+    // Client: doar proiectele lui
     if (profile.role === 'client') {
       const { data, error } = await admin
         .from('projects')
@@ -41,7 +42,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ projects: data ?? [] })
     }
 
-    // 4) Consultant: doar proiectele unde e membru
+    // Consultant: doar proiectele unde e membru
     if (profile.role === 'consultant') {
       const { data: memberships, error: memErr } = await admin
         .from('project_members')
@@ -77,14 +78,13 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    // 1) Auth + profile
     const ctx = await requireProfile(request)
     if (!ctx.ok) return guardToResponse(ctx)
 
     const { user, profile } = ctx
 
-    // 2) Doar admin (poți extinde și la consultant dacă vrei)
-    const allowed = new Set(['admin']) // ex: new Set(['admin', 'consultant'])
+    // Doar admin poate crea proiecte
+    const allowed = new Set(['admin'])
     if (!allowed.has(profile.role)) {
       return NextResponse.json(
         { error: 'Forbidden: only admin can create projects' },
@@ -92,7 +92,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // 3) Body
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
@@ -114,10 +113,10 @@ export async function POST(request: Request) {
 
     const admin = createSupabaseServiceClient()
 
-    // 4) Validăm că acel client există și are role=client
+    // Validăm că clientul există
     const { data: clientProfile, error: clientError } = await admin
       .from('profiles')
-      .select('id, role')
+      .select('id, role, email, full_name, cif')
       .eq('id', client_id)
       .maybeSingle()
 
@@ -135,14 +134,13 @@ export async function POST(request: Request) {
       )
     }
 
-    // 5) Inserăm proiectul
+    // Inserăm proiectul
     const { data: project, error: insertError } = await admin
       .from('projects')
       .insert({
         title: cleanTitle,
         client_id: client_id,
-        status: 'contractare',
-        // created_by: user.id  // dacă vrei să adaugi coloana în DB pe viitor
+        status: 'contractare'
       })
       .select('*, profiles(full_name, cif)')
       .single()
@@ -151,9 +149,67 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: insertError.message }, { status: 400 })
     }
 
+    // ✅ AUDIT LOG - Creare proiect
+    await logProjectAction({
+      adminId: user.id,
+      actionType: 'create',
+      projectId: project.id,
+      projectTitle: project.title,
+      oldValues: null,
+      newValues: {
+        title: project.title,
+        client_id: project.client_id,
+        client_email: clientProfile.email,
+        client_name: clientProfile.full_name,
+        status: project.status,
+        cod_intern: project.cod_intern
+      },
+      description: `Creat proiect "${project.title}" pentru client ${clientProfile.email}`,
+      ipAddress: getClientIP(request),
+      userAgent: getUserAgent(request)
+    })
+
     return NextResponse.json({ message: 'Project created', project }, { status: 201 })
   } catch (e: any) {
     console.error('POST /api/projects error:', e)
     return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+  }
+}
+
+// ✅ Helper function pentru audit proiecte (putem pune și în audit.ts)
+interface LogProjectActionParams {
+  adminId: string
+  actionType: 'create' | 'update' | 'delete'
+  projectId: string
+  projectTitle: string
+  oldValues?: Record<string, any> | null
+  newValues?: Record<string, any> | null
+  description: string
+  ipAddress: string
+  userAgent: string
+}
+
+async function logProjectAction(params: LogProjectActionParams) {
+  try {
+    const admin = createSupabaseServiceClient()
+    
+    const { error } = await admin.from('audit_logs').insert({
+      user_id: params.adminId,
+      action_type: params.actionType,
+      entity_type: 'project',
+      entity_id: params.projectId,
+      entity_name: params.projectTitle,
+      old_values: params.oldValues || null,
+      new_values: params.newValues || null,
+      description: params.description,
+      ip_address: params.ipAddress,
+      user_agent: params.userAgent
+    })
+
+    if (error) {
+      console.error('❌ Project audit log failed:', error)
+    }
+  } catch (e) {
+    console.error('❌ Project audit log exception:', e)
   }
 }
