@@ -23,7 +23,11 @@ import {
   FileX,
   FileQuestion,
   FolderUp,
-  Files
+  Files,
+  AlertCircle,
+  Loader2,
+  Image as ImageIcon,
+  File
 } from 'lucide-react'
 import DocumentModal from './DocumentModal'
 import { useAuth } from '@/app/providers/AuthProvider'
@@ -48,22 +52,110 @@ interface DocumentRequest {
   }[]
 }
 
+type ValidationError = {
+  type: 'size' | 'type' | 'duplicate'
+  message: string
+}
+
 type PickedFile = {
+  id: string // unique id for tracking
   file: File
   name: string
   size: number
   type: string
   relativePath: string | null
+  validationError?: ValidationError
+  uploadProgress?: number // 0-100
+  uploadStatus?: 'pending' | 'uploading' | 'success' | 'error'
+  uploadError?: string
 }
 
-function fileMetaFromFileList(fileList: FileList): PickedFile[] {
-  return Array.from(fileList).map((f) => ({
-    file: f,
-    name: f.name,
-    size: f.size,
-    type: f.type || 'application/octet-stream',
-    relativePath: (f as any).webkitRelativePath || null,
-  }))
+// Validare constante
+const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB
+const ALLOWED_TYPES = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/gif',
+  'image/webp'
+]
+
+const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.jpg', '.jpeg', '.png', '.gif', '.webp']
+
+// Helper functions
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
+}
+
+function getFileExtension(filename: string): string {
+  return filename.slice(((filename.lastIndexOf('.') - 1) >>> 0) + 1).toLowerCase()
+}
+
+function validateFile(file: File, existingFiles: PickedFile[]): ValidationError | null {
+  // Check size
+  if (file.size > MAX_FILE_SIZE) {
+    return {
+      type: 'size',
+      message: `Fișierul depășește ${formatFileSize(MAX_FILE_SIZE)}`
+    }
+  }
+
+  // Check type
+  const ext = `.${getFileExtension(file.name)}`
+  const isValidType = ALLOWED_TYPES.includes(file.type) || ALLOWED_EXTENSIONS.includes(ext)
+  
+  if (!isValidType) {
+    return {
+      type: 'type',
+      message: 'Tip de fișier nepermis'
+    }
+  }
+
+  // Check duplicates
+  const isDuplicate = existingFiles.some(f => f.name === file.name && f.size === file.size)
+  if (isDuplicate) {
+    return {
+      type: 'duplicate',
+      message: 'Fișier duplicat'
+    }
+  }
+
+  return null
+}
+
+function getFileIcon(file: PickedFile): JSX.Element {
+  const ext = getFileExtension(file.name)
+  
+  if (file.type.startsWith('image/')) {
+    return <ImageIcon className="w-5 h-5" />
+  }
+  
+  if (ext === 'pdf' || file.type === 'application/pdf') {
+    return <FileText className="w-5 h-5" />
+  }
+  
+  if (['xls', 'xlsx'].includes(ext) || file.type.includes('spreadsheet')) {
+    return <FileSpreadsheet className="w-5 h-5" />
+  }
+  
+  if (['doc', 'docx'].includes(ext) || file.type.includes('document')) {
+    return <FileText className="w-5 h-5" />
+  }
+  
+  return <File className="w-5 h-5" />
+}
+
+function isImageFile(file: PickedFile): boolean {
+  return file.type.startsWith('image/')
 }
 
 export default function DocumentRequests({ projectId }: { projectId: string }) {
@@ -92,9 +184,10 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
   const [deadline, setDeadline] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  // Client upload state
+  // Client upload state - IMPROVED
   const [uploadingFor, setUploadingFor] = useState<string | null>(null)
   const [clientFiles, setClientFiles] = useState<PickedFile[]>([])
+  const [showFilePreview, setShowFilePreview] = useState(false)
 
   const canUploadFolder =
     typeof window !== 'undefined' &&
@@ -104,6 +197,61 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
   const isClient = profile?.role === 'client'
+
+  // Computed stats pentru fișiere selectate
+  const fileStats = useMemo(() => {
+    const total = clientFiles.length
+    const valid = clientFiles.filter(f => !f.validationError).length
+    const invalid = total - valid
+    const totalSize = clientFiles.reduce((sum, f) => sum + f.size, 0)
+    const uploading = clientFiles.filter(f => f.uploadStatus === 'uploading').length
+    const success = clientFiles.filter(f => f.uploadStatus === 'success').length
+    const error = clientFiles.filter(f => f.uploadStatus === 'error').length
+    
+    return { total, valid, invalid, totalSize, uploading, success, error }
+  }, [clientFiles])
+
+  // Procesare fișiere cu validare
+  const processFiles = (fileList: FileList | null, requestId: string) => {
+    if (!fileList || fileList.length === 0) return
+
+    const newFiles: PickedFile[] = Array.from(fileList).map((file) => {
+      const picked: PickedFile = {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        file,
+        name: file.name,
+        size: file.size,
+        type: file.type || 'application/octet-stream',
+        relativePath: (file as any).webkitRelativePath || null,
+        uploadStatus: 'pending',
+        uploadProgress: 0
+      }
+
+      // Validare
+      const error = validateFile(file, clientFiles)
+      if (error) {
+        picked.validationError = error
+      }
+
+      return picked
+    })
+
+    setClientFiles(prev => [...prev, ...newFiles])
+    setUploadingFor(requestId)
+    setShowFilePreview(true)
+  }
+
+  // Eliminare fișier individual
+  const removeFile = (fileId: string) => {
+    setClientFiles(prev => prev.filter(f => f.id !== fileId))
+  }
+
+  // Clear all files
+  const clearAllFiles = () => {
+    setClientFiles([])
+    setUploadingFor(null)
+    setShowFilePreview(false)
+  }
 
   const forceDownload = (url: string) => {
     const a = document.createElement('a')
@@ -142,18 +290,20 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
     if (e.target.files?.[0]) setTemplateFile(e.target.files[0])
   }
 
-  const handleClientFilesPick = (files: FileList | null, requestId: string) => {
-    if (!files || files.length === 0) return
-    setClientFiles(fileMetaFromFileList(files))
-    setUploadingFor(requestId)
-  }
+  // Upload improved cu progress tracking și error handling granular
+  const uploadFilesToRequest = async (requestId: string, filesToUpload: PickedFile[]) => {
+    // Doar fișierele valide
+    const validFiles = filesToUpload.filter(f => !f.validationError)
+    
+    if (validFiles.length === 0) {
+      throw new Error('Niciun fișier valid de încărcat')
+    }
 
-  // Upload helper (init -> PUT -> complete)
-  const uploadFilesToRequest = async (requestId: string, picked: PickedFile[]) => {
+    // 1. Init upload
     const initRes = await apiFetch(`/api/document-requests/${requestId}/uploads/init`, {
       method: 'POST',
       body: JSON.stringify({
-        files: picked.map((p) => ({
+        files: validFiles.map((p) => ({
           name: p.name,
           size: p.size,
           type: p.type,
@@ -164,46 +314,123 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
     const init = await initRes.json().catch(() => ({}))
     if (!initRes.ok) throw new Error(init?.error || 'Init upload failed')
 
-    await Promise.all(
+    // 2. Upload fișiere INDIVIDUAL cu progress tracking
+    const uploadResults = await Promise.allSettled(
       init.uploads.map(async (u: any) => {
-        const p = picked[u.clientFileId]
-        const res = await fetch(u.signedUploadUrl, {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${u.token}`,
-            'Content-Type': p.type,
-          },
-          body: p.file,
-        })
-        if (!res.ok) throw new Error(`Upload failed: ${p.name}`)
+        const pickedFile = validFiles[u.clientFileId]
+        
+        // Update status: uploading
+        setClientFiles(prev => 
+          prev.map(f => 
+            f.id === pickedFile.id 
+              ? { ...f, uploadStatus: 'uploading' as const, uploadProgress: 0 }
+              : f
+          )
+        )
+
+        try {
+          const res = await fetch(u.signedUploadUrl, {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${u.token}`,
+              'Content-Type': pickedFile.type,
+            },
+            body: pickedFile.file,
+          })
+
+          if (!res.ok) {
+            throw new Error(`Upload failed: ${res.statusText}`)
+          }
+
+          // Success
+          setClientFiles(prev => 
+            prev.map(f => 
+              f.id === pickedFile.id 
+                ? { ...f, uploadStatus: 'success' as const, uploadProgress: 100 }
+                : f
+            )
+          )
+
+          return { success: true, upload: u, file: pickedFile }
+        } catch (error: any) {
+          // Error
+          setClientFiles(prev => 
+            prev.map(f => 
+              f.id === pickedFile.id 
+                ? { ...f, uploadStatus: 'error' as const, uploadError: error.message }
+                : f
+            )
+          )
+
+          return { success: false, upload: u, file: pickedFile, error: error.message }
+        }
       })
     )
 
+    // 3. Verificăm rezultatele
+    const successful = uploadResults
+      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value.success)
+      .map(r => r.value)
+
+    const failed = uploadResults
+      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && !r.value.success)
+      .map(r => r.value)
+
+    if (successful.length === 0) {
+      throw new Error('Toate fișierele au eșuat la încărcare')
+    }
+
+    // 4. Complete doar cu fișierele reușite
     const completeRes = await apiFetch(`/api/document-requests/${requestId}/uploads/complete`, {
       method: 'POST',
       body: JSON.stringify({
         batchId: init.batchId,
         versionNumber: init.versionNumber,
-        uploaded: init.uploads.map((u: any) => ({
-          storagePath: u.storagePath,
-          originalName: picked[u.clientFileId].name,
-          relativePath: picked[u.clientFileId].relativePath,
+        uploaded: successful.map((s: any) => ({
+          storagePath: s.upload.storagePath,
+          originalName: s.file.name,
+          relativePath: s.file.relativePath,
         })),
       }),
     })
     const complete = await completeRes.json().catch(() => ({}))
     if (!completeRes.ok) throw new Error(complete?.error || 'Complete upload failed')
+
+    return {
+      total: uploadResults.length,
+      successful: successful.length,
+      failed: failed.length,
+      failures: failed.map((f: any) => ({ name: f.file.name, error: f.error }))
+    }
   }
 
   const handleClientUpload = async (requestId: string) => {
-    if (!clientFiles.length) return
+    const validFiles = clientFiles.filter(f => !f.validationError)
+    
+    if (validFiles.length === 0) {
+      alert('Niciun fișier valid de încărcat. Verifică erorile de validare.')
+      return
+    }
+
     setSubmitting(true)
     try {
-      await uploadFilesToRequest(requestId, clientFiles)
-      setClientFiles([])
-      setUploadingFor(null)
+      const result = await uploadFilesToRequest(requestId, clientFiles)
+      
+      // Success message
+      if (result.failed === 0) {
+        alert(`✓ Toate ${result.successful} fișiere încărcate cu succes!`)
+      } else {
+        alert(
+          `Parțial reușit:\n` +
+          `✓ ${result.successful} fișiere încărcate\n` +
+          `✗ ${result.failed} fișiere eșuate\n\n` +
+          `Erori:\n${result.failures.map((f: any) => `- ${f.name}: ${f.error}`).join('\n')}`
+        )
+      }
+
+      // Clear și refresh
+      clearAllFiles()
       await fetchRequests()
-      alert('Document(e) încărcat(e) cu succes!')
     } catch (e: any) {
       alert('Eroare la încărcare: ' + e.message)
     } finally {
@@ -482,78 +709,246 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
 
                   {isClient && (req.status === 'pending' || req.status === 'rejected') && (
                     <div className="mt-4 pt-4 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
-                      {uploadingFor === req.id ? (
-                        <div className="flex flex-col gap-3 p-3 bg-indigo-50 rounded-xl border border-indigo-100">
-                          <div className="flex items-center gap-2">
-                            <Paperclip className="w-4 h-4 text-indigo-500 flex-shrink-0" />
-                            <span className="flex-1 text-sm text-indigo-700 truncate font-medium">
-                              {clientFiles.length === 1 ? clientFiles[0].name : `${clientFiles.length} fișiere selectate`}
-                            </span>
+                      {uploadingFor === req.id && showFilePreview && clientFiles.length > 0 ? (
+                        // PREVIEW ȘI GESTIONARE FIȘIERE
+                        <div className="space-y-3">
+                          {/* Header cu statistici */}
+                          <div className="flex items-center justify-between p-3 bg-indigo-50 rounded-xl border border-indigo-100">
+                            <div className="flex items-center gap-3">
+                              <Files className="w-5 h-5 text-indigo-600" />
+                              <div>
+                                <p className="text-sm font-bold text-indigo-900">
+                                  {fileStats.total} {fileStats.total === 1 ? 'fișier' : 'fișiere'} selectat{fileStats.total !== 1 ? 'e' : ''}
+                                </p>
+                                <p className="text-xs text-indigo-600">
+                                  {fileStats.valid} valid{fileStats.valid !== 1 ? 'e' : ''} • {formatFileSize(fileStats.totalSize)}
+                                  {fileStats.invalid > 0 && ` • ${fileStats.invalid} erori`}
+                                </p>
+                              </div>
+                            </div>
 
                             <button
-                              onClick={() => handleClientUpload(req.id)}
+                              onClick={clearAllFiles}
                               disabled={submitting}
-                              className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-all"
+                              className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-white transition-all disabled:opacity-50"
+                              title="Anulează tot"
                             >
-                              {submitting ? 'Se încarcă...' : 'Încarcă'}
-                            </button>
-
-                            <button
-                              onClick={() => { setClientFiles([]); setUploadingFor(null) }}
-                              className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-white transition-all"
-                            >
-                              <X className="w-4 h-4" />
+                              <X className="w-5 h-5" />
                             </button>
                           </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <label className="cursor-pointer block">
-                              <div className="flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-indigo-200 rounded-xl text-indigo-700 hover:bg-white transition-all">
-                                <Files className="w-4 h-4" />
-                                <span className="text-xs font-semibold">Schimbă fișiere</span>
-                              </div>
-                              <input type="file" multiple onChange={(e) => {
-                                  handleClientFilesPick(e.currentTarget.files, req.id)
-                                  e.currentTarget.value = '' // permite re-select
-                                }} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" />
-                            </label>
+                          {/* Lista fișiere cu scroll */}
+                          <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
+                            {clientFiles.map((pickedFile) => {
+                              const hasError = !!pickedFile.validationError
+                              const isUploading = pickedFile.uploadStatus === 'uploading'
+                              const isSuccess = pickedFile.uploadStatus === 'success'
+                              const isError = pickedFile.uploadStatus === 'error'
+                              const isPending = pickedFile.uploadStatus === 'pending'
 
-                            {canUploadFolder ? (
-                              <label className="cursor-pointer block">
-                                <div className="flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-indigo-200 rounded-xl text-indigo-700 hover:bg-white transition-all">
-                                  <FolderUp className="w-4 h-4" />
-                                  <span className="text-xs font-semibold">Schimbă folder</span>
+                              return (
+                                <div
+                                  key={pickedFile.id}
+                                  className={`p-3 rounded-xl border transition-all ${
+                                    hasError
+                                      ? 'bg-red-50 border-red-200'
+                                      : isSuccess
+                                      ? 'bg-emerald-50 border-emerald-200'
+                                      : isError
+                                      ? 'bg-red-50 border-red-200'
+                                      : isUploading
+                                      ? 'bg-blue-50 border-blue-200'
+                                      : 'bg-white border-slate-200'
+                                  }`}
+                                >
+                                  <div className="flex items-start gap-3">
+                                    {/* Icon */}
+                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                                      hasError
+                                        ? 'bg-red-100 text-red-600'
+                                        : isSuccess
+                                        ? 'bg-emerald-100 text-emerald-600'
+                                        : isError
+                                        ? 'bg-red-100 text-red-600'
+                                        : isUploading
+                                        ? 'bg-blue-100 text-blue-600'
+                                        : 'bg-slate-100 text-slate-600'
+                                    }`}>
+                                      {isUploading ? (
+                                        <Loader2 className="w-5 h-5 animate-spin" />
+                                      ) : isSuccess ? (
+                                        <CheckCircle2 className="w-5 h-5" />
+                                      ) : (isError || hasError) ? (
+                                        <AlertCircle className="w-5 h-5" />
+                                      ) : (
+                                        getFileIcon(pickedFile)
+                                      )}
+                                    </div>
+
+                                    {/* Info */}
+                                    <div className="flex-1 min-w-0">
+                                      <p className={`text-sm font-medium truncate ${
+                                        hasError || isError ? 'text-red-900' : isSuccess ? 'text-emerald-900' : 'text-slate-900'
+                                      }`}>
+                                        {pickedFile.name}
+                                      </p>
+                                      <p className="text-xs text-slate-500 mt-0.5">
+                                        {formatFileSize(pickedFile.size)}
+                                        {pickedFile.relativePath && ` • ${pickedFile.relativePath}`}
+                                      </p>
+
+                                      {/* Validation Error */}
+                                      {hasError && (
+                                        <p className="text-xs text-red-600 font-medium mt-1 flex items-center gap-1">
+                                          <AlertCircle className="w-3 h-3" />
+                                          {pickedFile.validationError?.message}
+                                        </p>
+                                      )}
+
+                                      {/* Upload Error */}
+                                      {isError && pickedFile.uploadError && (
+                                        <p className="text-xs text-red-600 font-medium mt-1 flex items-center gap-1">
+                                          <AlertCircle className="w-3 h-3" />
+                                          {pickedFile.uploadError}
+                                        </p>
+                                      )}
+
+                                      {/* Success Message */}
+                                      {isSuccess && (
+                                        <p className="text-xs text-emerald-600 font-medium mt-1 flex items-center gap-1">
+                                          <CheckCircle2 className="w-3 h-3" />
+                                          Încărcat cu succes
+                                        </p>
+                                      )}
+
+                                      {/* Progress Bar */}
+                                      {isUploading && (
+                                        <div className="mt-2">
+                                          <div className="h-1.5 bg-blue-100 rounded-full overflow-hidden">
+                                            <div
+                                              className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                                              style={{ width: `${pickedFile.uploadProgress || 0}%` }}
+                                            />
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* Remove button (doar pentru pending/error) */}
+                                    {(isPending || hasError) && !submitting && (
+                                      <button
+                                        onClick={() => removeFile(pickedFile.id)}
+                                        className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-white transition-all flex-shrink-0"
+                                        title="Elimină"
+                                      >
+                                        <X className="w-4 h-4" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                            {/* Add more files */}
+                            <div className="flex gap-2 flex-1">
+                              <label className="flex-1 cursor-pointer">
+                                <div className="flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-slate-600 hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-600 transition-all">
+                                  <Plus className="w-4 h-4" />
+                                  <span className="text-sm font-medium">Adaugă mai multe</span>
                                 </div>
                                 <input
                                   type="file"
                                   multiple
-                                  ref={(el) => {
-                                    if (!el) return
-                                    el.setAttribute('webkitdirectory', '')
-                                    el.setAttribute('directory', '')
-                                  }}
                                   onChange={(e) => {
-                                    handleClientFilesPick(e.currentTarget.files, req.id)
-                                    e.currentTarget.value = '' // permite re-select
-                                  }}                                  
+                                    processFiles(e.currentTarget.files, req.id)
+                                    e.currentTarget.value = ''
+                                  }}
+                                  disabled={submitting}
                                   className="hidden"
+                                  accept={ALLOWED_EXTENSIONS.join(',')}
                                 />
                               </label>
-                            ) : (
-                              <div className="px-4 py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 flex items-center justify-center text-xs font-semibold">
-                                Folder upload indisponibil
-                              </div>
-                            )}
+
+                              {canUploadFolder && (
+                                <label className="flex-1 cursor-pointer">
+                                  <div className="flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-slate-600 hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-600 transition-all">
+                                    <FolderUp className="w-4 h-4" />
+                                    <span className="text-sm font-medium hidden sm:inline">Folder</span>
+                                  </div>
+                                  <input
+                                    type="file"
+                                    multiple
+                                    ref={(el) => {
+                                      if (!el) return
+                                      el.setAttribute('webkitdirectory', '')
+                                      el.setAttribute('directory', '')
+                                    }}
+                                    onChange={(e) => {
+                                      processFiles(e.currentTarget.files, req.id)
+                                      e.currentTarget.value = ''
+                                    }}
+                                    disabled={submitting}
+                                    className="hidden"
+                                  />
+                                </label>
+                              )}
+                            </div>
+
+                            {/* Upload button */}
+                            <button
+                              onClick={() => handleClientUpload(req.id)}
+                              disabled={submitting || fileStats.valid === 0 || fileStats.uploading > 0}
+                              className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 whitespace-nowrap"
+                            >
+                              {submitting ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                  Se încarcă...
+                                </>
+                              ) : (
+                                <>
+                                  <Upload className="w-4 h-4" />
+                                  Încarcă {fileStats.valid > 0 ? `(${fileStats.valid})` : ''}
+                                </>
+                              )}
+                            </button>
                           </div>
+
+                          {/* Warnings pentru validări */}
+                          {fileStats.invalid > 0 && (
+                            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                              <div className="flex items-start gap-2">
+                                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                                <div>
+                                  <p className="text-xs font-bold text-amber-900">
+                                    {fileStats.invalid} {fileStats.invalid === 1 ? 'fișier are' : 'fișiere au'} erori de validare
+                                  </p>
+                                  <p className="text-xs text-amber-700 mt-1">
+                                    Doar fișierele valide vor fi încărcate. Elimină sau înlocuiește fișierele cu erori.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ) : (
+                        // SELECTARE INIȚIALĂ
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           <label className="cursor-pointer block">
                             <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-slate-200 rounded-xl text-slate-500 hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-600 transition-all">
                               <Upload className="w-4 h-4" />
                               <span className="text-sm font-medium">{req.status === 'rejected' ? 'Reîncarcă fișiere' : 'Încarcă fișiere'}</span>
                             </div>
-                            <input type="file" multiple onChange={(e) => handleClientFilesPick(e.currentTarget.files, req.id)} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" />
+                            <input
+                              type="file"
+                              multiple
+                              onChange={(e) => processFiles(e.currentTarget.files, req.id)}
+                              className="hidden"
+                              accept={ALLOWED_EXTENSIONS.join(',')}
+                            />
                           </label>
 
                           {canUploadFolder ? (
@@ -570,14 +965,14 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
                                   el.setAttribute('webkitdirectory', '')
                                   el.setAttribute('directory', '')
                                 }}
-                                onChange={(e) => handleClientFilesPick(e.currentTarget.files, req.id)}
+                                onChange={(e) => processFiles(e.currentTarget.files, req.id)}
                                 className="hidden"
                               />
                             </label>
                           ) : (
                             <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-slate-200 rounded-xl text-slate-300">
                               <FolderUp className="w-4 h-4" />
-                              <span className="text-sm font-medium">Folder indisponibil</span>
+                              <span className="text-sm font-medium">Folder indisponibil pe mobil</span>
                             </div>
                           )}
                         </div>
