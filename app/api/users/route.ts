@@ -1,69 +1,117 @@
-// import { createClient } from '@supabase/supabase-js'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// app/api/users/route.ts
 import { NextResponse } from 'next/server'
 import { requireAdmin, guardToResponse } from '../_utils/auth'
 import { createSupabaseServiceClient } from '../_utils/supabase'
 
-
 export async function POST(request: Request) {
   try {
-
     const ctx = await requireAdmin(request)
     if (!ctx.ok) return guardToResponse(ctx)
 
     const body = await request.json()
-    const { email, password, role, fullName } = body
+    const { 
+      email, 
+      password, 
+      role, 
+      fullName, 
+      telefon, 
+      cif, 
+      numeFirma, 
+      adresaFirma, 
+      persoanaContact, 
+      specializare, 
+      departament 
+    } = body
 
     const admin = createSupabaseServiceClient()
+    
     const { data: authData, error: authError } = await admin.auth.admin.createUser({
       email: email,
       password: password,
-      email_confirm: true // Îl validăm direct, să nu stea să dea click pe mailuri
+      email_confirm: true
     })
 
     if (authError) throw authError
 
     if (authData.user) {
-      // 2. Îi punem Rolul și Numele în tabelul Profiles
+      const profileUpdate: any = {
+        role: role,
+        full_name: fullName,
+        telefon: telefon || null
+      }
+
+      if (role === 'client') {
+        profileUpdate.cif = cif || null
+        profileUpdate.nume_firma = numeFirma || null
+        profileUpdate.adresa_firma = adresaFirma || null
+        profileUpdate.persoana_contact = persoanaContact || null
+      } else if (role === 'consultant') {
+        profileUpdate.specializare = specializare || null
+        profileUpdate.departament = departament || null
+      } else if (role === 'admin') {
+        profileUpdate.departament = departament || null
+      }
+
       const { error: profileError } = await admin
         .from('profiles')
-        .update({ role: role, full_name: fullName })
+        .update(profileUpdate)
         .eq('id', authData.user.id)
 
       if (profileError) throw profileError
 
-      // 3. Adăugăm log în audit
+      // ✅ AUDIT LOG - Creare utilizator (VERSIUNE ÎMBUNĂTĂȚITĂ)
       const ipAddress = request.headers.get('x-forwarded-for') || 
                         request.headers.get('x-real-ip') || 
                         null
+      
+      const userAgent = request.headers.get('user-agent') || null
+
+      // Construim new_values cu toate câmpurile completate
+      const auditData: Record<string, any> = {
+        email,
+        role,
+        full_name: fullName,
+        telefon: telefon || null
+      }
+
+      if (role === 'client') {
+        auditData.cif = cif || null
+        auditData.nume_firma = numeFirma || null
+        auditData.adresa_firma = adresaFirma || null
+        auditData.persoana_contact = persoanaContact || null
+      } else if (role === 'consultant') {
+        auditData.specializare = specializare || null
+        auditData.departament = departament || null
+      } else if (role === 'admin') {
+        auditData.departament = departament || null
+      }
 
       await admin
         .from('audit_logs')
         .insert({
-          user_id: ctx.profile.id, // Admin-ul care a creat utilizatorul
+          user_id: ctx.profile.id,
           action_type: 'create',
           entity_type: 'user',
           entity_id: authData.user.id,
           entity_name: email,
-          new_values: { 
-            role, 
-            full_name: fullName, 
-            email 
-          },
-          description: `Admin ${ctx.profile.email} a creat utilizatorul ${email} cu rolul ${role}`,
-          ip_address: ipAddress
+          old_values: null,
+          new_values: auditData,
+          description: `${ctx.profile.email || 'Admin'} a creat utilizatorul ${email} cu rolul ${role}`,
+          ip_address: ipAddress,
+          user_agent: userAgent
         })
     }
 
     return NextResponse.json({ message: 'User creat cu succes!' })
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 400 })
   }
 }
+
 export async function GET(request: Request){
   try {
-
     const ctx = await requireAdmin(request)
     if (!ctx.ok) return guardToResponse(ctx)
 
@@ -77,7 +125,6 @@ export async function GET(request: Request){
 
     return NextResponse.json({ users: data })
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 400 })
   }
