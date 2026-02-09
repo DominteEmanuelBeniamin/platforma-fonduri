@@ -47,12 +47,28 @@ export async function POST(request: Request,
       .eq('id', requestId)
       .single()
 
-    if (reqErr || !reqRow) {
+    if (reqErr) {
+      console.error('Failed to load document requirement:', reqErr)
+      return NextResponse.json({ error: 'Document request not found: ' + reqErr.message }, { status: 404 })
+    }
+    
+    if (!reqRow) {
+      console.error('Document requirement not found for requestId:', requestId)
       return NextResponse.json({ error: 'Document request not found' }, { status: 404 })
     }
 
+    if (!reqRow.project_id) {
+      console.error('Document requirement has no project_id:', reqRow)
+      return NextResponse.json({ error: 'Document request is not linked to a project' }, { status: 500 })
+    }
+    
     const access = await requireProjectAccess(request, reqRow.project_id)
-    if (!access.ok) return guardToResponse(access)
+    if (!access.ok) {
+      console.error('Project access denied:', access.error, 'project_id:', reqRow.project_id)
+      return guardToResponse(access)
+    }
+
+    console.log('Project access granted for user:', access.user.id, 'project:', reqRow.project_id)
 
     // Insert files (schema-aligned)
     const rows = uploaded.map((u: any) => ({
@@ -82,9 +98,35 @@ export async function POST(request: Request,
       return NextResponse.json({ error: updErr.message }, { status: 400 })
     }
 
+    // Audit log pentru upload documente
+    const ipAddress = request.headers.get('x-forwarded-for') || 
+                      request.headers.get('x-real-ip') || 
+                      null
+
+    const fileNames = (uploaded as any[]).map(u => u.originalName).join(', ')
+
+    await admin
+      .from('audit_logs')
+      .insert({
+        user_id: access.user.id,
+        action_type: 'create',
+        entity_type: 'file',
+        entity_id: requestId,
+        entity_name: `${uploaded.length} fișier(e)`,
+        new_values: {
+          requirement_id: requestId,
+          file_count: uploaded.length,
+          version: versionNumber,
+          files: fileNames
+        },
+        description: `${access.profile.email || 'User'} a încărcat ${uploaded.length} fișier(e) pentru cererea ${requestId}`,
+        ip_address: ipAddress
+      })
+
     return NextResponse.json({ ok: true })
-  } catch (e: any) {
-    console.error('POST uploads/complete error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+  } catch (e: unknown) {
+    const error = e as Error
+    console.error('POST uploads/complete error:', error)
+    return NextResponse.json({ error: error?.message ?? 'Server error' }, { status: 500 })
   }
 }

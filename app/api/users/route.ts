@@ -30,6 +30,28 @@ export async function POST(request: Request) {
         .eq('id', authData.user.id)
 
       if (profileError) throw profileError
+
+      // 3. Adăugăm log în audit
+      const ipAddress = request.headers.get('x-forwarded-for') || 
+                        request.headers.get('x-real-ip') || 
+                        null
+
+      await admin
+        .from('audit_logs')
+        .insert({
+          user_id: ctx.profile.id, // Admin-ul care a creat utilizatorul
+          action_type: 'create',
+          entity_type: 'user',
+          entity_id: authData.user.id,
+          entity_name: email,
+          new_values: { 
+            role, 
+            full_name: fullName, 
+            email 
+          },
+          description: `Admin ${ctx.profile.email} a creat utilizatorul ${email} cu rolul ${role}`,
+          ip_address: ipAddress
+        })
     }
 
     return NextResponse.json({ message: 'User creat cu succes!' })

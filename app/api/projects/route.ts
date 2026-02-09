@@ -69,9 +69,10 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  } catch (e: any) {
-    console.error('GET /api/projects error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+  } catch (e: unknown) {
+    const error = e as Error
+    console.error('GET /api/projects error:', error)
+    return NextResponse.json({ error: error?.message ?? 'Server error' }, { status: 500 })
   }
 }
 
@@ -151,9 +152,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: insertError.message }, { status: 400 })
     }
 
+    // 6) Adăugăm log în audit
+    const ipAddress = request.headers.get('x-forwarded-for') || 
+                      request.headers.get('x-real-ip') || 
+                      null
+
+    await admin
+      .from('audit_logs')
+      .insert({
+        user_id: user.id, // Admin-ul care a creat proiectul
+        action_type: 'create',
+        entity_type: 'project',
+        entity_id: project.id,
+        entity_name: cleanTitle,
+        new_values: { 
+          title: cleanTitle, 
+          client_id, 
+          status: 'contractare'
+        },
+        description: `${profile.email} a creat proiectul "${cleanTitle}"`,
+        ip_address: ipAddress
+      })
+
     return NextResponse.json({ message: 'Project created', project }, { status: 201 })
-  } catch (e: any) {
-    console.error('POST /api/projects error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+  } catch (e: unknown) {
+    const error = e as Error
+    console.error('POST /api/projects error:', error)
+    return NextResponse.json({ error: error?.message ?? 'Server error' }, { status: 500 })
   }
 }
