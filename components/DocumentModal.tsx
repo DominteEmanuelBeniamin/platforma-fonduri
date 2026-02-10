@@ -1,10 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   FileText,
   Download,
+  FolderDown,
   CheckCircle2,
   XCircle,
   Clock,
@@ -140,6 +141,113 @@ export default function DocumentModal({
     a.click()
     a.remove()
   }
+
+    const getFileName = (storagePath: string) => {
+    try {
+      const parts = storagePath.split('/').filter(Boolean)
+      return parts[parts.length - 1] || storagePath
+    } catch {
+      return storagePath
+    }
+  }
+
+  // Group uploaded files by version_number (folder uploads can create multiple files for the same version)
+  type DocFile = NonNullable<DocumentRequest['files']>[number]
+
+  const groupedVersions = useMemo(() => {
+    const files: DocFile[] = (request.files ?? []) as DocFile[]
+
+    const map = new Map<number, DocFile[]>()
+
+    for (const f of files) {
+      const current = map.get(f.version_number) ?? []
+      current.push(f)
+      map.set(f.version_number, current)
+    }
+
+    return Array.from(map.entries())
+      .map(([version, items]) => {
+        const sortedItems = [...items].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )
+        return {
+          version,
+          files: sortedItems,
+          createdAt: sortedItems[0]?.created_at
+        }
+      })
+      .sort((a, b) => b.version - a.version)
+  }, [request.files])
+
+
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
+  const [versionDropdownOpen, setVersionDropdownOpen] = useState(false)
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
+  const versionWrapRef = useRef<HTMLDivElement | null>(null)
+  const downloadWrapRef = useRef<HTMLDivElement | null>(null)
+
+
+  useEffect(() => {
+    // reset when request changes / files refresh
+    const next = groupedVersions[0]?.version ?? null
+    setSelectedVersion(next)
+    setVersionDropdownOpen(false)
+    setDownloadMenuOpen(false)
+  }, [request.id, groupedVersions])
+
+  useEffect(() => {
+    if (!versionDropdownOpen && !downloadMenuOpen) return
+  
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node | null
+  
+      const inVersion = !!(target && versionWrapRef.current?.contains(target))
+      const inDownload = !!(target && downloadWrapRef.current?.contains(target))
+  
+      // click în interior => NU închide
+      if (inVersion || inDownload) return
+  
+      // click în afară => închide
+      setVersionDropdownOpen(false)
+      setDownloadMenuOpen(false)
+    }
+  
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [versionDropdownOpen, downloadMenuOpen])
+  
+  const downloadAllFilesForVersion = async (version: number) => {
+    const group = groupedVersions.find(v => v.version === version)
+    if (!group || group.files.length === 0) return
+
+    const opId = `all-v${version}`
+    setDownloadingId(opId)
+    setDownloadMenuOpen(false)
+
+    try {
+      showToast(`Se descarcă ${group.files.length} fișiere...`, 'info')
+
+      //TODO: ar trebui un endpoint pentru descarcare ca zip, nu reliable cu multe fisiere
+      for (const file of group.files) {
+        const res = await apiFetch(`/api/files/${file.id}/signed-download`, {
+          method: 'POST',
+          body: JSON.stringify({ expiresIn: 60 * 5 })
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data?.error || res.statusText)
+
+        forceDownload(data.url)
+        await new Promise(resolve => setTimeout(resolve, 350))
+      }
+
+      showToast('Descărcare începută', 'success')
+    } catch (error: any) {
+      showToast('Eroare la descărcare: ' + error.message, 'error')
+    } finally {
+      setDownloadingId(null)
+    }
+  }
+
 
   // State pentru expandare răspunsuri
   const [showAllVersions, setShowAllVersions] = useState(false)
@@ -420,7 +528,7 @@ export default function DocumentModal({
                 </h3>
               </div>
 
-              {request.files && request.files.length > 1 && (
+              {/* {request.files && request.files.length > 1 && (
                 <button
                   onClick={downloadAllFiles}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors"
@@ -428,7 +536,7 @@ export default function DocumentModal({
                   <Download className="w-3.5 h-3.5" />
                   Descarcă tot
                 </button>
-              )}
+              )} */}
             </div>
 
             <div className="space-y-3">
@@ -467,139 +575,209 @@ export default function DocumentModal({
               )}
 
               {/* Răspunsuri - Elegant grouping */}
-              {request.files && request.files.length > 0 && (
-                <div>
+              {request.files && request.files.length > 0 && groupedVersions.length > 0 && (
+                <div onClick={e => e.stopPropagation()}>
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
                     <span className="w-1 h-1 rounded-full bg-slate-400" />
-                    Răspunsuri client ({request.files.length})
+                    Răspunsuri client ({groupedVersions.length})
                   </p>
 
-                  {/* Latest Version - Always visible */}
-                  <div className="space-y-3">
-                    <button
-                      onClick={() => downloadUploadedFileById(request.files![0].id)}
-                      disabled={downloadingId === request.files[0].id}
-                      className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-emerald-50/30 hover:from-emerald-100 hover:to-emerald-50 transition-all group text-left disabled:opacity-60 shadow-sm hover:shadow-md relative overflow-hidden"
-                    >
-                      {/* Accent line */}
-                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-emerald-400 to-emerald-600" />
-                      
-                      <div className="w-12 h-12 rounded-xl bg-white shadow-sm border border-emerald-100 flex items-center justify-center text-emerald-600 flex-shrink-0 ml-2">
-                        {downloadingId === request.files[0].id ? (
-                          <Loader2 className="w-6 h-6 animate-spin" />
-                        ) : (
-                          <FileCheck className="w-6 h-6" />
-                        )}
-                      </div>
-                      
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <p className="text-sm font-bold text-emerald-900">
-                            Versiune curentă v{request.files[0].version_number}
-                          </p>
-                          <span className="px-2 py-0.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-[10px] font-bold rounded-full uppercase tracking-wider shadow-sm">
-                            Latest
-                          </span>
-                        </div>
-                        <p className="text-xs text-emerald-600 flex items-center gap-1.5">
-                          <Calendar className="w-3 h-3" />
-                          {new Date(request.files[0].created_at).toLocaleDateString('ro-RO', {
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </p>
-                      </div>
-                      
-                      <div className="flex items-center gap-2">
-                        <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-white rounded-lg border border-emerald-200">
-                          <Download className="w-3.5 h-3.5 text-emerald-500" />
-                          <span className="text-xs font-semibold text-emerald-700">Download</span>
-                        </div>
-                        <Download className="w-5 h-5 text-emerald-400 sm:hidden" />
-                      </div>
-                    </button>
+                  {(() => {
+                    const group = groupedVersions.find(v => v.version === selectedVersion) || groupedVersions[0]
+                    if (!group) return null
+                    const opAllId = `all-v${group.version}`
 
-                    {/* Older Versions - Collapsible */}
-                    {request.files.length > 1 && (
-                      <div className="space-y-2">
-                        <button
-                          onClick={() => setShowAllVersions(!showAllVersions)}
-                          className="w-full flex items-center justify-between px-4 py-2.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-all text-left group"
-                        >
-                          <div className="flex items-center gap-2">
-                            <History className="w-4 h-4 text-slate-400" />
-                            <span className="text-xs font-semibold text-slate-600">
-                              {showAllVersions ? 'Ascunde' : 'Vezi'} versiuni anterioare ({request.files.length - 1})
-                            </span>
-                          </div>
-                          <div className={`transition-transform duration-300 ${showAllVersions ? 'rotate-180' : ''}`}>
-                            <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </div>
-                        </button>
+                    return (
+                      <div className="space-y-3">
+                        {/* Version selector */}
+                        <div className="relative" ref={versionWrapRef}>
+                          <button
+                            onClick={() => {
+                              setVersionDropdownOpen(v => !v)
+                              setDownloadMenuOpen(false)
+                            }}
+                            className="w-full flex items-center justify-between gap-3 p-4 rounded-xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-emerald-50/30 hover:from-emerald-100 hover:to-emerald-50 transition-all text-left shadow-sm hover:shadow-md"
+                          >
+                            <div className="flex items-center gap-4 min-w-0">
+                              <div className="w-12 h-12 rounded-xl bg-white shadow-sm border border-emerald-100 flex items-center justify-center text-emerald-600 flex-shrink-0">
+                                <FileCheck className="w-6 h-6" />
+                              </div>
 
-                        {/* Timeline cu versiuni - Collapsible */}
-                        <div 
-                          className={`overflow-hidden transition-all duration-300 ${
-                            showAllVersions ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'
-                          }`}
-                        >
-                          <div className="pl-4 border-l-2 border-slate-200 ml-6 space-y-3 pt-2">
-                            {request.files.slice(1).map((file, index) => {
-                              const isLast = index === request.files!.length - 2
-                              
-                              return (
-                                <div key={file.id} className="relative">
-                                  {/* Timeline dot */}
-                                  <div className="absolute -left-[25px] top-4 w-4 h-4 rounded-full bg-white border-2 border-slate-300 shadow-sm" />
-                                  
-                                  <button
-                                    onClick={() => downloadUploadedFileById(file.id)}
-                                    disabled={downloadingId === file.id}
-                                    className="w-full flex items-center gap-3 p-3 rounded-lg border border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm transition-all group text-left disabled:opacity-60"
-                                  >
-                                    <div className="w-10 h-10 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-500 flex-shrink-0">
-                                      {downloadingId === file.id ? (
-                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                      ) : (
-                                        <FileCheck className="w-4 h-4" />
-                                      )}
-                                    </div>
-                                    
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-xs font-semibold text-slate-700">
-                                        Versiune v{file.version_number}
-                                      </p>
-                                      <p className="text-[11px] text-slate-500 flex items-center gap-1">
-                                        <Calendar className="w-3 h-3" />
-                                        {new Date(file.created_at).toLocaleDateString('ro-RO', {
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <p className="text-sm font-bold text-emerald-900">Răspuns v{group.version}</p>
+                                  {group === groupedVersions[0] && (
+                                    <span className="px-2 py-0.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-[10px] font-bold rounded-full uppercase tracking-wider shadow-sm">
+                                      Latest
+                                    </span>
+                                  )}
+                                  <span className="px-2 py-0.5 bg-white text-[10px] font-bold rounded-full uppercase tracking-wider border border-emerald-200 text-emerald-700">
+                                    {group.files.length} fiș.
+                                  </span>
+                                </div>
+
+                                {group.createdAt && (
+                                  <p className="text-xs text-emerald-600 flex items-center gap-1.5">
+                                    <Calendar className="w-3 h-3" />
+                                    {new Date(group.createdAt).toLocaleDateString('ro-RO', {
+                                      day: 'numeric',
+                                      month: 'short',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className={`transition-transform duration-200 ${versionDropdownOpen ? 'rotate-180' : ''}`}>
+                              <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </div>
+                          </button>
+
+                          {versionDropdownOpen && (
+                            <div className="absolute z-50 mt-2 w-full rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden">
+                              {groupedVersions.map(v => (
+                                <button
+                                  key={v.version}
+                                  onClick={() => {
+                                    setSelectedVersion(v.version)
+                                    setVersionDropdownOpen(false)
+                                    setDownloadMenuOpen(false)
+                                  }}
+                                  className={`w-full px-4 py-3 text-left hover:bg-slate-50 transition-colors flex items-center justify-between gap-3 ${
+                                    v.version === group.version ? 'bg-slate-50' : ''
+                                  }`}
+                                >
+                                  <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+                                    Răspuns v{v.version}
+
+                                    {v === groupedVersions[0] && (
+                                      <span className="px-2 py-0.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-[10px] font-bold rounded-full uppercase tracking-wider">
+                                        Latest
+                                      </span>
+                                    )}
+                                  </p>
+
+                                    {v.createdAt && (
+                                      <p className="text-xs text-slate-500">
+                                        {new Date(v.createdAt).toLocaleDateString('ro-RO', {
                                           day: 'numeric',
                                           month: 'short',
+                                          year: 'numeric',
                                           hour: '2-digit',
                                           minute: '2-digit'
                                         })}
                                       </p>
-                                    </div>
-                                    
-                                    <Download className="w-4 h-4 text-slate-400 group-hover:text-slate-600 transition-colors" />
-                                  </button>
-                                  
-                                  {/* Timeline line */}
-                                  {!isLast && (
-                                    <div className="absolute -left-[21px] top-[60px] bottom-[-12px] w-0.5 bg-slate-200" />
-                                  )}
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                    <span className="text-xs font-bold text-slate-600">{v.files.length} fiș.</span>
+                                    {v.version === group.version && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex gap-2">
+                          {/* Split Download Button */}
+                          <div className="relative flex-1" ref={downloadWrapRef} >
+                            <div className="flex w-full rounded-xl overflow-hidden border border-slate-200 bg-white shadow-sm hover:shadow transition-shadow">
+                              {/* Primary action: Download all */}
+                              <button
+                                onClick={() => downloadAllFilesForVersion(group.version)}
+                                disabled={downloadingId === opAllId}
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 hover:bg-slate-50 transition-colors disabled:opacity-60"
+                              >
+                                {downloadingId === opAllId ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <FolderDown className="w-4 h-4" />
+                                )}
+                                <span className="text-sm font-semibold">Download</span>
+                                <span className="text-xs text-slate-500">({group.files.length})</span>
+                              </button>
+
+                              {/* Divider */}
+                              <div className="w-px bg-slate-200" />
+
+                              {/* Dropdown toggle */}
+                              <button
+                                onClick={() => {
+                                  setDownloadMenuOpen(v => !v)
+                                  setVersionDropdownOpen(false)
+                                }}
+                                className="px-3 py-3 hover:bg-slate-50 transition-colors flex items-center justify-center"
+                                aria-label="Alege fișier"
+                              >
+                                <div className={`transition-transform duration-200 ${downloadMenuOpen ? 'rotate-180' : ''}`}>
+                                  <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                  </svg>
                                 </div>
-                              )
-                            })}
+                              </button>
+                            </div>
+
+                            {/* Wide dropdown menu */}
+                            {downloadMenuOpen && (
+                              <div className="absolute z-50 mt-2 w-full rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden max-h-80 overflow-y-auto">
+                                <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                                  <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                                    Fișiere ({group.files.length})
+                                  </p>
+                                </div>
+
+                                {group.files.map(file => {
+                                  const fileName = getFileName(file.storage_path)
+                                  return (
+                                    <div
+                                      key={file.id}
+                                      className="px-4 py-3 hover:bg-slate-50 transition-colors flex items-center justify-between gap-3"
+                                    >
+                                      <div className="min-w-0">
+                                        <p className="text-sm font-semibold text-slate-900 truncate">{fileName}</p>
+                                        <p className="text-xs text-slate-500">
+                                          {new Date(file.created_at).toLocaleDateString('ro-RO', {
+                                            day: 'numeric',
+                                            month: 'short',
+                                            year: 'numeric',
+                                            hour: '2-digit',
+                                            minute: '2-digit'
+                                          })}
+                                        </p>
+                                      </div>
+
+                                      <button
+                                        onClick={() => downloadUploadedFileById(file.id)}
+                                        disabled={downloadingId === file.id}
+                                        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-colors disabled:opacity-60 flex-shrink-0"
+                                      >
+                                        {downloadingId === file.id ? (
+                                          <Loader2 className="w-4 h-4 animate-spin text-slate-500" />
+                                        ) : (
+                                          <Download className="w-4 h-4 text-slate-500" />
+                                        )}
+                                        <span className="text-sm font-semibold">Download</span>
+                                      </button>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
                           </div>
                         </div>
+
                       </div>
-                    )}
-                  </div>
+                    )
+                  })()}
                 </div>
               )}
 

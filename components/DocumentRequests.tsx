@@ -519,6 +519,61 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
     }
   }
 
+  type ReqFile = NonNullable<DocumentRequest['files']>[number]
+
+  const requestMeta = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        responseCount: number
+        latestVersion: number | null
+        latestFiles: ReqFile[]
+        latestFile: ReqFile | null
+      }
+    >()
+
+    for (const req of requests) {
+      const files: ReqFile[] = (req.files ?? []) as ReqFile[]
+
+      if (files.length === 0) {
+        map.set(req.id, {
+          responseCount: 0,
+          latestVersion: null,
+          latestFiles: [],
+          latestFile: null
+        })
+        continue
+      }
+
+      const byVersion = new Map<number, ReqFile[]>()
+      for (const f of files) {
+        const arr = byVersion.get(f.version_number) ?? []
+        arr.push(f)
+        byVersion.set(f.version_number, arr)
+      }
+
+      const versions = Array.from(byVersion.keys())
+      const latestVersion = versions.length ? Math.max(...versions) : null
+
+      const latestFiles =
+        latestVersion === null
+          ? []
+          : [...(byVersion.get(latestVersion) ?? [])].sort(
+              (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            )
+
+      map.set(req.id, {
+        responseCount: byVersion.size,          
+        latestVersion,
+        latestFiles,
+        latestFile: latestFiles[0] ?? null      
+      })
+    }
+
+    return map
+  }, [requests])
+
+
   const statusConfig: Record<string, {
     bg: string; text: string; border: string; icon: JSX.Element; docIcon: JSX.Element; label: string; iconBg: string
   }> = {
@@ -683,12 +738,14 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
                           </span>
                         )}
 
-                        {req.files?.length ? (
+                        {(requestMeta.get(req.id)?.responseCount ?? 0) > 0 ? (
                           <span className="flex items-center gap-1.5 text-emerald-600">
                             <Upload className="w-3.5 h-3.5" />
-                            {req.files.length} {req.files.length === 1 ? 'răspuns' : 'răspunsuri'}
+                            {requestMeta.get(req.id)!.responseCount}{' '}
+                            {requestMeta.get(req.id)!.responseCount === 1 ? 'răspuns' : 'răspunsuri'}
                           </span>
                         ) : null}
+
 
                         {req.attachment_path && (
                           <button
@@ -978,14 +1035,13 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
                         </div>
                       )}
 
-                      {req.status === 'rejected' && req.files?.length && req.files[req.files.length - 1]?.comments && (
+                      {req.status === 'rejected' && requestMeta.get(req.id)?.latestFile?.comments && (
                         <div className="mt-3 p-3 bg-red-50 border border-red-100 rounded-xl">
                           <div className="flex items-start gap-2">
                             <MessageSquare className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
                             <div>
                               <p className="text-xs font-semibold text-red-800 mb-0.5">Motiv respingere:</p>
-                              <p className="text-sm text-red-700">{req.files[req.files.length - 1].comments}</p>
-                            </div>
+                              <p className="text-sm text-red-700">{requestMeta.get(req.id)!.latestFile!.comments}</p>                            </div>
                           </div>
                         </div>
                       )}
@@ -1009,7 +1065,7 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
                       </div>
                     </div>
                   )}
-{/* 
+{/* am putea pune aici ceva asemanator cu partea de download si versioning din DocumentModal
                   {isClient && req.files?.length ? (
                     <div className="mt-3" onClick={(e) => e.stopPropagation()}>
                       <button
