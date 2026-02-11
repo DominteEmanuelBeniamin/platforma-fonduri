@@ -39,6 +39,12 @@ export async function PATCH(
     if(!ctx.ok) return guardToResponse(ctx)
     const admin = createSupabaseServiceClient()
 
+    // Obținem profilul curent ÎNAINTE de update (pentru audit)
+    const { data: oldProfile } = await admin
+      .from('profiles')
+      .select('id, email, full_name, role, phone_number, cif')
+      .eq('id', targetUserId)
+      .single()
 
     const body = (await request.json().catch(() => null)) as PatchBody | null
     if (!body || typeof body !== 'object') {
@@ -122,6 +128,42 @@ export async function PATCH(
       return NextResponse.json({ error: error.message }, { status: 400 })
     }
 
+    // ✅ AUDIT LOG - Modificare utilizator
+    const ipAddress = request.headers.get('x-forwarded-for') || 
+                      request.headers.get('x-real-ip') || 
+                      null
+
+    // Construim old_values și new_values doar cu câmpurile modificate
+    const oldValues: Record<string, unknown> = {}
+    const newValues: Record<string, unknown> = {}
+    
+    for (const key of Object.keys(update)) {
+      if (oldProfile && oldProfile[key as keyof typeof oldProfile] !== update[key]) {
+        oldValues[key] = oldProfile[key as keyof typeof oldProfile]
+        newValues[key] = update[key]
+      }
+    }
+
+    // Descriere detaliată
+    let description = `${ctx.profile.email} a modificat utilizatorul ${data.email}`
+    if (update.role && oldProfile?.role !== update.role) {
+      description = `${ctx.profile.email} a schimbat rolul utilizatorului ${data.email} din "${oldProfile?.role}" în "${update.role}"`
+    }
+
+    await admin
+      .from('audit_logs')
+      .insert({
+        user_id: ctx.user.id,
+        action_type: 'update',
+        entity_type: 'user',
+        entity_id: targetUserId,
+        entity_name: data.email,
+        old_values: Object.keys(oldValues).length > 0 ? oldValues : null,
+        new_values: Object.keys(newValues).length > 0 ? newValues : null,
+        description,
+        ip_address: ipAddress
+      })
+
     return NextResponse.json({ message: 'Profile updated', profile: data })
   } catch (e: any) {
     console.error('PATCH /api/users/[id] error:', e)
@@ -142,6 +184,13 @@ export async function DELETE(  request: Request,
     if (!userId) {
       return NextResponse.json({ error: 'User ID lipsește' }, { status: 400 })
     }
+
+    // Obținem datele utilizatorului ÎNAINTE de ștergere (pentru audit)
+    const { data: userToDelete } = await admin
+      .from('profiles')
+      .select('id, email, full_name, role, cif')
+      .eq('id', userId)
+      .single()
 
     // Ștergem toate proiectele create de user (dacă e client)
     const { error: projectsError } = await admin
@@ -180,6 +229,30 @@ export async function DELETE(  request: Request,
 
     if (deleteError) throw deleteError
 
+    // ✅ AUDIT LOG - Ștergere utilizator
+    const ipAddress = request.headers.get('x-forwarded-for') || 
+                      request.headers.get('x-real-ip') || 
+                      null
+
+    await admin
+      .from('audit_logs')
+      .insert({
+        user_id: ctx.user.id,
+        action_type: 'delete',
+        entity_type: 'user',
+        entity_id: userId,
+        entity_name: userToDelete?.email || userId,
+        old_values: userToDelete ? {
+          email: userToDelete.email,
+          full_name: userToDelete.full_name,
+          role: userToDelete.role,
+          cif: userToDelete.cif
+        } : null,
+        new_values: null,
+        description: `${ctx.profile.email} a șters utilizatorul ${userToDelete?.email || userId} (rol: ${userToDelete?.role || 'necunoscut'})`,
+        ip_address: ipAddress
+      })
+
     return NextResponse.json({ message: 'Utilizator șters cu succes!' })
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -188,4 +261,3 @@ export async function DELETE(  request: Request,
     return NextResponse.json({ error: error.message }, { status: 400 })
   }
 }
-
