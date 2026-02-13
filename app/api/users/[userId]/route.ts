@@ -2,12 +2,13 @@
 // app/api/users/[userId]/route.ts
 import { requireUserOrAdmin, requireAdmin, guardToResponse } from '../../_utils/auth'
 import { createSupabaseServiceClient } from '../../_utils/supabase'
+import { logUserAction, getClientIP, getUserAgent } from '../../_utils/audit'
 import { NextResponse } from 'next/server'
 
 type PatchBody = Partial<{
   full_name: unknown
   role: unknown
-  phone_number: unknown
+  telefon: unknown
   cif: unknown
   email: unknown
 }>
@@ -42,7 +43,7 @@ export async function PATCH(
     // Obținem profilul curent ÎNAINTE de update (pentru audit)
     const { data: oldProfile } = await admin
       .from('profiles')
-      .select('id, email, full_name, role, phone_number, cif')
+      .select('id, email, full_name, role, telefon, cif, nume_firma, adresa_firma, departament, specializare')
       .eq('id', targetUserId)
       .single()
 
@@ -65,15 +66,15 @@ export async function PATCH(
       update.full_name = body.full_name.trim()
     }
 
-    // phone_number
-    if (body.phone_number !== undefined) {
-      if (!isStringOrNullOrUndef(body.phone_number)) {
-        return NextResponse.json({ error: 'phone_number must be a string or null' }, { status: 400 })
+    // telefon
+    if (body.telefon !== undefined) {
+      if (!isStringOrNullOrUndef(body.telefon)) {
+        return NextResponse.json({ error: 'telefon must be a string or null' }, { status: 400 })
       }
-      if (typeof body.phone_number === 'string') {
-        update.phone_number = normalizePhone(body.phone_number)
+      if (typeof body.telefon === 'string') {
+        update.telefon = normalizePhone(body.telefon)
       } else {
-        update.phone_number = body.phone_number
+        update.telefon = body.telefon
       }
     }
 
@@ -109,7 +110,7 @@ export async function PATCH(
 
     if (Object.keys(update).length === 0) {
       return NextResponse.json(
-        { error: 'Nothing to update. Allowed fields: full_name, phone_number, cif, role (admin only).' },
+        { error: 'Nothing to update. Allowed fields: full_name, telefon, cif, role (admin only).' },
         { status: 400 }
       )
     }
@@ -118,7 +119,7 @@ export async function PATCH(
       .from('profiles')
       .update(update)
       .eq('id', targetUserId)
-      .select('id, email, full_name, role, phone_number, cif')
+      .select('id, email, full_name, role, telefon, cif')
       .single()
 
     if (error) {
@@ -126,10 +127,6 @@ export async function PATCH(
     }
 
     // ✅ AUDIT LOG - Modificare utilizator
-    const ipAddress = request.headers.get('x-forwarded-for') || 
-                      request.headers.get('x-real-ip') || 
-                      null
-
     // Construim old_values și new_values doar cu câmpurile modificate
     const oldValues: Record<string, unknown> = {}
     const newValues: Record<string, unknown> = {}
@@ -147,19 +144,17 @@ export async function PATCH(
       description = `${ctx.profile.email} a schimbat rolul utilizatorului ${data.email} din "${oldProfile?.role}" în "${update.role}"`
     }
 
-    await admin
-      .from('audit_logs')
-      .insert({
-        user_id: ctx.user.id,
-        action_type: 'update',
-        entity_type: 'user',
-        entity_id: targetUserId,
-        entity_name: data.email,
-        old_values: Object.keys(oldValues).length > 0 ? oldValues : null,
-        new_values: Object.keys(newValues).length > 0 ? newValues : null,
-        description,
-        ip_address: ipAddress
-      })
+    await logUserAction({
+      adminId: ctx.user.id,
+      actionType: 'update',
+      userId: targetUserId,
+      userEmail: data.email,
+      oldValues: Object.keys(oldValues).length > 0 ? oldValues : null,
+      newValues: Object.keys(newValues).length > 0 ? newValues : null,
+      description,
+      ipAddress: getClientIP(request),
+      userAgent: getUserAgent(request)
+    })
 
     return NextResponse.json({ message: 'Profile updated', profile: data })
   } catch (e: any) {
@@ -186,7 +181,7 @@ export async function DELETE(
     // Obținem datele utilizatorului ÎNAINTE de ștergere (pentru audit)
     const { data: userToDelete } = await admin
       .from('profiles')
-      .select('id, email, full_name, role, cif')
+      .select('id, email, full_name, role, cif, telefon, nume_firma, adresa_firma, departament, specializare')
       .eq('id', userId)
       .single()
 
@@ -224,28 +219,26 @@ export async function DELETE(
     if (deleteError) throw deleteError
 
     // ✅ AUDIT LOG - Ștergere utilizator
-    const ipAddress = request.headers.get('x-forwarded-for') || 
-                      request.headers.get('x-real-ip') || 
-                      null
-
-    await admin
-      .from('audit_logs')
-      .insert({
-        user_id: ctx.user.id,
-        action_type: 'delete',
-        entity_type: 'user',
-        entity_id: userId,
-        entity_name: userToDelete?.email || userId,
-        old_values: userToDelete ? {
+    if (userToDelete) {
+      await logUserAction({
+        adminId: ctx.user.id,
+        actionType: 'delete',
+        userId: userId,
+        userEmail: userToDelete.email,
+        oldValues: {
           email: userToDelete.email,
           full_name: userToDelete.full_name,
           role: userToDelete.role,
-          cif: userToDelete.cif
-        } : null,
-        new_values: null,
-        description: `${ctx.profile.email} a șters utilizatorul ${userToDelete?.email || userId} (rol: ${userToDelete?.role || 'necunoscut'})`,
-        ip_address: ipAddress
+          cif: userToDelete.cif,
+          telefon: userToDelete.telefon,
+          nume_firma: userToDelete.nume_firma
+        },
+        newValues: null,
+        description: `${ctx.profile.email} a șters utilizatorul ${userToDelete.email} (rol: ${userToDelete.role})`,
+        ipAddress: getClientIP(request),
+        userAgent: getUserAgent(request)
       })
+    }
 
     return NextResponse.json({ message: 'Utilizator șters cu succes!' })
 

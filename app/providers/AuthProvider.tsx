@@ -9,7 +9,7 @@ type Profile = {
   role: 'admin' | 'consultant' | 'client' | string
   email?: string | null
   full_name?: string | null
-  phone_number?: string | null
+  telefon?: string | null
   cif?: string | null
 } | null
 
