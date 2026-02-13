@@ -23,14 +23,13 @@ export default function ProjectDetailsPage() {
   const router = useRouter()
   const params = useParams()
 
-  // ✅ projectId sigur (string sau null)
   const projectId = useMemo(() => {
     const id = (params as any)?.id
     return typeof id === 'string' && id.trim().length > 0 ? id : null
   }, [params])
 
-  const { loading: authLoading, token, apiFetch } = useAuth()
-
+  const { loading: authLoading, token, apiFetch, profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
   const [project, setProject] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
@@ -63,9 +62,6 @@ export default function ProjectDetailsPage() {
     }
   }
 
-  // ✅ 1) Așteptăm auth să se inițializeze
-  // ✅ 2) Dacă nu există token, redirect
-  // ✅ 3) Dacă există token, încărcăm proiectul
   useEffect(() => {
     if (authLoading) return
 
@@ -339,8 +335,9 @@ export default function ProjectDetailsPage() {
               </div>
             </div>
 
-            {/* ✅ projectId e garantat string aici */}
-            <TeamManager projectId={projectId} />
+           {isAdmin && ( 
+           <TeamManager projectId={projectId} />
+           )}
           </div>
 
           <div className="lg:col-span-2">
