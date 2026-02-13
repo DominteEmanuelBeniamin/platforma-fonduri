@@ -45,9 +45,10 @@ export async function GET(
     }
 
     return NextResponse.json({ requests: data ?? [] })
-  } catch (e: any) {
-    console.error('GET document-requests exception:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+  } catch (e: unknown) {
+    const error = e as Error
+    console.error('GET document-requests exception:', error)
+    return NextResponse.json({ error: error?.message ?? 'Server error' }, { status: 500 })
   }
 }
 
@@ -97,9 +98,35 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to create document request' }, { status: 500 })
     }
 
+    // Audit log pentru creare cerere document
+    const ipAddress = request.headers.get('x-forwarded-for') || 
+                      request.headers.get('x-real-ip') || 
+                      null
+
+    await admin
+      .from('audit_logs')
+      .insert({
+        user_id: access.user.id,
+        action_type: 'create',
+        entity_type: 'document',
+        entity_id: data.id,
+        entity_name: name,
+        new_values: {
+          project_id: projectId,
+          name,
+          description,
+          deadline_at,
+          status: 'pending',
+          has_attachment: !!attachment_path
+        },
+        description: `${access.profile.email || 'User'} a creat cererea de document "${name}" pentru proiectul ${projectId}`,
+        ip_address: ipAddress
+      })
+
     return NextResponse.json({ ok: true, id: data?.id })
-  } catch (e: any) {
-    console.error('POST document-requests exception:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+  } catch (e: unknown) {
+    const error = e as Error
+    console.error('POST document-requests exception:', error)
+    return NextResponse.json({ error: error?.message ?? 'Server error' }, { status: 500 })
   }
 }

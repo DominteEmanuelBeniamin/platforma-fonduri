@@ -15,7 +15,6 @@ export async function GET(
       return NextResponse.json({ error: 'Project ID lipsește din URL' }, { status: 400 })
     }
 
-    // Access control: admin vede tot, consultant doar dacă e membru, client doar dacă e proiectul lui
     const ctx = await requireProjectAccess(request, projectId)
     if (!ctx.ok) return guardToResponse(ctx)
 
@@ -23,6 +22,7 @@ export async function GET(
 
     const { data: project, error } = await admin
       .from('projects')
+      .select('*, profiles(*)')
       .select('*, profiles(*)')
       .eq('id', projectId)
       .maybeSingle()
@@ -37,9 +37,10 @@ export async function GET(
     }
 
     return NextResponse.json({ project })
-  } catch (e: any) {
-    console.error('GET /api/projects/[id] error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+  } catch (e: unknown) {
+    const err = e as Error
+    console.error('GET /api/projects/[id] error:', err)
+    return NextResponse.json({ error: err?.message ?? 'Server error' }, { status: 500 })
   }
 }
 
@@ -53,16 +54,15 @@ export async function DELETE(
       return NextResponse.json({ error: 'Project ID lipsește din URL' }, { status: 400 })
     }
 
-    // Admin-only
     const ctx = await requireAdmin(request)
     if (!ctx.ok) return guardToResponse(ctx)
 
     const admin = createSupabaseServiceClient()
 
-    // ✅ 1. Citim datele proiectului ÎNAINTE de ștergere (pentru audit)
+    // Obține datele proiectului pentru audit
     const { data: project, error: findErr } = await admin
       .from('projects')
-      .select('id, title, client_id, status, cod_intern, profiles(email, full_name, cif)')
+      .select('id, title, status, client_id, profiles(email, full_name)')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -74,16 +74,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     }
 
-    // ✅ Helper pentru a extrage safe client info (fix pentru TypeScript)
-    const clientProfile = Array.isArray(project.profiles) 
-      ? project.profiles[0] 
-      : project.profiles
-    
-    const clientEmail = clientProfile?.email || 'N/A'
-    const clientName = clientProfile?.full_name || 'N/A'
-    const clientCif = clientProfile?.cif || 'N/A'
-
-    // 2. Storage cleanup (înainte de delete DB)
+    // Storage cleanup
     const bucket = 'project-files'
 
     const { data: fileRows, error: filesErr } = await admin
@@ -122,7 +113,7 @@ export async function DELETE(
       }
     }
 
-    // 3. Delete DB (cascade va șterge members, requirements, files)
+    // Delete from DB
     const { error: delErr } = await admin.from('projects').delete().eq('id', projectId)
 
     if (delErr) {
@@ -130,31 +121,39 @@ export async function DELETE(
       return NextResponse.json({ error: delErr.message }, { status: 400 })
     }
 
-    // ✅ 4. AUDIT LOG - Ștergere proiect
-    await logProjectAction({
-      adminId: ctx.user.id,
-      actionType: 'delete',
-      projectId: project.id,
-      projectTitle: project.title,
-      oldValues: {
-        title: project.title,
-        client_id: project.client_id,
-        client_email: clientEmail,
-        client_name: clientName,
-        client_cif: clientCif,
-        status: project.status,
-        cod_intern: project.cod_intern
-      },
-      newValues: null,
-      description: `Șters proiect "${project.title}" (client: ${clientEmail})`,
-      ipAddress: getClientIP(request),
-      userAgent: getUserAgent(request)
-    })
+    // AUDIT LOG
+    const ipAddress = request.headers.get('x-forwarded-for') || 
+                      request.headers.get('x-real-ip') || 
+                      null
+
+    const clientInfo = project.profiles as { email?: string; full_name?: string } | null
+
+    await admin
+      .from('audit_logs')
+      .insert({
+        user_id: ctx.user.id,
+        action_type: 'delete',
+        entity_type: 'project',
+        entity_id: projectId,
+        entity_name: project.title,
+        old_values: {
+          title: project.title,
+          status: project.status,
+          client_id: project.client_id,
+          client_email: clientInfo?.email,
+          client_name: clientInfo?.full_name,
+          files_deleted: uniquePaths.length
+        },
+        new_values: null,
+        description: `${ctx.profile.email} a sters proiectul "${project.title}" (client: ${clientInfo?.email || 'necunoscut'}, ${uniquePaths.length} fisiere sterse)`,
+        ip_address: ipAddress
+      })
 
     return NextResponse.json({ message: 'Project deleted' })
-  } catch (e: any) {
-    console.error('DELETE /api/projects/[id] error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+  } catch (e: unknown) {
+    const err = e as Error
+    console.error('DELETE /api/projects/[id] error:', err)
+    return NextResponse.json({ error: err?.message ?? 'Server error' }, { status: 500 })
   }
 }
 
