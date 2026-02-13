@@ -3,7 +3,7 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin, guardToResponse } from '../_utils/auth'
 import { createSupabaseServiceClient } from '../_utils/supabase'
-import { logUserAction, getClientIP, getUserAgent } from '../_utils/audit' // ✅ IMPORT NOU
+import { logUserAction, getClientIP, getUserAgent } from '../_utils/audit'
 
 export async function POST(request: Request) {
   try {
@@ -61,6 +61,7 @@ export async function POST(request: Request) {
 
       if (profileError) throw profileError
 
+      // ✅ AUDIT LOG - Creare utilizator
       const auditData: Record<string, any> = {
         email,
         role,
@@ -81,13 +82,13 @@ export async function POST(request: Request) {
       }
 
       await logUserAction({
-        adminId: ctx.user.id,                   
+        adminId: ctx.user.id,
         actionType: 'create',
-        userId: authData.user.id,               
+        userId: authData.user.id,
         userEmail: email,
-        oldValues: null,                        
-        newValues: auditData,                    
-        description: `Creat utilizator ${email} (${role})`,
+        oldValues: null,
+        newValues: auditData,
+        description: `${ctx.profile.email || 'Admin'} a creat utilizatorul ${email} cu rolul ${role}`,
         ipAddress: getClientIP(request),
         userAgent: getUserAgent(request)
       })

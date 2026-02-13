@@ -2,13 +2,13 @@
 // app/api/users/[userId]/route.ts
 import { requireUserOrAdmin, requireAdmin, guardToResponse } from '../../_utils/auth'
 import { createSupabaseServiceClient } from '../../_utils/supabase'
-import { logUserAction, getClientIP, getUserAgent } from '../../_utils/audit' // ✅ IMPORT NOU
+import { logUserAction, getClientIP, getUserAgent } from '../../_utils/audit'
 import { NextResponse } from 'next/server'
 
 type PatchBody = Partial<{
   full_name: unknown
   role: unknown
-  phone_number: unknown
+  telefon: unknown
   cif: unknown
   email: unknown
 }>
@@ -40,9 +40,10 @@ export async function PATCH(
     if(!ctx.ok) return guardToResponse(ctx)
     const admin = createSupabaseServiceClient()
 
+    // Obținem profilul curent ÎNAINTE de update (pentru audit)
     const { data: oldProfile } = await admin
       .from('profiles')
-      .select('email, role, full_name, telefon, cif, nume_firma, adresa_firma, departament, specializare')
+      .select('id, email, full_name, role, telefon, cif, nume_firma, adresa_firma, departament, specializare')
       .eq('id', targetUserId)
       .single()
 
@@ -65,15 +66,15 @@ export async function PATCH(
       update.full_name = body.full_name.trim()
     }
 
-    // phone_number
-    if (body.phone_number !== undefined) {
-      if (!isStringOrNullOrUndef(body.phone_number)) {
-        return NextResponse.json({ error: 'phone_number must be a string or null' }, { status: 400 })
+    // telefon
+    if (body.telefon !== undefined) {
+      if (!isStringOrNullOrUndef(body.telefon)) {
+        return NextResponse.json({ error: 'telefon must be a string or null' }, { status: 400 })
       }
-      if (typeof body.phone_number === 'string') {
-        update.phone_number = normalizePhone(body.phone_number)
+      if (typeof body.telefon === 'string') {
+        update.telefon = normalizePhone(body.telefon)
       } else {
-        update.phone_number = body.phone_number
+        update.telefon = body.telefon
       }
     }
 
@@ -109,7 +110,7 @@ export async function PATCH(
 
     if (Object.keys(update).length === 0) {
       return NextResponse.json(
-        { error: 'Nothing to update. Allowed fields: full_name, phone_number, cif, role (admin only).' },
+        { error: 'Nothing to update. Allowed fields: full_name, telefon, cif, role (admin only).' },
         { status: 400 }
       )
     }
@@ -118,11 +119,29 @@ export async function PATCH(
       .from('profiles')
       .update(update)
       .eq('id', targetUserId)
-      .select('id, email, full_name, role, phone_number, cif')
+      .select('id, email, full_name, role, telefon, cif')
       .single()
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 })
+    }
+
+    // ✅ AUDIT LOG - Modificare utilizator
+    // Construim old_values și new_values doar cu câmpurile modificate
+    const oldValues: Record<string, unknown> = {}
+    const newValues: Record<string, unknown> = {}
+    
+    for (const key of Object.keys(update)) {
+      if (oldProfile && oldProfile[key as keyof typeof oldProfile] !== update[key]) {
+        oldValues[key] = oldProfile[key as keyof typeof oldProfile]
+        newValues[key] = update[key]
+      }
+    }
+
+    // Descriere detaliată
+    let description = `${ctx.profile.email} a modificat utilizatorul ${data.email}`
+    if (update.role && oldProfile?.role !== update.role) {
+      description = `${ctx.profile.email} a schimbat rolul utilizatorului ${data.email} din "${oldProfile?.role}" în "${update.role}"`
     }
 
     await logUserAction({
@@ -130,9 +149,9 @@ export async function PATCH(
       actionType: 'update',
       userId: targetUserId,
       userEmail: data.email,
-      oldValues: oldProfile || {},              
-      newValues: update,                       
-      description: `Actualizat utilizator ${data.email}: ${Object.keys(update).join(', ')}`,
+      oldValues: Object.keys(oldValues).length > 0 ? oldValues : null,
+      newValues: Object.keys(newValues).length > 0 ? newValues : null,
+      description,
       ipAddress: getClientIP(request),
       userAgent: getUserAgent(request)
     })
@@ -159,13 +178,14 @@ export async function DELETE(
       return NextResponse.json({ error: 'User ID lipsește' }, { status: 400 })
     }
 
-    // ✅ 1. Citim datele utilizatorului ÎNAINTE de ștergere (pentru audit)
+    // Obținem datele utilizatorului ÎNAINTE de ștergere (pentru audit)
     const { data: userToDelete } = await admin
       .from('profiles')
-      .select('email, role, full_name, telefon, cif, nume_firma, adresa_firma, departament, specializare')
+      .select('id, email, full_name, role, cif, telefon, nume_firma, adresa_firma, departament, specializare')
       .eq('id', userId)
       .single()
 
+    // Ștergem toate proiectele create de user (dacă e client)
     const { error: projectsError } = await admin
       .from('projects')
       .delete()
@@ -198,15 +218,23 @@ export async function DELETE(
 
     if (deleteError) throw deleteError
 
+    // ✅ AUDIT LOG - Ștergere utilizator
     if (userToDelete) {
       await logUserAction({
         adminId: ctx.user.id,
         actionType: 'delete',
         userId: userId,
         userEmail: userToDelete.email,
-        oldValues: userToDelete,                  
-        newValues: null,                         
-        description: `Șters utilizator ${userToDelete.email} (${userToDelete.role})`,
+        oldValues: {
+          email: userToDelete.email,
+          full_name: userToDelete.full_name,
+          role: userToDelete.role,
+          cif: userToDelete.cif,
+          telefon: userToDelete.telefon,
+          nume_firma: userToDelete.nume_firma
+        },
+        newValues: null,
+        description: `${ctx.profile.email} a șters utilizatorul ${userToDelete.email} (rol: ${userToDelete.role})`,
         ipAddress: getClientIP(request),
         userAgent: getUserAgent(request)
       })

@@ -26,12 +26,30 @@ export default function LoginPage() {
     setAuthLoading(true)
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
       if (error) {
         alert(error.message) // Ideal ar fi un toast notification aici
         return
       }
+
+      // Înregistrăm audit log pentru login
+      if (data.session?.access_token) {
+        try {
+          await fetch('/api/auth/audit', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${data.session.access_token}`
+            },
+            body: JSON.stringify({ action: 'login' })
+          })
+        } catch (auditError) {
+          // Nu blocăm login-ul dacă audit-ul eșuează
+          console.warn('Audit logging failed:', auditError)
+        }
+      }
+
       router.replace('/')
     } finally {
       setAuthLoading(false)

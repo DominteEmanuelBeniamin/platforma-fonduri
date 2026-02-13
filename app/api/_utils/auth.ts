@@ -33,14 +33,14 @@ export async function requireUser(request: Request): Promise<Result<{ user: User
 
 export async function requireProfile(
   request: Request
-): Promise<Result<{ user: User; profile: { id: string; role: AppRole } }>> {
+): Promise<Result<{ user: User; profile: { id: string; role: AppRole; email?: string | null } }>> {
   const auth = await requireUser(request)
   if (!auth.ok) return auth
 
   const supabase = createSupabaseServerClient(request)
   const { data: profile, error } = await supabase
     .from('profiles')
-    .select('id, role')
+    .select('id, role, email')
     .eq('id', auth.user.id)
     .single()
 
@@ -48,12 +48,12 @@ export async function requireProfile(
     return { ok: false, status: 500, error: 'Failed to load user profile' }
   }
 
-  return { ok: true, user: auth.user, profile: { id: profile.id, role: profile.role as AppRole } }
+  return { ok: true, user: auth.user, profile: { id: profile.id, role: profile.role as AppRole, email: profile.email } }
 }
 
 export async function requireAdmin(
   request: Request
-): Promise<Result<{ user: User; profile: { id: string; role: 'admin' } }>> {
+): Promise<Result<{ user: User; profile: { id: string; role: 'admin'; email?: string | null } }>> {
   const ctx = await requireProfile(request)
   if (!ctx.ok) return ctx
 
@@ -70,7 +70,7 @@ export async function requireAdmin(
 export async function requireUserOrAdmin(
   request: Request,
   targetUserId: string
-): Promise<Result<{ user: User; profile: { id: string; role: AppRole }; isAdmin: boolean }>> {
+): Promise<Result<{ user: User; profile: { id: string; role: AppRole; email?: string | null }; isAdmin: boolean }>> {
   const ctx = await requireProfile(request)
   if (!ctx.ok) return ctx
 
@@ -102,7 +102,7 @@ export async function requireProjectAccess(
 ): Promise<
   Result<{
     user: User
-    profile: { id: string; role: AppRole }
+    profile: { id: string; role: AppRole; email?: string | null }
     access: ProjectAccess
   }>
 > {
@@ -140,9 +140,26 @@ export async function requireProjectAccess(
     .eq('id', projectId)
     .maybeSingle()
 
-  if (projectError) return { ok: false, status: 500, error: 'Failed to verify client project access' }
-  if (!project) return { ok: false, status: 404, error: 'Project not found' }
+  if (projectError) {
+    console.error('Failed to verify client project access:', {
+      projectId,
+      userId: user.id,
+      error: projectError
+    })
+    return { ok: false, status: 500, error: 'Failed to verify client project access' }
+  }
+  
+  if (!project) {
+    console.error('Project not found:', { projectId, userId: user.id })
+    return { ok: false, status: 404, error: 'Project not found' }
+  }
+  
   if (project.client_id !== user.id) {
+    console.error('Client access denied:', {
+      projectId,
+      userId: user.id,
+      clientId: project.client_id
+    })
     return { ok: false, status: 403, error: 'Forbidden: not your project' }
   }
 

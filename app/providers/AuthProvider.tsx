@@ -11,14 +11,14 @@ type Profile = {
   role: 'admin' | 'consultant' | 'client' | string
   email?: string | null
   full_name?: string | null
-  phone_number?: string | null
+  telefon?: string | null
   cif?: string | null
 } | null
 
 type AuthCtx = {
   token: string | null
   userId: string | null
-  user: any | null
+  user: unknown | null
   profile: Profile
   loading: boolean
   apiFetch: (input: RequestInfo, init?: RequestInit) => Promise<Response>
@@ -32,7 +32,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const [token, setToken] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
-  const [user, setUser] = useState<any | null>(null)
+  const [user, setUser] = useState<unknown | null>(null)
   const [profile, setProfile] = useState<Profile>(null)
   const [loading, setLoading] = useState(true)
 
@@ -129,7 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // Acceptăm fie { profile }, fie { user, profile }
         setProfile(json?.profile ?? null)
-      } catch (e) {
+      } catch (_e) {
         if (!cancelled) setProfile(null)
       }
     }
@@ -142,6 +142,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [token, apiFetch])
 
   const signOut = async () => {
+    // Înregistrăm audit log pentru logout ÎNAINTE de a șterge sesiunea
+    if (token) {
+      try {
+        await fetch('/api/auth/audit', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ action: 'logout' })
+        })
+      } catch (auditError) {
+        // Nu blocăm logout-ul dacă audit-ul eșuează
+        console.warn('Audit logging failed:', auditError)
+      }
+    }
+
     await supabase.auth.signOut()
     setToken(null)
     setUserId(null)
@@ -151,6 +168,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const value = useMemo(
+    // eslint-disable-next-line react-hooks/preserve-manual-memoization
     () => ({ token, userId, user, profile, loading, apiFetch, signOut }),
     [token, userId, user, profile, loading, apiFetch]
   )

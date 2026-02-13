@@ -12,14 +12,24 @@ export async function POST(
     const { requestId } = await params 
 
     const body = await request.json().catch(() => null)
+    
+    console.log('Review request received:', {
+      requestId,
+      body,
+      method: request.method,
+      url: request.url
+    })
+    
     const action = body?.action as Action | undefined
     const notesRaw = typeof body?.notes === 'string' ? body.notes : null
     const notes = notesRaw?.trim() ? notesRaw.trim() : null
 
     if (action !== 'approved' && action !== 'rejected') {
+      console.error('Invalid action received:', action)
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
     }
     if (action === 'rejected' && !notes) {
+      console.error('Notes required for rejection but not provided')
       return NextResponse.json({ error: 'Notes are required for rejection' }, { status: 400 })
     }
 
@@ -27,7 +37,7 @@ export async function POST(
 
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('id, project_id, status')
+      .select('id, project_id, status, name')
       .eq('id', requestId)
       .single()
 
@@ -75,9 +85,34 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to update request status' }, { status: 500 })
     }
 
+    // Audit log pentru review
+    const ipAddress = request.headers.get('x-forwarded-for') || 
+                      request.headers.get('x-real-ip') || 
+                      null
+
+    await admin
+      .from('audit_logs')
+      .insert({
+        user_id: access.user.id,
+        action_type: 'update',
+        entity_type: 'document',
+        entity_id: requestId,
+        entity_name: reqRow.name || 'Document',
+        old_values: {
+          status: reqRow.status
+        },
+        new_values: {
+          status: action,
+          notes: notes || undefined
+        },
+        description: `${access.profile.email || 'User'} a ${action === 'approved' ? 'aprobat' : 'respins'} documentul "${reqRow.name || requestId}"${notes ? ` cu motivul: ${notes}` : ''}`,
+        ip_address: ipAddress
+      })
+
     return NextResponse.json({ ok: true })
-  } catch (e: any) {
-    console.error('POST review error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+  } catch (e: unknown) {
+    const error = e as Error
+    console.error('POST review error:', error)
+    return NextResponse.json({ error: error?.message ?? 'Server error' }, { status: 500 })
   }
 }

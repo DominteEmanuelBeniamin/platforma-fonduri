@@ -3,7 +3,7 @@
 import { NextResponse } from 'next/server'
 import { requireProfile, guardToResponse } from '../_utils/auth'
 import { createSupabaseServiceClient } from '../_utils/supabase'
-import { logUserAction, getClientIP, getUserAgent } from '../_utils/audit' // ✅ IMPORT NOU
+import { logProjectAction, getClientIP, getUserAgent } from '../_utils/audit'
 
 function isNonEmptyString(x: unknown): x is string {
   return typeof x === 'string' && x.trim().length > 0
@@ -70,9 +70,10 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  } catch (e: any) {
-    console.error('GET /api/projects error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+  } catch (e: unknown) {
+    const error = e as Error
+    console.error('GET /api/projects error:', error)
+    return NextResponse.json({ error: error?.message ?? 'Server error' }, { status: 500 })
   }
 }
 
@@ -161,55 +162,19 @@ export async function POST(request: Request) {
         client_id: project.client_id,
         client_email: clientProfile.email,
         client_name: clientProfile.full_name,
+        client_cif: clientProfile.cif,
         status: project.status,
         cod_intern: project.cod_intern
       },
-      description: `Creat proiect "${project.title}" pentru client ${clientProfile.email}`,
+      description: `${profile.email || 'Admin'} a creat proiectul "${project.title}" pentru clientul ${clientProfile.email || clientProfile.full_name || client_id}`,
       ipAddress: getClientIP(request),
       userAgent: getUserAgent(request)
     })
 
     return NextResponse.json({ message: 'Project created', project }, { status: 201 })
-  } catch (e: any) {
-    console.error('POST /api/projects error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
-  }
-}
-
-// ✅ Helper function pentru audit proiecte (putem pune și în audit.ts)
-interface LogProjectActionParams {
-  adminId: string
-  actionType: 'create' | 'update' | 'delete'
-  projectId: string
-  projectTitle: string
-  oldValues?: Record<string, any> | null
-  newValues?: Record<string, any> | null
-  description: string
-  ipAddress: string
-  userAgent: string
-}
-
-async function logProjectAction(params: LogProjectActionParams) {
-  try {
-    const admin = createSupabaseServiceClient()
-    
-    const { error } = await admin.from('audit_logs').insert({
-      user_id: params.adminId,
-      action_type: params.actionType,
-      entity_type: 'project',
-      entity_id: params.projectId,
-      entity_name: params.projectTitle,
-      old_values: params.oldValues || null,
-      new_values: params.newValues || null,
-      description: params.description,
-      ip_address: params.ipAddress,
-      user_agent: params.userAgent
-    })
-
-    if (error) {
-      console.error('❌ Project audit log failed:', error)
-    }
-  } catch (e) {
-    console.error('❌ Project audit log exception:', e)
+  } catch (e: unknown) {
+    const error = e as Error
+    console.error('POST /api/projects error:', error)
+    return NextResponse.json({ error: error?.message ?? 'Server error' }, { status: 500 })
   }
 }
