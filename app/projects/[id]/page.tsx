@@ -12,7 +12,11 @@ import {
   Clock,
   Building2,
   ArrowLeft,
-  AlertCircle
+  AlertCircle,
+  Pencil,
+  Check,
+  X,
+  Loader2
 } from 'lucide-react'
 
 import TeamManager from '@/components/TeamManager'
@@ -29,10 +33,23 @@ export default function ProjectDetailsPage() {
     return typeof id === 'string' && id.trim().length > 0 ? id : null
   }, [params])
 
-  const { loading: authLoading, token, apiFetch } = useAuth()
+  const { loading: authLoading, token, apiFetch, profile } = useAuth()
 
   const [project, setProject] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+
+  // ✅ State pentru editare inline
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [editTitle, setEditTitle] = useState('')
+  const [isEditingStatus, setIsEditingStatus] = useState(false)
+  const [editStatus, setEditStatus] = useState('')
+  const [isEditingClient, setIsEditingClient] = useState(false)
+  const [editClientId, setEditClientId] = useState('')
+  const [clients, setClients] = useState<any[]>([])
+  const [loadingClients, setLoadingClients] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const isAdmin = profile?.role === 'admin'
 
   const fetchProjectDetails = async () => {
     if (!projectId) {
@@ -76,6 +93,109 @@ export default function ProjectDetailsPage() {
 
     fetchProjectDetails()
   }, [authLoading, token, projectId])
+
+  // ✅ Funcție pentru salvare titlu
+  const handleSaveTitle = async () => {
+    if (!editTitle.trim() || editTitle.trim() === project?.title) {
+      setIsEditingTitle(false)
+      return
+    }
+
+    setSaving(true)
+    try {
+      const response = await apiFetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title: editTitle.trim() })
+      })
+      const result = await response.json().catch(() => null)
+
+      if (response.ok && result?.project) {
+        setProject(result.project)
+        setIsEditingTitle(false)
+      } else {
+        alert(result?.error || 'Eroare la salvare')
+      }
+    } catch (e) {
+      console.error('Save title error:', e)
+      alert('Eroare la salvare')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // ✅ Funcție pentru salvare status
+  const handleSaveStatus = async () => {
+    if (!editStatus || editStatus === project?.status) {
+      setIsEditingStatus(false)
+      return
+    }
+
+    setSaving(true)
+    try {
+      const response = await apiFetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: editStatus })
+      })
+      const result = await response.json().catch(() => null)
+
+      if (response.ok && result?.project) {
+        setProject(result.project)
+        setIsEditingStatus(false)
+      } else {
+        alert(result?.error || 'Eroare la salvare')
+      }
+    } catch (e) {
+      console.error('Save status error:', e)
+      alert('Eroare la salvare')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // ✅ Funcție pentru încărcare clienți
+  const fetchClients = async () => {
+    setLoadingClients(true)
+    try {
+      const response = await apiFetch('/api/clients', { method: 'GET' })
+      const result = await response.json().catch(() => null)
+      if (response.ok && result?.clients) {
+        setClients(result.clients)
+      }
+    } catch (e) {
+      console.error('Fetch clients error:', e)
+    } finally {
+      setLoadingClients(false)
+    }
+  }
+
+  // ✅ Funcție pentru salvare client
+  const handleSaveClient = async () => {
+    if (!editClientId || editClientId === project?.client_id) {
+      setIsEditingClient(false)
+      return
+    }
+
+    setSaving(true)
+    try {
+      const response = await apiFetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ client_id: editClientId })
+      })
+      const result = await response.json().catch(() => null)
+
+      if (response.ok && result?.project) {
+        setProject(result.project)
+        setIsEditingClient(false)
+      } else {
+        alert(result?.error || 'Eroare la salvare')
+      }
+    } catch (e) {
+      console.error('Save client error:', e)
+      alert('Eroare la salvare')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   // UI: Loading auth
   if (authLoading) {
@@ -203,11 +323,55 @@ export default function ProjectDetailsPage() {
         <div className="bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-6 sm:p-8">
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
+              {/* ✅ STATUS BADGE - EDITABIL pentru admin */}
               <div className="flex items-center gap-3">
-                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${currentStatus.bg} ${currentStatus.text}`}>
-                  <span className={`w-2 h-2 rounded-full ${currentStatus.dotColor} animate-pulse`} />
-                  <span className="text-xs font-semibold">{currentStatus.label}</span>
-                </div>
+                {isEditingStatus ? (
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={editStatus}
+                      onChange={(e) => setEditStatus(e.target.value)}
+                      className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      disabled={saving}
+                    >
+                      <option value="contractare">În Contractare</option>
+                      <option value="implementare">În Implementare</option>
+                      <option value="monitorizare">Monitorizare</option>
+                    </select>
+                    <button
+                      onClick={handleSaveStatus}
+                      disabled={saving}
+                      className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors disabled:opacity-50"
+                    >
+                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    </button>
+                    <button
+                      onClick={() => setIsEditingStatus(false)}
+                      disabled={saving}
+                      className="p-1.5 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-50"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${currentStatus.bg} ${currentStatus.text}`}>
+                      <span className={`w-2 h-2 rounded-full ${currentStatus.dotColor} animate-pulse`} />
+                      <span className="text-xs font-semibold">{currentStatus.label}</span>
+                    </div>
+                    {isAdmin && (
+                      <button
+                        onClick={() => {
+                          setEditStatus(project.status)
+                          setIsEditingStatus(true)
+                        }}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors opacity-30 hover:opacity-100"
+                        title="Editează status"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               {project.progress > 0 && (
@@ -227,20 +391,117 @@ export default function ProjectDetailsPage() {
             </div>
 
             <div className="space-y-4">
-              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900 tracking-tight break-words">
-                {project.title}
-              </h1>
+              {/* ✅ TITLU - EDITABIL pentru admin */}
+              {isEditingTitle ? (
+                <div className="flex items-center gap-3">
+                  <input
+                    type="text"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="flex-1 text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900 tracking-tight bg-transparent border-b-2 border-indigo-500 focus:outline-none"
+                    autoFocus
+                    disabled={saving}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveTitle()
+                      if (e.key === 'Escape') setIsEditingTitle(false)
+                    }}
+                  />
+                  <button
+                    onClick={handleSaveTitle}
+                    disabled={saving}
+                    className="p-2 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors disabled:opacity-50"
+                  >
+                    {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
+                  </button>
+                  <button
+                    onClick={() => setIsEditingTitle(false)}
+                    disabled={saving}
+                    className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-50"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3 group">
+                  <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900 tracking-tight break-words">
+                    {project.title}
+                  </h1>
+                  {isAdmin && (
+                    <button
+                      onClick={() => {
+                        setEditTitle(project.title)
+                        setIsEditingTitle(true)
+                      }}
+                      className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors opacity-30 hover:opacity-100 flex-shrink-0 mt-1"
+                      title="Editează titlu"
+                    >
+                      <Pencil className="w-5 h-5" />
+                    </button>
+                  )}
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
+                {/* ✅ CLIENT - EDITABIL pentru admin */}
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
                     <Building2 className="w-4 h-4 text-slate-600" />
                   </div>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="text-xs text-slate-500 font-medium">Client</p>
-                    <p className="text-sm font-semibold text-slate-900 truncate">
-                      {project.profiles?.full_name || 'Nedefinit'}
-                    </p>
+                    {isEditingClient ? (
+                      <div className="flex items-center gap-2 mt-1">
+                        <select
+                          value={editClientId}
+                          onChange={(e) => setEditClientId(e.target.value)}
+                          className="flex-1 px-2 py-1 rounded border border-slate-300 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          disabled={saving || loadingClients}
+                        >
+                          {loadingClients ? (
+                            <option>Se încarcă...</option>
+                          ) : (
+                            clients.map((client) => (
+                              <option key={client.id} value={client.id}>
+                                {client.full_name || client.email} {client.cif ? `(${client.cif})` : ''}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                        <button
+                          onClick={handleSaveClient}
+                          disabled={saving}
+                          className="p-1 rounded bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors disabled:opacity-50"
+                        >
+                          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                        </button>
+                        <button
+                          onClick={() => setIsEditingClient(false)}
+                          disabled={saving}
+                          className="p-1 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-50"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 group/client">
+                        <p className="text-sm font-semibold text-slate-900 truncate">
+                          {project.profiles?.full_name || 'Nedefinit'}
+                        </p>
+                        {isAdmin && (
+                          <button
+                            onClick={() => {
+                              setEditClientId(project.client_id)
+                              fetchClients()
+                              setIsEditingClient(true)
+                            }}
+                            className="p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors opacity-30 hover:opacity-100"
+                            title="Schimbă client"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 

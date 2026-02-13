@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable react-hooks/preserve-manual-memoization */
 'use client'
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
