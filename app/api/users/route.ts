@@ -3,6 +3,7 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin, guardToResponse } from '../_utils/auth'
 import { createSupabaseServiceClient } from '../_utils/supabase'
+import { logUserAction, getClientIP, getUserAgent } from '../_utils/audit'
 
 export async function POST(request: Request) {
   try {
@@ -60,14 +61,7 @@ export async function POST(request: Request) {
 
       if (profileError) throw profileError
 
-      // ✅ AUDIT LOG - Creare utilizator (VERSIUNE ÎMBUNĂTĂȚITĂ)
-      const ipAddress = request.headers.get('x-forwarded-for') || 
-                        request.headers.get('x-real-ip') || 
-                        null
-      
-      const userAgent = request.headers.get('user-agent') || null
-
-      // Construim new_values cu toate câmpurile completate
+      // ✅ AUDIT LOG - Creare utilizator
       const auditData: Record<string, any> = {
         email,
         role,
@@ -87,20 +81,17 @@ export async function POST(request: Request) {
         auditData.departament = departament || null
       }
 
-      await admin
-        .from('audit_logs')
-        .insert({
-          user_id: ctx.profile.id,
-          action_type: 'create',
-          entity_type: 'user',
-          entity_id: authData.user.id,
-          entity_name: email,
-          old_values: null,
-          new_values: auditData,
-          description: `${ctx.profile.email || 'Admin'} a creat utilizatorul ${email} cu rolul ${role}`,
-          ip_address: ipAddress,
-          user_agent: userAgent
-        })
+      await logUserAction({
+        adminId: ctx.user.id,
+        actionType: 'create',
+        userId: authData.user.id,
+        userEmail: email,
+        oldValues: null,
+        newValues: auditData,
+        description: `${ctx.profile.email || 'Admin'} a creat utilizatorul ${email} cu rolul ${role}`,
+        ipAddress: getClientIP(request),
+        userAgent: getUserAgent(request)
+      })
     }
 
     return NextResponse.json({ message: 'User creat cu succes!' })

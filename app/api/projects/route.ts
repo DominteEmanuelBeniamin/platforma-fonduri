@@ -1,8 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // app/api/projects/route.ts
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// app/api/projects/route.ts
 import { NextResponse } from 'next/server'
 import { requireProfile, guardToResponse } from '../_utils/auth'
 import { createSupabaseServiceClient } from '../_utils/supabase'
+import { logUserAction, getClientIP, getUserAgent } from '../_utils/audit' // ✅ IMPORT NOU
 
 function isNonEmptyString(x: unknown): x is string {
   return typeof x === 'string' && x.trim().length > 0
@@ -19,6 +22,7 @@ export async function GET(request: Request) {
     const admin = createSupabaseServiceClient()
 
     // Admin: toate proiectele
+    // Admin: toate proiectele
     if (profile.role === 'admin') {
       const { data, error } = await admin
         .from('projects')
@@ -29,6 +33,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ projects: data ?? [] })
     }
 
+    // Client: doar proiectele lui
     // Client: doar proiectele lui
     if (profile.role === 'client') {
       const { data, error } = await admin
@@ -41,6 +46,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ projects: data ?? [] })
     }
 
+    // Consultant: doar proiectele unde e membru
     // Consultant: doar proiectele unde e membru
     if (profile.role === 'consultant') {
       const { data: memberships, error: memErr } = await admin
@@ -85,6 +91,8 @@ export async function POST(request: Request) {
 
     // Doar admin poate crea proiecte
     const allowed = new Set(['admin'])
+    // Doar admin poate crea proiecte
+    const allowed = new Set(['admin'])
     if (!allowed.has(profile.role)) {
       return NextResponse.json(
         { error: 'Forbidden: only admin can create projects' },
@@ -114,8 +122,10 @@ export async function POST(request: Request) {
     const admin = createSupabaseServiceClient()
 
     // Validăm că clientul există
+    // Validăm că clientul există
     const { data: clientProfile, error: clientError } = await admin
       .from('profiles')
+      .select('id, role, email, full_name, cif')
       .select('id, role, email, full_name, cif')
       .eq('id', client_id)
       .maybeSingle()
@@ -135,11 +145,13 @@ export async function POST(request: Request) {
     }
 
     // Inserăm proiectul
+    // Inserăm proiectul
     const { data: project, error: insertError } = await admin
       .from('projects')
       .insert({
         title: cleanTitle,
         client_id: client_id,
+        status: 'contractare'
         status: 'contractare'
       })
       .select('*, profiles(full_name, cif)')

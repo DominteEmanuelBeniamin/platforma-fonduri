@@ -1,14 +1,17 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// app/api/projects/[id]/route.ts
 import { NextResponse } from 'next/server'
 import { guardToResponse, requireAdmin, requireProjectAccess } from '../../_utils/auth'
 import { createSupabaseServiceClient } from '../../_utils/supabase'
+import { logProjectAction, getClientIP, getUserAgent } from '../../_utils/audit'
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const {id : projectId} = await params
-    if (!projectId ) {
+    const { id: projectId } = await params
+    if (!projectId) {
       return NextResponse.json({ error: 'Project ID lipsește din URL' }, { status: 400 })
     }
 
@@ -19,6 +22,7 @@ export async function GET(
 
     const { data: project, error } = await admin
       .from('projects')
+      .select('*, profiles(*)')
       .select('*, profiles(*)')
       .eq('id', projectId)
       .maybeSingle()
@@ -45,7 +49,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const {id: projectId} = await params
+    const { id: projectId } = await params
     if (!projectId) {
       return NextResponse.json({ error: 'Project ID lipsește din URL' }, { status: 400 })
     }
