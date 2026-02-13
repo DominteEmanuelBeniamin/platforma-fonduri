@@ -1,11 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // app/api/projects/route.ts
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// app/api/projects/route.ts
 import { NextResponse } from 'next/server'
 import { requireProfile, guardToResponse } from '../_utils/auth'
 import { createSupabaseServiceClient } from '../_utils/supabase'
-import { logUserAction, getClientIP, getUserAgent } from '../_utils/audit' // ✅ IMPORT NOU
+import { logProjectAction, getClientIP, getUserAgent } from '../_utils/audit'
 
 function isNonEmptyString(x: unknown): x is string {
   return typeof x === 'string' && x.trim().length > 0
@@ -22,7 +20,6 @@ export async function GET(request: Request) {
     const admin = createSupabaseServiceClient()
 
     // Admin: toate proiectele
-    // Admin: toate proiectele
     if (profile.role === 'admin') {
       const { data, error } = await admin
         .from('projects')
@@ -33,7 +30,6 @@ export async function GET(request: Request) {
       return NextResponse.json({ projects: data ?? [] })
     }
 
-    // Client: doar proiectele lui
     // Client: doar proiectele lui
     if (profile.role === 'client') {
       const { data, error } = await admin
@@ -46,7 +42,6 @@ export async function GET(request: Request) {
       return NextResponse.json({ projects: data ?? [] })
     }
 
-    // Consultant: doar proiectele unde e membru
     // Consultant: doar proiectele unde e membru
     if (profile.role === 'consultant') {
       const { data: memberships, error: memErr } = await admin
@@ -91,8 +86,6 @@ export async function POST(request: Request) {
 
     // Doar admin poate crea proiecte
     const allowed = new Set(['admin'])
-    // Doar admin poate crea proiecte
-    const allowed = new Set(['admin'])
     if (!allowed.has(profile.role)) {
       return NextResponse.json(
         { error: 'Forbidden: only admin can create projects' },
@@ -122,10 +115,8 @@ export async function POST(request: Request) {
     const admin = createSupabaseServiceClient()
 
     // Validăm că clientul există
-    // Validăm că clientul există
     const { data: clientProfile, error: clientError } = await admin
       .from('profiles')
-      .select('id, role, email, full_name, cif')
       .select('id, role, email, full_name, cif')
       .eq('id', client_id)
       .maybeSingle()
@@ -145,13 +136,11 @@ export async function POST(request: Request) {
     }
 
     // Inserăm proiectul
-    // Inserăm proiectul
     const { data: project, error: insertError } = await admin
       .from('projects')
       .insert({
         title: cleanTitle,
         client_id: client_id,
-        status: 'contractare'
         status: 'contractare'
       })
       .select('*, profiles(full_name, cif)')
@@ -161,35 +150,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: insertError.message }, { status: 400 })
     }
 
-    // ✅ AUDIT LOG - Creare proiect (VERSIUNE ÎMBUNĂTĂȚITĂ)
-    const ipAddress = request.headers.get('x-forwarded-for') || 
-                      request.headers.get('x-real-ip') || 
-                      null
-    
-    const userAgent = request.headers.get('user-agent') || null
-
-    await admin
-      .from('audit_logs')
-      .insert({
-        user_id: user.id,
-        action_type: 'create',
-        entity_type: 'project',
-        entity_id: project.id,
-        entity_name: cleanTitle,
-        old_values: null,
-        new_values: { 
-          title: cleanTitle, 
-          client_id: client_id,
-          client_email: clientProfile.email,
-          client_name: clientProfile.full_name,
-          client_cif: clientProfile.cif,
-          status: 'contractare',
-          cod_intern: project.cod_intern
-        },
-        description: `${profile.email || 'Admin'} a creat proiectul "${cleanTitle}" pentru clientul ${clientProfile.email || clientProfile.full_name || client_id}`,
-        ip_address: ipAddress,
-        user_agent: userAgent
-      })
+    // ✅ AUDIT LOG - Creare proiect
+    await logProjectAction({
+      adminId: user.id,
+      actionType: 'create',
+      projectId: project.id,
+      projectTitle: project.title,
+      oldValues: null,
+      newValues: {
+        title: project.title,
+        client_id: project.client_id,
+        client_email: clientProfile.email,
+        client_name: clientProfile.full_name,
+        client_cif: clientProfile.cif,
+        status: project.status,
+        cod_intern: project.cod_intern
+      },
+      description: `${profile.email || 'Admin'} a creat proiectul "${project.title}" pentru clientul ${clientProfile.email || clientProfile.full_name || client_id}`,
+      ipAddress: getClientIP(request),
+      userAgent: getUserAgent(request)
+    })
 
     return NextResponse.json({ message: 'Project created', project }, { status: 201 })
   } catch (e: unknown) {
