@@ -52,16 +52,16 @@ export default function Navbar() {
             {profile?.role === 'admin' && (
               <>
                 <Link 
+                  href="/admin" 
+                  className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/admin')}`}
+                >
+                  Overview
+                </Link>
+                <Link 
                   href="/admin/users" 
                   className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/admin/users')}`}
                 >
                   Utilizatori
-                </Link>
-                <Link 
-                  href="/admin/audit" 
-                  className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/admin/audit')}`}
-                >
-                  Audit
                 </Link>
               </>
             )}
@@ -74,7 +74,7 @@ export default function Navbar() {
         {user ? (
           <div className="flex items-center gap-3 pl-4 border-l border-slate-200">
             <div className="hidden lg:block text-right">
-                <p className="text-xs font-semibold text-slate-900 truncate max-w-[150px]">{profile?.email || 'Utilizator'}</p>
+                <p className="text-xs font-semibold text-slate-900 truncate max-w-[150px]">{(user as any).email}</p>
                 <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">Cont Activ</p>
             </div>
 

@@ -2,32 +2,68 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 'use client'
 
-import { JSX, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import {
-  FolderOpen,
-  Calendar,
-  Mail,
-  TrendingUp,
-  Clock,
-  Building2,
   ArrowLeft,
   AlertCircle,
   Pencil,
   Check,
   X,
-  Loader2
+  Loader2,
+  ChevronDown,
+  ChevronRight,
+  CheckCircle2,
+  Circle,
+  Play,
+  Building2,
+  Layers,
+  FolderOpen,
 } from 'lucide-react'
 
 import TeamManager from '@/components/TeamManager'
 import DocumentRequests from '@/components/DocumentRequests'
 import { useAuth } from '@/app/providers/AuthProvider'
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface ProjectActivity {
+  id: string
+  name: string
+  status: string
+  order_index: number
+}
+
+interface ProjectPhase {
+  id: string
+  name: string
+  status: string
+  order_index: number
+  project_status_id: string
+  project_status?: { id: string; name: string; color: string }
+  activities?: ProjectActivity[]
+}
+
+// ─── Status config ────────────────────────────────────────────────────────────
+
+const phaseStatusCfg: Record<string, { label: string; color: string; ring: string }> = {
+  pending:     { label: 'În așteptare', color: 'text-slate-500',   ring: 'ring-slate-200' },
+  in_progress: { label: 'În lucru',     color: 'text-blue-600',    ring: 'ring-blue-200' },
+  completed:   { label: 'Finalizat',    color: 'text-emerald-600', ring: 'ring-emerald-200' },
+  skipped:     { label: 'Omis',         color: 'text-slate-400',   ring: 'ring-slate-100' },
+}
+
+function ActivityStatusIcon({ status }: { status: string }) {
+  if (status === 'completed') return <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+  if (status === 'in_progress') return <Play className="w-4 h-4 text-blue-500 flex-shrink-0" />
+  return <Circle className="w-4 h-4 text-slate-300 flex-shrink-0" />
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function ProjectDetailsPage() {
   const router = useRouter()
   const params = useParams()
-
-  // ✅ projectId sigur (string sau null)
   const projectId = useMemo(() => {
     const id = (params as any)?.id
     return typeof id === 'string' && id.trim().length > 0 ? id : null
@@ -36,578 +72,355 @@ export default function ProjectDetailsPage() {
   const { loading: authLoading, token, apiFetch, profile } = useAuth()
 
   const [project, setProject] = useState<any>(null)
+  const [phases, setPhases] = useState<ProjectPhase[]>([])
+  const [allDocRequests, setAllDocRequests] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
-  // ✅ State pentru editare inline
+  const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set())
+  const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
+
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState('')
-  const [isEditingStatus, setIsEditingStatus] = useState(false)
-  const [editStatus, setEditStatus] = useState('')
-  const [isEditingClient, setIsEditingClient] = useState(false)
-  const [editClientId, setEditClientId] = useState('')
-  const [clients, setClients] = useState<any[]>([])
-  const [loadingClients, setLoadingClients] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const isAdmin = profile?.role === 'admin'
+  const isConsultant = profile?.role === 'consultant'
+  const canEdit = isAdmin || isConsultant
 
-  const fetchProjectDetails = async () => {
-    if (!projectId) {
-      setProject(null)
-      setLoading(false)
-      return
-    }
+  // ─── Fetch ────────────────────────────────────────────────────────────────
 
+  const fetchAll = async () => {
+    if (!projectId) return
+    setLoading(true)
     try {
-      setLoading(true)
+      const [projRes, phasesRes, docsRes] = await Promise.all([
+        apiFetch(`/api/projects/${projectId}`),
+        apiFetch(`/api/projects/${projectId}/phases`),
+        apiFetch(`/api/projects/${projectId}/document-requests`),
+      ])
 
-      const response = await apiFetch(`/api/projects/${projectId}`, { method: 'GET' })
-      const result = await response.json().catch(() => null)
+      if (!projRes.ok) { router.replace('/'); return }
+      setProject((await projRes.json()).project)
 
-      if (!response.ok) {
-        console.error('Eroare:', result?.error || response.statusText)
-
-        // Dacă token-ul e invalid / expirat, trimite la login
-        if (response.status === 401) router.replace('/login')
-
-        setProject(null)
-        return
+      if (phasesRes.ok) {
+        const ph: ProjectPhase[] = (await phasesRes.json()).phases || []
+        setPhases(ph)
+        // Auto-select: faza in_progress sau prima
+        const active = ph.find(p => p.status === 'in_progress') || ph[0]
+        if (active) {
+          setExpandedPhases(new Set([active.id]))
+          setActivePhaseId(active.id)
+        }
       }
 
-      setProject(result?.project ?? null)
+      if (docsRes.ok) {
+        setAllDocRequests((await docsRes.json()).requests || [])
+      }
     } finally {
       setLoading(false)
     }
   }
 
-  // ✅ 1) Așteptăm auth să se inițializeze
-  // ✅ 2) Dacă nu există token, redirect
-  // ✅ 3) Dacă există token, încărcăm proiectul
+  // Refresh doar cererile (apelat de DocumentRequests prin onRefresh)
+  const refreshDocs = async () => {
+    if (!projectId) return
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/document-requests`)
+      if (res.ok) setAllDocRequests((await res.json()).requests || [])
+    } catch (e) { console.error(e) }
+  }
+
   useEffect(() => {
     if (authLoading) return
-
-    if (!token) {
-      router.replace('/login')
-      return
-    }
-
-    fetchProjectDetails()
+    if (!token) { router.replace('/login'); return }
+    fetchAll()
   }, [authLoading, token, projectId])
 
-  // ✅ Funcție pentru salvare titlu
+  // ─── Actions ──────────────────────────────────────────────────────────────
+
   const handleSaveTitle = async () => {
-    if (!editTitle.trim() || editTitle.trim() === project?.title) {
-      setIsEditingTitle(false)
-      return
-    }
-
+    if (!editTitle.trim() || editTitle === project?.title) { setIsEditingTitle(false); return }
     setSaving(true)
     try {
-      const response = await apiFetch(`/api/projects/${projectId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ title: editTitle.trim() })
+      const res = await apiFetch(`/api/projects/${projectId}`, {
+        method: 'PATCH', body: JSON.stringify({ title: editTitle.trim() })
       })
-      const result = await response.json().catch(() => null)
-
-      if (response.ok && result?.project) {
-        setProject(result.project)
-        setIsEditingTitle(false)
-      } else {
-        alert(result?.error || 'Eroare la salvare')
-      }
-    } catch (e) {
-      console.error('Save title error:', e)
-      alert('Eroare la salvare')
-    } finally {
-      setSaving(false)
-    }
+      const data = await res.json().catch(() => null)
+      if (res.ok) { setProject(data.project); setIsEditingTitle(false) }
+      else alert(data?.error || 'Eroare')
+    } finally { setSaving(false) }
   }
 
-  // ✅ Funcție pentru salvare status
-  const handleSaveStatus = async () => {
-    if (!editStatus || editStatus === project?.status) {
-      setIsEditingStatus(false)
-      return
-    }
-
-    setSaving(true)
-    try {
-      const response = await apiFetch(`/api/projects/${projectId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: editStatus })
-      })
-      const result = await response.json().catch(() => null)
-
-      if (response.ok && result?.project) {
-        setProject(result.project)
-        setIsEditingStatus(false)
-      } else {
-        alert(result?.error || 'Eroare la salvare')
-      }
-    } catch (e) {
-      console.error('Save status error:', e)
-      alert('Eroare la salvare')
-    } finally {
-      setSaving(false)
-    }
+  const updatePhaseStatus = async (phaseId: string, status: string) => {
+    await apiFetch(`/api/projects/${projectId}/phases/${phaseId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    })
+    fetchAll()
   }
 
-  // ✅ Funcție pentru încărcare clienți
-  const fetchClients = async () => {
-    setLoadingClients(true)
-    try {
-      const response = await apiFetch('/api/clients', { method: 'GET' })
-      const result = await response.json().catch(() => null)
-      if (response.ok && result?.clients) {
-        setClients(result.clients)
-      }
-    } catch (e) {
-      console.error('Fetch clients error:', e)
-    } finally {
-      setLoadingClients(false)
-    }
+  const updateActivityStatus = async (phaseId: string, activityId: string, status: string) => {
+    await apiFetch(`/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    })
+    fetchAll()
   }
 
-  // ✅ Funcție pentru salvare client
-  const handleSaveClient = async () => {
-    if (!editClientId || editClientId === project?.client_id) {
-      setIsEditingClient(false)
-      return
-    }
+  // ─── Derived ──────────────────────────────────────────────────────────────
 
-    setSaving(true)
-    try {
-      const response = await apiFetch(`/api/projects/${projectId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ client_id: editClientId })
-      })
-      const result = await response.json().catch(() => null)
+  const activePhase = phases.find(p => p.id === activePhaseId) || null
 
-      if (response.ok && result?.project) {
-        setProject(result.project)
-        setIsEditingClient(false)
-      } else {
-        alert(result?.error || 'Eroare la salvare')
-      }
-    } catch (e) {
-      console.error('Save client error:', e)
-      alert('Eroare la salvare')
-    } finally {
-      setSaving(false)
-    }
-  }
+  // ─── Loading / error ──────────────────────────────────────────────────────
 
-  // UI: Loading auth
-  if (authLoading) {
+  if (authLoading || loading) {
     return (
-      <div className="flex h-[70vh] items-center justify-center px-4">
+      <div className="flex h-screen items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 border-4 border-slate-100 border-t-indigo-600 rounded-full animate-spin" />
-          <p className="text-sm text-slate-500 font-medium">Se verifică autentificarea...</p>
+          <div className="w-10 h-10 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin" />
+          <p className="text-sm text-slate-500">Se încarcă...</p>
         </div>
       </div>
     )
   }
 
-  // UI: Loading project
-  if (loading) {
-    return (
-      <div className="flex h-[70vh] items-center justify-center px-4">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 border-4 border-slate-100 border-t-indigo-600 rounded-full animate-spin" />
-          <p className="text-sm text-slate-500 font-medium">Se încarcă proiectul...</p>
-        </div>
-      </div>
-    )
-  }
-
-  // Dacă n-avem projectId valid (URL greșit)
-  if (!projectId) {
-    return (
-      <div className="flex h-[70vh] items-center justify-center px-4">
-        <div className="text-center max-w-md">
-          <div className="w-20 h-20 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <AlertCircle className="w-10 h-10 text-red-500" />
-          </div>
-          <h2 className="text-2xl font-bold text-slate-900 mb-2">ID proiect invalid</h2>
-          <p className="text-slate-500 mb-6">Link-ul nu conține un ID valid.</p>
-          <button
-            onClick={() => router.push('/')}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Înapoi la Dashboard
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  // Dacă API a zis ok dar totuși nu există proiect
   if (!project) {
     return (
-      <div className="flex h-[70vh] items-center justify-center px-4">
-        <div className="text-center max-w-md">
-          <div className="w-20 h-20 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <AlertCircle className="w-10 h-10 text-red-500" />
-          </div>
-          <h2 className="text-2xl font-bold text-slate-900 mb-2">Proiect inexistent</h2>
-          <p className="text-slate-500 mb-6">
-            Nu am putut găsi proiectul solicitat. Verifică dacă ID-ul este corect.
-          </p>
-          <button
-            onClick={() => router.push('/')}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Înapoi la Dashboard
+      <div className="flex h-screen items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-3" />
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">Proiect negăsit</h2>
+          <button onClick={() => router.push('/')}
+            className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium inline-flex items-center gap-2">
+            <ArrowLeft className="w-4 h-4" /> Înapoi
           </button>
         </div>
       </div>
     )
   }
 
-  // Status config
-  const statusConfig: Record<
-    string,
-    { bg: string; text: string; dotColor: string; label: string; icon: JSX.Element }
-  > = {
-    contractare: {
-      bg: 'bg-amber-50',
-      text: 'text-amber-700',
-      dotColor: 'bg-amber-500',
-      label: 'În Contractare',
-      icon: <Clock className="w-4 h-4" />
-    },
-    implementare: {
-      bg: 'bg-blue-50',
-      text: 'text-blue-700',
-      dotColor: 'bg-blue-500',
-      label: 'În Implementare',
-      icon: <TrendingUp className="w-4 h-4" />
-    },
-    monitorizare: {
-      bg: 'bg-emerald-50',
-      text: 'text-emerald-700',
-      dotColor: 'bg-emerald-500',
-      label: 'Monitorizare',
-      icon: <FolderOpen className="w-4 h-4" />
-    }
-  }
-
-  const currentStatus = statusConfig[project.status] || {
-    bg: 'bg-slate-50',
-    text: 'text-slate-700',
-    dotColor: 'bg-slate-500',
-    label: project.status,
-    icon: <FolderOpen className="w-4 h-4" />
-  }
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-slate-50/50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 fade-in-up">
-        {/* BREADCRUMB */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => router.push('/')}
-            className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 transition-colors group"
-          >
-            <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-            <span className="font-medium">Proiecte</span>
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+
+      {/* ── Top bar ── */}
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
+          <button onClick={() => router.push('/')}
+            className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900 transition-colors flex-shrink-0">
+            <ArrowLeft className="w-4 h-4" />
+            <span className="font-medium hidden sm:block">Proiecte</span>
           </button>
-          <span className="text-slate-300">/</span>
-          <span className="text-sm font-medium text-slate-900 truncate">{project.title}</span>
-        </div>
+          <span className="text-slate-300 hidden sm:block">/</span>
 
-        {/* HEADER */}
-        <div className="bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-6 sm:p-8">
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
-              {/* ✅ STATUS BADGE - EDITABIL pentru admin */}
-              <div className="flex items-center gap-3">
-                {isEditingStatus ? (
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={editStatus}
-                      onChange={(e) => setEditStatus(e.target.value)}
-                      className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      disabled={saving}
-                    >
-                      <option value="contractare">În Contractare</option>
-                      <option value="implementare">În Implementare</option>
-                      <option value="monitorizare">Monitorizare</option>
-                    </select>
-                    <button
-                      onClick={handleSaveStatus}
-                      disabled={saving}
-                      className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors disabled:opacity-50"
-                    >
-                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                    </button>
-                    <button
-                      onClick={() => setIsEditingStatus(false)}
-                      disabled={saving}
-                      className="p-1.5 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-50"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${currentStatus.bg} ${currentStatus.text}`}>
-                      <span className={`w-2 h-2 rounded-full ${currentStatus.dotColor} animate-pulse`} />
-                      <span className="text-xs font-semibold">{currentStatus.label}</span>
-                    </div>
-                    {isAdmin && (
-                      <button
-                        onClick={() => {
-                          setEditStatus(project.status)
-                          setIsEditingStatus(true)
-                        }}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors opacity-30 hover:opacity-100"
-                        title="Editează status"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {project.progress > 0 && (
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium text-slate-500 whitespace-nowrap">Progres</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-full sm:w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-indigo-600 to-indigo-500 rounded-full transition-all duration-700"
-                        style={{ width: `${project.progress}%` }}
-                      />
-                    </div>
-                    <span className="text-sm font-bold text-slate-900 min-w-[3ch] whitespace-nowrap">{project.progress}%</span>
-                  </div>
-                </div>
+          {/* Editable title */}
+          {isEditingTitle ? (
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <input
+                value={editTitle}
+                onChange={e => setEditTitle(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSaveTitle(); if (e.key === 'Escape') setIsEditingTitle(false) }}
+                autoFocus disabled={saving}
+                className="flex-1 text-sm font-semibold text-slate-900 bg-transparent border-b border-indigo-500 focus:outline-none py-0.5 min-w-0"
+              />
+              <button onClick={handleSaveTitle} disabled={saving}
+                className="p-1 rounded bg-emerald-100 text-emerald-600 flex-shrink-0">
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+              </button>
+              <button onClick={() => setIsEditingTitle(false)}
+                className="p-1 rounded bg-slate-100 text-slate-500 flex-shrink-0">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <h1 className="text-sm font-semibold text-slate-900 truncate">{project.title}</h1>
+              {isAdmin && (
+                <button onClick={() => { setEditTitle(project.title); setIsEditingTitle(true) }}
+                  className="p-1 rounded text-slate-300 hover:text-slate-600 hover:bg-slate-100 flex-shrink-0">
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
               )}
             </div>
+          )}
 
-            <div className="space-y-4">
-              {/* ✅ TITLU - EDITABIL pentru admin */}
-              {isEditingTitle ? (
-                <div className="flex items-center gap-3">
-                  <input
-                    type="text"
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    className="flex-1 text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900 tracking-tight bg-transparent border-b-2 border-indigo-500 focus:outline-none"
-                    autoFocus
-                    disabled={saving}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSaveTitle()
-                      if (e.key === 'Escape') setIsEditingTitle(false)
+          {/* Meta pills */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <span className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
+              <Building2 className="w-3.5 h-3.5" />
+              {project.profiles?.full_name || 'Client'}
+            </span>
+            <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${
+              project.status === 'implementare' ? 'bg-blue-100 text-blue-700' :
+              project.status === 'monitorizare' ? 'bg-emerald-100 text-emerald-700' :
+              'bg-amber-100 text-amber-700'
+            }`}>
+              {project.status === 'implementare' ? 'Implementare' :
+               project.status === 'monitorizare' ? 'Monitorizare' : 'Contractare'}
+            </span>
+          </div>
+        </div>
+      </header>
+
+      {/* ── Body: sidebar + main ── */}
+      <div className="flex flex-1 overflow-hidden max-w-screen-2xl w-full mx-auto">
+
+        {/* ══ SIDEBAR: Faze ══ */}
+        <aside className="hidden md:flex flex-col w-64 lg:w-72 flex-shrink-0 bg-white border-r border-slate-200 overflow-y-auto">
+          <div className="p-4 border-b border-slate-100 flex-shrink-0">
+            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <Layers className="w-3.5 h-3.5" /> Faze proiect
+            </p>
+          </div>
+
+          <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
+            {phases.length === 0 && (
+              <div className="p-6 text-center">
+                <FolderOpen className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                <p className="text-xs text-slate-400">Nicio fază importată</p>
+              </div>
+            )}
+
+            {phases.map(phase => {
+              const isActive = phase.id === activePhaseId
+              const isExpanded = expandedPhases.has(phase.id)
+              const color = phase.project_status?.color || '#6B7280'
+              const pCfg = phaseStatusCfg[phase.status] || phaseStatusCfg.pending
+
+              return (
+                <div key={phase.id}>
+                  <button
+                    onClick={() => {
+                      setActivePhaseId(phase.id)
+                      const s = new Set(expandedPhases)
+                      isExpanded ? s.delete(phase.id) : s.add(phase.id)
+                      setExpandedPhases(s)
                     }}
-                  />
-                  <button
-                    onClick={handleSaveTitle}
-                    disabled={saving}
-                    className="p-2 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors disabled:opacity-50"
+                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-all ${
+                      isActive ? 'bg-indigo-50' : 'hover:bg-slate-50'
+                    }`}
                   >
-                    {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                    <span className={`flex-1 text-sm font-medium truncate ${isActive ? 'text-indigo-900' : 'text-slate-700'}`}>
+                      {phase.name}
+                    </span>
+                    <span className={`text-[10px] font-medium hidden lg:block flex-shrink-0 ${pCfg.color}`}>
+                      {pCfg.label}
+                    </span>
+                    {isExpanded
+                      ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                      : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                    }
                   </button>
-                  <button
-                    onClick={() => setIsEditingTitle(false)}
-                    disabled={saving}
-                    className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-50"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
+
+                  {/* Activities sub-list */}
+                  {isExpanded && phase.activities && phase.activities.length > 0 && (
+                    <div className="ml-5 mt-0.5 mb-1 pl-3 border-l-2 border-slate-100 space-y-0.5">
+                      {phase.activities.map(act => (
+                        <div key={act.id}
+                          className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-slate-50">
+                          <ActivityStatusIcon status={act.status} />
+                          <span className="text-xs text-slate-600 truncate flex-1">{act.name}</span>
+                          {canEdit && (
+                            <select
+                              value={act.status}
+                              onChange={e => updateActivityStatus(phase.id, act.id, e.target.value)}
+                              onClick={e => e.stopPropagation()}
+                              className="text-[10px] border-0 bg-transparent text-slate-400 focus:outline-none cursor-pointer"
+                            >
+                              <option value="pending">Pending</option>
+                              <option value="in_progress">În lucru</option>
+                              <option value="completed">Done</option>
+                            </select>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div className="flex items-start gap-3 group">
-                  <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900 tracking-tight break-words">
-                    {project.title}
-                  </h1>
-                  {isAdmin && (
-                    <button
-                      onClick={() => {
-                        setEditTitle(project.title)
-                        setIsEditingTitle(true)
-                      }}
-                      className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors opacity-30 hover:opacity-100 flex-shrink-0 mt-1"
-                      title="Editează titlu"
+              )
+            })}
+          </nav>
+
+          {/* Team manager jos sidebar */}
+          <div className="border-t border-slate-100 flex-shrink-0">
+            <TeamManager projectId={projectId!} />
+          </div>
+        </aside>
+
+        {/* ══ MAIN: Cereri documente pe faza activă ══ */}
+        <main className="flex-1 overflow-y-auto">
+          {phases.length === 0 ? (
+            // Niciun template importat
+            <div className="flex flex-col items-center justify-center h-full text-center p-8">
+              <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
+                <Layers className="w-8 h-8 text-slate-400" />
+              </div>
+              <h2 className="text-lg font-semibold text-slate-900 mb-1">Niciun template importat</h2>
+              <p className="text-sm text-slate-500 max-w-xs">
+                Importați un template de proiect pentru a vedea fazele și cererile de documente organizate pe activități.
+              </p>
+            </div>
+          ) : (
+            <div className="p-4 sm:p-6 space-y-4 max-w-4xl">
+
+              {/* Phase header + status */}
+              {activePhase && (
+                <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: activePhase.project_status?.color || '#6B7280' }}
+                    />
+                    <h2 className="text-xl font-bold text-slate-900">{activePhase.name}</h2>
+                    <span className={`text-xs font-medium px-2.5 py-1 rounded-full ring-1 ${
+                      (phaseStatusCfg[activePhase.status] || phaseStatusCfg.pending).ring
+                    } ${(phaseStatusCfg[activePhase.status] || phaseStatusCfg.pending).color}`}>
+                      {(phaseStatusCfg[activePhase.status] || phaseStatusCfg.pending).label}
+                    </span>
+                  </div>
+                  {canEdit && (
+                    <select
+                      value={activePhase.status}
+                      onChange={e => updatePhaseStatus(activePhase.id, e.target.value)}
+                      className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     >
-                      <Pencil className="w-5 h-5" />
-                    </button>
+                      <option value="pending">În așteptare</option>
+                      <option value="in_progress">În lucru</option>
+                      <option value="completed">Finalizat</option>
+                      <option value="skipped">Omis</option>
+                    </select>
                   )}
                 </div>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
-                {/* ✅ CLIENT - EDITABIL pentru admin */}
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                    <Building2 className="w-4 h-4 text-slate-600" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs text-slate-500 font-medium">Client</p>
-                    {isEditingClient ? (
-                      <div className="flex items-center gap-2 mt-1">
-                        <select
-                          value={editClientId}
-                          onChange={(e) => setEditClientId(e.target.value)}
-                          className="flex-1 px-2 py-1 rounded border border-slate-300 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                          disabled={saving || loadingClients}
-                        >
-                          {loadingClients ? (
-                            <option>Se încarcă...</option>
-                          ) : (
-                            clients.map((client) => (
-                              <option key={client.id} value={client.id}>
-                                {client.full_name || client.email} {client.cif ? `(${client.cif})` : ''}
-                              </option>
-                            ))
-                          )}
-                        </select>
-                        <button
-                          onClick={handleSaveClient}
-                          disabled={saving}
-                          className="p-1 rounded bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors disabled:opacity-50"
-                        >
-                          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                        </button>
-                        <button
-                          onClick={() => setIsEditingClient(false)}
-                          disabled={saving}
-                          className="p-1 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-50"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1 group/client">
-                        <p className="text-sm font-semibold text-slate-900 truncate">
-                          {project.profiles?.full_name || 'Nedefinit'}
-                        </p>
-                        {isAdmin && (
-                          <button
-                            onClick={() => {
-                              setEditClientId(project.client_id)
-                              fetchClients()
-                              setIsEditingClient(true)
-                            }}
-                            className="p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors opacity-30 hover:opacity-100"
-                            title="Schimbă client"
-                          >
-                            <Pencil className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
+              {/* Un DocumentRequests per activitate din faza activă */}
+              {activePhase?.activities?.map(activity => (
+                <DocumentRequests
+                  key={activity.id}
+                  projectId={projectId!}
+                  activityId={activity.id}
+                  activityName={activity.name}
+                  externalRequests={allDocRequests}
+                  onRefresh={refreshDocs}
+                />
+              ))}
 
-                {project.profiles?.cif && (
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                      <span className="text-xs font-bold text-slate-600">CUI</span>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs text-slate-500 font-medium">Cod Unic</p>
-                      <p className="text-sm font-semibold text-slate-900 font-mono">{project.profiles.cif}</p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                    <Calendar className="w-4 h-4 text-slate-600" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs text-slate-500 font-medium">Data creării</p>
-                    <p className="text-sm font-semibold text-slate-900">
-                      {new Date(project.created_at).toLocaleDateString('ro-RO', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric'
-                      })}
-                    </p>
-                  </div>
-                </div>
-              </div>
+              {/* DocumentRequests pentru cereri fără activitate (generale) */}
+              <DocumentRequests
+                key="__general__"
+                projectId={projectId!}
+                activityId={null}
+                activityName="Cereri generale"
+                externalRequests={allDocRequests}
+                onRefresh={refreshDocs}
+              />
             </div>
-          </div>
-        </div>
-
-        {/* GRID */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-          <div className="lg:col-span-1 space-y-4 sm:space-y-6">
-            <div className="bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 bg-slate-50/50">
-                <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                  <FolderOpen className="w-4 h-4 text-slate-500" />
-                  Informații Proiect
-                </h3>
-              </div>
-
-              <div className="p-4 sm:p-6 space-y-4 sm:space-y-5">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-slate-50 flex items-center justify-center flex-shrink-0">
-                    <TrendingUp className="w-5 h-5 text-slate-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Status Curent</p>
-                    <p className="font-semibold text-slate-900 capitalize break-words">{currentStatus.label}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-slate-50 flex items-center justify-center flex-shrink-0">
-                    <Calendar className="w-5 h-5 text-slate-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Data Creării</p>
-                    <p className="font-semibold text-slate-900">{new Date(project.created_at).toLocaleDateString('ro-RO')}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-slate-50 flex items-center justify-center flex-shrink-0">
-                    <Mail className="w-5 h-5 text-slate-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Contact Client</p>
-                    <p className="font-medium text-slate-900 truncate text-sm break-all">
-                      {project.profiles?.email || 'Lipsește'}
-                    </p>
-                  </div>
-                </div>
-
-                {project.progress > 0 && (
-                  <div className="pt-4 sm:pt-5 border-t border-slate-100">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Progres Dosar</span>
-                      <span className="text-lg font-bold text-slate-900">{project.progress}%</span>
-                    </div>
-                    <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-indigo-600 to-indigo-500 rounded-full transition-all duration-700 relative overflow-hidden"
-                        style={{ width: `${project.progress}%` }}
-                      >
-                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse" />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* ✅ projectId e garantat string aici */}
-            <TeamManager projectId={projectId} />
-          </div>
-
-          <div className="lg:col-span-2">
-            <DocumentRequests projectId={projectId} />
-          </div>
-        </div>
+          )}
+        </main>
       </div>
     </div>
   )

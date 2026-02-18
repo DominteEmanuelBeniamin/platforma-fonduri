@@ -158,11 +158,29 @@ function isImageFile(file: PickedFile): boolean {
   return file.type.startsWith('image/')
 }
 
-export default function DocumentRequests({ projectId }: { projectId: string }) {
+interface DocumentRequestsProps {
+  projectId: string
+  /** Dacă e furnizat, filtrează cererile după activity_id */
+  activityId?: string | null
+  /** Titlul activității afișat în header */
+  activityName?: string
+  /** Date externe de la pagina părinte (evită fetch duplicat) */
+  externalRequests?: any[]
+  /** Callback refresh pentru pagina părinte */
+  onRefresh?: () => void
+}
+
+export default function DocumentRequests({
+  projectId,
+  activityId,
+  activityName,
+  externalRequests,
+  onRefresh,
+}: DocumentRequestsProps) {
   const { loading: authLoading, token, profile, apiFetch } = useAuth()
 
-  const [requests, setRequests] = useState<DocumentRequest[]>([])
-  const [loading, setLoading] = useState(true)
+  const [internalRequests, setInternalRequests] = useState<DocumentRequest[]>([])
+  const [loading, setLoading] = useState(!externalRequests)
   const [showForm, setShowForm] = useState(false)
   
   const folderInputRef = useRef<HTMLInputElement | null>(null)
@@ -194,6 +212,19 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
     'webkitdirectory' in HTMLInputElement.prototype &&
     !window.matchMedia?.('(pointer: coarse)').matches &&
     !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+
+  // Requests derivate: externe filtrate sau interne
+  const requests = useMemo(() => {
+    const src = externalRequests ?? internalRequests
+    if (activityId !== undefined) {
+      // activityId=string -> filtrare; activityId=null -> fără activitate (generale)
+      return src.filter((r: any) =>
+        activityId ? r.activity_id === activityId : !r.activity_id
+      )
+    }
+    return src
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalRequests, internalRequests, activityId])
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
   const isClient = profile?.role === 'client'
@@ -264,27 +295,33 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
   }
 
   const fetchRequests = async () => {
+    // Dacă avem date externe, delegăm refresh-ul la pagina părinte
+    if (externalRequests !== undefined) {
+      onRefresh?.()
+      return
+    }
     if (!projectId) return
     setLoading(true)
     try {
       const res = await apiFetch(`/api/projects/${projectId}/document-requests`, { method: 'GET' })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error || res.statusText)
-      setRequests(data?.requests || [])
+      setInternalRequests(data?.requests || [])
     } catch (e: any) {
       console.error('Eroare la încărcare cereri:', e.message)
-      setRequests([])
+      setInternalRequests([])
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
+    if (externalRequests !== undefined) { setLoading(false); return }
     if (authLoading) return
     if (!token) return
     fetchRequests()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, token, projectId])
+  }, [authLoading, token, projectId, externalRequests])
 
   const handleTemplateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) setTemplateFile(e.target.files[0])
@@ -501,6 +538,7 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
           description: description.trim() || null,
           deadline_at: deadline || null,
           attachment_path,
+          activity_id: activityId || null,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -605,10 +643,10 @@ export default function DocumentRequests({ projectId }: { projectId: string }) {
               </div>
               <div className="min-w-0">
                 <h2 className="text-base font-semibold text-slate-900 truncate">
-                  {isClient ? 'Documente de completat' : 'Cereri documente'}
+                  {activityName ?? (isClient ? 'Documente de completat' : 'Cereri documente')}
                 </h2>
                 <p className="text-xs text-slate-500 truncate hidden sm:block">
-                  {isClient ? 'Descarcă, completează și încarcă' : `${requests.length} cereri în total`}
+                  {activityName ? `${requests.length} cereri` : (isClient ? 'Descarcă, completează și încarcă' : `${requests.length} cereri în total`)}
                 </p>
               </div>
             </div>

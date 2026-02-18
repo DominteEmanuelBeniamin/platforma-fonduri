@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
@@ -19,14 +20,17 @@ export async function GET(
       .select(`
         id,
         project_id,
+        activity_id,
         name,
         description,
         status,
+        is_mandatory,
         attachment_path,
         deadline_at,
         created_by,
         created_at,
         creator:created_by(full_name, email),
+        activity:activity_id(id, name, phase_id),
         files(
           id,
           storage_path,
@@ -45,10 +49,9 @@ export async function GET(
     }
 
     return NextResponse.json({ requests: data ?? [] })
-  } catch (e: unknown) {
-    const error = e as Error
-    console.error('GET document-requests exception:', error)
-    return NextResponse.json({ error: error?.message ?? 'Server error' }, { status: 500 })
+  } catch (e: any) {
+    console.error('GET document-requests exception:', e)
+    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
   }
 }
 
@@ -62,7 +65,7 @@ export async function POST(
     const access = await requireProjectAccess(request, projectId)
     if (!access.ok) return guardToResponse(access)
 
-    //doar admin/consultant pot crea cereri
+    // doar admin/consultant pot crea cereri
     if (access.profile.role !== 'admin' && access.profile.role !== 'consultant') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
@@ -72,6 +75,8 @@ export async function POST(
     const description = typeof body?.description === 'string' ? body.description.trim() : null
     const deadline_at = typeof body?.deadline_at === 'string' && body.deadline_at ? body.deadline_at : null
     const attachment_path = typeof body?.attachment_path === 'string' && body.attachment_path ? body.attachment_path : null
+    const activity_id = typeof body?.activity_id === 'string' && body.activity_id ? body.activity_id : null
+    const is_mandatory = body?.is_mandatory === true
 
     if (!name) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 })
@@ -83,10 +88,12 @@ export async function POST(
       .from('document_requirements')
       .insert({
         project_id: projectId,
+        activity_id,
         name,
         description: description || null,
         deadline_at,
         attachment_path,
+        is_mandatory,
         created_by: access.profile.id,
         status: 'pending'
       })
@@ -98,35 +105,9 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to create document request' }, { status: 500 })
     }
 
-    // Audit log pentru creare cerere document
-    const ipAddress = request.headers.get('x-forwarded-for') || 
-                      request.headers.get('x-real-ip') || 
-                      null
-
-    await admin
-      .from('audit_logs')
-      .insert({
-        user_id: access.user.id,
-        action_type: 'create',
-        entity_type: 'document',
-        entity_id: data.id,
-        entity_name: name,
-        new_values: {
-          project_id: projectId,
-          name,
-          description,
-          deadline_at,
-          status: 'pending',
-          has_attachment: !!attachment_path
-        },
-        description: `${access.profile.email || 'User'} a creat cererea de document "${name}" pentru proiectul ${projectId}`,
-        ip_address: ipAddress
-      })
-
     return NextResponse.json({ ok: true, id: data?.id })
-  } catch (e: unknown) {
-    const error = e as Error
-    console.error('POST document-requests exception:', error)
-    return NextResponse.json({ error: error?.message ?? 'Server error' }, { status: 500 })
+  } catch (e: any) {
+    console.error('POST document-requests exception:', e)
+    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
   }
 }
