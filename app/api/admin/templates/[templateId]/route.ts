@@ -80,13 +80,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     const { templateId } = await params
 
-    // Nullify template_id pe proiectele care îl folosesc (evită FK constraint)
-    await supabaseAdmin
-      .from('projects')
-      .update({ template_id: null })
-      .eq('template_id', templateId)
-
-    // Ștergerea va fi cascade pe template_phases, template_activities etc.
+    // Ștergerea va fi cascade datorită ON DELETE CASCADE
     const { error } = await supabaseAdmin
       .from('project_templates')
       .delete()

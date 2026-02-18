@@ -9,7 +9,7 @@ const supabaseAdmin = createClient(
 )
 
 interface RouteParams {
-  params: Promise<{ id: string; phaseId: string; activityId: string }>
+  params: Promise<{ id: string; activityId: string }>
 }
 
 // PATCH /api/projects/[id]/phases/[phaseId]/activities/[activityId]

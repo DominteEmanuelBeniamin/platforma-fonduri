@@ -15,9 +15,9 @@ interface RouteParams {
 // PATCH /api/admin/templates/activities/[activityId]
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
   try {
-    const user = await requireAdmin(req)
-    if (!user) {
-      return NextResponse.json({ error: 'Doar adminii pot modifica activități' }, { status: 403 })
+    const auth = await requireAdmin(req)
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const { activityId } = await params
@@ -50,14 +50,13 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 // DELETE /api/admin/templates/activities/[activityId]
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
-    const user = await requireAdmin(req)
-    if (!user) {
-      return NextResponse.json({ error: 'Doar adminii pot șterge activități' }, { status: 403 })
+    const auth = await requireAdmin(req)
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const { activityId } = await params
 
-    // Cascade delete va șterge și documentele
     const { error } = await supabaseAdmin
       .from('template_activities')
       .delete()

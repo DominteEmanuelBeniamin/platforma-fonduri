@@ -9,13 +9,13 @@ const supabaseAdmin = createClient(
 )
 
 interface RouteParams {
-  params: { statusId: string }
+  params: Promise<{ statusId: string }>
 }
 
 // GET /api/admin/statuses/[statusId]
 export async function GET(req: NextRequest, { params }: RouteParams) {
   try {
-    const { statusId } = params
+    const { statusId } = await params
 
     const { data: status, error } = await supabaseAdmin
       .from('project_statuses')
@@ -42,7 +42,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Doar adminii pot modifica statusuri' }, { status: 403 })
     }
 
-    const { statusId } = params
+    const { statusId } = await params
     const body = await req.json()
     const { name, slug, description, color, icon, order_index, is_active } = body
 
@@ -104,7 +104,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Doar adminii pot șterge statusuri' }, { status: 403 })
     }
 
-    const { statusId } = params
+    const { statusId } = await params
 
     // Verifică dacă există faze care folosesc acest status
     const { data: phases } = await supabaseAdmin
