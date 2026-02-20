@@ -19,6 +19,69 @@ function canMutateMessage(role: string, callerId: string, messageCreatedBy: stri
   return callerId === messageCreatedBy
 }
 
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string; messageId: string }> }
+) {
+  try {
+    const { id: projectId, messageId } = await params
+
+    const accessRes = await requireProjectAccess(request, projectId)
+    if (!accessRes.ok) return guardToResponse(accessRes)
+
+    const admin = createSupabaseServiceClient()
+
+    const { data, error } = await admin
+      .from('project_chat_messages')
+      .select(
+        `
+        id,
+        project_id,
+        created_by,
+        body,
+        created_at,
+        edited_at,
+        deleted_at,
+        profiles:created_by (
+          id,
+          full_name,
+          email
+        )
+      `
+      )
+      .eq('project_id', projectId)
+      .eq('id', messageId)
+      .maybeSingle()
+
+    if (error) {
+      console.error('GET chat message by id failed:', { projectId, messageId, error })
+      return Response.json({ error: 'Failed to load chat message' }, { status: 500 })
+    }
+
+    if (!data) {
+      return Response.json({ error: 'Not Found' }, { status: 404 })
+    }
+    
+    if (data.deleted_at) {
+      return Response.json({
+        item: {
+          ...data,
+          body: null,
+          is_deleted: true,
+        },
+      })
+    }
+    
+    return Response.json({ item: { ...data, is_deleted: false } })
+    
+
+    return Response.json({ item: data })
+  } catch (err) {
+    console.error('GET chat message by id unexpected error:', err)
+    return Response.json({ error: 'Internal Server Error' }, { status: 500 })
+  }
+}
+
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string; messageId: string }> }
@@ -61,7 +124,21 @@ export async function PATCH(
       .from('project_chat_messages')
       .update({ body: parsed.data.body, edited_at: new Date().toISOString() })
       .eq('id', messageId)
-      .select('id, project_id, created_by, body, created_at, edited_at, deleted_at')
+      .eq('project_id', projectId)
+      .select(`
+      id,
+      project_id,
+      created_by,
+      body,
+      created_at,
+      edited_at,
+      deleted_at,
+      profiles:created_by (
+        id,
+        full_name,
+        email
+      )
+    `)
       .single()
 
     if (error || !data) {
@@ -111,6 +188,7 @@ export async function DELETE(
       .from('project_chat_messages')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', messageId)
+      .eq('project_id', projectId)
 
     if (error) {
       console.error('DELETE (soft) message failed:', { projectId, messageId, error })

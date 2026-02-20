@@ -50,7 +50,14 @@ const CreateMessageSchema = z.object({
   body: z.string().trim().min(1).max(5000),
 })
 
-
+const maskRow = (m: any) => {
+  if (!m?.deleted_at) return { ...m, is_deleted: false }
+  return {
+    ...m,
+    body: null,         // ✅ mascat
+    is_deleted: true,   // ✅ flag util
+  }
+}
 
 export async function GET(
   request: Request,
@@ -70,36 +77,51 @@ export async function GET(
       )
     }
 
-    const { limit, cursor } = parsed.data
+    const { limit, cursorIso } = parsed.data
 
     const admin = createSupabaseServiceClient()
 
-    // Keyset pagination:
-    // - order by created_at desc
-    // - if cursor provided: created_at < cursor
+    const requested = limit
+    const pageSize = requested + 1
+
     let q = admin
       .from('project_chat_messages')
-      .select('id, project_id, created_by, body, created_at, edited_at, deleted_at')
+      .select(`
+      id,
+      project_id,
+      created_by,
+      body,
+      created_at,
+      edited_at,
+      deleted_at,
+      profiles:created_by (
+        id,
+        full_name,
+        email
+      )
+    `)
       .eq('project_id', projectId)
-      .is('deleted_at', null)
       .order('created_at', { ascending: false })
-      .limit(limit)
-
-    if (cursor) {
-      q = q.lt('created_at', cursor)
+      .limit(pageSize)
+    
+    if (cursorIso) {
+      q = q.lt('created_at', cursorIso)
     }
-
+    
     const { data, error } = await q
-
     if (error) {
       console.error('GET chat messages failed:', { projectId, error })
       return Response.json({ error: 'Failed to load chat messages' }, { status: 500 })
     }
-
-    const items = data ?? []
-    const nextCursor = items.length ? items[items.length - 1].created_at : null
-
-    return Response.json({ items, nextCursor })
+    
+    const rows = (data ?? []).map(maskRow)
+    const hasMore = rows.length > requested
+    const items = hasMore ? rows.slice(0, requested) : rows
+    
+    // nextCursor doar dacă mai există pagină
+    const nextCursor = hasMore ? (items[items.length - 1]?.created_at ?? null) : null
+    
+    return Response.json({ items, nextCursor }) 
   } catch (err) {
     console.error('GET chat messages unexpected error:', err)
     return Response.json({ error: 'Internal Server Error' }, { status: 500 })
@@ -136,7 +158,20 @@ export async function POST(
     const { data, error } = await admin
       .from('project_chat_messages')
       .insert(insertPayload)
-      .select('id, project_id, created_by, body, created_at, edited_at, deleted_at')
+      .select(`
+      id,
+      project_id,
+      created_by,
+      body,
+      created_at,
+      edited_at,
+      deleted_at,
+      profiles:created_by (
+        id,
+        full_name,
+        email
+      )
+    `)      
       .single()
 
     if (error || !data) {
