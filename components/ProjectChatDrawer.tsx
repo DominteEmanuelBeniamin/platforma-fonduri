@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   Send,
@@ -43,6 +44,7 @@ export default function ProjectChatDrawer({
 
   const [text, setText] = useState("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -55,12 +57,15 @@ export default function ProjectChatDrawer({
 
   const canSend = !authLoading && !sending && text.trim().length > 0;
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const startEdit = (id: string, currentBody?: string | null) => {
-    if (!currentBody) return
-    setEditingId(id)
-    setEditText(currentBody)
-  }
-  
+    if (!currentBody) return;
+    setEditingId(id);
+    setEditText(currentBody);
+  };
 
   const cancelEdit = () => {
     setEditingId(null);
@@ -88,23 +93,24 @@ export default function ProjectChatDrawer({
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpenMenuId(null);
+      if (e.key === "Escape") {
+        setOpenMenuId(null);
+        if (editingId) cancelEdit();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [editingId]);
 
-  // ESC to close
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !editingId) onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
+  }, [open, onClose, editingId]);
 
-  // lock background scroll
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -114,7 +120,6 @@ export default function ProjectChatDrawer({
     };
   }, [open]);
 
-  // autosize textarea
   useEffect(() => {
     if (!open) return;
     const el = textareaRef.current;
@@ -123,49 +128,36 @@ export default function ProjectChatDrawer({
     el.style.height = Math.min(el.scrollHeight, 140) + "px";
   }, [text, open]);
 
-  // track scroll position (to decide auto-scroll on new messages)
   useEffect(() => {
     if (!open) return;
     const el = listRef.current;
     if (!el) return;
-
     const onScroll = () => {
       userPinnedToBottomRef.current = isNearBottom();
     };
-
     el.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
     return () => el.removeEventListener("scroll", onScroll);
   }, [open]);
 
-  // when drawer opens: scroll bottom after initial render
   useEffect(() => {
-    if (!open) return;
-    // mic delay ca să existe layout
-    const t = setTimeout(() => scrollToBottom(false), 0);
-    return () => clearTimeout(t);
+    if (open) {
+      const t = setTimeout(() => scrollToBottom(false), 50);
+      return () => clearTimeout(t);
+    }
   }, [open]);
 
-  // when messages change:
-  // - if user is at bottom -> auto scroll (realtime + send)
-  // - if we did loadMore -> preserve scroll position (handled below)
   useEffect(() => {
     if (!open) return;
-
-    // dacă tocmai am făcut loadMore, păstrăm poziția
     const prevH = prevScrollHeightRef.current;
     if (prevH != null) {
       const el = listRef.current;
       if (el) {
         const newH = el.scrollHeight;
-        const delta = newH - prevH;
-        el.scrollTop += delta;
+        el.scrollTop += newH - prevH;
       }
       prevScrollHeightRef.current = null;
       return;
     }
-
-    // altfel, scroll doar dacă user e la bottom
     if (userPinnedToBottomRef.current) {
       scrollToBottom(false);
     }
@@ -176,7 +168,6 @@ export default function ProjectChatDrawer({
     const body = text.trim();
     setText("");
     await sendMessage(body);
-    // pentru “da la toate”: după send, scroll bottom
     setTimeout(() => scrollToBottom(false), 0);
   };
 
@@ -187,365 +178,179 @@ export default function ProjectChatDrawer({
     }
   };
 
-  const handleLoadMore = async () => {
-    const el = listRef.current;
-    if (el) prevScrollHeightRef.current = el.scrollHeight;
-    await loadMore();
-  };
+  if (!open || !mounted) return null;
 
-  if (!open) return null;
-
-  const GROUP_GAP_MS = 2 * 60 * 1000; // 2 minute
-
+  const GROUP_GAP_MS = 2 * 60 * 1000;
   const toMs = (iso: string) => new Date(iso).getTime();
-
   const isSameDay = (aIso: string, bIso: string) => {
     const a = new Date(aIso);
     const b = new Date(bIso);
-    return (
-      a.getFullYear() === b.getFullYear() &&
-      a.getMonth() === b.getMonth() &&
-      a.getDate() === b.getDate()
-    );
+    return a.toDateString() === b.toDateString();
   };
 
   const formatDayLabel = (iso: string) => {
     const d = new Date(iso);
     const now = new Date();
-
-    // today
-    if (isSameDay(iso, now.toISOString())) return "Today";
-
-    // yesterday
-    const y = new Date(now);
-    y.setDate(now.getDate() - 1);
-    if (
-      d.getFullYear() === y.getFullYear() &&
-      d.getMonth() === y.getMonth() &&
-      d.getDate() === y.getDate()
-    ) {
-      return "Yesterday";
-    }
-
-    // fallback: 20 Feb 2026
-    return d.toLocaleDateString(undefined, {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
+    if (isSameDay(iso, now.toISOString())) return "Astăzi";
+    now.setDate(now.getDate() - 1);
+    if (isSameDay(iso, now.toISOString())) return "Ieri";
+    return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
   };
 
   const formatTime = (iso: string) =>
-    new Date(iso).toLocaleTimeString(undefined, {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
-  return (
-    <div className="fixed inset-0 z-[200]">
-      {/* Overlay (click closes) */}
-      <button
-        aria-label="Close chat"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/30 backdrop-blur-[1px]"
-      />
+  const drawerContent = (
+    <div className="fixed inset-0 z-[999999]">
+      <button onClick={onClose} className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm cursor-default" />
 
-      {/* Panel */}
-      <aside className="absolute right-0 top-0 h-full w-full sm:w-[min(520px,90vw)] bg-white border-l border-slate-200 shadow-2xl flex flex-col rounded-none sm:rounded-l-2xl">
-        {/* Header */}
-        <div className="border-b border-slate-200 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60 rounded-none sm:rounded-tl-2xl pt-[env(safe-area-inset-top)]">
-          <div className="h-14 px-3 flex items-center justify-between">
-            <button
-              onClick={onClose}
-              className="sm:hidden inline-flex items-center gap-2 px-2 py-2 rounded-md hover:bg-slate-100 text-slate-700"
-              aria-label="Back"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span className="text-sm font-medium">Back</span>
+      <aside className="absolute right-0 top-0 h-full w-full sm:w-[min(520px,90vw)] bg-white shadow-2xl flex flex-col sm:rounded-l-2xl overflow-hidden animate-in slide-in-from-right duration-300">
+        <div className="z-10 bg-white/80 backdrop-blur-md border-b border-slate-100 pt-[env(safe-area-inset-top)]">
+          <div className="h-16 px-4 flex items-center justify-between">
+            <button onClick={onClose} className="sm:hidden p-2 -ml-2 rounded-xl hover:bg-slate-100 text-slate-600">
+              <ArrowLeft className="w-5 h-5" />
             </button>
-
-            <div className="hidden sm:flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-500" />
-              <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+            <div className="flex items-center gap-3">
+              <div className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </div>
+              <h3 className="text-base font-semibold text-slate-900">{title}</h3>
             </div>
-
-            <button
-              onClick={onClose}
-              className="hidden sm:inline-flex p-2 rounded-md hover:bg-slate-100 text-slate-500"
-              aria-label="Close"
-            >
-              <X className="w-4 h-4" />
+            <button onClick={onClose} className="hidden sm:inline-flex p-2 -mr-2 rounded-xl hover:bg-slate-100 text-slate-500">
+              <X className="w-5 h-5" />
             </button>
-          </div>
-
-          <div className="sm:hidden px-4 pb-3 -mt-1">
-            <div className="text-sm font-semibold text-slate-900">{title}</div>
           </div>
         </div>
 
-        {/* Messages */}
-        <div
-          ref={listRef}
-          onClick={() => setOpenMenuId(null)}
-          className="flex-1 overflow-y-auto p-4"
-        >
+        <div ref={listRef} onClick={() => setOpenMenuId(null)} className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
           {hasMore && (
-            <div className="flex justify-center">
-              <button
-                onClick={handleLoadMore}
-                disabled={loading}
-                className={[
-                  "px-3 py-1.5 rounded-xl text-sm border shadow-sm",
-                  loading
-                    ? "bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed"
-                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50",
-                ].join(" ")}
-              >
-                {loading ? "Loading…" : "Load older messages"}
+            <div className="flex justify-center pb-4 pt-2">
+              <button onClick={() => { prevScrollHeightRef.current = listRef.current?.scrollHeight || null; loadMore(); }} disabled={loading} className="px-4 py-2 rounded-full text-xs font-medium bg-white text-slate-600 border border-slate-200 shadow-sm hover:bg-slate-50">
+                {loading ? "Se încarcă..." : "Afișează mesaje mai vechi"}
               </button>
             </div>
           )}
 
-          {error && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              {error}
-            </div>
-          )}
+          {messages.map((m, idx) => {
+            const prev = idx > 0 ? messages[idx - 1] : null;
+            const next = idx < messages.length - 1 ? messages[idx + 1] : null;
+            const isMe = userId && m.created_by === userId;
+            const isEditing = editingId === m.id;
+            const isMenuOpen = openMenuId === m.id;
 
-          {!error && loading && messages.length === 0 ? (
-            <div className="text-sm text-slate-500">Loading messages…</div>
-          ) : messages.length === 0 ? (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-              No messages yet. Say hi 👋
-            </div>
-          ) : (
-            messages.map((m, idx) => {
-              const prev = idx > 0 ? messages[idx - 1] : null;
-              const isMe = userId && m.created_by === userId;
-              const canManage =
-                !m.deleted_at &&
-                (isAdmin || (userId && m.created_by === userId));
-              const isEditing = editingId === m.id;
+            const prevSameDay = prev ? isSameDay(prev.created_at, m.created_at) : false;
+            const nextSameDay = next ? isSameDay(m.created_at, next.created_at) : false;
+            const isSameGroupAsPrev = prev && prev.created_by === m.created_by && (toMs(m.created_at) - toMs(prev.created_at)) <= GROUP_GAP_MS && prevSameDay;
+            const isSameGroupAsNext = next && next.created_by === m.created_by && (toMs(next.created_at) - toMs(m.created_at)) <= GROUP_GAP_MS && nextSameDay;
 
-              const prevSameAuthor = !!prev && prev.created_by === m.created_by;
-              const gapMs = prev
-                ? toMs(m.created_at) - toMs(prev.created_at)
-                : 0;
-              const brokeByTime = prev ? gapMs > GROUP_GAP_MS : true;
-              const showDaySeparator =
-                !prev || !isSameDay(prev.created_at, m.created_at);
+            const showDaySeparator = !prev || !prevSameDay;
+            const shouldShowHeader = !isMe && !isSameGroupAsPrev;
+            
+            // Reducem spațiul dintre mesajele din același grup
+            const marginTopClass = showDaySeparator ? "mt-6" : (isSameGroupAsPrev ? "mt-1" : "mt-4");
 
-              const shouldShowHeader =
-                !isMe && (!prevSameAuthor || brokeByTime);
-              const profile = m.profiles;
-              const displayName =
-                profile?.full_name || profile?.email || "Unknown";
-              const initials = getInitials(profile?.full_name, profile?.email);
-              const color = getAvatarColor(
-                profile?.full_name || profile?.email || m.created_by
-              );
+            const color = getAvatarColor(m.profiles?.full_name || m.profiles?.email || m.created_by);
+            const initials = getInitials(m.profiles?.full_name, m.profiles?.email);
 
-              return (
-                <div key={m.id}>
-                  {showDaySeparator && (
-                    <div className="flex justify-center my-4">
-                      <div className="px-3 py-1 rounded-full text-[12px] font-medium text-slate-500 bg-white/80 backdrop-blur border border-slate-200 shadow-sm">
-                        {formatDayLabel(m.created_at)}
-                      </div>
+            let bubbleRadius = "rounded-2xl";
+            if (isMe) {
+              if (!isSameGroupAsPrev && isSameGroupAsNext) bubbleRadius = "rounded-2xl rounded-br-sm";
+              else if (isSameGroupAsPrev && isSameGroupAsNext) bubbleRadius = "rounded-l-2xl rounded-r-sm";
+              else if (isSameGroupAsPrev && !isSameGroupAsNext) bubbleRadius = "rounded-2xl rounded-tr-sm";
+            } else {
+              if (!isSameGroupAsPrev && isSameGroupAsNext) bubbleRadius = "rounded-2xl rounded-bl-sm";
+              else if (isSameGroupAsPrev && isSameGroupAsNext) bubbleRadius = "rounded-r-2xl rounded-l-sm";
+              else if (isSameGroupAsPrev && !isSameGroupAsNext) bubbleRadius = "rounded-2xl rounded-tl-sm";
+            }
+
+            return (
+              <div key={m.id} className="group/row">
+                {showDaySeparator && (
+                  <div className="flex justify-center my-6">
+                    <span className="px-3 py-1 rounded-full text-[11px] font-semibold uppercase text-slate-400 bg-slate-100/80">{formatDayLabel(m.created_at)}</span>
+                  </div>
+                )}
+
+                <div className={`flex w-full ${isMe ? "justify-end" : "justify-start"} ${marginTopClass} items-end`}>
+                  {!isMe && (
+                    <div className="mr-2 w-8 flex-shrink-0 flex items-end justify-center">
+                      {/* Avatarul apare DOAR la ultimul mesaj din grup (cel mai de jos) */}
+                      {!isSameGroupAsNext ? (
+                        <div 
+                          className="w-8 h-8 rounded-full text-white flex items-center justify-center text-[11px] font-bold shadow-sm mb-[2px] animate-in fade-in zoom-in-50 duration-200" 
+                          style={{ background: `linear-gradient(135deg, ${color.from}, ${color.to})` }}
+                        >
+                          {initials}
+                        </div>
+                      ) : (
+                        // Placeholder care menține alinierea fără a ocupa înălțime inutilă
+                        <div className="w-8" />
+                      )}
                     </div>
                   )}
 
-                  <div
-                    className={[
-                      `flex ${isMe ? "justify-end" : "justify-start"}`,
-                      shouldShowHeader ? "mt-3" : "mt-1",
-                    ].join(" ")}
-                  >
-                    {/* Others: avatar column */}
-                    {!isMe && (
-                      <div className="mr-2 w-8 flex justify-center">
-                        {shouldShowHeader ? (
-                          <div
-                            className="w-8 h-8 rounded-full text-white flex items-center justify-center text-xs font-bold shadow-sm"
-                            style={{
-                              background: `linear-gradient(to bottom right, ${color.from}, ${color.to})`,
-                            }}
-                            title={displayName}
-                          >
-                            {initials}
+                  <div className={`flex flex-col ${isMe ? "items-end" : "items-start"} max-w-[85%] sm:max-w-[75%] relative group`}>
+                    {shouldShowHeader && <span className="text-[11px] font-medium text-slate-500 mb-1 ml-1">{m.profiles?.full_name || m.profiles?.email || "Necunoscut"}</span>}
+                    
+                    {isEditing ? (
+                      <div className="w-full min-w-[280px] bg-white rounded-2xl border-2 border-slate-900 shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                        <textarea autoFocus value={editText} onChange={(e) => setEditText(e.target.value)} className="w-full resize-none bg-transparent px-4 py-3 text-[14px] text-slate-800 focus:outline-none min-h-[100px]" />
+                        <div className="flex justify-end gap-2 p-2 bg-slate-50 border-t border-slate-100">
+                          <button onClick={cancelEdit} className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-200 rounded-lg">Anulează</button>
+                          <button onClick={() => saveEdit(m.id)} className="px-3 py-1.5 text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 rounded-lg shadow-md">Salvează</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={`group/bubble relative flex items-center gap-2 ${isMe ? "flex-row-reverse" : "flex-row"}`}>
+                        <div 
+                          onContextMenu={(e) => { if (window.innerWidth < 640) { e.preventDefault(); setOpenMenuId(m.id); } }}
+                          className={`relative px-4 py-2.5 text-[14px] leading-relaxed shadow-sm transition-all active:scale-[0.98] sm:active:scale-100 ${isMe ? "bg-slate-900 text-white" : "bg-white text-slate-800 border border-slate-100"} ${bubbleRadius}`}
+                        >
+                          <div className="whitespace-pre-wrap break-words">{m.deleted_at ? <span className="italic text-slate-400/80 text-sm">Acest mesaj a fost șters.</span> : m.body}</div>
+                        </div>
+
+                        {!m.deleted_at && (isAdmin || isMe) && (
+                          <div className={`relative flex-shrink-0 transition-opacity ${isMenuOpen ? "opacity-100" : "opacity-0 group-hover/row:opacity-100"}`}>
+                            <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(isMenuOpen ? null : m.id); }} className={`p-1.5 rounded-full transition-colors ${isMenuOpen ? "bg-slate-200 text-slate-800" : "text-slate-400 hover:text-slate-700 hover:bg-slate-200/50"}`}>
+                              <MoreHorizontal className="w-[18px] h-[18px]" />
+                            </button>
+                            {isMenuOpen && (
+                              <div className={`absolute bottom-full mb-1 z-50 min-w-[140px] bg-white rounded-xl shadow-xl border border-slate-100 p-1.5 ${isMe ? "right-0" : "left-0"}`} onClick={(e) => e.stopPropagation()}>
+                                <button className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg hover:bg-slate-50 text-slate-700" onClick={() => { setOpenMenuId(null); startEdit(m.id, m.body); }}>
+                                  <Pencil className="w-4 h-4 text-slate-400" /> Editează
+                                </button>
+                                <button className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg hover:bg-rose-50 text-rose-600" onClick={async () => { setOpenMenuId(null); if (confirm("Ești sigur că vrei să ștergi acest mesaj?")) await deleteMessage(m.id); }}>
+                                  <Trash2 className="w-4 h-4 text-rose-500" /> Șterge
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        ) : (
-                          <div className="w-8 h-8" />
                         )}
                       </div>
                     )}
-
-                    {/* Message content */}
-                    <div className="max-w-[85%] group">
-                      {!isMe && shouldShowHeader && (
-                        <div className="mb-1 text-[12px] text-slate-500">
-                          {displayName}
-                        </div>
-                      )}
-
-                      {(() => {
-                        const canManage =
-                          !m.deleted_at &&
-                          (isAdmin || (userId && m.created_by === userId));
-                        const isEditing = editingId === m.id;
-
-                        if (isEditing) {
-                          return (
-                            <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-                              <textarea
-                                value={editText}
-                                onChange={(e) => setEditText(e.target.value)}
-                                className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200"
-                                rows={3}
-                              />
-                              <div className="mt-2 flex justify-end gap-2">
-                                <button
-                                  onClick={cancelEdit}
-                                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-50"
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  onClick={() => saveEdit(m.id)}
-                                  className="px-3 py-1.5 text-sm bg-slate-900 text-white rounded-lg hover:bg-slate-800"
-                                >
-                                  Save
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        }
-
-                        return (
-                          <div
-                            className={[
-                              "rounded-2xl px-3 py-2 text-sm border shadow-sm relative",
-                              isMe
-                                ? "bg-slate-900 text-white border-slate-900"
-                                : "bg-white text-slate-900 border-slate-200",
-                            ].join(" ")}
-                          >
-                            <div className="whitespace-pre-wrap break-words">
-                              {m.deleted_at ? (
-                                <span className="text-slate-400 italic">
-                                  Message deleted
-                                </span>
-                              ) : (
-                                m.body
-                              )}
-                            </div>
-
-                            {/* Kebab trigger (hover) */}
-                            {canManage && (
-                              <div className="absolute -top-3 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setOpenMenuId((prev) =>
-                                      prev === m.id ? null : m.id
-                                    );
-                                  }}
-                                  className="p-1.5 rounded-xl border border-slate-200 bg-white shadow-sm hover:bg-slate-50 text-slate-700"
-                                  aria-label="Message options"
-                                  title="Options"
-                                >
-                                  <MoreHorizontal className="w-4 h-4" />
-                                </button>
-                              </div>
-                            )}
-
-                            {/* Menu */}
-                            {canManage && openMenuId === m.id && (
-                              <div
-                                className="absolute top-7 right-2 z-10"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <div className="min-w-[160px] rounded-xl border border-slate-200 bg-white shadow-lg p-1">
-                                  <button
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-slate-50 text-slate-700"
-                                    onClick={() => {
-                                      setOpenMenuId(null);
-                                      if (m.deleted_at || !m.body) return;
-                                      startEdit(m.id, m.body);
-                                    }}
-                                  >
-                                    <Pencil className="w-4 h-4" />
-                                    Edit
-                                  </button>
-
-                                  <button
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-rose-50 text-rose-700"
-                                    onClick={async () => {
-                                      setOpenMenuId(null);
-                                      if (!confirm("Delete this message?"))
-                                        return;
-                                      await deleteMessage(m.id);
-                                    }}
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                    Delete
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-
-                      <div
-                        className={`h-4 mt-1 text-[11px] text-slate-400 ${
-                          isMe ? "text-right" : "text-left"
-                        } opacity-0 group-hover:opacity-100 transition-opacity`}
-                      >
-                        {formatTime(m.created_at)}
-                      </div>
-                    </div>
+                    {/* Afișăm ora doar la ultimul mesaj din grup sau la hover pe desktop */}
+                    {!isSameGroupAsNext && <div className={`mt-1 text-[10px] font-medium text-slate-400 ${isMe ? "text-right mr-1" : "text-left ml-1"}`}>{formatTime(m.created_at)}</div>}
                   </div>
                 </div>
-              );
-            })
-          )}
-
-          <div ref={bottomRef} />
+              </div>
+            );
+          })}
+          <div ref={bottomRef} className="h-2" />
         </div>
 
-        {/* Composer */}
-        <div className="border-t border-slate-200 p-3 bg-white rounded-none sm:rounded-bl-2xl pb-[env(safe-area-inset-bottom)]">
-          <div className="flex items-end gap-2">
-            <div className="flex-1">
-              <textarea
-                ref={textareaRef}
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={onTextareaKeyDown}
-                placeholder="Scrie un mesaj… (Enter = trimite, Shift+Enter = rând nou)"
-                className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200 min-h-[40px]"
-                rows={1}
-              />
-            </div>
-
-            <button
-              onClick={handleSend}
-              disabled={!canSend}
-              className={[
-                "h-[40px] px-3 rounded-xl inline-flex items-center gap-2 text-sm font-medium",
-                canSend
-                  ? "bg-slate-900 text-white hover:bg-slate-800"
-                  : "bg-slate-100 text-slate-400 cursor-not-allowed",
-              ].join(" ")}
-            >
-              <Send className="w-4 h-4" />
-              {sending ? "Sending…" : "Trimite"}
+        <div className="z-10 bg-white p-3 sm:p-4 border-t border-slate-100 pb-[env(safe-area-inset-bottom)]">
+          <div className="flex items-end gap-2 bg-slate-50 border border-slate-200 rounded-[20px] p-1.5 focus-within:ring-2 focus-within:ring-slate-900/10 focus-within:bg-white focus-within:border-slate-300 transition-all shadow-sm">
+            <textarea ref={textareaRef} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onTextareaKeyDown} placeholder="Scrie un mesaj..." className="flex-1 bg-transparent resize-none px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none max-h-[120px]" rows={1} />
+            <button onClick={handleSend} disabled={!canSend} className={`h-[38px] px-4 rounded-2xl flex-shrink-0 flex items-center gap-2 text-sm font-semibold transition-all mb-0.5 mr-0.5 ${canSend ? "bg-slate-900 text-white shadow-md hover:bg-slate-800 hover:scale-[1.02] active:scale-95" : "bg-transparent text-slate-300 cursor-not-allowed"}`}>
+              {sending ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send className="w-[18px] h-[18px]" />}
+              <span className="hidden sm:inline-block">Trimite</span>
             </button>
           </div>
         </div>
       </aside>
     </div>
   );
+
+  return createPortal(drawerContent, document.body);
 }
