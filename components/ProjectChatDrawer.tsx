@@ -495,11 +495,21 @@ export default function ProjectChatDrawer({
                   {/* 3. Ora (apare sub rândul cu avatar și bulă) */}
                   {!isSameGroupAsNext && (
                     <div
-                      className={`mt-1 text-[10px] font-medium text-slate-400 ${
-                        isMe ? "text-right mr-1" : "text-left ml-10"
+                      className={`mt-1 text-[10px] font-medium text-slate-400 flex items-center gap-1.5 ${
+                        isMe ? "justify-end mr-1" : "justify-start ml-10"
                       }`}
                     >
-                      {formatTime(m.created_at)}
+                      <span>{formatTime(m.created_at)}</span>
+
+                      {m.edited_at &&
+                        m.edited_at !== m.created_at &&
+                        !m.deleted_at && (
+                          <span className="flex items-center gap-0.5 opacity-70">
+                            <span className="w-0.5 h-0.5 rounded-full bg-slate-400" />{" "}
+                            {/* Un mic punct separator */}
+                            Editat
+                          </span>
+                        )}
                     </div>
                   )}
                 </div>
