@@ -19,8 +19,10 @@ import {
   Building2,
   Layers,
   FolderOpen,
+  MessageSquare,
 } from 'lucide-react'
 
+import ProjectChatDrawer from '@/components/ProjectChatDrawer'
 import TeamManager from '@/components/TeamManager'
 import DocumentRequests from '@/components/DocumentRequests'
 import { useAuth } from '@/app/providers/AuthProvider'
@@ -82,6 +84,8 @@ export default function ProjectDetailsPage() {
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState('')
   const [saving, setSaving] = useState(false)
+
+  const [chatOpen, setChatOpen] = useState(false)
 
   const isAdmin = profile?.role === 'admin'
   const isConsultant = profile?.role === 'consultant'
@@ -249,6 +253,14 @@ export default function ProjectDetailsPage() {
 
           {/* Meta pills */}
           <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => setChatOpen(true)}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 px-2.5 py-1 rounded-full hover:bg-slate-50"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              Chat
+            </button>
+
             <span className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
               <Building2 className="w-3.5 h-3.5" />
               {project.profiles?.full_name || 'Client'}
@@ -422,6 +434,17 @@ export default function ProjectDetailsPage() {
           )}
         </main>
       </div>
+      {projectId && (
+        <ProjectChatDrawer
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          title="Chat proiect"
+          projectId={projectId}
+        />
+      )}
+
+
+
     </div>
   )
 }
