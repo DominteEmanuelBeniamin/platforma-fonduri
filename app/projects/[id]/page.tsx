@@ -245,6 +245,9 @@ export default function ProjectDetailsPage() {
           onSelectPhase={setActivePhaseId}
           onToggleExpand={handleToggleExpand}
           onUpdateActivityStatus={updateActivityStatus}
+          onRefresh={fetchAll}
+          apiFetch={apiFetch}
+          isAdmin={isAdmin}
         />
 
         {/* ══ MAIN ══ */}
