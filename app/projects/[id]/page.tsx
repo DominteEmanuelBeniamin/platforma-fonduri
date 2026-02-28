@@ -1,8 +1,9 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable react-hooks/exhaustive-deps */
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft,
@@ -86,6 +87,57 @@ export default function ProjectDetailsPage() {
   const [saving, setSaving] = useState(false)
 
   const [chatOpen, setChatOpen] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
+
+  // Citim lastSeen din localStorage
+  const getLastSeen = useCallback(() => {
+    if (typeof window === 'undefined' || !projectId) return null
+    return localStorage.getItem(`chat_last_seen_${projectId}`)
+  }, [projectId])
+
+  const markAsRead = useCallback(() => {
+    if (!projectId) return
+    const now = new Date().toISOString()
+    localStorage.setItem(`chat_last_seen_${projectId}`, now)
+    setUnreadCount(0)
+  }, [projectId])
+
+  const handleOpenChat = () => {
+    markAsRead()
+    setChatOpen(true)
+  }
+
+  // Realtime listener pentru unread count (lightweight, fără fetch)
+  useEffect(() => {
+    if (!projectId || authLoading) return
+    if (typeof window === 'undefined') return
+
+    const { supabase } = require('@/lib/supabaseClient')
+    const channel = supabase
+      .channel(`unread-${projectId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'project_chat_messages',
+          filter: `project_id=eq.${projectId}`,
+        },
+        (payload: any) => {
+          const row = payload.new
+          if (!row?.id || row?.deleted_at) return
+          // dacă mesajul e de la altcineva și chat-ul e închis -> incrementăm
+          if (row.created_by !== profile?.id && !chatOpen) {
+            setUnreadCount((prev) => prev + 1)
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [projectId, authLoading, profile?.id, chatOpen])
 
   const isAdmin = profile?.role === 'admin'
   const isConsultant = profile?.role === 'consultant'
@@ -254,11 +306,16 @@ export default function ProjectDetailsPage() {
           {/* Meta pills */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
-              onClick={() => setChatOpen(true)}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 px-2.5 py-1 rounded-full hover:bg-slate-50"
+              onClick={handleOpenChat}
+              className="relative inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 px-2.5 py-1 rounded-full hover:bg-slate-50"
             >
               <MessageSquare className="w-3.5 h-3.5" />
               Chat
+              {unreadCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-bold shadow">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
             </button>
 
             <span className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
@@ -440,6 +497,7 @@ export default function ProjectDetailsPage() {
           onClose={() => setChatOpen(false)}
           title="Chat proiect"
           projectId={projectId}
+          markAsRead={markAsRead}
         />
       )}
 

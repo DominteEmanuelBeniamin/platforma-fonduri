@@ -1,6 +1,7 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowLeft,
@@ -19,6 +20,7 @@ type Props = {
   onClose: () => void;
   title?: string;
   projectId: string;
+  markAsRead?: () => void;
 };
 
 export default function ProjectChatDrawer({
@@ -26,6 +28,7 @@ export default function ProjectChatDrawer({
   onClose,
   title = "Chat proiect",
   projectId,
+  markAsRead,
 }: Props) {
   const { loading: authLoading, userId, profile } = useAuth();
   const isAdmin = profile?.role === "admin";
@@ -44,7 +47,13 @@ export default function ProjectChatDrawer({
 
   const [text, setText] = useState("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const mountedRef = useRef(false);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    setIsMounted(true);
+  }, []);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -56,10 +65,6 @@ export default function ProjectChatDrawer({
   const userPinnedToBottomRef = useRef(true);
 
   const canSend = !authLoading && !sending && text.trim().length > 0;
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const startEdit = (id: string, currentBody?: string | null) => {
     if (!currentBody) return;
@@ -142,6 +147,7 @@ export default function ProjectChatDrawer({
   useEffect(() => {
     if (open) {
       const t = setTimeout(() => scrollToBottom(false), 50);
+      markAsRead?.();
       return () => clearTimeout(t);
     }
   }, [open]);
@@ -161,6 +167,8 @@ export default function ProjectChatDrawer({
     if (userPinnedToBottomRef.current) {
       scrollToBottom(false);
     }
+    // dacă drawer-ul e deschis și sosesc mesaje noi, marchează ca citite
+    markAsRead?.();
   }, [messages.length, open]);
 
   const handleSend = async () => {
@@ -178,7 +186,7 @@ export default function ProjectChatDrawer({
     }
   };
 
-  if (!open || !mounted) return null;
+  if (!open || !isMounted) return null;
 
   const GROUP_GAP_MS = 2 * 60 * 1000;
   const toMs = (iso: string) => new Date(iso).getTime();
