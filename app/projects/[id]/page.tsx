@@ -1,8 +1,9 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable react-hooks/exhaustive-deps */
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft,
@@ -11,55 +12,16 @@ import {
   Check,
   X,
   Loader2,
-  ChevronDown,
-  ChevronRight,
-  CheckCircle2,
-  Circle,
-  Play,
-  Building2,
   Layers,
-  FolderOpen,
+  Building2,
   MessageSquare,
 } from 'lucide-react'
 
 import ProjectChatDrawer from '@/components/ProjectChatDrawer'
-import TeamManager from '@/components/TeamManager'
+import ProjectPhasesSidebar, { phaseStatusCfg } from '@/components/ProjectPhasesSidebar'
+import type { ProjectPhase } from '@/components/ProjectPhasesSidebar'
 import DocumentRequests from '@/components/DocumentRequests'
 import { useAuth } from '@/app/providers/AuthProvider'
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface ProjectActivity {
-  id: string
-  name: string
-  status: string
-  order_index: number
-}
-
-interface ProjectPhase {
-  id: string
-  name: string
-  status: string
-  order_index: number
-  project_status_id: string
-  project_status?: { id: string; name: string; color: string }
-  activities?: ProjectActivity[]
-}
-
-// ─── Status config ────────────────────────────────────────────────────────────
-
-const phaseStatusCfg: Record<string, { label: string; color: string; ring: string }> = {
-  pending:     { label: 'În așteptare', color: 'text-slate-500',   ring: 'ring-slate-200' },
-  in_progress: { label: 'În lucru',     color: 'text-blue-600',    ring: 'ring-blue-200' },
-  completed:   { label: 'Finalizat',    color: 'text-emerald-600', ring: 'ring-emerald-200' },
-  skipped:     { label: 'Omis',         color: 'text-slate-400',   ring: 'ring-slate-100' },
-}
-
-function ActivityStatusIcon({ status }: { status: string }) {
-  if (status === 'completed') return <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-  if (status === 'in_progress') return <Play className="w-4 h-4 text-blue-500 flex-shrink-0" />
-  return <Circle className="w-4 h-4 text-slate-300 flex-shrink-0" />
-}
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -86,6 +48,57 @@ export default function ProjectDetailsPage() {
   const [saving, setSaving] = useState(false)
 
   const [chatOpen, setChatOpen] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
+
+  // Citim lastSeen din localStorage
+  const getLastSeen = useCallback(() => {
+    if (typeof window === 'undefined' || !projectId) return null
+    return localStorage.getItem(`chat_last_seen_${projectId}`)
+  }, [projectId])
+
+  const markAsRead = useCallback(() => {
+    if (!projectId) return
+    const now = new Date().toISOString()
+    localStorage.setItem(`chat_last_seen_${projectId}`, now)
+    setUnreadCount(0)
+  }, [projectId])
+
+  const handleOpenChat = () => {
+    markAsRead()
+    setChatOpen(true)
+  }
+
+  // Realtime listener pentru unread count (lightweight, fără fetch)
+  useEffect(() => {
+    if (!projectId || authLoading) return
+    if (typeof window === 'undefined') return
+
+    const { supabase } = require('@/lib/supabaseClient')
+    const channel = supabase
+      .channel(`unread-${projectId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'project_chat_messages',
+          filter: `project_id=eq.${projectId}`,
+        },
+        (payload: any) => {
+          const row = payload.new
+          if (!row?.id || row?.deleted_at) return
+          // dacă mesajul e de la altcineva și chat-ul e închis -> incrementăm
+          if (row.created_by !== profile?.id && !chatOpen) {
+            setUnreadCount((prev) => prev + 1)
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [projectId, authLoading, profile?.id, chatOpen])
 
   const isAdmin = profile?.role === 'admin'
   const isConsultant = profile?.role === 'consultant'
@@ -109,7 +122,6 @@ export default function ProjectDetailsPage() {
       if (phasesRes.ok) {
         const ph: ProjectPhase[] = (await phasesRes.json()).phases || []
         setPhases(ph)
-        // Auto-select: faza in_progress sau prima
         const active = ph.find(p => p.status === 'in_progress') || ph[0]
         if (active) {
           setExpandedPhases(new Set([active.id]))
@@ -125,7 +137,6 @@ export default function ProjectDetailsPage() {
     }
   }
 
-  // Refresh doar cererile (apelat de DocumentRequests prin onRefresh)
   const refreshDocs = async () => {
     if (!projectId) return
     try {
@@ -171,6 +182,14 @@ export default function ProjectDetailsPage() {
       body: JSON.stringify({ status })
     })
     fetchAll()
+  }
+
+  const handleToggleExpand = (phaseId: string) => {
+    setExpandedPhases(prev => {
+      const s = new Set(prev)
+      s.has(phaseId) ? s.delete(phaseId) : s.add(phaseId)
+      return s
+    })
   }
 
   // ─── Derived ──────────────────────────────────────────────────────────────
@@ -254,11 +273,16 @@ export default function ProjectDetailsPage() {
           {/* Meta pills */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
-              onClick={() => setChatOpen(true)}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 px-2.5 py-1 rounded-full hover:bg-slate-50"
+              onClick={handleOpenChat}
+              className="relative inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 px-2.5 py-1 rounded-full hover:bg-slate-50"
             >
               <MessageSquare className="w-3.5 h-3.5" />
               Chat
+              {unreadCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-bold shadow">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
             </button>
 
             <span className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
@@ -280,93 +304,24 @@ export default function ProjectDetailsPage() {
       {/* ── Body: sidebar + main ── */}
       <div className="flex flex-1 overflow-hidden max-w-screen-2xl w-full mx-auto">
 
-        {/* ══ SIDEBAR: Faze ══ */}
-        <aside className="hidden md:flex flex-col w-64 lg:w-72 flex-shrink-0 bg-white border-r border-slate-200 overflow-y-auto">
-          <div className="p-4 border-b border-slate-100 flex-shrink-0">
-            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-              <Layers className="w-3.5 h-3.5" /> Faze proiect
-            </p>
-          </div>
+        {/* ══ SIDEBAR ══ */}
+        <ProjectPhasesSidebar
+          phases={phases}
+          activePhaseId={activePhaseId}
+          expandedPhases={expandedPhases}
+          canEdit={canEdit}
+          projectId={projectId!}
+          onSelectPhase={setActivePhaseId}
+          onToggleExpand={handleToggleExpand}
+          onUpdateActivityStatus={updateActivityStatus}
+          onRefresh={fetchAll}
+          apiFetch={apiFetch}
+          isAdmin={isAdmin}
+        />
 
-          <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-            {phases.length === 0 && (
-              <div className="p-6 text-center">
-                <FolderOpen className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                <p className="text-xs text-slate-400">Nicio fază importată</p>
-              </div>
-            )}
-
-            {phases.map(phase => {
-              const isActive = phase.id === activePhaseId
-              const isExpanded = expandedPhases.has(phase.id)
-              const color = phase.project_status?.color || '#6B7280'
-              const pCfg = phaseStatusCfg[phase.status] || phaseStatusCfg.pending
-
-              return (
-                <div key={phase.id}>
-                  <button
-                    onClick={() => {
-                      setActivePhaseId(phase.id)
-                      const s = new Set(expandedPhases)
-                      isExpanded ? s.delete(phase.id) : s.add(phase.id)
-                      setExpandedPhases(s)
-                    }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-all ${
-                      isActive ? 'bg-indigo-50' : 'hover:bg-slate-50'
-                    }`}
-                  >
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                    <span className={`flex-1 text-sm font-medium truncate ${isActive ? 'text-indigo-900' : 'text-slate-700'}`}>
-                      {phase.name}
-                    </span>
-                    <span className={`text-[10px] font-medium hidden lg:block flex-shrink-0 ${pCfg.color}`}>
-                      {pCfg.label}
-                    </span>
-                    {isExpanded
-                      ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                      : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                    }
-                  </button>
-
-                  {/* Activities sub-list */}
-                  {isExpanded && phase.activities && phase.activities.length > 0 && (
-                    <div className="ml-5 mt-0.5 mb-1 pl-3 border-l-2 border-slate-100 space-y-0.5">
-                      {phase.activities.map(act => (
-                        <div key={act.id}
-                          className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-slate-50">
-                          <ActivityStatusIcon status={act.status} />
-                          <span className="text-xs text-slate-600 truncate flex-1">{act.name}</span>
-                          {canEdit && (
-                            <select
-                              value={act.status}
-                              onChange={e => updateActivityStatus(phase.id, act.id, e.target.value)}
-                              onClick={e => e.stopPropagation()}
-                              className="text-[10px] border-0 bg-transparent text-slate-400 focus:outline-none cursor-pointer"
-                            >
-                              <option value="pending">Pending</option>
-                              <option value="in_progress">În lucru</option>
-                              <option value="completed">Done</option>
-                            </select>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </nav>
-
-          {/* Team manager jos sidebar */}
-          <div className="border-t border-slate-100 flex-shrink-0">
-            <TeamManager projectId={projectId!} />
-          </div>
-        </aside>
-
-        {/* ══ MAIN: Cereri documente pe faza activă ══ */}
+        {/* ══ MAIN ══ */}
         <main className="flex-1 overflow-y-auto">
           {phases.length === 0 ? (
-            // Niciun template importat
             <div className="flex flex-col items-center justify-center h-full text-center p-8">
               <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
                 <Layers className="w-8 h-8 text-slate-400" />
@@ -409,7 +364,7 @@ export default function ProjectDetailsPage() {
                 </div>
               )}
 
-              {/* Un DocumentRequests per activitate din faza activă */}
+              {/* Document requests per activitate */}
               {activePhase?.activities?.map(activity => (
                 <DocumentRequests
                   key={activity.id}
@@ -421,7 +376,7 @@ export default function ProjectDetailsPage() {
                 />
               ))}
 
-              {/* DocumentRequests pentru cereri fără activitate (generale) */}
+              {/* Cereri generale (fără activitate) */}
               <DocumentRequests
                 key="__general__"
                 projectId={projectId!}
@@ -434,16 +389,16 @@ export default function ProjectDetailsPage() {
           )}
         </main>
       </div>
+
       {projectId && (
         <ProjectChatDrawer
           open={chatOpen}
           onClose={() => setChatOpen(false)}
           title="Chat proiect"
           projectId={projectId}
+          markAsRead={markAsRead}
         />
       )}
-
-
 
     </div>
   )
