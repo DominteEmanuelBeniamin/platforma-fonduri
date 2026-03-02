@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { logChatMessageAction, getClientIP, getUserAgent, toMessagePreview } from '@/app/api/_utils/audit'
 
 const UpdateMessageSchema = z.object({
   body: z.string().trim().min(1).max(5000),
@@ -75,7 +76,6 @@ export async function GET(
     return Response.json({ item: { ...data, is_deleted: false } })
     
 
-    return Response.json({ item: data })
   } catch (err) {
     console.error('GET chat message by id unexpected error:', err)
     return Response.json({ error: 'Internal Server Error' }, { status: 500 })
@@ -146,6 +146,33 @@ export async function PATCH(
       return Response.json({ error: 'Failed to update message' }, { status: 500 })
     }
 
+    // AUDIT LOG 
+    await logChatMessageAction({
+      actorId: accessRes.user.id,
+      actionType: 'update',
+      projectId,
+      messageId,
+      messagePreview: toMessagePreview(data.body),
+      oldValues: {
+        id: msg.id,
+        project_id: msg.project_id,
+        created_by: msg.created_by,
+        body_preview: toMessagePreview(msg.body),
+        edited_at: msg.edited_at,
+        deleted_at: msg.deleted_at,
+      },
+      newValues: {
+        id: data.id,
+        project_id: data.project_id,
+        created_by: data.created_by,
+        body_preview: toMessagePreview(data.body),
+        edited_at: data.edited_at,
+        deleted_at: data.deleted_at,
+      },
+      description: `${accessRes.profile.email || 'User'} a editat un mesaj în proiectul ${projectId}`,
+      ipAddress: getClientIP(request),
+      userAgent: getUserAgent(request),
+    })
     return Response.json({ item: data })
   } catch (err) {
     console.error('PATCH message unexpected error:', err)
@@ -184,9 +211,11 @@ export async function DELETE(
       return Response.json({ ok: true })
     }
 
+    const deletedAt = new Date().toISOString()
+
     const { error } = await admin
       .from('project_chat_messages')
-      .update({ deleted_at: new Date().toISOString() })
+      .update({ deleted_at: deletedAt })
       .eq('id', messageId)
       .eq('project_id', projectId)
 
@@ -195,8 +224,34 @@ export async function DELETE(
       return Response.json({ error: 'Failed to delete message' }, { status: 500 })
     }
 
-    return Response.json({ ok: true })
-  } catch (err) {
+    await logChatMessageAction({
+      actorId: accessRes.user.id,
+      actionType: 'delete',
+      projectId,
+      messageId,
+      messagePreview: toMessagePreview(msg.body),
+      oldValues: {
+        id: msg.id,
+        project_id: msg.project_id,
+        created_by: msg.created_by,
+        body_preview: toMessagePreview(msg.body),
+        edited_at: msg.edited_at,
+        deleted_at: msg.deleted_at,
+      },
+      newValues: {
+        id: msg.id,
+        project_id: msg.project_id,
+        created_by: msg.created_by,
+        body_preview: toMessagePreview(msg.body),
+        edited_at: msg.edited_at,
+        deleted_at: deletedAt,
+      },
+      description: `${accessRes.profile.email || 'User'} a șters un mesaj în proiectul ${projectId}`,
+      ipAddress: getClientIP(request),
+      userAgent: getUserAgent(request),
+    })
+
+    return Response.json({ ok: true })  } catch (err) {
     console.error('DELETE message unexpected error:', err)
     return Response.json({ error: 'Internal Server Error' }, { status: 500 })
   }

@@ -84,6 +84,63 @@ export async function logProjectAction(params: LogProjectActionParams) {
   }
 } 
 
+interface LogChatMessageActionParams {
+  actorId: string
+  actionType: Extract<AuditActionType, 'update' | 'delete' | 'create'>
+  projectId: string
+  messageId: string
+  messagePreview?: string | null
+  oldValues?: Record<string, any> | null
+  newValues?: Record<string, any> | null
+  description: string
+  ipAddress: string
+  userAgent: string
+}
+
+/**
+ * Salvează o acțiune pe mesaje (chat) în audit_logs
+ * entity_type: 'chat_message' (text liber)
+ * entity_id: messageId
+ * entity_name: preview (sau fallback)
+ */
+export async function logChatMessageAction(params: LogChatMessageActionParams) {
+  try {
+    const admin = createSupabaseServiceClient()
+
+    const entityName =
+      (params.messagePreview && params.messagePreview.trim()) ||
+      `message:${params.messageId}`
+
+    const { error } = await admin.from('audit_logs').insert({
+      user_id: params.actorId,
+      action_type: params.actionType,
+      entity_type: 'chat_message',
+      entity_id: params.messageId,
+      entity_name: entityName,
+      old_values: params.oldValues || null,
+      new_values: params.newValues || null,
+      description: params.description,
+      ip_address: params.ipAddress,
+      user_agent: params.userAgent,
+    })
+
+    if (error) {
+      console.error('❌ Audit log (chat_message) failed:', error)
+    }
+  } catch (e) {
+    console.error('❌ Audit log (chat_message) exception:', e)
+  }
+}
+
+
+// Helper: preview sigur pentru mesaj (nu logăm gigantic)
+export function toMessagePreview(body: string | null | undefined, maxLen = 200) {
+  if (!body) return null
+  const s = String(body).trim()
+  if (!s) return null
+  return s.length <= maxLen ? s : s.slice(0, maxLen) + '…'
+}
+
 export function getClientIP(request: Request): string {
   const forwarded = request.headers.get('x-forwarded-for')
   if (forwarded) {
