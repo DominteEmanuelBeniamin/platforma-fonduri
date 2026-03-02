@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -45,8 +46,10 @@ type GetByIdResponse = {
   item: ChatMessage
 }
 
+const LAST_SEEN_KEY = (projectId: string) => `chat_last_seen_${projectId}`
+
 export function useProjectChat(projectId: string, opts: UseProjectChatOptions = {}) {
-  const { apiFetch, loading: authLoading } = useAuth()
+  const { apiFetch, loading: authLoading, userId } = useAuth()
   const initialLimit = opts.initialLimit ?? 50
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -54,6 +57,29 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [lastSeenAt, setLastSeenAt] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    return localStorage.getItem(LAST_SEEN_KEY(projectId))
+  })
+
+  const markAsRead = useCallback(() => {
+    const now = new Date().toISOString()
+    localStorage.setItem(LAST_SEEN_KEY(projectId), now)
+    setLastSeenAt(now)
+  }, [projectId])
+
+  const unreadCount = useMemo(() => {
+    if (!lastSeenAt) {
+      // dacă nu ai văzut niciodată, toate mesajele altora sunt "unread"
+      return messages.filter((m) => !m.deleted_at && m.created_by !== userId).length
+    }
+    return messages.filter(
+      (m) =>
+        !m.deleted_at &&
+        m.created_by !== userId &&
+        new Date(m.created_at).getTime() > new Date(lastSeenAt).getTime()
+    ).length
+  }, [messages, lastSeenAt, userId])
 
 
   const upsertOne = useCallback((m: ChatMessage) => {
@@ -409,5 +435,7 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
     editMessage,
     deleteMessage,
     setError,
+    unreadCount,
+    markAsRead,
   }
 }
