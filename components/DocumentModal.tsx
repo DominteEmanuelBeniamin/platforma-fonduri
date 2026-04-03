@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom'
 import {
   FileText,
   Download,
-  FolderDown,
+  // FolderDown,
   CheckCircle2,
   XCircle,
   Clock,
@@ -21,6 +21,7 @@ import {
   History
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { downloadFilesArchive } from '@/app/api/_utils/download-files-archive'
 
 interface DocumentRequest {
   id: string
@@ -219,28 +220,19 @@ export default function DocumentModal({
   const downloadAllFilesForVersion = async (version: number) => {
     const group = groupedVersions.find(v => v.version === version)
     if (!group || group.files.length === 0) return
-
+  
     const opId = `all-v${version}`
     setDownloadingId(opId)
     setDownloadMenuOpen(false)
-
+  
     try {
-      showToast(`Se descarcă ${group.files.length} fișiere...`, 'info')
-
-      //TODO: ar trebui un endpoint pentru descarcare ca zip, nu reliable cu multe fisiere
-      for (const file of group.files) {
-        const res = await apiFetch(`/api/files/${file.id}/signed-download`, {
-          method: 'POST',
-          body: JSON.stringify({ expiresIn: 60 * 5 })
-        })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(data?.error || res.statusText)
-
-        forceDownload(data.url)
-        await new Promise(resolve => setTimeout(resolve, 350))
-      }
-
-      showToast('Descărcare începută', 'success')
+      await downloadFilesArchive({
+        fileIds: group.files.map(file => file.id),
+        apiFetch,
+        zipName: `raspuns-v${version}.zip`
+      })
+  
+      showToast('Arhiva a fost descărcată.', 'success')
     } catch (error: any) {
       showToast('Eroare la descărcare: ' + error.message, 'error')
     } finally {
@@ -292,18 +284,6 @@ export default function DocumentModal({
     }
   }
 
-  // Download all files at once
-  const downloadAllFiles = async () => {
-    if (!request.files || request.files.length === 0) return
-    
-    showToast(`Se descarcă ${request.files.length} fișiere...`, 'info')
-    
-    for (const file of request.files) {
-      await downloadUploadedFileById(file.id)
-      // Small delay between downloads
-      await new Promise(resolve => setTimeout(resolve, 500))
-    }
-  }
 
   // Get image preview URL for hover
   const handleImagePreview = async (fileId: string, fileName: string) => {
@@ -700,9 +680,9 @@ export default function DocumentModal({
                                 {downloadingId === opAllId ? (
                                   <Loader2 className="w-4 h-4 animate-spin" />
                                 ) : (
-                                  <FolderDown className="w-4 h-4" />
+                                  <Package  className="w-4 h-4" />
                                 )}
-                                <span className="text-sm font-semibold">Download</span>
+                                <span className="text-sm font-semibold">Descarcă arhivă</span>
                                 <span className="text-xs text-slate-500">({group.files.length})</span>
                               </button>
 
