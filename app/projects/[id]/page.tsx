@@ -15,12 +15,14 @@ import {
   Layers,
   Building2,
   MessageSquare,
+  FolderOpen,
 } from 'lucide-react'
 
 import ProjectChatDrawer from '@/components/ProjectChatDrawer'
 import ProjectPhasesSidebar, { phaseStatusCfg } from '@/components/ProjectPhasesSidebar'
 import type { ProjectPhase } from '@/components/ProjectPhasesSidebar'
 import DocumentRequests from '@/components/DocumentRequests'
+import ProjectDocumentsView from '@/components/ProjectDocumentsView'
 import { useAuth } from '@/app/providers/AuthProvider'
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -49,6 +51,8 @@ export default function ProjectDetailsPage() {
 
   const [chatOpen, setChatOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+
+  const [activeView, setActiveView] = useState<'phases' | 'documents'>('phases')
 
   // Citim lastSeen din localStorage
   const getLastSeen = useCallback(() => {
@@ -87,7 +91,6 @@ export default function ProjectDetailsPage() {
         (payload: any) => {
           const row = payload.new
           if (!row?.id || row?.deleted_at) return
-          // dacă mesajul e de la altcineva și chat-ul e închis -> incrementăm
           if (row.created_by !== profile?.id && !chatOpen) {
             setUnreadCount((prev) => prev + 1)
           }
@@ -304,24 +307,67 @@ export default function ProjectDetailsPage() {
       {/* ── Body: sidebar + main ── */}
       <div className="flex flex-1 overflow-hidden max-w-screen-2xl w-full mx-auto">
 
-        {/* ══ SIDEBAR ══ */}
-        <ProjectPhasesSidebar
-          phases={phases}
-          activePhaseId={activePhaseId}
-          expandedPhases={expandedPhases}
-          canEdit={canEdit}
-          projectId={projectId!}
-          onSelectPhase={setActivePhaseId}
-          onToggleExpand={handleToggleExpand}
-          onUpdateActivityStatus={updateActivityStatus}
-          onRefresh={fetchAll}
-          apiFetch={apiFetch}
-          isAdmin={isAdmin}
-        />
+        {/* ══ SIDEBAR — ascuns în view documente ══ */}
+        {activeView === 'phases' && (
+          <ProjectPhasesSidebar
+            phases={phases}
+            activePhaseId={activePhaseId}
+            expandedPhases={expandedPhases}
+            canEdit={canEdit}
+            projectId={projectId!}
+            onSelectPhase={setActivePhaseId}
+            onToggleExpand={handleToggleExpand}
+            onUpdateActivityStatus={updateActivityStatus}
+            onRefresh={fetchAll}
+            apiFetch={apiFetch}
+            isAdmin={isAdmin}
+          />
+        )}
 
         {/* ══ MAIN ══ */}
-        <main className="flex-1 overflow-y-auto">
-          {phases.length === 0 ? (
+        <main className="flex-1 overflow-y-auto min-w-0">
+
+          {/* ── Tab switcher ── */}
+          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6">
+            <div className="flex gap-1 -mb-px">
+              <button
+                onClick={() => setActiveView('phases')}
+                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  activeView === 'phases'
+                    ? 'border-indigo-600 text-indigo-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Layers className="w-4 h-4" />
+                Faze & Activități
+              </button>
+              <button
+                onClick={() => setActiveView('documents')}
+                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  activeView === 'documents'
+                    ? 'border-indigo-600 text-indigo-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <FolderOpen className="w-4 h-4" />
+                Documente
+                {allDocRequests.length > 0 && (
+                  <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full font-medium">
+                    {allDocRequests.length}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* ── Content ── */}
+          {activeView === 'documents' ? (
+            <ProjectDocumentsView
+              projectId={projectId!}
+              requests={allDocRequests}
+              phases={phases}
+            />
+          ) : phases.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center p-8">
               <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
                 <Layers className="w-8 h-8 text-slate-400" />
