@@ -1,6 +1,7 @@
 import { createSupabaseServiceClient } from './supabase'
 import type { AppRole, Result } from './auth'
 import { requireProfile } from './auth'
+import { canChatWithUser } from './private-chat-access'
 
 export type PrivateConversation = {
   id: string
@@ -228,15 +229,12 @@ export async function getOrCreatePrivateConversation(
     return { ok: false, status: 400, error: 'Missing target user id' }
   }
 
-  if (ctx.user.id === otherUserId) {
-    return { ok: false, status: 400, error: 'You cannot start a private conversation with yourself' }
-  }
 
   const admin = createSupabaseServiceClient()
 
   const { data: otherUser, error: otherUserError } = await admin
     .from('profiles')
-    .select('id')
+    .select('id, role')
     .eq('id', otherUserId)
     .maybeSingle()
 
@@ -251,6 +249,15 @@ export async function getOrCreatePrivateConversation(
 
   if (!otherUser) {
     return { ok: false, status: 404, error: 'Target user not found' }
+  }
+
+  if (
+    !canChatWithUser(
+      { id: ctx.user.id, role: ctx.profile.role },
+      { id: otherUser.id, role: otherUser.role } 
+    )
+  ) {
+    return { ok: false, status: 403, error: 'Not allowed to start this conversation' }
   }
 
   const existing = await findExistingPrivateConversationBetweenUsers(ctx.user.id, otherUserId)

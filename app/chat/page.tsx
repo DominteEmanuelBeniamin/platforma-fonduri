@@ -1,9 +1,10 @@
 'use client'
 
-import { useCallback, useMemo } from 'react'
-import { Search, MessageSquare, RefreshCw } from 'lucide-react'
+import { useCallback, useMemo, useState } from 'react'
+import { MessageSquare, RefreshCw, Search } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { usePrivateConversations } from '@/hooks/usePrivateConversations'
+import { usePrivateChatUsers } from '@/hooks/usePrivateChatUsers'
 import PrivateChatView from '@/components/PrivateChatView'
 import { getAvatarColor, getInitials } from '@/lib/avatar'
 
@@ -29,20 +30,30 @@ function formatConversationTime(iso: string | null) {
 
 export default function ChatPage() {
   const { loading: authLoading, profile } = useAuth()
+
   const {
-    filteredItems,
+    items,
     loading,
+    creating,
     error,
-    search,
-    setSearch,
     selectedConversationId,
     selectedConversation,
     openConversation,
     clearSelection,
     refresh,
+    openOrCreateConversation,
     getIsUnread,
     markConversationReadLocally,
   } = usePrivateConversations()
+
+  const [searchTerm, setSearchTerm] = useState('')
+
+  const {
+    items: userSearchItems,
+    loading: userSearchLoading,
+    error: userSearchError,
+    search: searchUsers,
+  } = usePrivateChatUsers()
 
   const canAccess = useMemo(() => {
     return profile?.role === 'admin' || profile?.role === 'consultant'
@@ -54,6 +65,32 @@ export default function ChatPage() {
       markConversationReadLocally(selectedConversationId, lastReadAt)
     },
     [markConversationReadLocally, selectedConversationId]
+  )
+
+  const handleSearchChange = useCallback(
+    async (value: string) => {
+      setSearchTerm(value)
+      await searchUsers(value)
+    },
+    [searchUsers]
+  )
+
+  const handleUserPick = useCallback(
+    async (user: {
+      id: string
+      conversationId?: string | null
+      hasConversation?: boolean
+    }) => {
+      if (user.hasConversation && user.conversationId) {
+        openConversation(user.conversationId)
+      } else {
+        await openOrCreateConversation(user.id)
+      }
+
+      setSearchTerm('')
+      await searchUsers('')
+    },
+    [openConversation, openOrCreateConversation, searchUsers]
   )
 
   if (authLoading) {
@@ -77,8 +114,6 @@ export default function ChatPage() {
     )
   }
 
-  
-
   return (
     <div className="h-[calc(100vh-88px)] min-h-[600px] overflow-hidden px-4 pb-4 pt-2 md:px-6">
       <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm md:grid-cols-[360px_minmax(0,1fr)]">
@@ -91,9 +126,7 @@ export default function ChatPage() {
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h1 className="text-xl font-semibold text-slate-900">Chat</h1>
-                <p className="text-sm text-slate-500">
-                  Conversații private
-                </p>
+                <p className="text-sm text-slate-500">Conversații private</p>
               </div>
 
               <button
@@ -108,20 +141,86 @@ export default function ChatPage() {
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Caută conversații..."
+                value={searchTerm}
+                onChange={(e) => {
+                  void handleSearchChange(e.target.value)
+                }}
+                placeholder="Caută utilizatori..."
                 className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-sm outline-none transition focus:border-slate-300 focus:bg-white"
               />
-            </div>
 
-            <p className="mt-2 text-xs text-slate-400">
-              Search user placeholder pentru pasul următor.
-            </p>
+              {(searchTerm.trim().length > 0 ||
+                userSearchLoading ||
+                userSearchError ||
+                userSearchItems.length > 0) && (
+                <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                  {userSearchLoading && (
+                    <div className="px-4 py-3 text-sm text-slate-500">
+                      Se caută utilizatori...
+                    </div>
+                  )}
+
+                  {!userSearchLoading && userSearchError && (
+                    <div className="px-4 py-3 text-sm text-rose-600">
+                      {userSearchError}
+                    </div>
+                  )}
+
+                  {!userSearchLoading &&
+                    !userSearchError &&
+                    userSearchItems.length === 0 &&
+                    searchTerm.trim().length > 0 && (
+                      <div className="px-4 py-3 text-sm text-slate-500">
+                        Niciun utilizator găsit.
+                      </div>
+                    )}
+
+                  {!userSearchLoading &&
+                    !userSearchError &&
+                    userSearchItems.map((user) => {
+                      const displayName = user.full_name || user.email || 'Utilizator'
+                      const color = getAvatarColor(displayName)
+                      const initials = getInitials(user.full_name, user.email)
+
+                      return (
+                        <button
+                          key={user.id}
+                          onClick={() => void handleUserPick(user)}
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                        >
+                          <div
+                            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+                            style={{
+                              background: `linear-gradient(135deg, ${color.from}, ${color.to})`,
+                            }}
+                          >
+                            {initials}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-medium text-slate-900">
+                              {displayName}
+                            </div>
+                            {user.email && (
+                              <div className="truncate text-xs text-slate-500">
+                                {user.email}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex-shrink-0 text-xs text-slate-400">
+                            {user.hasConversation ? 'Deschide' : 'Conversație nouă'}
+                          </div>
+                        </button>
+                      )
+                    })}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {loading && filteredItems.length === 0 && (
+            {loading && items.length === 0 && (
               <div className="p-4 text-sm text-slate-500">Se încarcă conversațiile...</div>
             )}
 
@@ -131,7 +230,7 @@ export default function ChatPage() {
               </div>
             )}
 
-            {!loading && filteredItems.length === 0 && !error && (
+            {!loading && items.length === 0 && !error && (
               <div className="flex h-full flex-col items-center justify-center px-6 text-center">
                 <div className="mb-3 rounded-2xl bg-slate-100 p-4 text-slate-400">
                   <MessageSquare className="h-6 w-6" />
@@ -140,13 +239,13 @@ export default function ChatPage() {
                   Nu ai conversații încă
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Când adăugăm search-ul real, vei putea începe o conversație nouă de aici.
+                  Folosește căutarea de mai sus pentru a începe o conversație nouă.
                 </p>
               </div>
             )}
 
             <div className="p-2">
-              {filteredItems.map((item) => {
+              {items.map((item) => {
                 const active = item.id === selectedConversationId
                 const unread = getIsUnread(item)
 
@@ -226,25 +325,31 @@ export default function ChatPage() {
                 Selectează o conversație
               </h2>
               <p className="mt-2 max-w-md text-sm text-slate-500">
-                Alege o conversație din listă pentru a vedea mesajele și a continua discuția.
+                Alege o conversație din listă sau caută un utilizator pentru a începe una nouă.
               </p>
             </div>
           ) : (
             <PrivateChatView
-                conversationId={selectedConversation.id}
-                title={
-                    selectedConversation.other_user?.full_name ||
-                    selectedConversation.other_user?.email ||
-                    'Conversație'
-                }
-                subtitle={selectedConversation.other_user?.email ?? null}
-                showBackButton
-                onBack={clearSelection}
-                onMarkedAsRead={handleMarkedAsRead}
+              conversationId={selectedConversation.id}
+              title={
+                selectedConversation.other_user?.full_name ||
+                selectedConversation.other_user?.email ||
+                'Conversație'
+              }
+              subtitle={selectedConversation.other_user?.email ?? null}
+              showBackButton
+              onBack={clearSelection}
+              onMarkedAsRead={handleMarkedAsRead}
             />
           )}
         </main>
       </div>
+
+      {(creating || userSearchLoading) && (
+        <div className="pointer-events-none fixed bottom-4 right-4 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg">
+          {creating ? 'Se creează conversația...' : 'Se caută...'}
+        </div>
+      )}
     </div>
   )
 }
