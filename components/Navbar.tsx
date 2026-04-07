@@ -43,6 +43,14 @@ export default function Navbar() {
             >
               Proiecte
             </Link>
+            {(profile?.role === 'admin' || profile?.role === 'consultant') && (
+              <Link 
+              href="/chat" 
+              className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/admin')}`}
+            >
+              Chat
+            </Link>
+            )}
             {profile?.role === 'admin' && (
               <>
                 <Link 

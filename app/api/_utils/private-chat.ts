@@ -316,3 +316,199 @@ export async function getOrCreatePrivateConversation(
     conversation: createdConversation,
   }
 }
+
+export type PrivateConversationListItem = {
+  id: string
+  created_at: string
+  created_by: string
+  last_message_at: string | null
+  last_read_at: string | null
+  other_user: {
+    id: string
+    full_name: string | null
+    email: string | null
+  } | null
+  last_message: {
+    id: string
+    body: string | null
+    created_at: string
+    created_by: string
+  } | null
+}
+
+export async function listPrivateConversationsForCurrentUser(
+  request: Request
+): Promise<
+  Result<{
+    user: { id: string }
+    profile: { id: string; role: AppRole; email?: string | null }
+    items: PrivateConversationListItem[]
+  }>
+> {
+  const ctx = await requireProfile(request)
+  if (!ctx.ok) return ctx
+
+  const admin = createSupabaseServiceClient()
+
+  const { data: myParticipants, error: myParticipantsError } = await admin
+    .from('private_conversation_participants')
+    .select('conversation_id, last_read_at')
+    .eq('user_id', ctx.user.id)
+
+  if (myParticipantsError) {
+    console.error('Failed to load user private conversation participants:', {
+      userId: ctx.user.id,
+      error: myParticipantsError,
+    })
+    return { ok: false, status: 500, error: 'Failed to load conversations' }
+  }
+
+  const conversationIds = (myParticipants ?? []).map((row) => row.conversation_id)
+
+  if (conversationIds.length === 0) {
+    return {
+      ok: true,
+      user: { id: ctx.user.id },
+      profile: ctx.profile,
+      items: [],
+    }
+  }
+
+  const lastReadMap = new Map<string, string | null>()
+  for (const row of myParticipants ?? []) {
+    lastReadMap.set(row.conversation_id, row.last_read_at)
+  }
+
+  const { data: conversations, error: conversationsError } = await admin
+    .from('private_conversations')
+    .select('id, created_at, created_by, last_message_at')
+    .in('id', conversationIds)
+
+  if (conversationsError) {
+    console.error('Failed to load private conversations:', {
+      userId: ctx.user.id,
+      conversationIds,
+      error: conversationsError,
+    })
+    return { ok: false, status: 500, error: 'Failed to load conversations' }
+  }
+
+  const { data: allParticipants, error: allParticipantsError } = await admin
+    .from('private_conversation_participants')
+    .select(`
+      conversation_id,
+      user_id,
+      profiles:user_id (
+        id,
+        full_name,
+        email
+      )
+    `)
+    .in('conversation_id', conversationIds)
+
+  if (allParticipantsError) {
+    console.error('Failed to load private conversation participants:', {
+      userId: ctx.user.id,
+      conversationIds,
+      error: allParticipantsError,
+    })
+    return { ok: false, status: 500, error: 'Failed to load conversation participants' }
+  }
+
+  const { data: messages, error: messagesError } = await admin
+    .from('private_messages')
+    .select('id, conversation_id, body, created_at, created_by, deleted_at')
+    .in('conversation_id', conversationIds)
+    .order('created_at', { ascending: false })
+
+  if (messagesError) {
+    console.error('Failed to load private conversation messages:', {
+      userId: ctx.user.id,
+      conversationIds,
+      error: messagesError,
+    })
+    return { ok: false, status: 500, error: 'Failed to load conversation messages' }
+  }
+
+  type ParticipantProfile =
+  | {
+      id: string
+      full_name: string | null
+      email: string | null
+    }
+  | {
+      id: string
+      full_name: string | null
+      email: string | null
+    }[]
+  | null
+
+const participantsByConversation = new Map<
+  string,
+  Array<{
+    conversation_id: string
+    user_id: string
+    profiles: ParticipantProfile
+  }>
+>()
+
+  for (const row of allParticipants ?? []) {
+    if (!participantsByConversation.has(row.conversation_id)) {
+      participantsByConversation.set(row.conversation_id, [])
+    }
+    participantsByConversation.get(row.conversation_id)!.push(row)
+  }
+
+  const lastMessageByConversation = new Map<
+    string,
+    {
+      id: string
+      body: string | null
+      created_at: string
+      created_by: string
+    } | null
+  >()
+
+  for (const row of messages ?? []) {
+    if (lastMessageByConversation.has(row.conversation_id)) continue
+
+    lastMessageByConversation.set(row.conversation_id, {
+      id: row.id,
+      body: row.deleted_at ? null : row.body,
+      created_at: row.created_at,
+      created_by: row.created_by,
+    })
+  }
+
+  const items: PrivateConversationListItem[] = (conversations ?? []).map((conversation) => {
+    const participants = participantsByConversation.get(conversation.id) ?? []
+    const otherParticipant = participants.find((p) => p.user_id !== ctx.user.id)
+
+    const otherProfile = Array.isArray(otherParticipant?.profiles)
+      ? otherParticipant?.profiles[0] ?? null
+      : otherParticipant?.profiles ?? null
+
+    return {
+      id: conversation.id,
+      created_at: conversation.created_at,
+      created_by: conversation.created_by,
+      last_message_at: conversation.last_message_at,
+      last_read_at: lastReadMap.get(conversation.id) ?? null,
+      other_user: otherProfile,
+      last_message: lastMessageByConversation.get(conversation.id) ?? null,
+    }
+  })
+
+  items.sort((a, b) => {
+    const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : 0
+    const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : 0
+    return bTime - aTime
+  })
+
+  return {
+    ok: true,
+    user: { id: ctx.user.id },
+    profile: ctx.profile,
+    items,
+  }
+}

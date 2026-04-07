@@ -345,16 +345,13 @@ export function usePrivateChat(
           filter: `conversation_id=eq.${conversationId}`,
         },
         async (payload) => {
-            console.log('INSERT payload', payload)
           try {
             const row = payload.new as { id?: string; deleted_at?: string | null } | null
             const id = row?.id
             if (!id) return
             if (row?.deleted_at) return
             if (idsRef.current.has(id)) return
-            console.log('Realtime message id:', id, 'conversationId:', conversationId)
             const item = await fetchFullById(id)
-            console.log('Fetched full realtime item:', item)
             if (cancelled) return
             if (item && !item.deleted_at) upsertOne(item)
           } catch {
@@ -399,9 +396,7 @@ export function usePrivateChat(
           }
         }
       )
-      .subscribe((status, err) => {
-        console.log('private chat channel status:', status, err)
-      })
+      .subscribe()
 
     return () => {
       cancelled = true
