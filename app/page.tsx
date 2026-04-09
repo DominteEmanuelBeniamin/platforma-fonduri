@@ -18,6 +18,7 @@ export default function Dashboard() {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [projectToDelete, setProjectToDelete] = useState<any>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
+  const [myActivities, setMyActivities] = useState<any[]>([])
 
   const statusConfig: Record<string, { bg: string; text: string; dot: string; label: string; border: string }> = {
     contractare: { bg: 'bg-amber-100', text: 'text-amber-800', dot: 'bg-amber-600', border: 'border-amber-200', label: 'În Contractare' },
@@ -85,6 +86,15 @@ export default function Dashboard() {
       .finally(() => setLoading(false))
   }, [authLoading, token, router])
 
+  useEffect(() => {
+    if (authLoading || !token || currentUser?.role !== 'consultant') return
+    apiFetch('/api/my-activities')
+      .then(r => r.json())
+      .then(d => setMyActivities(d.activities ?? []))
+      .catch(console.error)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, token, currentUser?.role])
+
   if (loading || authLoading) {
     return (
       <div className="flex h-[80vh] items-center justify-center">
@@ -94,8 +104,11 @@ export default function Dashboard() {
   }
 
   const isAdmin = currentUser?.role === 'admin'
+  const isConsultant = currentUser?.role === 'consultant'
   const firstName = currentUser?.full_name?.split(' ')[0] || 'Utilizator'
   const currentDate = new Date().toLocaleDateString('ro-RO', { weekday: 'long', day: 'numeric', month: 'long' })
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
 
   const stats = {
     total: projects.length,
@@ -157,7 +170,53 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 3. LISTA PROIECTE */}
+      {/* 3. ACTIVITĂȚILE MELE — doar pentru consultanți */}
+      {isConsultant && myActivities.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Activitățile mele</h2>
+            <span className="text-xs text-slate-400">{myActivities.length} active</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {myActivities.map((act: any) => {
+              const deadline = act.deadline_at ? new Date(act.deadline_at) : null
+              deadline?.setHours(0, 0, 0, 0)
+              const isOverdue = deadline && deadline < today
+              const isSoon = deadline && !isOverdue && (deadline.getTime() - today.getTime()) <= 3 * 24 * 60 * 60 * 1000
+
+              return (
+                <Link key={act.id} href={`/projects/${act.project_id}`}>
+                  <div className="group bg-white border border-slate-200 rounded-xl p-4 hover:border-indigo-200 hover:shadow-md transition-all cursor-pointer">
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <p className="text-xs font-medium text-indigo-600 truncate">{act.project_title}</p>
+                      {act.pending_docs > 0 && (
+                        <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">
+                          {act.pending_docs}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm font-semibold text-slate-800 leading-snug mb-3">{act.name}</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-400 truncate">{act.phase_name}</span>
+                      {deadline ? (
+                        <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                          isOverdue ? 'bg-red-50 text-red-600' :
+                          isSoon    ? 'bg-amber-50 text-amber-600' :
+                                      'bg-slate-100 text-slate-500'
+                        }`}>
+                          {isOverdue ? '⚠ ' : ''}{deadline.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 4. LISTA PROIECTE */}
       {projects.length === 0 ? (
         <div className="py-20 flex flex-col items-center justify-center text-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
           <h3 className="text-lg font-bold text-slate-900">Niciun proiect activ</h3>

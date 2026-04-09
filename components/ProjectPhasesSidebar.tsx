@@ -4,9 +4,6 @@ import { useState } from 'react'
 import {
   ChevronDown,
   ChevronRight,
-  CheckCircle2,
-  Circle,
-  Play,
   Layers,
   FolderOpen,
   Plus,
@@ -25,6 +22,8 @@ export interface ProjectActivity {
   name: string
   status: string
   order_index: number
+  assigned_to?: string | null
+  assigned_user?: { id: string; full_name: string | null; email: string } | null
 }
 
 export interface ProjectPhase {
@@ -35,23 +34,6 @@ export interface ProjectPhase {
   project_status_id: string
   project_status?: { id: string; name: string; color: string }
   activities?: ProjectActivity[]
-}
-
-// ─── Status config ─────────────────────────────────────────────────────────────
-
-export const phaseStatusCfg: Record<string, { label: string; color: string; ring: string }> = {
-  pending:     { label: 'În așteptare', color: 'text-slate-500',   ring: 'ring-slate-200' },
-  in_progress: { label: 'În lucru',     color: 'text-blue-600',    ring: 'ring-blue-200' },
-  completed:   { label: 'Finalizat',    color: 'text-emerald-600', ring: 'ring-emerald-200' },
-  skipped:     { label: 'Omis',         color: 'text-slate-400',   ring: 'ring-slate-100' },
-}
-
-// ─── Activity status icon ─────────────────────────────────────────────────────
-
-function ActivityStatusIcon({ status }: { status: string }) {
-  if (status === 'completed') return <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-  if (status === 'in_progress') return <Play className="w-4 h-4 text-blue-500 flex-shrink-0" />
-  return <Circle className="w-4 h-4 text-slate-300 flex-shrink-0" />
 }
 
 // ─── Inline input ─────────────────────────────────────────────────────────────
@@ -144,7 +126,6 @@ interface ProjectPhasesSidebarProps {
   projectId: string
   onSelectPhase: (phaseId: string) => void
   onToggleExpand: (phaseId: string) => void
-  onUpdateActivityStatus: (phaseId: string, activityId: string, status: string) => void
   onRefresh: () => void
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>
 }
@@ -160,7 +141,6 @@ export default function ProjectPhasesSidebar({
   projectId,
   onSelectPhase,
   onToggleExpand,
-  onUpdateActivityStatus,
   onRefresh,
   apiFetch,
 }: ProjectPhasesSidebarProps) {
@@ -251,7 +231,6 @@ export default function ProjectPhasesSidebar({
           const isActive = phase.id === activePhaseId
           const isExpanded = expandedPhases.has(phase.id)
           const color = phase.project_status?.color || '#6B7280'
-          const pCfg = phaseStatusCfg[phase.status] || phaseStatusCfg.pending
           const isConfirmingDeletePhase = confirmDeletePhase === phase.id
 
           return (
@@ -279,9 +258,6 @@ export default function ProjectPhasesSidebar({
                     <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
                     <span className={`flex-1 text-sm font-medium truncate ${isActive ? 'text-indigo-900' : 'text-slate-700'}`}>
                       {phase.name}
-                    </span>
-                    <span className={`text-[10px] font-medium hidden lg:block flex-shrink-0 ${pCfg.color}`}>
-                      {pCfg.label}
                     </span>
                     {isExpanded
                       ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
@@ -321,20 +297,7 @@ export default function ProjectPhasesSidebar({
                         key={act.id}
                         className="group/act flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-slate-50"
                       >
-                        <ActivityStatusIcon status={act.status} />
                         <span className="text-xs text-slate-600 truncate flex-1">{act.name}</span>
-                        {canEdit && (
-                          <select
-                            value={act.status}
-                            onChange={e => onUpdateActivityStatus(phase.id, act.id, e.target.value)}
-                            onClick={e => e.stopPropagation()}
-                            className="text-[10px] border-0 bg-transparent text-slate-400 focus:outline-none cursor-pointer"
-                          >
-                            <option value="pending">Pending</option>
-                            <option value="in_progress">În lucru</option>
-                            <option value="completed">Done</option>
-                          </select>
-                        )}
                         {isAdmin && (
                           <button
                             onClick={e => { e.stopPropagation(); setConfirmDeleteActivity(act.id) }}
