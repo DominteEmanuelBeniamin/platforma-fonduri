@@ -22,7 +22,7 @@ export async function GET(
 
     const { data: project, error } = await admin
       .from('projects')
-      .select('*, profiles(*)')
+      .select('*, profiles!projects_client_id_fkey(*)')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -62,7 +62,7 @@ export async function PATCH(
     // 1. Citim proiectul curent (pentru audit)
     const { data: oldProject, error: findErr } = await admin
       .from('projects')
-      .select('id, title, status, client_id, cod_intern, profiles(email, full_name, cif)')
+      .select('id, title, status, client_id, cod_intern, profiles!projects_client_id_fkey(email, full_name, cif)')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -148,7 +148,7 @@ export async function PATCH(
       .from('projects')
       .update(update)
       .eq('id', projectId)
-      .select('*, profiles(full_name, cif, email)')
+      .select('*, profiles!projects_client_id_fkey(full_name, cif, email)')
       .single()
 
     if (updateErr) {
@@ -219,7 +219,7 @@ export async function DELETE(
     // 1. Citim datele proiectului ÎNAINTE de ștergere (pentru audit)
     const { data: project, error: findErr } = await admin
       .from('projects')
-      .select('id, title, client_id, status, cod_intern, profiles(email, full_name, cif)')
+      .select('id, title, client_id, status, cod_intern, profiles!projects_client_id_fkey(email, full_name, cif)')
       .eq('id', projectId)
       .maybeSingle()
 

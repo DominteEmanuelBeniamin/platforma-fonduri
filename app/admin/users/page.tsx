@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { UserPlus, Trash2, Users, Building2, Briefcase, Shield, Info } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
-import UserDrawer from '@/components/UserDrawer'
 
 const roleConfig = {
   admin: {
@@ -69,10 +68,6 @@ export default function AdminUsersPage() {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [userToDelete, setUserToDelete] = useState<{ id: string; email: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
-
-  // User drawer
-  const [drawerUser, setDrawerUser] = useState<any>(null)
-  const [drawerOpen, setDrawerOpen] = useState(false)
 
   const fetchUsers = async () => {
     try {
@@ -179,12 +174,6 @@ export default function AdminUsersPage() {
         confirmText="Șterge utilizator"
         confirmWord="sterge"
         loading={isDeleting}
-      />
-
-      <UserDrawer
-        user={drawerUser}
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
       />
 
       {/* Header */}
@@ -388,7 +377,7 @@ export default function AdminUsersPage() {
             users.map(user => (
               <div
                 key={user.id}
-                onClick={() => { setDrawerUser(user); setDrawerOpen(true) }}
+                onClick={() => router.push(`/admin/users/${user.id}`)}
                 className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-xl hover:border-indigo-200 hover:bg-indigo-50/20 hover:shadow-sm transition-all cursor-pointer group"
               >
                 {/* Info */}

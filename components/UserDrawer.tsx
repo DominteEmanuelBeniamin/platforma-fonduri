@@ -1,13 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import {
   X, FolderOpen, FileText, FileSpreadsheet,
   Image as ImageIcon, File, CheckCircle2, XCircle,
   Clock, Eye, Download, Layers, Building2, Briefcase,
-  Shield, Search, Filter, ChevronDown, ArrowUpDown,
-  Calendar, Loader2, AlertCircle, ExternalLink,
+  Shield, Search, ChevronDown, Loader2, AlertCircle,
+  ExternalLink, ArrowLeft,
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useRouter } from 'next/navigation'
@@ -36,36 +36,66 @@ type SortDir = 'asc' | 'desc'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function ext(path: string) {
+function getExt(path: string) {
   const p = path.split('.')
   return p.length > 1 ? p[p.length - 1].toLowerCase() : ''
 }
 
-function FileIconBig({ path }: { path: string }) {
-  const e = ext(path)
-  const base = 'w-8 h-8 flex-shrink-0 rounded-lg flex items-center justify-center'
-  if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(e))
-    return <div className={`${base} bg-violet-100 text-violet-600`}><ImageIcon className="w-4 h-4" /></div>
-  if (['xls', 'xlsx', 'csv'].includes(e))
-    return <div className={`${base} bg-emerald-100 text-emerald-600`}><FileSpreadsheet className="w-4 h-4" /></div>
-  if (e === 'pdf')
-    return <div className={`${base} bg-red-100 text-red-600`}><FileText className="w-4 h-4" /></div>
-  if (['doc', 'docx'].includes(e))
-    return <div className={`${base} bg-blue-100 text-blue-600`}><FileText className="w-4 h-4" /></div>
-  return <div className={`${base} bg-slate-100 text-slate-500`}><File className="w-4 h-4" /></div>
+function isImageExt(e: string) {
+  return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(e)
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { icon: any; label: string; cls: string }> = {
-    approved: { icon: CheckCircle2, label: 'Aprobat',    cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
-    rejected: { icon: XCircle,      label: 'Respins',    cls: 'bg-red-50 text-red-700 ring-red-200' },
-    review:   { icon: Eye,          label: 'Verificare', cls: 'bg-blue-50 text-blue-700 ring-blue-200' },
-    pending:  { icon: Clock,        label: 'Așteptare',  cls: 'bg-amber-50 text-amber-700 ring-amber-200' },
+function fileTypeCfg(e: string): { bg: string; color: string; label: string; Icon: any } {
+  if (isImageExt(e))             return { bg: '#ede9fe', color: '#7c3aed', label: e.toUpperCase(), Icon: ImageIcon }
+  if (e === 'pdf')               return { bg: '#fee2e2', color: '#dc2626', label: 'PDF',           Icon: FileText }
+  if (['xls','xlsx','csv'].includes(e)) return { bg: '#d1fae5', color: '#059669', label: e.toUpperCase(), Icon: FileSpreadsheet }
+  if (['doc','docx'].includes(e)) return { bg: '#dbeafe', color: '#2563eb', label: e.toUpperCase(), Icon: FileText }
+  return                                 { bg: '#f1f5f9', color: '#64748b', label: 'FILE',          Icon: File }
+}
+
+function FileThumb({ path, previewUrl }: { path: string; previewUrl?: string }) {
+  const e = getExt(path)
+  if (isImageExt(e) && previewUrl) {
+    return (
+      <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 border border-slate-100 shadow-sm">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={previewUrl} alt="" className="w-full h-full object-cover" />
+      </div>
+    )
   }
-  const cfg = map[status] ?? map.pending
+  const { bg, color, Icon } = fileTypeCfg(e)
   return (
-    <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ring-1 whitespace-nowrap ${cfg.cls}`}>
-      <cfg.icon className="w-3 h-3 flex-shrink-0" />{cfg.label}
+    <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm"
+      style={{ backgroundColor: bg }}>
+      <Icon className="w-5 h-5" style={{ color }} />
+    </div>
+  )
+}
+
+function TypeBadge({ path }: { path: string }) {
+  const e = getExt(path)
+  const { bg, color, label } = fileTypeCfg(e)
+  return (
+    <span className="inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded"
+      style={{ backgroundColor: bg, color }}>
+      {label}
+    </span>
+  )
+}
+
+function StatusPill({ status }: { status: string }) {
+  const map: Record<string, { Icon: any; label: string; bg: string; text: string; dot: string }> = {
+    approved: { Icon: CheckCircle2, label: 'Aprobat',    bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' },
+    rejected: { Icon: XCircle,      label: 'Respins',    bg: '#fef2f2', text: '#dc2626', dot: '#ef4444' },
+    review:   { Icon: Eye,          label: 'Verificare', bg: '#eff6ff', text: '#2563eb', dot: '#3b82f6' },
+    pending:  { Icon: Clock,        label: 'Așteptare',  bg: '#fffbeb', text: '#d97706', dot: '#f59e0b' },
+  }
+  const c = map[status] ?? map.pending
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full whitespace-nowrap"
+      style={{ backgroundColor: c.bg, color: c.text }}>
+      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: c.dot }} />
+      {c.label}
     </span>
   )
 }
@@ -78,10 +108,6 @@ function RoleBadge({ role }: { role: string }) {
   return <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"><Building2 className="w-3 h-3" />Client</span>
 }
 
-function fileName(path: string) {
-  return path.split('/').pop()?.replace(/^\d+_/, '') ?? path
-}
-
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' })
 }
@@ -92,23 +118,36 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
   const { apiFetch } = useAuth()
   const router = useRouter()
 
-  const [allDocs, setAllDocs] = useState<any[]>([])   // flat list of all doc requests
+  const [allDocs, setAllDocs] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
 
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterProject, setFilterProject] = useState('all')
-  const [sortKey, setSortKey] = useState<SortKey>('date')
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [sortKey, setSortKey]   = useState<SortKey>('date')
+  const [sortDir, setSortDir]   = useState<SortDir>('desc')
   const [downloading, setDownloading] = useState<string | null>(null)
+  const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({})
+  const fetchedIds = useRef<Set<string>>(new Set())
 
-  // Reset & load when drawer opens
+  // Lock body scroll when drawer is open
+  useEffect(() => {
+    if (open) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => { document.body.style.overflow = '' }
+  }, [open])
+
   useEffect(() => {
     if (!open || !user) return
     setAllDocs([])
     setSearch('')
     setFilterStatus('all')
     setFilterProject('all')
+    setPreviewUrls({})
+    fetchedIds.current.clear()
     loadAll()
   }, [open, user?.id])
 
@@ -116,93 +155,98 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
     if (!user) return
     setLoading(true)
     try {
-      // 1. Get all projects for this user
       const projRes = await apiFetch('/api/projects')
       if (!projRes.ok) return
       const { projects: allProjects } = await projRes.json()
 
-      let projects: any[] = []
-      if (user.role === 'client') {
-        projects = allProjects.filter((p: any) => p.client_id === user.id)
-      } else {
-        projects = allProjects
-      }
+      const projects: any[] = user.role === 'client'
+        ? allProjects.filter((p: any) => p.client_id === user.id)
+        : allProjects
 
-      // 2. Fetch docs for all projects in parallel
       const results = await Promise.all(
         projects.map(async (p: any) => {
           const res = await apiFetch(`/api/projects/${p.id}/document-requests`)
           if (!res.ok) return []
           const { requests } = await res.json()
-          return (requests ?? []).map((req: any) => ({
-            ...req,
-            _projectId: p.id,
-            _projectTitle: p.title,
-            _projectCodIntern: p.cod_intern,
-          }))
+          return (requests ?? [])
+            .filter((req: any) => req.files?.length > 0)
+            .map((req: any) => ({
+              ...req,
+              _projectId: p.id,
+              _projectTitle: p.title,
+              _projectCodIntern: p.cod_intern,
+            }))
         })
       )
-
       setAllDocs(results.flat())
     } finally {
       setLoading(false)
     }
   }
 
+  // Fetch image preview signed URLs
+  useEffect(() => {
+    allDocs.forEach(req => {
+      if (!req.files?.length) return
+      const latest = [...req.files].sort((a: any, b: any) => b.version_number - a.version_number)[0]
+      if (!latest || !isImageExt(getExt(latest.storage_path))) return
+      if (fetchedIds.current.has(latest.id)) return
+      fetchedIds.current.add(latest.id)
+      ;(async () => {
+        try {
+          const res = await apiFetch(`/api/files/${latest.id}/signed-download`, {
+            method: 'POST', body: JSON.stringify({ expiresIn: 3600 }),
+          })
+          if (res.ok) {
+            const { url } = await res.json()
+            setPreviewUrls(prev => ({ ...prev, [latest.id]: url }))
+          }
+        } catch { /* silent */ }
+      })()
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allDocs])
+
   async function handleDownload(fileId: string) {
     setDownloading(fileId)
     try {
       const res = await apiFetch(`/api/files/${fileId}/signed-download`, {
-        method: 'POST',
-        body: JSON.stringify({ expiresIn: 300 }),
+        method: 'POST', body: JSON.stringify({ expiresIn: 300 }),
       })
       if (!res.ok) { alert('Eroare la descărcare'); return }
       const { url } = await res.json()
-      const a = document.createElement('a')
-      a.href = url; a.target = '_blank'; a.rel = 'noopener'
+      const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'
       document.body.appendChild(a); a.click(); document.body.removeChild(a)
-    } finally {
-      setDownloading(null)
-    }
+    } finally { setDownloading(null) }
   }
 
-  // Unique projects for filter dropdown
   const uniqueProjects = useMemo(() => {
     const seen = new Map<string, string>()
-    allDocs.forEach(d => {
-      if (d._projectId) seen.set(d._projectId, d._projectTitle)
-    })
+    allDocs.forEach(d => { if (d._projectId) seen.set(d._projectId, d._projectTitle) })
     return Array.from(seen.entries()).map(([id, title]) => ({ id, title }))
   }, [allDocs])
 
-  // Filter
-  const filtered = useMemo(() => {
-    return allDocs.filter(d => {
-      if (search && !d.name.toLowerCase().includes(search.toLowerCase())) return false
-      if (filterStatus !== 'all' && d.status !== filterStatus) return false
-      if (filterProject !== 'all' && d._projectId !== filterProject) return false
-      return true
-    })
-  }, [allDocs, search, filterStatus, filterProject])
+  const filtered = useMemo(() => allDocs.filter(d => {
+    if (search && !d.name.toLowerCase().includes(search.toLowerCase())) return false
+    if (filterStatus !== 'all' && d.status !== filterStatus) return false
+    if (filterProject !== 'all' && d._projectId !== filterProject) return false
+    return true
+  }), [allDocs, search, filterStatus, filterProject])
 
-  // Sort
-  const sorted = useMemo(() => {
-    return [...filtered].sort((a, b) => {
-      let cmp = 0
-      if (sortKey === 'name')    cmp = a.name.localeCompare(b.name)
-      if (sortKey === 'status')  cmp = a.status.localeCompare(b.status)
-      if (sortKey === 'date')    cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      if (sortKey === 'project') cmp = (a._projectTitle ?? '').localeCompare(b._projectTitle ?? '')
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  }, [filtered, sortKey, sortDir])
+  const sorted = useMemo(() => [...filtered].sort((a, b) => {
+    let cmp = 0
+    if (sortKey === 'name')    cmp = a.name.localeCompare(b.name)
+    if (sortKey === 'status')  cmp = a.status.localeCompare(b.status)
+    if (sortKey === 'date')    cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    if (sortKey === 'project') cmp = (a._projectTitle ?? '').localeCompare(b._projectTitle ?? '')
+    return sortDir === 'asc' ? cmp : -cmp
+  }), [filtered, sortKey, sortDir])
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortKey(key); setSortDir('asc') }
   }
 
-  // Stats
   const stats = useMemo(() => ({
     total:    allDocs.length,
     approved: allDocs.filter(d => d.status === 'approved').length,
@@ -212,102 +256,161 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
   }), [allDocs])
 
   if (!user) return null
-
   const initials = (user.full_name || user.email).slice(0, 2).toUpperCase()
 
   return (
     <>
       {/* Overlay */}
       <div
-        className={`fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed inset-0 bg-black/20 backdrop-blur-[2px] z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={onClose}
       />
 
-      {/* Panel — mai lat pentru tabel */}
-      <div className={`fixed right-0 top-0 h-full w-full lg:w-[720px] bg-white shadow-2xl z-50 flex flex-col transition-transform duration-300 ease-out ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+      {/* Panel */}
+      <div className={`fixed right-0 top-0 h-full w-full lg:w-[680px] bg-white shadow-2xl z-50 flex flex-col transition-transform duration-300 ease-out ${open ? 'translate-x-0' : 'translate-x-full'}`}
+        style={{ fontFamily: "'Google Sans', Roboto, Arial, sans-serif" }}>
 
-        {/* ── Header user ── */}
-        <div className="flex-shrink-0 px-5 py-4 border-b border-slate-200 bg-white">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-700 text-white flex items-center justify-center text-sm font-bold flex-shrink-0 shadow-sm">
+        {/* ── Header ── */}
+        <div className="flex-shrink-0 px-6 pt-5 pb-4 border-b border-slate-100">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-4">
+              {/* Avatar */}
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white flex items-center justify-center text-lg font-bold flex-shrink-0 shadow-md">
                 {initials}
               </div>
               <div>
-                <p className="text-sm font-bold text-slate-900">{user.full_name || '—'}</p>
-                <p className="text-xs text-slate-500 mt-0.5">{user.email}</p>
-                <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                <h2 className="text-base font-bold text-slate-900 leading-tight">{user.full_name || '—'}</h2>
+                <p className="text-xs text-slate-400 mt-0.5">{user.email}</p>
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
                   <RoleBadge role={user.role} />
-                  {user.cif && <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">CIF: {user.cif}</span>}
-                  {user.specializare && <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{user.specializare}</span>}
+                  {user.cif && (
+                    <span className="text-[11px] font-medium bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
+                      CIF {user.cif}
+                    </span>
+                  )}
+                  {user.specializare && (
+                    <span className="text-[11px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
+                      {user.specializare}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
-            <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
+            <button onClick={onClose}
+              className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors flex-shrink-0">
               <X className="w-4 h-4" />
             </button>
           </div>
+
+          {/* Stats inline */}
+          {!loading && allDocs.length > 0 && (
+            <div className="mt-4 flex items-center gap-3 flex-wrap">
+              {[
+                { label: `${stats.total} fișiere`, dot: '#64748b' },
+                stats.approved > 0 && { label: `${stats.approved} aprobate`, dot: '#22c55e' },
+                stats.review   > 0 && { label: `${stats.review} în verificare`, dot: '#3b82f6' },
+                stats.pending  > 0 && { label: `${stats.pending} în așteptare`, dot: '#f59e0b' },
+                stats.rejected > 0 && { label: `${stats.rejected} respinse`, dot: '#ef4444' },
+              ].filter(Boolean).map((s: any) => (
+                <span key={s.label} className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: s.dot }} />
+                  {s.label}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* ── Stats bar ── */}
+        {/* ── Search + Filters ── */}
         {!loading && allDocs.length > 0 && (
-          <div className="flex-shrink-0 grid grid-cols-4 gap-0 border-b border-slate-200 bg-slate-50/60">
-            {[
-              { label: 'Total', val: stats.total, cls: 'text-slate-700' },
-              { label: 'Aprobate', val: stats.approved, cls: 'text-emerald-600' },
-              { label: 'Verificare', val: stats.review, cls: 'text-blue-600' },
-              { label: 'Așteptare', val: stats.pending, cls: 'text-amber-600' },
-            ].map((s, i) => (
-              <div key={s.label} className={`px-4 py-2.5 text-center ${i < 3 ? 'border-r border-slate-200' : ''}`}>
-                <p className={`text-xl font-bold leading-none ${s.cls}`}>{s.val}</p>
-                <p className="text-[10px] text-slate-400 mt-0.5 uppercase tracking-wide">{s.label}</p>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* ── Filters ── */}
-        {!loading && allDocs.length > 0 && (
-          <div className="flex-shrink-0 flex gap-2 px-4 py-3 border-b border-slate-100 bg-white flex-wrap">
+          <div className="flex-shrink-0 px-6 py-3 border-b border-slate-100 flex gap-2 flex-wrap items-center">
             {/* Search */}
-            <div className="relative flex-1 min-w-[160px]">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            <div className="relative flex-1 min-w-[180px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#9aa0a6' }} />
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Caută document..."
-                className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 placeholder:text-slate-400"
+                placeholder="Caută în documente"
+                className="w-full pl-10 pr-4 py-2 text-sm rounded-full border-0 outline-none transition-shadow"
+                style={{ backgroundColor: '#f1f3f4', color: '#202124', fontSize: '13px' }}
+                onFocus={e => { e.currentTarget.style.backgroundColor = '#fff'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,.2)' }}
+                onBlur={e => { e.currentTarget.style.backgroundColor = '#f1f3f4'; e.currentTarget.style.boxShadow = 'none' }}
               />
+              {search && (
+                <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: '#5f6368' }}>✕</button>
+              )}
             </div>
 
-            {/* Status */}
+            {/* Status chip */}
             <div className="relative">
-              <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
               <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-                className="pl-7 pr-6 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-600 appearance-none cursor-pointer">
-                <option value="all">Toate statusurile</option>
+                className="appearance-none text-sm pl-3 pr-7 py-1.5 rounded-full border cursor-pointer outline-none transition-colors"
+                style={{
+                  borderColor: filterStatus !== 'all' ? '#1a73e8' : '#dadce0',
+                  backgroundColor: filterStatus !== 'all' ? '#e8f0fe' : '#fff',
+                  color: filterStatus !== 'all' ? '#1a73e8' : '#3c4043',
+                  fontSize: '13px',
+                }}>
+                <option value="all">Status</option>
                 <option value="pending">Așteptare</option>
                 <option value="review">Verificare</option>
                 <option value="approved">Aprobate</option>
                 <option value="rejected">Respinse</option>
               </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
+                style={{ color: filterStatus !== 'all' ? '#1a73e8' : '#5f6368' }} />
             </div>
 
-            {/* Project */}
+            {/* Project chip */}
             {uniqueProjects.length > 1 && (
               <div className="relative">
-                <FolderOpen className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
                 <select value={filterProject} onChange={e => setFilterProject(e.target.value)}
-                  className="pl-7 pr-6 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-600 appearance-none cursor-pointer max-w-[180px]">
-                  <option value="all">Toate proiectele</option>
-                  {uniqueProjects.map(p => (
-                    <option key={p.id} value={p.id}>{p.title}</option>
-                  ))}
+                  className="appearance-none text-sm pl-3 pr-7 py-1.5 rounded-full border cursor-pointer outline-none"
+                  style={{
+                    borderColor: filterProject !== 'all' ? '#1a73e8' : '#dadce0',
+                    backgroundColor: filterProject !== 'all' ? '#e8f0fe' : '#fff',
+                    color: filterProject !== 'all' ? '#1a73e8' : '#3c4043',
+                    fontSize: '13px',
+                    maxWidth: '180px',
+                  }}>
+                  <option value="all">Proiect</option>
+                  {uniqueProjects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
                 </select>
-                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
+                  style={{ color: filterProject !== 'all' ? '#1a73e8' : '#5f6368' }} />
               </div>
             )}
+
+            <div className="flex-1" />
+            <span className="text-xs" style={{ color: '#5f6368' }}>
+              {sorted.length !== allDocs.length ? `${sorted.length} din ` : ''}{allDocs.length} {allDocs.length === 1 ? 'fișier' : 'fișiere'}
+            </span>
+          </div>
+        )}
+
+        {/* ── Sort header ── */}
+        {!loading && sorted.length > 0 && (
+          <div className="flex-shrink-0 grid px-6 py-2 border-b" style={{
+            gridTemplateColumns: '1fr auto auto',
+            gap: '12px',
+            borderColor: '#e0e0e0',
+            backgroundColor: '#fafafa',
+          }}>
+            {([
+              { key: 'name' as SortKey, label: 'Document' },
+              { key: 'status' as SortKey, label: 'Status' },
+              { key: 'date' as SortKey, label: 'Dată' },
+            ]).map(col => (
+              <button key={col.key} onClick={() => toggleSort(col.key)}
+                className="flex items-center gap-1 text-left transition-colors"
+                style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em',
+                  color: sortKey === col.key ? '#1a73e8' : '#9aa0a6', textTransform: 'uppercase' }}>
+                {col.label}
+                <span style={{ opacity: sortKey === col.key ? 1 : 0, fontSize: '10px' }}>
+                  {sortDir === 'asc' ? '↑' : '↓'}
+                </span>
+              </button>
+            ))}
           </div>
         )}
 
@@ -315,135 +418,147 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
         <div className="flex-1 overflow-y-auto min-h-0">
           {loading ? (
             <div className="flex flex-col items-center justify-center h-full gap-3">
-              <Loader2 className="w-6 h-6 text-indigo-400 animate-spin" />
-              <p className="text-xs text-slate-400">Se încarcă documentele...</p>
+              <Loader2 className="w-7 h-7 animate-spin" style={{ color: '#1a73e8' }} />
+              <p className="text-sm" style={{ color: '#5f6368' }}>Se încarcă documentele...</p>
             </div>
+
           ) : allDocs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center px-8">
-              <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-3">
-                <FolderOpen className="w-7 h-7 text-slate-300" />
-              </div>
-              <p className="text-sm font-semibold text-slate-700">Niciun document</p>
-              <p className="text-xs text-slate-400 mt-1">
-                {user.role === 'client' ? 'Clientul nu are documente asociate.' : 'Nu există documente pentru acest utilizator.'}
+            <div className="flex flex-col items-center justify-center h-full text-center px-8 pb-16">
+              <FolderOpen className="w-16 h-16 mb-4" style={{ color: '#dadce0' }} />
+              <p className="text-base font-medium mb-1" style={{ color: '#3c4043' }}>Niciun fișier încărcat</p>
+              <p className="text-sm" style={{ color: '#5f6368' }}>
+                {user.role === 'client'
+                  ? 'Clientul nu a încărcat niciun fișier încă.'
+                  : 'Nu există fișiere pentru acest utilizator.'}
               </p>
             </div>
+
+          ) : sorted.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center px-8 pb-16">
+              <AlertCircle className="w-12 h-12 mb-3" style={{ color: '#dadce0' }} />
+              <p className="text-sm font-medium" style={{ color: '#3c4043' }}>Niciun rezultat</p>
+              <p className="text-xs mt-1" style={{ color: '#5f6368' }}>Încearcă să modifici filtrele</p>
+            </div>
+
           ) : (
-            <div className="min-w-0">
-              {/* Table header */}
-              <div className="sticky top-0 z-10 grid grid-cols-[2fr_1.2fr_auto_auto] gap-3 px-4 py-2 bg-slate-50 border-b border-slate-200">
-                <button onClick={() => toggleSort('name')} className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors text-left ${sortKey === 'name' ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
-                  Document <ArrowUpDown className="w-3 h-3" />
-                </button>
-                <button onClick={() => toggleSort('project')} className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors text-left ${sortKey === 'project' ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
-                  Proiect <ArrowUpDown className="w-3 h-3" />
-                </button>
-                <button onClick={() => toggleSort('status')} className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${sortKey === 'status' ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
-                  Status <ArrowUpDown className="w-3 h-3" />
-                </button>
-                <button onClick={() => toggleSort('date')} className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${sortKey === 'date' ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
-                  <Calendar className="w-3 h-3" /> <ArrowUpDown className="w-3 h-3" />
-                </button>
-              </div>
+            <div>
+              {sorted.map((req, idx) => {
+                const latest = [...(req.files ?? [])].sort((a: any, b: any) => b.version_number - a.version_number)[0] ?? null
+                const previewUrl = latest ? previewUrls[latest.id] : undefined
+                const dateStr = latest?.created_at ? fmtDate(latest.created_at) : fmtDate(req.created_at)
 
-              {sorted.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-center">
-                  <AlertCircle className="w-6 h-6 text-slate-300 mb-2" />
-                  <p className="text-sm text-slate-500">Niciun document găsit</p>
-                  <p className="text-xs text-slate-400 mt-1">Modifică filtrele de căutare</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {sorted.map(req => {
-                    const latestFile = req.files?.length
-                      ? [...req.files].sort((a: any, b: any) => b.version_number - a.version_number)[0]
-                      : null
+                return (
+                  <div key={req.id}
+                    className="group flex items-center gap-4 px-6 py-3.5 transition-colors cursor-default"
+                    style={{
+                      borderBottom: idx < sorted.length - 1 ? '1px solid #f1f3f4' : 'none',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#f8f9fa')}
+                    onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    {/* Thumbnail */}
+                    {latest && <FileThumb path={latest.storage_path} previewUrl={previewUrl} />}
 
-                    return (
-                      <div key={req.id} className="grid grid-cols-[2fr_1.2fr_auto_auto] gap-3 items-center px-4 py-3 hover:bg-slate-50 transition-colors group">
-
-                        {/* Nume document */}
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          {latestFile
-                            ? <FileIconBig path={latestFile.storage_path} />
-                            : <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0"><AlertCircle className="w-4 h-4 text-slate-300" /></div>
-                          }
-                          <div className="min-w-0">
-                            <p className="text-xs font-semibold text-slate-800 truncate group-hover:text-indigo-700 transition-colors">{req.name}</p>
-                            {latestFile ? (
-                              <p className="text-[11px] text-slate-400 truncate mt-0.5">
-                                {fileName(latestFile.storage_path)}
-                                {latestFile.version_number > 1 && <span className="ml-1 bg-slate-200 text-slate-500 px-1 rounded text-[10px]">v{latestFile.version_number}</span>}
-                              </p>
-                            ) : (
-                              <p className="text-[11px] text-slate-400 mt-0.5">Niciun fișier</p>
-                            )}
-                            {req.activity?.name && (
-                              <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
-                                <Layers className="w-2.5 h-2.5 flex-shrink-0" />{req.activity.name}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Proiect */}
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1">
-                            <p className="text-xs text-slate-600 truncate font-medium">{req._projectTitle}</p>
-                            <span
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => { onClose(); router.push(`/projects/${req._projectId}`) }}
-                              onKeyDown={e => e.key === 'Enter' && router.push(`/projects/${req._projectId}`)}
-                              className="opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer text-slate-300 hover:text-indigo-500 flex-shrink-0"
-                              title="Deschide proiect"
-                            >
-                              <ExternalLink className="w-3 h-3" />
-                            </span>
-                          </div>
-                          {req._projectCodIntern && (
-                            <p className="text-[11px] text-slate-400 font-mono mt-0.5">{req._projectCodIntern}</p>
-                          )}
-                        </div>
-
-                        {/* Status */}
-                        <div>
-                          <StatusBadge status={req.status} />
-                        </div>
-
-                        {/* Data + download */}
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <span className="text-[11px] text-slate-400 hidden sm:block">{fmtDate(req.created_at)}</span>
-                          {latestFile && (
-                            <button
-                              onClick={() => handleDownload(latestFile.id)}
-                              disabled={downloading === latestFile.id}
-                              className="p-1.5 rounded-lg text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-40 opacity-0 group-hover:opacity-100"
-                              title="Descarcă"
-                            >
-                              {downloading === latestFile.id
-                                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                : <Download className="w-3.5 h-3.5" />
-                              }
-                            </button>
-                          )}
-                        </div>
+                    {/* Main info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-medium truncate" style={{ fontSize: '13px', color: '#202124' }}>
+                          {req.name}
+                        </p>
+                        {latest && <TypeBadge path={latest.storage_path} />}
+                        {latest && latest.version_number > 1 && (
+                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+                            style={{ backgroundColor: '#e8f0fe', color: '#1a73e8' }}>
+                            v{latest.version_number}
+                          </span>
+                        )}
                       </div>
-                    )
-                  })}
-                </div>
-              )}
 
-              {/* Footer count */}
-              <div className="px-4 py-2.5 border-t border-slate-100 bg-slate-50/50">
-                <p className="text-[11px] text-slate-400">
-                  {sorted.length} {sorted.length === 1 ? 'document' : 'documente'}
-                  {sorted.length !== allDocs.length ? ` din ${allDocs.length} total` : ''}
-                </p>
-              </div>
+                      <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                        {/* Project */}
+                        <button
+                          onClick={() => { onClose(); router.push(`/projects/${req._projectId}`) }}
+                          className="flex items-center gap-1 transition-colors hover:underline"
+                          style={{ fontSize: '11px', color: '#5f6368' }}
+                        >
+                          <ArrowLeft className="w-2.5 h-2.5 rotate-[135deg]" style={{ color: '#9aa0a6' }} />
+                          {req._projectTitle}
+                          {req._projectCodIntern && (
+                            <span className="font-mono" style={{ color: '#9aa0a6' }}>· {req._projectCodIntern}</span>
+                          )}
+                          <ExternalLink className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </button>
+
+                        {/* Activity */}
+                        {req.activity?.name && (
+                          <>
+                            <span style={{ color: '#dadce0', fontSize: '11px' }}>·</span>
+                            <span className="flex items-center gap-1" style={{ fontSize: '11px', color: '#9aa0a6' }}>
+                              <Layers className="w-2.5 h-2.5" />
+                              {req.activity.name}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Status */}
+                    <div className="flex-shrink-0">
+                      <StatusPill status={req.status} />
+                    </div>
+
+                    {/* Date */}
+                    <div className="flex-shrink-0 text-right" style={{ minWidth: '80px' }}>
+                      <p style={{ fontSize: '11px', color: '#9aa0a6' }}>{dateStr}</p>
+                    </div>
+
+                    {/* Download */}
+                    <div className="flex-shrink-0">
+                      {latest && (
+                        <button
+                          onClick={() => handleDownload(latest.id)}
+                          disabled={downloading === latest.id}
+                          className="p-2 rounded-full transition-colors disabled:opacity-40 opacity-0 group-hover:opacity-100"
+                          style={{ color: '#5f6368' }}
+                          onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
+                          onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                          title="Descarcă"
+                        >
+                          {downloading === latest.id
+                            ? <Loader2 className="w-4 h-4 animate-spin" />
+                            : <Download className="w-4 h-4" />
+                          }
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
+
+        {/* ── Footer ── */}
+        {sorted.length > 0 && (
+          <div className="flex-shrink-0 px-6 py-2.5 border-t flex items-center justify-between" style={{ borderColor: '#e0e0e0' }}>
+            <div className="flex items-center gap-3">
+              {[
+                { label: 'Aprobate', val: stats.approved, color: '#15803d' },
+                { label: 'Verificare', val: stats.review, color: '#2563eb' },
+                { label: 'Așteptare', val: stats.pending, color: '#d97706' },
+                { label: 'Respinse', val: stats.rejected, color: '#dc2626' },
+              ].filter(s => s.val > 0).map(s => (
+                <span key={s.label} className="flex items-center gap-1.5" style={{ fontSize: '11px', color: s.color }}>
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: s.color }} />
+                  {s.val} {s.label.toLowerCase()}
+                </span>
+              ))}
+            </div>
+            <span style={{ fontSize: '11px', color: '#9aa0a6' }}>
+              {sorted.length !== allDocs.length ? `${sorted.length} din ` : ''}{allDocs.length} {allDocs.length === 1 ? 'fișier' : 'fișiere'}
+            </span>
+          </div>
+        )}
       </div>
     </>
   )
