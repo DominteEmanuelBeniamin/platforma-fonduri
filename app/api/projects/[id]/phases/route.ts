@@ -39,7 +39,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       (phases || []).map(async (phase) => {
         const { data: activities } = await supabaseAdmin
           .from('project_activities')
-          .select('*')
+          .select('*, assigned_user:assigned_to(id, full_name, email)')
           .eq('phase_id', phase.id)
           .order('order_index', { ascending: true })
 

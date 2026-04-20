@@ -4,9 +4,9 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { 
-  Layers, Activity, FileText, FolderOpen, 
+  Layers, Activity, FileText, FolderOpen,
   ChevronRight, Settings, Plus, Eye,
-  CheckCircle, Clock, AlertCircle
+  CheckCircle, AlertCircle
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 
@@ -27,7 +27,12 @@ interface TemplateOverview {
     id: string
     name: string
     project_status_id: string
-    activities?: { id: string; name: string; document_requirements?: { id: string }[] }[]
+    activities?: {
+      id: string
+      name: string
+      document_requirements?: { id: string }[]
+      default_consultant?: { id: string; full_name: string | null; email: string } | null
+    }[]
   }[]
 }
 
@@ -327,9 +332,14 @@ export default function AdminOverviewPage() {
                                 {phase.activities && phase.activities.length > 0 && (
                                   <div className="mt-2 space-y-1">
                                     {phase.activities.slice(0, 3).map((act) => (
-                                      <div key={act.id} className="text-xs text-slate-600 flex items-center gap-1 truncate">
+                                      <div key={act.id} className="text-xs text-slate-600 flex items-center gap-1">
                                         <Activity className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                                        <span className="truncate">{act.name}</span>
+                                        <span className="truncate flex-1">{act.name}</span>
+                                        {act.default_consultant && (
+                                          <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 truncate max-w-[80px]">
+                                            {act.default_consultant.full_name || act.default_consultant.email}
+                                          </span>
+                                        )}
                                       </div>
                                     ))}
                                     {phase.activities.length > 3 && (

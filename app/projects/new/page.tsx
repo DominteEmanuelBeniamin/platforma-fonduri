@@ -55,6 +55,13 @@ interface ManualActivity {
   name: string
   documentRequests: ManualDocumentRequest[]
   expanded?: boolean
+  assigned_to?: string
+}
+
+interface Consultant {
+  id: string
+  full_name: string | null
+  email: string
 }
 
 interface ManualPhase {
@@ -84,9 +91,12 @@ export default function NewProjectPage() {
   const [templates, setTemplates] = useState<TemplateData[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
   const [loadingTemplates, setLoadingTemplates] = useState(true)
+  // consultantId per templateActivityId
+  const [templateActivityConsultants, setTemplateActivityConsultants] = useState<Record<string, string>>({})
 
   const [statuses, setStatuses] = useState<ProjectStatus[]>([])
   const [manualPhases, setManualPhases] = useState<ManualPhase[]>([])
+  const [consultants, setConsultants] = useState<Consultant[]>([])
 
   // Pentru adding document modal
   const [addingDocToActivity, setAddingDocToActivity] = useState<{phaseId: string, activityId: string} | null>(null)
@@ -114,17 +124,16 @@ export default function NewProjectPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [templatesRes, statusesRes] = await Promise.all([
+        const [templatesRes, statusesRes, usersRes] = await Promise.all([
           apiFetch('/api/admin/templates'),
-          apiFetch('/api/admin/statuses')
+          apiFetch('/api/admin/statuses'),
+          apiFetch('/api/users'),
         ])
-        if (templatesRes.ok) {
-          const data = await templatesRes.json()
-          setTemplates(data.templates || [])
-        }
-        if (statusesRes.ok) {
-          const data = await statusesRes.json()
-          setStatuses(data.statuses || [])
+        if (templatesRes.ok) setTemplates((await templatesRes.json()).templates || [])
+        if (statusesRes.ok) setStatuses((await statusesRes.json()).statuses || [])
+        if (usersRes.ok) {
+          const all = (await usersRes.json()).users || []
+          setConsultants(all.filter((u: any) => u.role === 'consultant'))
         }
       } catch (error) {
         console.error('Eroare:', error)
@@ -309,6 +318,31 @@ export default function NewProjectPage() {
           body: JSON.stringify({ template_id: selectedTemplateId })
         })
         if (!importRes.ok) console.error('Eroare import template')
+
+        // Asignează consultanți per activitate (manual override sau default din template)
+        const phasesRes = await apiFetch(`/api/projects/${projectId}/phases`)
+        if (phasesRes.ok) {
+          const { phases } = await phasesRes.json()
+          const selectedTemplate = templates.find(t => t.id === selectedTemplateId)
+          for (const phase of (phases || [])) {
+            for (const act of (phase.activities || [])) {
+              const templateAct = selectedTemplate?.phases
+                .flatMap((p: any) => p.activities || [])
+                .find((a: any) => a.name === act.name)
+              // manual override → fallback la default_consultant_id din template
+              const consultantId = templateAct
+                ? (templateActivityConsultants[templateAct.id] || templateAct.default_consultant_id)
+                : undefined
+              if (consultantId) {
+                await apiFetch(`/api/projects/${projectId}/phases/${phase.id}/activities/${act.id}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ assigned_to: consultantId }),
+                })
+              }
+            }
+          }
+        }
       }
       
       // 3. Creare manuală cu document requests
@@ -344,7 +378,8 @@ export default function NewProjectPage() {
               body: JSON.stringify({
                 name: activity.name,
                 order_index: aIdx + 1,
-                status: 'pending'
+                status: 'pending',
+                ...(activity.assigned_to ? { assigned_to: activity.assigned_to } : {}),
               })
             })
 
@@ -519,16 +554,41 @@ export default function NewProjectPage() {
                     </div>
                   ) : (
                     templates.map(template => (
-                      <button key={template.id} type="button" onClick={() => setSelectedTemplateId(template.id)}
-                        className={`w-full p-4 rounded-xl border-2 text-left transition-all ${selectedTemplateId === template.id ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-slate-900">{template.name}</p>
-                            {template.description && <p className="text-xs text-slate-500">{template.description}</p>}
+                      <div key={template.id}>
+                        <button type="button" onClick={() => { setSelectedTemplateId(template.id); setTemplateActivityConsultants({}) }}
+                          className={`w-full p-4 rounded-xl border-2 text-left transition-all ${selectedTemplateId === template.id ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium text-slate-900">{template.name}</p>
+                              {template.description && <p className="text-xs text-slate-500">{template.description}</p>}
+                            </div>
+                            <span className="text-xs text-slate-500">{template.phases?.length || 0} faze</span>
                           </div>
-                          <span className="text-xs text-slate-500">{template.phases?.length || 0} faze</span>
-                        </div>
-                      </button>
+                        </button>
+
+                        {/* Activități cu consultant — vizibile când template-ul e selectat */}
+                        {selectedTemplateId === template.id && (
+                          <div className="mt-2 ml-2 space-y-2 border-l-2 border-indigo-100 pl-4">
+                            {template.phases?.flatMap(phase =>
+                              (phase.activities || []).map(act => (
+                                <div key={act.id} className="flex items-center gap-3 py-1">
+                                  <span className="text-sm text-slate-600 flex-1 truncate">{act.name}</span>
+                                  <select
+                                    value={templateActivityConsultants[act.id] ?? ''}
+                                    onChange={e => setTemplateActivityConsultants(prev => ({ ...prev, [act.id]: e.target.value }))}
+                                    className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 bg-white focus:border-indigo-400 outline-none min-w-[160px]"
+                                  >
+                                    <option value="">Fără consultant</option>
+                                    {consultants.map(c => (
+                                      <option key={c.id} value={c.id}>{c.full_name || c.email}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
                     ))
                   )}
                 </div>
@@ -567,6 +627,16 @@ export default function NewProjectPage() {
                                 <Activity className="w-4 h-4 text-slate-400" />
                                 <input type="text" value={activity.name} onChange={(e) => updateActivity(phase.id, activity.id, { name: e.target.value })}
                                   placeholder="Nume activitate..." className="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm" />
+                                <select
+                                  value={activity.assigned_to ?? ''}
+                                  onChange={e => updateActivity(phase.id, activity.id, { assigned_to: e.target.value || undefined })}
+                                  className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 bg-white focus:border-indigo-400 outline-none min-w-[140px]"
+                                >
+                                  <option value="">Consultant...</option>
+                                  {consultants.map(c => (
+                                    <option key={c.id} value={c.id}>{c.full_name || c.email}</option>
+                                  ))}
+                                </select>
                                 <button type="button" onClick={() => updateActivity(phase.id, activity.id, { expanded: !activity.expanded })} className="p-1 text-slate-400">
                                   {activity.expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                                 </button>
