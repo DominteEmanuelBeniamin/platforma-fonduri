@@ -504,6 +504,8 @@ export interface ActivityDocumentRequirement {
   template_path: string | null;
   template_name: string | null;
   deadline_at: string | null;
+  reminder_sent_at: string | null;
+  reminder_type_sent: string | null;
   status: DocumentRequirementStatus;
   created_at: string;
   updated_at: string;

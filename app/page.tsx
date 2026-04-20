@@ -111,7 +111,7 @@ export default function Dashboard() {
       const json = await res.json()
       if (res.ok) {
         setMyDocRequests(prev =>
-          prev.map(r => r.id === reqId ? { ...r, reminder_sent_at: json.reminder_sent_at } : r)
+          prev.map(r => r.id === reqId ? { ...r, reminder_sent_at: json.reminder_sent_at, reminder_type_sent: json.reminder_type_sent } : r)
         )
       }
     } finally {
@@ -354,29 +354,45 @@ export default function Dashboard() {
                             <span className="hidden sm:inline">Reminder</span>
                           </div>
                         )}
-                        <button
-                          onClick={() => toggleReminder(req.id)}
-                          disabled={togglingId === req.id}
-                          title={req.reminder_sent_at
-                            ? `Trimis pe ${new Date(req.reminder_sent_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })} — apasă pentru a anula`
-                            : 'Marchează ca trimis'}
-                          className={`flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all active:scale-95 ${
-                            req.reminder_sent_at
-                              ? 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'
-                              : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300 hover:text-slate-500'
-                          } ${togglingId === req.id ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                        >
-                          <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-all ${
-                            req.reminder_sent_at
-                              ? 'bg-emerald-500 border-emerald-500'
-                              : 'border-slate-300'
-                          }`}>
-                            {req.reminder_sent_at && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
-                          </div>
-                          <span className="hidden sm:inline">
-                            {req.reminder_sent_at ? 'Trimis' : 'Trimis?'}
-                          </span>
-                        </button>
+                        {(() => {
+                          const isSent = req.reminder_sent_at && req.reminder_type_sent === reminderType
+                          const sentBefore = req.reminder_sent_at && !isSent
+                          const sentDate = req.reminder_sent_at
+                            ? new Date(req.reminder_sent_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })
+                            : null
+                          const tooltipTitle = isSent
+                            ? `Trimis pe ${sentDate} — apasă pentru a anula`
+                            : sentBefore
+                            ? `Urgența s-a schimbat · Ultimul trimis: ${sentDate}`
+                            : 'Marchează ca trimis'
+                          return (
+                            <button
+                              onClick={() => toggleReminder(req.id)}
+                              disabled={togglingId === req.id}
+                              title={tooltipTitle}
+                              className={`flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all active:scale-95 ${
+                                isSent
+                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'
+                                  : sentBefore
+                                  ? 'bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100'
+                                  : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300 hover:text-slate-500'
+                              } ${togglingId === req.id ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                            >
+                              <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-all ${
+                                isSent
+                                  ? 'bg-emerald-500 border-emerald-500'
+                                  : sentBefore
+                                  ? 'bg-amber-400 border-amber-400'
+                                  : 'border-slate-300'
+                              }`}>
+                                {(isSent || sentBefore) && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
+                              </div>
+                              <span className="hidden sm:inline">
+                                {isSent ? 'Trimis' : sentBefore ? sentDate! : 'Trimis?'}
+                              </span>
+                            </button>
+                          )
+                        })()}
                       </div>
                     )
                   })}

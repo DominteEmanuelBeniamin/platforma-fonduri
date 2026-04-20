@@ -37,34 +37,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ requests: [] })
     }
 
-    // Încearcă cu reminder_sent_at (coloana poate să nu existe încă)
-    const selectWithReminder = `
-      id, project_id, name, description, status, deadline_at, reminder_sent_at, created_at,
-      project:project_id(id, title, client:profiles!projects_client_id_fkey(full_name, email))
-    `
-    const selectWithoutReminder = `
-      id, project_id, name, description, status, deadline_at, created_at,
-      project:project_id(id, title, client:profiles!projects_client_id_fkey(full_name, email))
-    `
-
-    let { data, error } = await admin
+    const { data, error } = await admin
       .from('document_requirements')
-      .select(selectWithReminder)
+      .select(`
+        id, project_id, name, description, status, deadline_at,
+        reminder_sent_at, reminder_type_sent, created_at,
+        project:project_id(id, title, client:profiles!projects_client_id_fkey(full_name, email))
+      `)
       .in('project_id', projectIds)
       .in('status', ['pending', 'review'])
       .order('deadline_at', { ascending: true, nullsFirst: false })
-
-    // Fallback dacă coloana reminder_sent_at nu există încă în DB
-    if (error && error.message?.includes('reminder_sent_at')) {
-      const fallback = await admin
-        .from('document_requirements')
-        .select(selectWithoutReminder)
-        .in('project_id', projectIds)
-        .in('status', ['pending', 'review'])
-        .order('deadline_at', { ascending: true, nullsFirst: false })
-      data = fallback.data
-      error = fallback.error
-    }
 
     if (error) {
       console.error('GET my-document-requests error:', error)
@@ -78,6 +60,7 @@ export async function GET(request: Request) {
       status: req.status,
       deadline_at: req.deadline_at ?? null,
       reminder_sent_at: req.reminder_sent_at ?? null,
+      reminder_type_sent: req.reminder_type_sent ?? null,
       created_at: req.created_at,
       project_id: req.project_id,
       project_title: (req.project as any)?.title ?? null,
