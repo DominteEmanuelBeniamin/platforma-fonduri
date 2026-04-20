@@ -26,10 +26,17 @@ import {
   AlertCircle,
   Loader2,
   Image as ImageIcon,
-  File
+  File,
+  Mail,
 } from 'lucide-react'
 import DocumentModal from './DocumentModal'
 import { useAuth } from '@/app/providers/AuthProvider'
+import {
+  getReminderType,
+  generateMailtoLink,
+  REMINDER_LABELS,
+  REMINDER_BADGE,
+} from '@/lib/document-reminder'
 
 interface DocumentRequest {
   id: string
@@ -170,6 +177,10 @@ interface DocumentRequestsProps {
   activityAssignedUser?: { id: string; full_name: string | null; email: string } | null
   projectMembers?: { id: string; full_name: string | null; email: string }[]
   onAssignActivity?: (assignedTo: string | null) => void
+  /** Date client pentru reminder-uri — transmise din pagina proiectului */
+  clientEmail?: string | null
+  clientName?: string | null
+  projectTitle?: string
 }
 
 export default function DocumentRequests({
@@ -182,6 +193,9 @@ export default function DocumentRequests({
   activityAssignedUser,
   projectMembers: externalProjectMembers,
   onAssignActivity,
+  clientEmail,
+  clientName,
+  projectTitle,
 }: DocumentRequestsProps) {
   const { loading: authLoading, token, profile, apiFetch } = useAuth()
 
@@ -816,6 +830,39 @@ export default function DocumentRequests({
                         )}
                       </div>
 
+                      {/* ── Buton reminder client ── */}
+                      {isAdminOrConsultant && clientEmail && (() => {
+                        const reminderType = getReminderType(req.deadline_at)
+                        if (!reminderType) return null
+                        const badge = REMINDER_BADGE[reminderType]
+                        const mailtoLink = generateMailtoLink(
+                          {
+                            requestName: req.name,
+                            requestDescription: req.description,
+                            deadlineAt: req.deadline_at,
+                            clientEmail,
+                            clientName: clientName ?? null,
+                            projectTitle: projectTitle ?? '',
+                            projectId,
+                          },
+                          reminderType
+                        )
+                        return (
+                          <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+                            <a
+                              href={mailtoLink}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-opacity hover:opacity-75 ${badge.bg} ${badge.text} ${badge.border}`}
+                              title="Deschide clientul de email cu mesajul pregătit automat"
+                            >
+                              <Mail className="w-3 h-3" />
+                              Trimite reminder clientului
+                              <span className="mx-0.5 opacity-50">·</span>
+                              {REMINDER_LABELS[reminderType]}
+                            </a>
+                          </div>
+                        )
+                      })()}
+
                     </div>
 
                     {isAdminOrConsultant && (
@@ -1148,6 +1195,9 @@ export default function DocumentRequests({
           request={selectedRequest}
           onClose={() => setSelectedRequest(null)}
           onUpdate={fetchRequests}
+          clientEmail={clientEmail}
+          clientName={clientName}
+          projectTitle={projectTitle}
         />
       )}
     </>

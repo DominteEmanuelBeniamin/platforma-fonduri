@@ -28,6 +28,17 @@ export async function PATCH(
     }
     const assigned_to: string | null = rawAssigned ?? null
 
+    // deadline_at — string ISO sau null (undefined = nu se modifică)
+    const rawDeadline = (body as any).deadline_at
+    const deadline_at: string | null | undefined =
+      rawDeadline === undefined
+        ? undefined
+        : rawDeadline === null || rawDeadline === ''
+        ? null
+        : typeof rawDeadline === 'string'
+        ? rawDeadline
+        : undefined
+
     const admin = createSupabaseServiceClient()
 
     // Obține cererea pentru a afla project_id și detalii email
@@ -66,10 +77,13 @@ export async function PATCH(
       }
     }
 
-    // Actualizează câmpul assigned_to
+    // Construiește obiectul de update (doar câmpurile trimise)
+    const updatePayload: Record<string, any> = { assigned_to }
+    if (deadline_at !== undefined) updatePayload.deadline_at = deadline_at
+
     const { error: updateError } = await admin
       .from('document_requirements')
-      .update({ assigned_to })
+      .update(updatePayload)
       .eq('id', requestId)
 
     if (updateError) {

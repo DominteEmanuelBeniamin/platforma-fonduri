@@ -27,7 +27,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
 
     const body = await req.json()
-    const { name, description, order_index, status, assigned_to } = body
+    const { name, description, order_index, status, assigned_to, deadline_at } = body
 
     const updateData: Record<string, any> = {}
     if (name !== undefined) updateData.name = name
@@ -35,6 +35,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (order_index !== undefined) updateData.order_index = order_index
     if (status !== undefined) updateData.status = status
     if (assigned_to !== undefined) updateData.assigned_to = assigned_to
+    if (deadline_at !== undefined) updateData.deadline_at = deadline_at ?? null
 
     const { data: activity, error } = await supabaseAdmin
       .from('project_activities')

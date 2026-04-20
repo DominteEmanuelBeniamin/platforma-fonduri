@@ -11,6 +11,7 @@ import {
   X,
   Check,
   Trash2,
+  Calendar,
 } from 'lucide-react'
 
 import TeamManager from '@/components/TeamManager'
@@ -22,6 +23,7 @@ export interface ProjectActivity {
   name: string
   status: string
   order_index: number
+  deadline_at?: string | null
   assigned_to?: string | null
   assigned_user?: { id: string; full_name: string | null; email: string } | null
 }
@@ -152,8 +154,12 @@ export default function ProjectPhasesSidebar({
   // delete confirm state
   const [confirmDeletePhase, setConfirmDeletePhase] = useState<string | null>(null)
   const [deletingPhase, setDeletingPhase] = useState<string | null>(null)
-  const [confirmDeleteActivity, setConfirmDeleteActivity] = useState<string | null>(null) // activityId
+  const [confirmDeleteActivity, setConfirmDeleteActivity] = useState<string | null>(null)
   const [deletingActivity, setDeletingActivity] = useState<string | null>(null)
+
+  // deadline edit state: activityId → true/false (popup deschis)
+  const [editingDeadline, setEditingDeadline] = useState<string | null>(null)
+  const [savingDeadline, setSavingDeadline] = useState<string | null>(null)
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
 
@@ -204,6 +210,22 @@ export default function ProjectPhasesSidebar({
       if (res.ok) { setConfirmDeleteActivity(null); onRefresh() }
       else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare la ștergere') }
     } finally { setDeletingActivity(null) }
+  }
+
+  const handleSaveDeadline = async (phaseId: string, activityId: string, dateValue: string) => {
+    setSavingDeadline(activityId)
+    try {
+      const res = await apiFetch(
+        `/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deadline_at: dateValue || null }),
+        }
+      )
+      if (res.ok) { setEditingDeadline(null); onRefresh() }
+      else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare la salvare') }
+    } finally { setSavingDeadline(null) }
   }
 
   // ─── Render ─────────────────────────────────────────────────────────────────
@@ -292,19 +314,107 @@ export default function ProjectPhasesSidebar({
                       )
                     }
 
+                    const isEditingThisDeadline = editingDeadline === act.id
+                    const currentDeadline = act.deadline_at
+                      ? act.deadline_at.slice(0, 10)
+                      : ''
+                    const deadlineLabel = act.deadline_at
+                      ? new Date(act.deadline_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })
+                      : null
+                    const today = new Date()
+                    today.setHours(0, 0, 0, 0)
+                    const deadlineDate = act.deadline_at ? new Date(act.deadline_at) : null
+                    deadlineDate?.setHours(0, 0, 0, 0)
+                    const isOverdue = deadlineDate && deadlineDate < today
+
                     return (
                       <div
                         key={act.id}
-                        className="group/act flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-slate-50"
+                        className="group/act flex flex-col gap-0.5 py-1.5 px-2 rounded-md hover:bg-slate-50"
                       >
-                        <span className="text-xs text-slate-600 truncate flex-1">{act.name}</span>
-                        {isAdmin && (
-                          <button
-                            onClick={e => { e.stopPropagation(); setConfirmDeleteActivity(act.id) }}
-                            className="p-0.5 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover/act:opacity-100 transition-opacity flex-shrink-0"
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-600 truncate flex-1">{act.name}</span>
+
+                          {/* Buton calendar — pentru admin/consultant */}
+                          {canEdit && (
+                            <button
+                              onClick={e => {
+                                e.stopPropagation()
+                                setEditingDeadline(isEditingThisDeadline ? null : act.id)
+                              }}
+                              title={act.deadline_at ? 'Modifică termen limită' : 'Setează termen limită'}
+                              className={`p-0.5 rounded transition-all flex-shrink-0 ${
+                                act.deadline_at
+                                  ? isOverdue
+                                    ? 'text-red-400 hover:text-red-600'
+                                    : 'text-amber-400 hover:text-amber-600'
+                                  : 'text-slate-300 hover:text-indigo-500 opacity-0 group-hover/act:opacity-100'
+                              }`}
+                            >
+                              <Calendar className="w-3 h-3" />
+                            </button>
+                          )}
+
+                          {isAdmin && (
+                            <button
+                              onClick={e => { e.stopPropagation(); setConfirmDeleteActivity(act.id) }}
+                              className="p-0.5 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover/act:opacity-100 transition-opacity flex-shrink-0"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Deadline label — afișat când există */}
+                        {deadlineLabel && !isEditingThisDeadline && (
+                          <span
+                            className={`text-[10px] font-medium ml-0 ${
+                              isOverdue ? 'text-red-500' : 'text-amber-500'
+                            }`}
                           >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                            {isOverdue ? '⚠ ' : ''}{deadlineLabel}
+                          </span>
+                        )}
+
+                        {/* Date picker inline */}
+                        {isEditingThisDeadline && canEdit && (
+                          <div
+                            className="flex items-center gap-1 mt-0.5"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <input
+                              type="date"
+                              defaultValue={currentDeadline}
+                              disabled={savingDeadline === act.id}
+                              autoFocus
+                              className="flex-1 text-[11px] px-1.5 py-1 border border-indigo-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white text-slate-700"
+                              onKeyDown={e => {
+                                if (e.key === 'Escape') setEditingDeadline(null)
+                                if (e.key === 'Enter') {
+                                  handleSaveDeadline(phase.id, act.id, (e.target as HTMLInputElement).value)
+                                }
+                              }}
+                            />
+                            <button
+                              onClick={e => {
+                                const input = e.currentTarget.previousElementSibling as HTMLInputElement
+                                handleSaveDeadline(phase.id, act.id, input.value)
+                              }}
+                              disabled={savingDeadline === act.id}
+                              className="p-1 rounded bg-emerald-100 text-emerald-600 hover:bg-emerald-200 disabled:opacity-40 flex-shrink-0"
+                            >
+                              {savingDeadline === act.id
+                                ? <Loader2 className="w-3 h-3 animate-spin" />
+                                : <Check className="w-3 h-3" />
+                              }
+                            </button>
+                            <button
+                              onClick={() => setEditingDeadline(null)}
+                              className="p-1 rounded bg-slate-100 text-slate-500 hover:bg-slate-200 flex-shrink-0"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
                         )}
                       </div>
                     )

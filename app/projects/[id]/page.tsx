@@ -384,6 +384,9 @@ export default function ProjectDetailsPage() {
                   activityAssignedUser={activity.assigned_user ?? null}
                   projectMembers={projectMembers}
                   onAssignActivity={isAdmin ? (assignedTo: string | null) => handleAssignActivity(activePhase!.id, activity.id, assignedTo) : undefined}
+                  clientEmail={project?.profiles?.email ?? null}
+                  clientName={project?.profiles?.full_name ?? null}
+                  projectTitle={project?.title}
                 />
               ))}
 
@@ -399,6 +402,9 @@ export default function ProjectDetailsPage() {
                 activityAssignedUser={project?.general_consultant ?? null}
                 projectMembers={projectMembers}
                 onAssignActivity={isAdmin ? (assignedTo: string | null) => handleAssignGeneralConsultant(assignedTo) : undefined}
+                clientEmail={project?.profiles?.email ?? null}
+                clientName={project?.profiles?.full_name ?? null}
+                projectTitle={project?.title}
               />
             </div>
           )}
