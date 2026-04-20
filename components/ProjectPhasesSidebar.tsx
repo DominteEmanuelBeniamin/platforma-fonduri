@@ -280,9 +280,6 @@ export default function ProjectPhasesSidebar({
                     <span className={`flex-1 text-sm font-medium truncate ${isActive ? 'text-indigo-900' : 'text-slate-700'}`}>
                       {phase.name}
                     </span>
-                    <span className={`text-[10px] font-medium hidden lg:block flex-shrink-0 ${pCfg.color}`}>
-                      {pCfg.label}
-                    </span>
                     {isExpanded
                       ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
                       : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />

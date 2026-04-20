@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 
 import ProjectChatDrawer from '@/components/ProjectChatDrawer'
-import ProjectPhasesSidebar, { phaseStatusCfg } from '@/components/ProjectPhasesSidebar'
+import ProjectPhasesSidebar from '@/components/ProjectPhasesSidebar'
 import type { ProjectPhase } from '@/components/ProjectPhasesSidebar'
 import DocumentRequests from '@/components/DocumentRequests'
 import ProjectDocumentsView from '@/components/ProjectDocumentsView'
@@ -167,15 +167,6 @@ export default function ProjectDetailsPage() {
       if (res.ok) { setProject(data.project); setIsEditingTitle(false) }
       else alert(data?.error || 'Eroare')
     } finally { setSaving(false) }
-  }
-
-  const updatePhaseStatus = async (phaseId: string, status: string) => {
-    await apiFetch(`/api/projects/${projectId}/phases/${phaseId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status })
-    })
-    fetchAll()
   }
 
   const updateActivityStatus = async (phaseId: string, activityId: string, status: string) => {
@@ -389,24 +380,7 @@ export default function ProjectDetailsPage() {
                       style={{ backgroundColor: activePhase.project_status?.color || '#6B7280' }}
                     />
                     <h2 className="text-xl font-bold text-slate-900">{activePhase.name}</h2>
-                    <span className={`text-xs font-medium px-2.5 py-1 rounded-full ring-1 ${
-                      (phaseStatusCfg[activePhase.status] || phaseStatusCfg.pending).ring
-                    } ${(phaseStatusCfg[activePhase.status] || phaseStatusCfg.pending).color}`}>
-                      {(phaseStatusCfg[activePhase.status] || phaseStatusCfg.pending).label}
-                    </span>
                   </div>
-                  {canEdit && (
-                    <select
-                      value={activePhase.status}
-                      onChange={e => updatePhaseStatus(activePhase.id, e.target.value)}
-                      className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    >
-                      <option value="pending">În așteptare</option>
-                      <option value="in_progress">În lucru</option>
-                      <option value="completed">Finalizat</option>
-                      <option value="skipped">Omis</option>
-                    </select>
-                  )}
                 </div>
               )}
 
