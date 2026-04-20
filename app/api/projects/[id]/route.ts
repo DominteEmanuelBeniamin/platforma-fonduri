@@ -22,7 +22,7 @@ export async function GET(
 
     const { data: project, error } = await admin
       .from('projects')
-      .select('*, profiles!projects_client_id_fkey(*)')
+      .select('*, profiles!projects_client_id_fkey(*), general_consultant:general_consultant_id(id, full_name, email)')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -80,7 +80,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    const { title, status, client_id } = body as { title?: unknown; status?: unknown; client_id?: unknown }
+    const { title, status, client_id, general_consultant_id } = body as { title?: unknown; status?: unknown; client_id?: unknown; general_consultant_id?: unknown }
 
     const update: Record<string, any> = {}
 
@@ -134,6 +134,14 @@ export async function PATCH(
       }
       
       update.client_id = client_id.trim()
+    }
+
+    // general_consultant_id (null = dezasignare)
+    if (general_consultant_id !== undefined) {
+      if (general_consultant_id !== null && typeof general_consultant_id !== 'string') {
+        return NextResponse.json({ error: 'general_consultant_id trebuie să fie UUID sau null' }, { status: 400 })
+      }
+      update.general_consultant_id = general_consultant_id ?? null
     }
 
     // Dacă nu avem nimic de actualizat

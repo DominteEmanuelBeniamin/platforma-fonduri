@@ -41,6 +41,7 @@ export default function ProjectDetailsPage() {
   const [phases, setPhases] = useState<ProjectPhase[]>([])
   const [allDocRequests, setAllDocRequests] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [projectMembers, setProjectMembers] = useState<{ id: string; full_name: string | null; email: string }[]>([])
 
   const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set())
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
@@ -154,6 +155,22 @@ export default function ProjectDetailsPage() {
     fetchAll()
   }, [authLoading, token, projectId])
 
+  useEffect(() => {
+    if (authLoading || !token || !projectId) return
+    apiFetch(`/api/projects/${projectId}/members`)
+      .then(r => r.json())
+      .then(d => {
+        setProjectMembers(
+          (d.members ?? []).map((m: any) => ({
+            id: m.profiles?.id ?? m.consultant_id,
+            full_name: m.profiles?.full_name ?? null,
+            email: m.profiles?.email ?? '',
+          }))
+        )
+      })
+      .catch(console.error)
+  }, [authLoading, token, projectId])
+
   // ─── Actions ──────────────────────────────────────────────────────────────
 
   const handleSaveTitle = async () => {
@@ -169,13 +186,32 @@ export default function ProjectDetailsPage() {
     } finally { setSaving(false) }
   }
 
-  const updateActivityStatus = async (phaseId: string, activityId: string, status: string) => {
-    await apiFetch(`/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status })
-    })
-    fetchAll()
+  const handleAssignActivity = async (phaseId: string, activityId: string, assignedTo: string | null) => {
+    try {
+      const res = await apiFetch(
+        `/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`,
+        { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assigned_to: assignedTo }) }
+      )
+      if (res.ok) fetchAll()
+      else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare la atribuire') }
+    } catch (e: any) { alert('Eroare: ' + e.message) }
+  }
+
+  const handleAssignGeneralConsultant = async (assignedTo: string | null) => {
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ general_consultant_id: assignedTo }),
+      })
+      if (res.ok) {
+        const data = await res.json().catch(() => null)
+        if (data?.project) setProject(data.project)
+      } else {
+        const d = await res.json().catch(() => null)
+        alert(d?.error || 'Eroare la atribuire')
+      }
+    } catch (e: any) { alert('Eroare: ' + e.message) }
   }
 
   const handleToggleExpand = (phaseId: string) => {
@@ -308,7 +344,6 @@ export default function ProjectDetailsPage() {
             projectId={projectId!}
             onSelectPhase={setActivePhaseId}
             onToggleExpand={handleToggleExpand}
-            onUpdateActivityStatus={updateActivityStatus}
             onRefresh={fetchAll}
             apiFetch={apiFetch}
             isAdmin={isAdmin}
@@ -371,16 +406,14 @@ export default function ProjectDetailsPage() {
           ) : (
             <div className="p-4 sm:p-6 space-y-4 max-w-4xl">
 
-              {/* Phase header + status */}
+              {/* Phase header */}
               {activePhase && (
-                <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
-                  <div className="flex items-center gap-3">
-                    <span
-                      className="w-3 h-3 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: activePhase.project_status?.color || '#6B7280' }}
-                    />
-                    <h2 className="text-xl font-bold text-slate-900">{activePhase.name}</h2>
-                  </div>
+                <div className="flex items-center gap-3 mb-2">
+                  <span
+                    className="w-3 h-3 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: activePhase.project_status?.color || '#6B7280' }}
+                  />
+                  <h2 className="text-xl font-bold text-slate-900">{activePhase.name}</h2>
                 </div>
               )}
 
@@ -393,6 +426,13 @@ export default function ProjectDetailsPage() {
                   activityName={activity.name}
                   externalRequests={allDocRequests}
                   onRefresh={refreshDocs}
+                  activityAssignedTo={activity.assigned_to ?? null}
+                  activityAssignedUser={activity.assigned_user ?? null}
+                  projectMembers={projectMembers}
+                  onAssignActivity={isAdmin ? (assignedTo: string | null) => handleAssignActivity(activePhase!.id, activity.id, assignedTo) : undefined}
+                  clientEmail={project?.profiles?.email ?? null}
+                  clientName={project?.profiles?.full_name ?? null}
+                  projectTitle={project?.title}
                 />
               ))}
 
@@ -404,6 +444,13 @@ export default function ProjectDetailsPage() {
                 activityName="Cereri generale"
                 externalRequests={allDocRequests}
                 onRefresh={refreshDocs}
+                activityAssignedTo={project?.general_consultant_id ?? null}
+                activityAssignedUser={project?.general_consultant ?? null}
+                projectMembers={projectMembers}
+                onAssignActivity={isAdmin ? (assignedTo: string | null) => handleAssignGeneralConsultant(assignedTo) : undefined}
+                clientEmail={project?.profiles?.email ?? null}
+                clientName={project?.profiles?.full_name ?? null}
+                projectTitle={project?.title}
               />
             </div>
           )}

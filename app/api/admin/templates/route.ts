@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
           (phases || []).map(async (phase) => {
             const { data: activities } = await supabaseAdmin
               .from('template_activities')
-              .select('*')
+              .select('*, default_consultant:default_consultant_id(id, full_name, email)')
               .eq('template_phase_id', phase.id)
               .eq('is_active', true)
               .order('order_index', { ascending: true })
