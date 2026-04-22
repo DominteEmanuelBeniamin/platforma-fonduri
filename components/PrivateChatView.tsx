@@ -10,7 +10,7 @@ import {
   MoreHorizontal,
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
-import { usePrivateChat } from '@/hooks/usePrivateChat'
+import { type PrivateChatMessage, usePrivateChat } from '@/hooks/usePrivateChat'
 import { getAvatarColor, getInitials } from '@/lib/avatar'
 
 type Props = {
@@ -23,6 +23,77 @@ type Props = {
   initialLastReadAt?: string | null
   otherLastReadAt?: string | null
   onMarkedAsRead?: (lastReadAt: string | null) => void
+}
+
+const maxIso = (a: string | null, b: string | null) => {
+  if (!a) return b
+  if (!b) return a
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b
+}
+
+const getLatestUnreadIncomingCreatedAt = (
+  messages: PrivateChatMessage[],
+  userId: string | null | undefined,
+  lastReadAt: string | null
+) => {
+  if (!userId) return null
+
+  const lastReadTime = lastReadAt ? new Date(lastReadAt).getTime() : null
+  let latestCreatedAt: string | null = null
+
+  for (const m of messages) {
+    if (m.deleted_at) continue
+    if (m.created_by === userId) continue
+
+    const createdTime = new Date(m.created_at).getTime()
+    if (lastReadTime !== null && createdTime <= lastReadTime) continue
+
+    if (!latestCreatedAt || createdTime > new Date(latestCreatedAt).getTime()) {
+      latestCreatedAt = m.created_at
+    }
+  }
+
+  return latestCreatedAt
+}
+
+const getFirstUnreadMessageId = (
+  messages: PrivateChatMessage[],
+  userId: string | null | undefined,
+  initialReadBoundary: string | null
+) => {
+  if (!userId) return null
+
+  const boundaryTime = initialReadBoundary ? new Date(initialReadBoundary).getTime() : null
+
+  return (
+    messages.find((m) => {
+      if (m.deleted_at) return false
+      if (m.created_by === userId) return false
+      if (boundaryTime === null) return true
+      return new Date(m.created_at).getTime() > boundaryTime
+    })?.id ?? null
+  )
+}
+
+const getReadOutgoingMessageId = (
+  messages: PrivateChatMessage[],
+  userId: string | null | undefined,
+  otherLastReadAt: string | null
+) => {
+  if (!userId || !otherLastReadAt) return null
+
+  const otherReadTime = new Date(otherLastReadAt).getTime()
+  let readMessageId: string | null = null
+
+  for (const m of messages) {
+    if (m.deleted_at) continue
+    if (m.created_by !== userId) continue
+    if (new Date(m.created_at).getTime() <= otherReadTime) {
+      readMessageId = m.id
+    }
+  }
+
+  return readMessageId
 }
 
 export default function PrivateChatView({
@@ -77,68 +148,24 @@ export default function PrivateChatView({
 
   const canSend = !authLoading && !sending && text.trim().length > 0
 
-  const latestUnreadIncomingCreatedAt = useMemo(() => {
-    if (!userId) return null
+  const latestUnreadIncomingCreatedAt = useMemo(
+    () => getLatestUnreadIncomingCreatedAt(messages, userId, lastReadAt),
+    [lastReadAt, messages, userId]
+  )
 
-    const lastReadTime = lastReadAt ? new Date(lastReadAt).getTime() : null
-    let latestCreatedAt: string | null = null
-
-    for (const m of messages) {
-      if (m.deleted_at) continue
-      if (m.created_by === userId) continue
-
-      const createdTime = new Date(m.created_at).getTime()
-      if (lastReadTime !== null && createdTime <= lastReadTime) continue
-
-      if (!latestCreatedAt || createdTime > new Date(latestCreatedAt).getTime()) {
-        latestCreatedAt = m.created_at
-      }
-    }
-
-    return latestCreatedAt
-  }, [lastReadAt, messages, userId])
-
-  const firstUnreadMessageId = useMemo(() => {
-    if (!userId) return null
-
-    const boundary = initialReadBoundary
-    const boundaryTime = boundary ? new Date(boundary).getTime() : null
-
-    return (
-      messages.find((m) => {
-        if (m.deleted_at) return false
-        if (m.created_by === userId) return false
-        if (boundaryTime === null) return true
-        return new Date(m.created_at).getTime() > boundaryTime
-      })?.id ?? null
-    )
-  }, [initialReadBoundary, messages, userId])
+  const firstUnreadMessageId = useMemo(
+    () => getFirstUnreadMessageId(messages, userId, initialReadBoundary),
+    [initialReadBoundary, messages, userId]
+  )
 
   const effectiveOtherLastReadAt = useMemo(() => {
-    if (!liveOtherLastReadAt) return otherLastReadAt
-    if (!otherLastReadAt) return liveOtherLastReadAt
-
-    return new Date(liveOtherLastReadAt).getTime() >= new Date(otherLastReadAt).getTime()
-      ? liveOtherLastReadAt
-      : otherLastReadAt
+    return maxIso(liveOtherLastReadAt, otherLastReadAt)
   }, [liveOtherLastReadAt, otherLastReadAt])
 
-  const readOutgoingMessageId = useMemo(() => {
-    if (!userId || !effectiveOtherLastReadAt) return null
-
-    const otherReadTime = new Date(effectiveOtherLastReadAt).getTime()
-    let readMessageId: string | null = null
-
-    for (const m of messages) {
-      if (m.deleted_at) continue
-      if (m.created_by !== userId) continue
-      if (new Date(m.created_at).getTime() <= otherReadTime) {
-        readMessageId = m.id
-      }
-    }
-
-    return readMessageId
-  }, [effectiveOtherLastReadAt, messages, userId])
+  const readOutgoingMessageId = useMemo(
+    () => getReadOutgoingMessageId(messages, userId, effectiveOtherLastReadAt),
+    [effectiveOtherLastReadAt, messages, userId]
+  )
 
   const startEdit = (id: string, currentBody?: string | null) => {
     if (!currentBody) return

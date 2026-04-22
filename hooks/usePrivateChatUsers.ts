@@ -13,6 +13,8 @@ export function usePrivateChatUsers() {
   const search = useCallback(async (q: string) => {
     if (!q.trim()) {
       setItems([])
+      setLoading(false)
+      setError(null)
       return
     }
 

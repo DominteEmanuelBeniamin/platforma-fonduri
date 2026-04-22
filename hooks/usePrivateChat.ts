@@ -61,6 +61,12 @@ type UsePrivateChatOptions = {
   initialOtherLastReadAt?: string | null
 }
 
+const maxIso = (a: string | null, b: string | null) => {
+  if (!a) return b
+  if (!b) return a
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b
+}
+
 export function usePrivateChat(
   conversationId: string,
   opts: UsePrivateChatOptions = {}
@@ -82,12 +88,6 @@ export function usePrivateChat(
   const idsRef = useRef<Set<string>>(new Set())
   const initialLastReadAtRef = useRef(opts.initialLastReadAt ?? null)
   const initialOtherLastReadAtRef = useRef(opts.initialOtherLastReadAt ?? null)
-
-  const maxIso = useCallback((a: string | null, b: string | null) => {
-    if (!a) return b
-    if (!b) return a
-    return new Date(a).getTime() >= new Date(b).getTime() ? a : b
-  }, [])
 
   const resetState = useCallback(() => {
     idsRef.current = new Set()
@@ -321,7 +321,7 @@ export function usePrivateChat(
     } catch {
       // silent fail
     }
-  }, [apiFetch, authLoading, conversationId, maxIso])
+  }, [apiFetch, authLoading, conversationId])
 
   const refreshReadState = useCallback(async () => {
     if (!conversationId) return
@@ -339,7 +339,20 @@ export function usePrivateChat(
     } catch {
       // silent fail
     }
-  }, [apiFetch, authLoading, conversationId, maxIso])
+  }, [apiFetch, authLoading, conversationId])
+
+  const hasPendingOutgoingReadReceipt = useMemo(() => {
+    if (!userId) return false
+
+    const otherReadTime = otherLastReadAt ? new Date(otherLastReadAt).getTime() : null
+
+    return messages.some((m) => {
+      if (m.deleted_at) return false
+      if (m.created_by !== userId) return false
+      if (otherReadTime === null) return true
+      return new Date(m.created_at).getTime() > otherReadTime
+    })
+  }, [messages, otherLastReadAt, userId])
 
   const unreadCount = useMemo(() => {
     if (!lastReadAt) {
@@ -464,7 +477,7 @@ export function usePrivateChat(
       cancelled = true
       supabase.removeChannel(channel)
     }
-  }, [apiFetch, authLoading, conversationId, maxIso, upsertOne, userId])
+  }, [apiFetch, authLoading, conversationId, upsertOne, userId])
 
   useEffect(() => {
     if (!conversationId) return
@@ -479,13 +492,21 @@ export function usePrivateChat(
     if (authLoading) return
 
     void refreshReadState()
+  }, [authLoading, conversationId, refreshReadState])
 
+  useEffect(() => {
+    if (!conversationId) return
+    if (authLoading) return
+    if (!hasPendingOutgoingReadReceipt) return
+
+    // Realtime for participant read rows is not dependable in this setup, so poll only
+    // while there is an outgoing message that may still become read.
     const interval = window.setInterval(() => {
       void refreshReadState()
     }, 2000)
 
     return () => window.clearInterval(interval)
-  }, [authLoading, conversationId, refreshReadState])
+  }, [authLoading, conversationId, hasPendingOutgoingReadReceipt, refreshReadState])
 
   const hasMore = useMemo(() => !!nextCursor, [nextCursor])
 
@@ -502,7 +523,6 @@ export function usePrivateChat(
     setError,
     unreadCount,
     markAsRead,
-    refreshReadState,
     lastReadAt,
     otherLastReadAt,
   }
