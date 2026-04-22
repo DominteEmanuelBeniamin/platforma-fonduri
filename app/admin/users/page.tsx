@@ -2,12 +2,9 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { UserPlus, Trash2, Users, Building2, Briefcase, Shield, Info, MessageCircle } from 'lucide-react'
+import { UserPlus, Trash2, Users, Building2, Briefcase, Shield, Info } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
-
-//temp for testing private chats
-import PrivateChatDrawer from '@/components/PrivateChatDrawer'
 
 // Configurație pentru fiecare tip de rol
 // AM ADĂUGAT: btnBg și btnHover pentru a fi recunoscute de Tailwind
@@ -50,7 +47,7 @@ const roleConfig = {
 export default function AdminUsersPage() {
   const router = useRouter()
   const [users, setUsers] = useState<any[]>([])
-  const { loading: authLoading, token, apiFetch, userId } = useAuth()
+  const { loading: authLoading, token, apiFetch } = useAuth()
   const [updatingRoleId, setUpdatingRoleId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -78,37 +75,6 @@ export default function AdminUsersPage() {
   const [userToDelete, setUserToDelete] = useState<{ id: string; email: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
 
-  //temp for testing private chats
-  const [chatOpen, setChatOpen] = useState(false)
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
-  const [activeChatTitle, setActiveChatTitle] = useState<string>('Conversație')
-  const [startingChatUserId, setStartingChatUserId] = useState<string | null>(null)
-
-  const openPrivateChat = async (targetUser: { id: string; email?: string | null; full_name?: string | null }) => {
-    try {
-      setStartingChatUserId(targetUser.id)
-  
-      const res = await apiFetch('/api/private-conversations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: targetUser.id }),
-      })
-  
-      const json = await res.json().catch(() => null)
-  
-      if (!res.ok || !json?.item?.id) {
-        throw new Error(json?.error || 'Nu s-a putut deschide conversația')
-      }
-  
-      setActiveConversationId(json.item.id)
-      setActiveChatTitle(targetUser.full_name || targetUser.email || 'Conversație')
-      setChatOpen(true)
-    } catch (error: any) {
-      alert(error.message || 'Eroare la deschiderea conversației')
-    } finally {
-      setStartingChatUserId(null)
-    }
-  }
   const fetchUsers = async () => {
     try {
       setLoading(true)
@@ -687,24 +653,6 @@ export default function AdminUsersPage() {
 
                 {/* Actions */}
                 <div className="flex items-center gap-3">
-                <button
-                  onClick={() =>
-                    openPrivateChat({
-                      id: user.id,
-                      email: user.email,
-                      full_name: user.full_name,
-                    })
-                  }
-                  disabled={startingChatUserId === user.id || user.id === userId}
-                  className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all disabled:opacity-50"
-                  title="Deschide conversația"
-                >
-                  {startingChatUserId === user.id ? (
-                    <div className="w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />
-                  ) : (
-                    <MessageCircle className="w-4 h-4" />
-                  )}
-                </button>
                   <div className="relative">
                     <select 
                       value={user.role || 'client'}
@@ -735,14 +683,6 @@ export default function AdminUsersPage() {
           )}
         </div>
       </div>
-      {activeConversationId && (
-        <PrivateChatDrawer
-          open={chatOpen}
-          onClose={() => setChatOpen(false)}
-          conversationId={activeConversationId}
-          title={activeChatTitle}
-        />
-      )}
     </div>
   )
 }

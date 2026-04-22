@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MessageSquare, Search } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { usePrivateConversations } from '@/hooks/usePrivateConversations'
@@ -46,6 +46,8 @@ export default function ChatPage() {
   } = usePrivateConversations()
 
   const [searchTerm, setSearchTerm] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchBoxRef = useRef<HTMLDivElement | null>(null)
 
   const {
     items: userSearchItems,
@@ -58,6 +60,9 @@ export default function ChatPage() {
     return profile?.role === 'admin' || profile?.role === 'consultant'
   }, [profile?.role])
 
+  const hasSearchQuery = searchTerm.trim().length > 0
+  const showSearchDropdown = searchOpen && hasSearchQuery
+
   const handleMarkedAsRead = useCallback(
     (lastReadAt: string | null) => {
       if (!selectedConversationId) return
@@ -69,6 +74,7 @@ export default function ChatPage() {
   const handleSearchChange = useCallback(
     async (value: string) => {
       setSearchTerm(value)
+      setSearchOpen(value.trim().length > 0)
       await searchUsers(value)
     },
     [searchUsers]
@@ -87,10 +93,34 @@ export default function ChatPage() {
       }
 
       setSearchTerm('')
+      setSearchOpen(false)
       await searchUsers('')
     },
     [openConversation, openOrCreateConversation, searchUsers]
   )
+
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target
+      if (!(target instanceof Node)) return
+      if (searchBoxRef.current?.contains(target)) return
+      setSearchOpen(false)
+    }
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSearchOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [])
 
   if (authLoading) {
     return (
@@ -129,10 +159,13 @@ export default function ChatPage() {
 
             </div>
 
-            <div className="relative">
+            <div ref={searchBoxRef} className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 value={searchTerm}
+                onFocus={() => {
+                  if (hasSearchQuery) setSearchOpen(true)
+                }}
                 onChange={(e) => {
                   void handleSearchChange(e.target.value)
                 }}
@@ -140,10 +173,7 @@ export default function ChatPage() {
                 className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-sm outline-none transition focus:border-slate-300 focus:bg-white"
               />
 
-              {(searchTerm.trim().length > 0 ||
-                userSearchLoading ||
-                userSearchError ||
-                userSearchItems.length > 0) && (
+              {showSearchDropdown && (
                 <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
                   {userSearchLoading && (
                     <div className="px-4 py-3 text-sm text-slate-500">

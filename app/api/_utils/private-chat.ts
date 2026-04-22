@@ -523,3 +523,105 @@ const participantsByConversation = new Map<
     items,
   }
 }
+
+export async function getPrivateConversationUnreadSummary(
+  request: Request
+): Promise<
+  Result<{
+    user: { id: string }
+    profile: { id: string; role: AppRole; email?: string | null }
+    hasUnread: boolean
+    unreadConversationCount: number
+  }>
+> {
+  const ctx = await requireProfile(request)
+  if (!ctx.ok) return ctx
+
+  const admin = createSupabaseServiceClient()
+
+  const { data: myParticipants, error: myParticipantsError } = await admin
+    .from('private_conversation_participants')
+    .select('conversation_id, last_read_at')
+    .eq('user_id', ctx.user.id)
+
+  if (myParticipantsError) {
+    console.error('Failed to load private conversation unread participants:', {
+      userId: ctx.user.id,
+      error: myParticipantsError,
+    })
+    return { ok: false, status: 500, error: 'Failed to load unread conversations' }
+  }
+
+  const conversationIds = (myParticipants ?? []).map((row) => row.conversation_id)
+
+  if (conversationIds.length === 0) {
+    return {
+      ok: true,
+      user: { id: ctx.user.id },
+      profile: ctx.profile,
+      hasUnread: false,
+      unreadConversationCount: 0,
+    }
+  }
+
+  const lastReadMap = new Map<string, string | null>()
+  for (const row of myParticipants ?? []) {
+    lastReadMap.set(row.conversation_id, row.last_read_at)
+  }
+
+  const { data: messages, error: messagesError } = await admin
+    .from('private_messages')
+    .select('conversation_id, created_at, created_by, deleted_at')
+    .in('conversation_id', conversationIds)
+    .order('created_at', { ascending: false })
+
+  if (messagesError) {
+    console.error('Failed to load private conversation unread messages:', {
+      userId: ctx.user.id,
+      conversationIds,
+      error: messagesError,
+    })
+    return { ok: false, status: 500, error: 'Failed to load unread conversations' }
+  }
+
+  const latestMessageByConversation = new Map<
+    string,
+    {
+      created_at: string
+      created_by: string
+      deleted_at: string | null
+    }
+  >()
+
+  for (const row of messages ?? []) {
+    if (latestMessageByConversation.has(row.conversation_id)) continue
+    latestMessageByConversation.set(row.conversation_id, row)
+  }
+
+  let unreadConversationCount = 0
+
+  for (const conversationId of conversationIds) {
+    const lastMessage = latestMessageByConversation.get(conversationId)
+    if (!lastMessage) continue
+    if (lastMessage.deleted_at) continue
+    if (lastMessage.created_by === ctx.user.id) continue
+
+    const lastReadAt = lastReadMap.get(conversationId)
+    if (!lastReadAt) {
+      unreadConversationCount += 1
+      continue
+    }
+
+    if (new Date(lastMessage.created_at).getTime() > new Date(lastReadAt).getTime()) {
+      unreadConversationCount += 1
+    }
+  }
+
+  return {
+    ok: true,
+    user: { id: ctx.user.id },
+    profile: ctx.profile,
+    hasUnread: unreadConversationCount > 0,
+    unreadConversationCount,
+  }
+}
