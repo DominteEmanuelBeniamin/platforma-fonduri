@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowLeft, X } from 'lucide-react'
 import PrivateChatView from '@/components/PrivateChatView'
@@ -18,12 +18,11 @@ export default function PrivateChatDrawer({
   title = 'Conversație',
   conversationId,
 }: Props) {
-  const mountedRef = useRef(false)
   const [isMounted, setIsMounted] = useState(false)
 
-  useLayoutEffect(() => {
-    mountedRef.current = true
-    setIsMounted(true)
+  useEffect(() => {
+    const t = window.setTimeout(() => setIsMounted(true), 0)
+    return () => window.clearTimeout(t)
   }, [])
 
   useEffect(() => {

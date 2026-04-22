@@ -42,7 +42,7 @@ export function usePrivateConversations() {
     const { apiFetch, loading: authLoading, userId } = useAuth()
 
     const [items, setItems] = useState<PrivateConversationListItem[]>([])
-    const [loading, setLoading] = useState(false)
+    const [loading, setLoading] = useState(true)
     const [creating, setCreating] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)

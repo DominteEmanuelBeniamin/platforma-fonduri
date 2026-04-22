@@ -62,7 +62,7 @@ export async function GET(request: Request) {
     // 🔥 verificăm conversații existente
     const userIds = eligibleUsers.map((u) => u.id)
 
-    let existingMap = new Map<string, string>()
+    const existingMap = new Map<string, string>()
 
     if (userIds.length > 0) {
       const { data: participants } = await admin

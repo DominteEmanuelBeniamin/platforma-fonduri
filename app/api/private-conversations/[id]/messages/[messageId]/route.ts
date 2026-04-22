@@ -10,7 +10,12 @@ const UpdateMessageSchema = z.object({
   body: z.string().trim().min(1).max(5000),
 })
 
-const maskRow = (m: any) => {
+type MaskableMessageRow = {
+  body: string | null
+  deleted_at: string | null
+}
+
+const maskRow = <T extends MaskableMessageRow>(m: T) => {
   if (!m?.deleted_at) return { ...m, is_deleted: false }
   return {
     ...m,

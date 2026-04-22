@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MessageSquare, Search } from 'lucide-react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/app/providers/AuthProvider'
@@ -29,7 +29,7 @@ function formatConversationTime(iso: string | null) {
   })
 }
 
-export default function ChatPage() {
+function ChatPageContent() {
   const { loading: authLoading, profile } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
@@ -148,6 +148,17 @@ export default function ChatPage() {
       openConversation(conversationParam)
     }
   }, [clearSelection, conversationParam, openConversation, selectedConversationId])
+
+  useEffect(() => {
+    if (!conversationParam) return
+    if (loading) return
+
+    const conversationExists = items.some((item) => item.id === conversationParam)
+    if (conversationExists) return
+
+    clearSelection()
+    setConversationParam(null)
+  }, [clearSelection, conversationParam, items, loading, setConversationParam])
 
   useEffect(() => {
     const onPointerDown = (e: PointerEvent) => {
@@ -425,5 +436,19 @@ export default function ChatPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[calc(100vh-120px)] items-center justify-center">
+          <div className="text-sm text-slate-500">Se încarcă...</div>
+        </div>
+      }
+    >
+      <ChatPageContent />
+    </Suspense>
   )
 }
