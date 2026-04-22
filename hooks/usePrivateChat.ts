@@ -49,9 +49,16 @@ type ReadResponse = {
   lastReadAt: string
 }
 
+type ReadStateResponse = {
+  ok: true
+  lastReadAt: string | null
+  otherLastReadAt: string | null
+}
+
 type UsePrivateChatOptions = {
   initialLimit?: number
   initialLastReadAt?: string | null
+  initialOtherLastReadAt?: string | null
 }
 
 export function usePrivateChat(
@@ -68,8 +75,19 @@ export function usePrivateChat(
   const [error, setError] = useState<string | null>(null)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [lastReadAt, setLastReadAt] = useState<string | null>(opts.initialLastReadAt ?? null)
+  const [otherLastReadAt, setOtherLastReadAt] = useState<string | null>(
+    opts.initialOtherLastReadAt ?? null
+  )
 
   const idsRef = useRef<Set<string>>(new Set())
+  const initialLastReadAtRef = useRef(opts.initialLastReadAt ?? null)
+  const initialOtherLastReadAtRef = useRef(opts.initialOtherLastReadAt ?? null)
+
+  const maxIso = useCallback((a: string | null, b: string | null) => {
+    if (!a) return b
+    if (!b) return a
+    return new Date(a).getTime() >= new Date(b).getTime() ? a : b
+  }, [])
 
   const resetState = useCallback(() => {
     idsRef.current = new Set()
@@ -78,8 +96,9 @@ export function usePrivateChat(
     setError(null)
     setLoading(false)
     setSending(false)
-    setLastReadAt(opts.initialLastReadAt ?? null)
-  }, [opts.initialLastReadAt])
+    setLastReadAt(initialLastReadAtRef.current)
+    setOtherLastReadAt(initialOtherLastReadAtRef.current)
+  }, [])
 
   const pushOne = useCallback((m: PrivateChatMessage) => {
     if (idsRef.current.has(m.id)) return
@@ -286,22 +305,41 @@ export function usePrivateChat(
     [apiFetch, conversationId]
   )
 
-  const markAsRead = useCallback(async () => {
+  const markAsRead = useCallback(async (readThroughAt?: string | null) => {
     if (!conversationId) return
     if (authLoading) return
 
     try {
       const res = await apiFetch(`/api/private-conversations/${conversationId}/read`, {
         method: 'POST',
+        body: JSON.stringify({ readThroughAt: readThroughAt ?? undefined }),
       })
       const json = (await res.json().catch(() => null)) as ReadResponse | null
 
       if (!res.ok || !json?.ok || !json.lastReadAt) return
-      setLastReadAt(json.lastReadAt)
+      setLastReadAt((prev) => maxIso(prev, json.lastReadAt))
     } catch {
       // silent fail
     }
-  }, [apiFetch, authLoading, conversationId])
+  }, [apiFetch, authLoading, conversationId, maxIso])
+
+  const refreshReadState = useCallback(async () => {
+    if (!conversationId) return
+    if (authLoading) return
+
+    try {
+      const res = await apiFetch(`/api/private-conversations/${conversationId}/read`, {
+        method: 'GET',
+      })
+      const json = (await res.json().catch(() => null)) as ReadStateResponse | null
+
+      if (!res.ok || !json?.ok) return
+      setLastReadAt((prev) => maxIso(prev, json.lastReadAt))
+      setOtherLastReadAt((prev) => maxIso(prev, json.otherLastReadAt))
+    } catch {
+      // silent fail
+    }
+  }, [apiFetch, authLoading, conversationId, maxIso])
 
   const unreadCount = useMemo(() => {
     if (!lastReadAt) {
@@ -396,13 +434,37 @@ export function usePrivateChat(
           }
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'private_conversation_participants',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          const row = payload.new as {
+            user_id?: string
+            last_read_at?: string | null
+          } | null
+
+          if (!row?.user_id) return
+
+          if (row.user_id === userId) {
+            setLastReadAt((prev) => maxIso(prev, row.last_read_at ?? null))
+            return
+          }
+
+          setOtherLastReadAt((prev) => maxIso(prev, row.last_read_at ?? null))
+        }
+      )
       .subscribe()
 
     return () => {
       cancelled = true
       supabase.removeChannel(channel)
     }
-  }, [apiFetch, authLoading, conversationId, upsertOne])
+  }, [apiFetch, authLoading, conversationId, maxIso, upsertOne, userId])
 
   useEffect(() => {
     if (!conversationId) return
@@ -411,6 +473,19 @@ export function usePrivateChat(
     resetState()
     fetchInitial()
   }, [conversationId, authLoading, fetchInitial, resetState])
+
+  useEffect(() => {
+    if (!conversationId) return
+    if (authLoading) return
+
+    void refreshReadState()
+
+    const interval = window.setInterval(() => {
+      void refreshReadState()
+    }, 2000)
+
+    return () => window.clearInterval(interval)
+  }, [authLoading, conversationId, refreshReadState])
 
   const hasMore = useMemo(() => !!nextCursor, [nextCursor])
 
@@ -427,6 +502,8 @@ export function usePrivateChat(
     setError,
     unreadCount,
     markAsRead,
+    refreshReadState,
     lastReadAt,
+    otherLastReadAt,
   }
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useState } from 'react'
-import { MessageSquare, RefreshCw, Search } from 'lucide-react'
+import { MessageSquare, Search } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { usePrivateConversations } from '@/hooks/usePrivateConversations'
 import { usePrivateChatUsers } from '@/hooks/usePrivateChatUsers'
@@ -40,7 +40,6 @@ export default function ChatPage() {
     selectedConversation,
     openConversation,
     clearSelection,
-    refresh,
     openOrCreateConversation,
     getIsUnread,
     markConversationReadLocally,
@@ -126,16 +125,8 @@ export default function ChatPage() {
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h1 className="text-xl font-semibold text-slate-900">Chat</h1>
-                <p className="text-sm text-slate-500">Conversații private</p>
               </div>
 
-              <button
-                onClick={() => void refresh()}
-                className="rounded-xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
-                title="Reîncarcă"
-              >
-                <RefreshCw className="h-4 w-4" />
-              </button>
             </div>
 
             <div className="relative">
@@ -330,6 +321,7 @@ export default function ChatPage() {
             </div>
           ) : (
             <PrivateChatView
+              key={selectedConversation.id}
               conversationId={selectedConversation.id}
               title={
                 selectedConversation.other_user?.full_name ||
@@ -337,6 +329,8 @@ export default function ChatPage() {
                 'Conversație'
               }
               subtitle={selectedConversation.other_user?.email ?? null}
+              initialLastReadAt={selectedConversation.last_read_at}
+              otherLastReadAt={selectedConversation.other_last_read_at}
               showBackButton
               onBack={clearSelection}
               onMarkedAsRead={handleMarkedAsRead}

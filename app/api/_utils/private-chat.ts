@@ -330,6 +330,7 @@ export type PrivateConversationListItem = {
   created_by: string
   last_message_at: string | null
   last_read_at: string | null
+  other_last_read_at: string | null
   other_user: {
     id: string
     full_name: string | null
@@ -405,6 +406,7 @@ export async function listPrivateConversationsForCurrentUser(
     .select(`
       conversation_id,
       user_id,
+      last_read_at,
       profiles:user_id (
         id,
         full_name,
@@ -455,6 +457,7 @@ const participantsByConversation = new Map<
   Array<{
     conversation_id: string
     user_id: string
+    last_read_at: string | null
     profiles: ParticipantProfile
   }>
 >()
@@ -501,6 +504,7 @@ const participantsByConversation = new Map<
       created_by: conversation.created_by,
       last_message_at: conversation.last_message_at,
       last_read_at: lastReadMap.get(conversation.id) ?? null,
+      other_last_read_at: otherParticipant?.last_read_at ?? null,
       other_user: otherProfile,
       last_message: lastMessageByConversation.get(conversation.id) ?? null,
     }

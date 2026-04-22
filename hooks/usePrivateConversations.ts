@@ -11,6 +11,7 @@ export type PrivateConversationListItem = {
   created_by: string
   last_message_at: string | null
   last_read_at: string | null
+  other_last_read_at: string | null
   other_user: {
     id: string
     full_name: string | null
@@ -238,7 +239,6 @@ export function usePrivateConversations() {
           event: '*',
           schema: 'public',
           table: 'private_conversation_participants',
-          filter: `user_id=eq.${userId}`,
         },
         () => {
           scheduleRefresh()

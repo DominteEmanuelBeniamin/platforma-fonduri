@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Send,
@@ -20,6 +20,8 @@ type Props = {
   onBack?: () => void
   showBackButton?: boolean
   className?: string
+  initialLastReadAt?: string | null
+  otherLastReadAt?: string | null
   onMarkedAsRead?: (lastReadAt: string | null) => void
 }
 
@@ -30,9 +32,20 @@ export default function PrivateChatView({
   onBack,
   showBackButton = false,
   className = '',
+  initialLastReadAt = null,
+  otherLastReadAt = null,
   onMarkedAsRead,
 }: Props) {
   const { loading: authLoading, userId } = useAuth()
+
+  const [text, setText] = useState('')
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editText, setEditText] = useState('')
+  const [initialReadBoundary, setInitialReadBoundary] = useState<string | null>(initialLastReadAt)
+  const [initialOtherReadBoundary, setInitialOtherReadBoundary] = useState<string | null>(
+    otherLastReadAt
+  )
 
   const {
     messages,
@@ -46,21 +59,86 @@ export default function PrivateChatView({
     deleteMessage,
     markAsRead,
     lastReadAt,
-  } = usePrivateChat(conversationId, { initialLimit: 50 })
-
-  const [text, setText] = useState('')
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editText, setEditText] = useState('')
+    otherLastReadAt: liveOtherLastReadAt,
+  } = usePrivateChat(conversationId, {
+    initialLimit: 50,
+    initialLastReadAt: initialReadBoundary,
+    initialOtherLastReadAt: initialOtherReadBoundary,
+  })
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
 
   const prevScrollHeightRef = useRef<number | null>(null)
+  const markReadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const userPinnedToBottomRef = useRef(true)
+  const previousConversationIdRef = useRef(conversationId)
 
   const canSend = !authLoading && !sending && text.trim().length > 0
+
+  const latestUnreadIncomingCreatedAt = useMemo(() => {
+    if (!userId) return null
+
+    const lastReadTime = lastReadAt ? new Date(lastReadAt).getTime() : null
+    let latestCreatedAt: string | null = null
+
+    for (const m of messages) {
+      if (m.deleted_at) continue
+      if (m.created_by === userId) continue
+
+      const createdTime = new Date(m.created_at).getTime()
+      if (lastReadTime !== null && createdTime <= lastReadTime) continue
+
+      if (!latestCreatedAt || createdTime > new Date(latestCreatedAt).getTime()) {
+        latestCreatedAt = m.created_at
+      }
+    }
+
+    return latestCreatedAt
+  }, [lastReadAt, messages, userId])
+
+  const firstUnreadMessageId = useMemo(() => {
+    if (!userId) return null
+
+    const boundary = initialReadBoundary
+    const boundaryTime = boundary ? new Date(boundary).getTime() : null
+
+    return (
+      messages.find((m) => {
+        if (m.deleted_at) return false
+        if (m.created_by === userId) return false
+        if (boundaryTime === null) return true
+        return new Date(m.created_at).getTime() > boundaryTime
+      })?.id ?? null
+    )
+  }, [initialReadBoundary, messages, userId])
+
+  const effectiveOtherLastReadAt = useMemo(() => {
+    if (!liveOtherLastReadAt) return otherLastReadAt
+    if (!otherLastReadAt) return liveOtherLastReadAt
+
+    return new Date(liveOtherLastReadAt).getTime() >= new Date(otherLastReadAt).getTime()
+      ? liveOtherLastReadAt
+      : otherLastReadAt
+  }, [liveOtherLastReadAt, otherLastReadAt])
+
+  const readOutgoingMessageId = useMemo(() => {
+    if (!userId || !effectiveOtherLastReadAt) return null
+
+    const otherReadTime = new Date(effectiveOtherLastReadAt).getTime()
+    let readMessageId: string | null = null
+
+    for (const m of messages) {
+      if (m.deleted_at) continue
+      if (m.created_by !== userId) continue
+      if (new Date(m.created_at).getTime() <= otherReadTime) {
+        readMessageId = m.id
+      }
+    }
+
+    return readMessageId
+  }, [effectiveOtherLastReadAt, messages, userId])
 
   const startEdit = (id: string, currentBody?: string | null) => {
     if (!currentBody) return
@@ -91,6 +169,13 @@ export default function PrivateChatView({
     const threshold = 80
     return el.scrollHeight - el.scrollTop - el.clientHeight < threshold
   }
+
+  useEffect(() => {
+    if (previousConversationIdRef.current === conversationId) return
+    previousConversationIdRef.current = conversationId
+    setInitialReadBoundary(initialLastReadAt)
+    setInitialOtherReadBoundary(otherLastReadAt)
+  }, [conversationId, initialLastReadAt, otherLastReadAt])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -125,12 +210,8 @@ export default function PrivateChatView({
   useEffect(() => {
     const t = setTimeout(() => scrollToBottom(false), 50)
 
-    void (async () => {
-      await markAsRead()
-    })()
-
     return () => clearTimeout(t)
-  }, [conversationId, markAsRead])
+  }, [conversationId])
 
   useEffect(() => {
     const prevH = prevScrollHeightRef.current
@@ -149,8 +230,27 @@ export default function PrivateChatView({
       scrollToBottom(false)
     }
 
-    void markAsRead()
-  }, [messages.length, markAsRead])
+    if (markReadTimeoutRef.current) {
+      clearTimeout(markReadTimeoutRef.current)
+      markReadTimeoutRef.current = null
+    }
+
+    if (latestUnreadIncomingCreatedAt) {
+      markReadTimeoutRef.current = setTimeout(() => {
+        markReadTimeoutRef.current = null
+        void markAsRead(latestUnreadIncomingCreatedAt)
+      }, 120)
+    }
+  }, [latestUnreadIncomingCreatedAt, messages.length, markAsRead])
+
+  useEffect(() => {
+    return () => {
+      if (markReadTimeoutRef.current) {
+        clearTimeout(markReadTimeoutRef.current)
+        markReadTimeoutRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     onMarkedAsRead?.(lastReadAt)
@@ -218,11 +318,6 @@ export default function PrivateChatView({
               </button>
             )}
 
-            <div className="relative flex h-3 w-3">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500" />
-            </div> 
-
             <div className="min-w-0">
                 <h3 className="truncate text-base font-semibold text-slate-900">{title}</h3>
                 {subtitle && (
@@ -264,6 +359,8 @@ export default function PrivateChatView({
           const next = idx < messages.length - 1 ? messages[idx + 1] : null
           const isMe = !!userId && m.created_by === userId
           const isEditing = editingId === m.id
+          const showNewMessagesSeparator = firstUnreadMessageId === m.id
+          const showReadReceipt = readOutgoingMessageId === m.id
             
           const prevSameDay = prev ? isSameDay(prev.created_at, m.created_at) : false
           const nextSameDay = next ? isSameDay(m.created_at, next.created_at) : false
@@ -295,7 +392,7 @@ export default function PrivateChatView({
           const initials = getInitials(m.profiles?.full_name, m.profiles?.email)
 
           const isEdited = !!m.edited_at && m.edited_at !== m.created_at && !m.deleted_at
-            const shouldShowMeta = !isSameGroupAsNext || isEdited
+          const shouldShowMeta = !isSameGroupAsNext || isEdited || showReadReceipt
 
           let bubbleRadius = 'rounded-2xl'
           if (isMe) {
@@ -323,6 +420,16 @@ export default function PrivateChatView({
                   <span className="rounded-full bg-slate-100/80 px-3 py-1 text-[11px] font-semibold uppercase text-slate-400">
                     {formatDayLabel(m.created_at)}
                   </span>
+                </div>
+              )}
+
+              {showNewMessagesSeparator && (
+                <div className="my-5 flex items-center gap-3">
+                  <div className="h-px flex-1 bg-emerald-200" />
+                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase text-emerald-700 ring-1 ring-emerald-100">
+                    Mesaje noi
+                  </span>
+                  <div className="h-px flex-1 bg-emerald-200" />
                 </div>
               )}
 
@@ -484,6 +591,13 @@ export default function PrivateChatView({
                         <span className="flex items-center gap-0.5 opacity-70">
                             <span className="h-0.5 w-0.5 rounded-full bg-slate-400" />
                             Editat
+                        </span>
+                        )}
+
+                        {showReadReceipt && (
+                        <span className="flex items-center gap-0.5 opacity-70">
+                            <span className="h-0.5 w-0.5 rounded-full bg-slate-400" />
+                            Citit
                         </span>
                         )}
                     </div>
