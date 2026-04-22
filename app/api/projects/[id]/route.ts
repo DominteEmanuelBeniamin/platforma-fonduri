@@ -22,7 +22,7 @@ export async function GET(
 
     const { data: project, error } = await admin
       .from('projects')
-      .select('*, profiles(*)')
+      .select('*, profiles!projects_client_id_fkey(*), general_consultant:general_consultant_id(id, full_name, email)')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -62,7 +62,7 @@ export async function PATCH(
     // 1. Citim proiectul curent (pentru audit)
     const { data: oldProject, error: findErr } = await admin
       .from('projects')
-      .select('id, title, status, client_id, cod_intern, profiles(email, full_name, cif)')
+      .select('id, title, status, client_id, cod_intern, profiles!projects_client_id_fkey(email, full_name, cif)')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -80,7 +80,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    const { title, status, client_id } = body as { title?: unknown; status?: unknown; client_id?: unknown }
+    const { title, status, client_id, general_consultant_id } = body as { title?: unknown; status?: unknown; client_id?: unknown; general_consultant_id?: unknown }
 
     const update: Record<string, any> = {}
 
@@ -136,6 +136,14 @@ export async function PATCH(
       update.client_id = client_id.trim()
     }
 
+    // general_consultant_id (null = dezasignare)
+    if (general_consultant_id !== undefined) {
+      if (general_consultant_id !== null && typeof general_consultant_id !== 'string') {
+        return NextResponse.json({ error: 'general_consultant_id trebuie să fie UUID sau null' }, { status: 400 })
+      }
+      update.general_consultant_id = general_consultant_id ?? null
+    }
+
     // Dacă nu avem nimic de actualizat
     if (Object.keys(update).length === 0) {
       return NextResponse.json({ 
@@ -148,7 +156,7 @@ export async function PATCH(
       .from('projects')
       .update(update)
       .eq('id', projectId)
-      .select('*, profiles(full_name, cif, email)')
+      .select('*, profiles!projects_client_id_fkey(full_name, cif, email)')
       .single()
 
     if (updateErr) {
@@ -219,7 +227,7 @@ export async function DELETE(
     // 1. Citim datele proiectului ÎNAINTE de ștergere (pentru audit)
     const { data: project, error: findErr } = await admin
       .from('projects')
-      .select('id, title, client_id, status, cod_intern, profiles(email, full_name, cif)')
+      .select('id, title, client_id, status, cod_intern, profiles!projects_client_id_fkey(email, full_name, cif)')
       .eq('id', projectId)
       .maybeSingle()
 

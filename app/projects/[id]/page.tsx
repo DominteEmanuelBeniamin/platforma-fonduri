@@ -15,12 +15,14 @@ import {
   Layers,
   Building2,
   MessageSquare,
+  FolderOpen,
 } from 'lucide-react'
 
 import ProjectChatDrawer from '@/components/ProjectChatDrawer'
-import ProjectPhasesSidebar, { phaseStatusCfg } from '@/components/ProjectPhasesSidebar'
+import ProjectPhasesSidebar from '@/components/ProjectPhasesSidebar'
 import type { ProjectPhase } from '@/components/ProjectPhasesSidebar'
 import DocumentRequests from '@/components/DocumentRequests'
+import ProjectDocumentsView from '@/components/ProjectDocumentsView'
 import { useAuth } from '@/app/providers/AuthProvider'
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -39,6 +41,7 @@ export default function ProjectDetailsPage() {
   const [phases, setPhases] = useState<ProjectPhase[]>([])
   const [allDocRequests, setAllDocRequests] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [projectMembers, setProjectMembers] = useState<{ id: string; full_name: string | null; email: string }[]>([])
 
   const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set())
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
@@ -49,6 +52,8 @@ export default function ProjectDetailsPage() {
 
   const [chatOpen, setChatOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+
+  const [activeView, setActiveView] = useState<'phases' | 'documents'>('phases')
 
   // Citim lastSeen din localStorage
   const getLastSeen = useCallback(() => {
@@ -87,7 +92,6 @@ export default function ProjectDetailsPage() {
         (payload: any) => {
           const row = payload.new
           if (!row?.id || row?.deleted_at) return
-          // dacă mesajul e de la altcineva și chat-ul e închis -> incrementăm
           if (row.created_by !== profile?.id && !chatOpen) {
             setUnreadCount((prev) => prev + 1)
           }
@@ -151,6 +155,22 @@ export default function ProjectDetailsPage() {
     fetchAll()
   }, [authLoading, token, projectId])
 
+  useEffect(() => {
+    if (authLoading || !token || !projectId) return
+    apiFetch(`/api/projects/${projectId}/members`)
+      .then(r => r.json())
+      .then(d => {
+        setProjectMembers(
+          (d.members ?? []).map((m: any) => ({
+            id: m.profiles?.id ?? m.consultant_id,
+            full_name: m.profiles?.full_name ?? null,
+            email: m.profiles?.email ?? '',
+          }))
+        )
+      })
+      .catch(console.error)
+  }, [authLoading, token, projectId])
+
   // ─── Actions ──────────────────────────────────────────────────────────────
 
   const handleSaveTitle = async () => {
@@ -166,22 +186,32 @@ export default function ProjectDetailsPage() {
     } finally { setSaving(false) }
   }
 
-  const updatePhaseStatus = async (phaseId: string, status: string) => {
-    await apiFetch(`/api/projects/${projectId}/phases/${phaseId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status })
-    })
-    fetchAll()
+  const handleAssignActivity = async (phaseId: string, activityId: string, assignedTo: string | null) => {
+    try {
+      const res = await apiFetch(
+        `/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`,
+        { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assigned_to: assignedTo }) }
+      )
+      if (res.ok) fetchAll()
+      else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare la atribuire') }
+    } catch (e: any) { alert('Eroare: ' + e.message) }
   }
 
-  const updateActivityStatus = async (phaseId: string, activityId: string, status: string) => {
-    await apiFetch(`/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status })
-    })
-    fetchAll()
+  const handleAssignGeneralConsultant = async (assignedTo: string | null) => {
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ general_consultant_id: assignedTo }),
+      })
+      if (res.ok) {
+        const data = await res.json().catch(() => null)
+        if (data?.project) setProject(data.project)
+      } else {
+        const d = await res.json().catch(() => null)
+        alert(d?.error || 'Eroare la atribuire')
+      }
+    } catch (e: any) { alert('Eroare: ' + e.message) }
   }
 
   const handleToggleExpand = (phaseId: string) => {
@@ -304,24 +334,66 @@ export default function ProjectDetailsPage() {
       {/* ── Body: sidebar + main ── */}
       <div className="flex flex-1 overflow-hidden max-w-screen-2xl w-full mx-auto">
 
-        {/* ══ SIDEBAR ══ */}
-        <ProjectPhasesSidebar
-          phases={phases}
-          activePhaseId={activePhaseId}
-          expandedPhases={expandedPhases}
-          canEdit={canEdit}
-          projectId={projectId!}
-          onSelectPhase={setActivePhaseId}
-          onToggleExpand={handleToggleExpand}
-          onUpdateActivityStatus={updateActivityStatus}
-          onRefresh={fetchAll}
-          apiFetch={apiFetch}
-          isAdmin={isAdmin}
-        />
+        {/* ══ SIDEBAR — ascuns în view documente ══ */}
+        {activeView === 'phases' && (
+          <ProjectPhasesSidebar
+            phases={phases}
+            activePhaseId={activePhaseId}
+            expandedPhases={expandedPhases}
+            canEdit={canEdit}
+            projectId={projectId!}
+            onSelectPhase={setActivePhaseId}
+            onToggleExpand={handleToggleExpand}
+            onRefresh={fetchAll}
+            apiFetch={apiFetch}
+            isAdmin={isAdmin}
+          />
+        )}
 
         {/* ══ MAIN ══ */}
-        <main className="flex-1 overflow-y-auto">
-          {phases.length === 0 ? (
+        <main className="flex-1 overflow-y-auto min-w-0">
+
+          {/* ── Tab switcher ── */}
+          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6">
+            <div className="flex gap-1 -mb-px">
+              <button
+                onClick={() => setActiveView('phases')}
+                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  activeView === 'phases'
+                    ? 'border-indigo-600 text-indigo-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Layers className="w-4 h-4" />
+                Faze & Activități
+              </button>
+              <button
+                onClick={() => setActiveView('documents')}
+                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  activeView === 'documents'
+                    ? 'border-indigo-600 text-indigo-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <FolderOpen className="w-4 h-4" />
+                Documente
+                {allDocRequests.length > 0 && (
+                  <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full font-medium">
+                    {allDocRequests.length}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* ── Content ── */}
+          {activeView === 'documents' ? (
+            <ProjectDocumentsView
+              projectId={projectId!}
+              requests={allDocRequests}
+              phases={phases}
+            />
+          ) : phases.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center p-8">
               <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
                 <Layers className="w-8 h-8 text-slate-400" />
@@ -334,33 +406,14 @@ export default function ProjectDetailsPage() {
           ) : (
             <div className="p-4 sm:p-6 space-y-4 max-w-4xl">
 
-              {/* Phase header + status */}
+              {/* Phase header */}
               {activePhase && (
-                <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
-                  <div className="flex items-center gap-3">
-                    <span
-                      className="w-3 h-3 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: activePhase.project_status?.color || '#6B7280' }}
-                    />
-                    <h2 className="text-xl font-bold text-slate-900">{activePhase.name}</h2>
-                    <span className={`text-xs font-medium px-2.5 py-1 rounded-full ring-1 ${
-                      (phaseStatusCfg[activePhase.status] || phaseStatusCfg.pending).ring
-                    } ${(phaseStatusCfg[activePhase.status] || phaseStatusCfg.pending).color}`}>
-                      {(phaseStatusCfg[activePhase.status] || phaseStatusCfg.pending).label}
-                    </span>
-                  </div>
-                  {canEdit && (
-                    <select
-                      value={activePhase.status}
-                      onChange={e => updatePhaseStatus(activePhase.id, e.target.value)}
-                      className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    >
-                      <option value="pending">În așteptare</option>
-                      <option value="in_progress">În lucru</option>
-                      <option value="completed">Finalizat</option>
-                      <option value="skipped">Omis</option>
-                    </select>
-                  )}
+                <div className="flex items-center gap-3 mb-2">
+                  <span
+                    className="w-3 h-3 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: activePhase.project_status?.color || '#6B7280' }}
+                  />
+                  <h2 className="text-xl font-bold text-slate-900">{activePhase.name}</h2>
                 </div>
               )}
 
@@ -373,6 +426,13 @@ export default function ProjectDetailsPage() {
                   activityName={activity.name}
                   externalRequests={allDocRequests}
                   onRefresh={refreshDocs}
+                  activityAssignedTo={activity.assigned_to ?? null}
+                  activityAssignedUser={activity.assigned_user ?? null}
+                  projectMembers={projectMembers}
+                  onAssignActivity={isAdmin ? (assignedTo: string | null) => handleAssignActivity(activePhase!.id, activity.id, assignedTo) : undefined}
+                  clientEmail={project?.profiles?.email ?? null}
+                  clientName={project?.profiles?.full_name ?? null}
+                  projectTitle={project?.title}
                 />
               ))}
 
@@ -384,6 +444,13 @@ export default function ProjectDetailsPage() {
                 activityName="Cereri generale"
                 externalRequests={allDocRequests}
                 onRefresh={refreshDocs}
+                activityAssignedTo={project?.general_consultant_id ?? null}
+                activityAssignedUser={project?.general_consultant ?? null}
+                projectMembers={projectMembers}
+                onAssignActivity={isAdmin ? (assignedTo: string | null) => handleAssignGeneralConsultant(assignedTo) : undefined}
+                clientEmail={project?.profiles?.email ?? null}
+                clientName={project?.profiles?.full_name ?? null}
+                projectTitle={project?.title}
               />
             </div>
           )}

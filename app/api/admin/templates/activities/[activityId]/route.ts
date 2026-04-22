@@ -22,7 +22,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     const { activityId } = await params
     const body = await req.json()
-    const { name, description, order_index, estimated_days, is_active } = body
+    const { name, description, order_index, estimated_days, is_active, default_consultant_id } = body
 
     const updateData: Record<string, any> = {}
     if (name !== undefined) updateData.name = name
@@ -30,6 +30,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (order_index !== undefined) updateData.order_index = order_index
     if (estimated_days !== undefined) updateData.estimated_days = estimated_days
     if (is_active !== undefined) updateData.is_active = is_active
+    if (default_consultant_id !== undefined) updateData.default_consultant_id = default_consultant_id || null
 
     const { data: activity, error } = await supabaseAdmin
       .from('template_activities')

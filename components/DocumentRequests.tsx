@@ -16,7 +16,6 @@ import {
   ChevronRight,
   Eye,
   MessageSquare,
-  RefreshCw,
   FileSpreadsheet,
   FileCheck,
   FileClock,
@@ -27,10 +26,17 @@ import {
   AlertCircle,
   Loader2,
   Image as ImageIcon,
-  File
+  File,
+  Mail,
 } from 'lucide-react'
 import DocumentModal from './DocumentModal'
 import { useAuth } from '@/app/providers/AuthProvider'
+import {
+  getReminderType,
+  generateMailtoLink,
+  REMINDER_LABELS,
+  REMINDER_BADGE,
+} from '@/lib/document-reminder'
 
 interface DocumentRequest {
   id: string
@@ -42,6 +48,8 @@ interface DocumentRequest {
   created_by: string | null
   created_at: string
   creator?: { full_name: string | null; email: string | null }
+  assigned_to: string | null
+  assigned_consultant: { id: string; full_name: string | null; email: string } | null
   files?: {
     id: string
     storage_path: string
@@ -154,10 +162,6 @@ function getFileIcon(file: PickedFile): JSX.Element {
   return <File className="w-5 h-5" />
 }
 
-function isImageFile(file: PickedFile): boolean {
-  return file.type.startsWith('image/')
-}
-
 interface DocumentRequestsProps {
   projectId: string
   /** Dacă e furnizat, filtrează cererile după activity_id */
@@ -168,6 +172,15 @@ interface DocumentRequestsProps {
   externalRequests?: any[]
   /** Callback refresh pentru pagina părinte */
   onRefresh?: () => void
+  /** Consultantul asignat activității */
+  activityAssignedTo?: string | null
+  activityAssignedUser?: { id: string; full_name: string | null; email: string } | null
+  projectMembers?: { id: string; full_name: string | null; email: string }[]
+  onAssignActivity?: (assignedTo: string | null) => void
+  /** Date client pentru reminder-uri — transmise din pagina proiectului */
+  clientEmail?: string | null
+  clientName?: string | null
+  projectTitle?: string
 }
 
 export default function DocumentRequests({
@@ -176,6 +189,13 @@ export default function DocumentRequests({
   activityName,
   externalRequests,
   onRefresh,
+  activityAssignedTo,
+  activityAssignedUser,
+  projectMembers: externalProjectMembers,
+  onAssignActivity,
+  clientEmail,
+  clientName,
+  projectTitle,
 }: DocumentRequestsProps) {
   const { loading: authLoading, token, profile, apiFetch } = useAuth()
 
@@ -223,10 +243,10 @@ export default function DocumentRequests({
       )
     }
     return src
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalRequests, internalRequests, activityId])
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
+  const isAdmin = profile?.role === 'admin'
   const isClient = profile?.role === 'client'
 
   // Computed stats pentru fișiere selectate
@@ -248,7 +268,7 @@ export default function DocumentRequests({
 
     const newFiles: PickedFile[] = Array.from(fileList).map((file) => {
       const picked: PickedFile = {
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
         file,
         name: file.name,
         size: file.size,
@@ -322,6 +342,7 @@ export default function DocumentRequests({
     fetchRequests()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, token, projectId, externalRequests])
+
 
   const handleTemplateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) setTemplateFile(e.target.files[0])
@@ -475,15 +496,6 @@ export default function DocumentRequests({
     }
   }
 
-  const downloadUploadedFileById = async (fileId: string) => {
-    const res = await apiFetch(`/api/files/${fileId}/signed-download`, {
-      method: 'POST',
-      body: JSON.stringify({ expiresIn: 60 * 5 }),
-    })
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok) return alert('Eroare la descărcare: ' + (data?.error || res.statusText))
-    forceDownload(data.url)
-  }
 
   const downloadAttachmentModel = async (requestId: string) => {
     const res = await apiFetch(`/api/document-requests/${requestId}/attachment/signed-download`, {
@@ -648,6 +660,28 @@ export default function DocumentRequests({
                 <p className="text-xs text-slate-500 truncate hidden sm:block">
                   {activityName ? `${requests.length} cereri` : (isClient ? 'Descarcă, completează și încarcă' : `${requests.length} cereri în total`)}
                 </p>
+                {(activityId !== undefined) && (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <User className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                    <span className="text-xs text-slate-500">Consultant responsabil:</span>
+                    {isAdmin && onAssignActivity && externalProjectMembers ? (
+                      <select
+                        value={activityAssignedTo ?? ''}
+                        onChange={e => onAssignActivity(e.target.value || null)}
+                        className="text-xs border border-slate-200 rounded-md px-1.5 py-0.5 text-slate-700 bg-white focus:border-indigo-500 outline-none transition-all"
+                      >
+                        <option value="">Neatribuit</option>
+                        {externalProjectMembers.map(m => (
+                          <option key={m.id} value={m.id}>{m.full_name || m.email}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-xs font-medium text-slate-700">
+                        {activityAssignedUser?.full_name ?? activityAssignedUser?.email ?? 'Neatribuit'}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -658,7 +692,7 @@ export default function DocumentRequests({
                   showForm ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-900/10'
                 }`}
               >
-                {showForm ? (<><X className="w-4 h-4" /><span className="hidden sm:inline">Anulează</span></>) : (<><Plus className="w-4 h-4" /><span className="hidden sm:inline">Cerere nouă</span></>)}
+                {showForm ? (<><X className="w-4 h-4" /><span className="hidden sm:inline">Anulează</span></>) : (<><Plus className="w-4 h-4" /><span className="hidden sm:inline">Cerere de document nouă</span></>)}
               </button>
             )}
           </div>
@@ -795,6 +829,40 @@ export default function DocumentRequests({
                           </button>
                         )}
                       </div>
+
+                      {/* ── Buton reminder client ── */}
+                      {isAdminOrConsultant && clientEmail && (() => {
+                        const reminderType = getReminderType(req.deadline_at)
+                        if (!reminderType) return null
+                        const badge = REMINDER_BADGE[reminderType]
+                        const mailtoLink = generateMailtoLink(
+                          {
+                            requestName: req.name,
+                            requestDescription: req.description,
+                            deadlineAt: req.deadline_at,
+                            clientEmail,
+                            clientName: clientName ?? null,
+                            projectTitle: projectTitle ?? '',
+                            projectId,
+                          },
+                          reminderType
+                        )
+                        return (
+                          <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+                            <a
+                              href={mailtoLink}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-opacity hover:opacity-75 ${badge.bg} ${badge.text} ${badge.border}`}
+                              title="Deschide clientul de email cu mesajul pregătit automat"
+                            >
+                              <Mail className="w-3 h-3" />
+                              Trimite reminder clientului
+                              <span className="mx-0.5 opacity-50">·</span>
+                              {REMINDER_LABELS[reminderType]}
+                            </a>
+                          </div>
+                        )
+                      })()}
+
                     </div>
 
                     {isAdminOrConsultant && (
@@ -1127,6 +1195,9 @@ export default function DocumentRequests({
           request={selectedRequest}
           onClose={() => setSelectedRequest(null)}
           onUpdate={fetchRequests}
+          clientEmail={clientEmail}
+          clientName={clientName}
+          projectTitle={projectTitle}
         />
       )}
     </>
