@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MessageSquare, Search } from 'lucide-react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { usePrivateConversations } from '@/hooks/usePrivateConversations'
 import { usePrivateChatUsers } from '@/hooks/usePrivateChatUsers'
@@ -30,6 +31,10 @@ function formatConversationTime(iso: string | null) {
 
 export default function ChatPage() {
   const { loading: authLoading, profile } = useAuth()
+  const pathname = usePathname()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const conversationParam = searchParams.get('conversation')
 
   const {
     items,
@@ -80,6 +85,35 @@ export default function ChatPage() {
     [searchUsers]
   )
 
+  const setConversationParam = useCallback(
+    (conversationId: string | null) => {
+      const nextParams = new URLSearchParams(searchParams.toString())
+
+      if (conversationId) {
+        nextParams.set('conversation', conversationId)
+      } else {
+        nextParams.delete('conversation')
+      }
+
+      const query = nextParams.toString()
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+    },
+    [pathname, router, searchParams]
+  )
+
+  const handleOpenConversation = useCallback(
+    (conversationId: string) => {
+      openConversation(conversationId)
+      setConversationParam(conversationId)
+    },
+    [openConversation, setConversationParam]
+  )
+
+  const handleClearSelection = useCallback(() => {
+    clearSelection()
+    setConversationParam(null)
+  }, [clearSelection, setConversationParam])
+
   const handleUserPick = useCallback(
     async (user: {
       id: string
@@ -87,17 +121,33 @@ export default function ChatPage() {
       hasConversation?: boolean
     }) => {
       if (user.hasConversation && user.conversationId) {
-        openConversation(user.conversationId)
+        handleOpenConversation(user.conversationId)
       } else {
-        await openOrCreateConversation(user.id)
+        const conversationId = await openOrCreateConversation(user.id)
+        if (conversationId) {
+          setConversationParam(conversationId)
+        }
       }
 
       setSearchTerm('')
       setSearchOpen(false)
       await searchUsers('')
     },
-    [openConversation, openOrCreateConversation, searchUsers]
+    [handleOpenConversation, openOrCreateConversation, searchUsers, setConversationParam]
   )
+
+  useEffect(() => {
+    if (!conversationParam) {
+      if (selectedConversationId) {
+        clearSelection()
+      }
+      return
+    }
+
+    if (conversationParam !== selectedConversationId) {
+      openConversation(conversationParam)
+    }
+  }, [clearSelection, conversationParam, openConversation, selectedConversationId])
 
   useEffect(() => {
     const onPointerDown = (e: PointerEvent) => {
@@ -280,7 +330,7 @@ export default function ChatPage() {
                 return (
                   <button
                     key={item.id}
-                    onClick={() => openConversation(item.id)}
+                    onClick={() => handleOpenConversation(item.id)}
                     className={`mb-1 flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition ${
                       active ? 'bg-slate-100' : 'hover:bg-slate-50'
                     }`}
@@ -362,7 +412,7 @@ export default function ChatPage() {
               initialLastReadAt={selectedConversation.last_read_at}
               otherLastReadAt={selectedConversation.other_last_read_at}
               showBackButton
-              onBack={clearSelection}
+              onBack={handleClearSelection}
               onMarkedAsRead={handleMarkedAsRead}
             />
           )}
