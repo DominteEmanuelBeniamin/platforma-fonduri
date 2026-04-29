@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom'
 import {
   FileText,
   Download,
-  FolderDown,
+  // FolderDown,
   CheckCircle2,
   XCircle,
   Clock,
@@ -21,6 +21,7 @@ import {
   History
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { downloadFilesArchive } from '@/app/api/_utils/download-files-archive'
 import { Mail } from 'lucide-react'
 import {
   getReminderType,
@@ -43,6 +44,7 @@ interface DocumentRequest {
   files?: {
     id: string
     storage_path: string
+    original_name: string
     version_number: number
     comments: string | null
     created_at: string
@@ -190,13 +192,24 @@ export default function DocumentModal({
     a.remove()
   }
 
-    const getFileName = (storagePath: string) => {
-    try {
-      const parts = storagePath.split('/').filter(Boolean)
-      return parts[parts.length - 1] || storagePath
-    } catch {
-      return storagePath
-    }
+  const sanitizeArchiveNamePart = (value?: string | null) => {
+    const normalized = (value || '')
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, ' ')
+      .replace(/\s+/g, ' ')
+
+    return normalized || null
+  }
+
+  const buildArchiveName = (version: number) => {
+    const parts = [
+      sanitizeArchiveNamePart(clientName),
+      sanitizeArchiveNamePart(projectTitle),
+      sanitizeArchiveNamePart(request.name),
+      `v${version}`,
+    ].filter(Boolean)
+
+    return parts.join(' - ')
   }
 
   // Group uploaded files by version_number (folder uploads can create multiple files for the same version)
@@ -267,28 +280,19 @@ export default function DocumentModal({
   const downloadAllFilesForVersion = async (version: number) => {
     const group = groupedVersions.find(v => v.version === version)
     if (!group || group.files.length === 0) return
-
+  
     const opId = `all-v${version}`
     setDownloadingId(opId)
     setDownloadMenuOpen(false)
-
+  
     try {
-      showToast(`Se descarcă ${group.files.length} fișiere...`, 'info')
-
-      //TODO: ar trebui un endpoint pentru descarcare ca zip, nu reliable cu multe fisiere
-      for (const file of group.files) {
-        const res = await apiFetch(`/api/files/${file.id}/signed-download`, {
-          method: 'POST',
-          body: JSON.stringify({ expiresIn: 60 * 5 })
-        })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(data?.error || res.statusText)
-
-        forceDownload(data.url)
-        await new Promise(resolve => setTimeout(resolve, 350))
-      }
-
-      showToast('Descărcare începută', 'success')
+      await downloadFilesArchive({
+        fileIds: group.files.map(file => file.id),
+        apiFetch,
+        zipName: buildArchiveName(version)
+      })
+  
+      showToast('Arhiva a fost descărcată.', 'success')
     } catch (error: any) {
       showToast('Eroare la descărcare: ' + error.message, 'error')
     } finally {
@@ -340,18 +344,6 @@ export default function DocumentModal({
     }
   }
 
-  // Download all files at once
-  const downloadAllFiles = async () => {
-    if (!request.files || request.files.length === 0) return
-    
-    showToast(`Se descarcă ${request.files.length} fișiere...`, 'info')
-    
-    for (const file of request.files) {
-      await downloadUploadedFileById(file.id)
-      // Small delay between downloads
-      await new Promise(resolve => setTimeout(resolve, 500))
-    }
-  }
 
   // Get image preview URL for hover
   const handleImagePreview = async (fileId: string, fileName: string) => {
@@ -813,9 +805,9 @@ export default function DocumentModal({
                                 {downloadingId === opAllId ? (
                                   <Loader2 className="w-4 h-4 animate-spin" />
                                 ) : (
-                                  <FolderDown className="w-4 h-4" />
+                                  <Package  className="w-4 h-4" />
                                 )}
-                                <span className="text-sm font-semibold">Download</span>
+                                <span className="text-sm font-semibold">Descarcă arhivă</span>
                                 <span className="text-xs text-slate-500">({group.files.length})</span>
                               </button>
 
@@ -849,7 +841,7 @@ export default function DocumentModal({
                                 </div>
 
                                 {group.files.map(file => {
-                                  const fileName = getFileName(file.storage_path)
+                                  const fileName = file.original_name?.trim() || file.storage_path.split('/').filter(Boolean).pop() || 'fisier'
                                   return (
                                     <div
                                       key={file.id}

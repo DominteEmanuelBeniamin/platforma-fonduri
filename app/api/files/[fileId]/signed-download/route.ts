@@ -4,6 +4,19 @@ import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 
 const BUCKET = 'project-files'
 
+function getDownloadName(fileRow: any) {
+  const originalName =
+    typeof fileRow?.original_name === 'string' ? fileRow.original_name.trim() : ''
+
+  if (originalName) return originalName
+
+  if (typeof fileRow?.storage_path === 'string') {
+    return fileRow.storage_path.split('/').filter(Boolean).pop() || 'fisier'
+  }
+
+  return 'fisier'
+}
+
 export async function POST(request: Request,
   { params }: { params: Promise<{ fileId: string }> }
 ) {
@@ -17,7 +30,7 @@ export async function POST(request: Request,
     // Load file + project_id (via relationship)
     const { data: fileRow, error } = await admin
       .from('files')
-      .select('id, storage_path, requirement_id, document_requirements(project_id)')
+      .select('id, storage_path, original_name, requirement_id, document_requirements(project_id)')
       .eq('id', fileId)
       .single()
 
@@ -35,7 +48,9 @@ export async function POST(request: Request,
 
     // Signed URL
     const { data, error: signErr } = await admin.storage.from(BUCKET).createSignedUrl(
-      (fileRow as any).storage_path, expiresIn, { download: true }
+      (fileRow as any).storage_path,
+      expiresIn,
+      { download: getDownloadName(fileRow) }
     )
 
 

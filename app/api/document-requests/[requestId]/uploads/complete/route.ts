@@ -3,6 +3,15 @@ import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 
 const MAX_FILES = 50
+const MAX_ORIGINAL_NAME_LENGTH = 200
+
+function normalizeOriginalName(name: string) {
+  return name
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, '_')
+    .replace(/\s+/g, ' ')
+    .slice(0, MAX_ORIGINAL_NAME_LENGTH)
+}
 
 export async function POST(request: Request,
   { params }: { params: Promise<{ requestId: string }> }) {
@@ -29,12 +38,33 @@ export async function POST(request: Request,
       return NextResponse.json({ error: `uploaded[] must be 1..${MAX_FILES}` }, { status: 400 })
     }
 
-    for (const u of uploaded) {
+    const normalizedUploads = uploaded.map((u: any) => ({
+      ...u,
+      originalName:
+        typeof u?.originalName === 'string'
+          ? normalizeOriginalName(u.originalName)
+          : u?.originalName,
+      mimeType:
+        typeof u?.mimeType === 'string' && u.mimeType.trim()
+          ? u.mimeType.trim()
+          : null,
+    }))
+
+    for (const u of normalizedUploads) {
       if (!u?.storagePath || typeof u.storagePath !== 'string') {
         return NextResponse.json({ error: 'Each uploaded item must include storagePath' }, { status: 400 })
       }
       if (!u?.originalName || typeof u.originalName !== 'string') {
-        return NextResponse.json({ error: 'Each uploaded item must include originalName' }, { status: 400 })
+        return NextResponse.json({ error: 'Each uploaded item must include a valid originalName' }, { status: 400 })
+      }
+      if (u?.mimeType !== undefined && typeof u.mimeType !== 'string') {
+        return NextResponse.json({ error: 'mimeType must be a string when provided' }, { status: 400 })
+      }
+      if (
+        u?.fileSize !== undefined &&
+        (typeof u.fileSize !== 'number' || !Number.isFinite(u.fileSize) || u.fileSize < 0)
+      ) {
+        return NextResponse.json({ error: 'fileSize must be a non-negative number when provided' }, { status: 400 })
       }
     }
 
@@ -71,14 +101,16 @@ export async function POST(request: Request,
     console.log('Project access granted for user:', access.user.id, 'project:', reqRow.project_id)
 
     // Insert files (schema-aligned)
-    const rows = uploaded.map((u: any) => ({
+    const rows = normalizedUploads.map((u: any) => ({
       requirement_id: requestId,
       storage_path: u.storagePath,
+      original_name: u.originalName,
+      mime_type: u.mimeType,
+      file_size: typeof u.fileSize === 'number' ? Math.trunc(u.fileSize) : null,
       version_number: versionNumber,
       uploaded_by: access.user.id,
       // comments: null (default)
       // created_at: default
-      // NOTE: nu avem coloane pentru original_name/mime/size momentan
     }))
 
     const { error: insErr } = await admin.from('files').insert(rows)
@@ -103,7 +135,7 @@ export async function POST(request: Request,
                       request.headers.get('x-real-ip') || 
                       null
 
-    const fileNames = (uploaded as any[]).map(u => u.originalName).join(', ')
+    const fileNames = normalizedUploads.map((u: any) => u.originalName).join(', ')
 
     await admin
       .from('audit_logs')
