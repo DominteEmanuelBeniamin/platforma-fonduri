@@ -44,6 +44,7 @@ interface DocumentRequest {
   files?: {
     id: string
     storage_path: string
+    original_name: string
     version_number: number
     comments: string | null
     created_at: string
@@ -191,13 +192,24 @@ export default function DocumentModal({
     a.remove()
   }
 
-    const getFileName = (storagePath: string) => {
-    try {
-      const parts = storagePath.split('/').filter(Boolean)
-      return parts[parts.length - 1] || storagePath
-    } catch {
-      return storagePath
-    }
+  const sanitizeArchiveNamePart = (value?: string | null) => {
+    const normalized = (value || '')
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, ' ')
+      .replace(/\s+/g, ' ')
+
+    return normalized || null
+  }
+
+  const buildArchiveName = (version: number) => {
+    const parts = [
+      sanitizeArchiveNamePart(clientName),
+      sanitizeArchiveNamePart(projectTitle),
+      sanitizeArchiveNamePart(request.name),
+      `v${version}`,
+    ].filter(Boolean)
+
+    return parts.join(' - ')
   }
 
   // Group uploaded files by version_number (folder uploads can create multiple files for the same version)
@@ -277,7 +289,7 @@ export default function DocumentModal({
       await downloadFilesArchive({
         fileIds: group.files.map(file => file.id),
         apiFetch,
-        zipName: `raspuns-v${version}.zip`
+        zipName: buildArchiveName(version)
       })
   
       showToast('Arhiva a fost descărcată.', 'success')
@@ -829,7 +841,7 @@ export default function DocumentModal({
                                 </div>
 
                                 {group.files.map(file => {
-                                  const fileName = getFileName(file.storage_path)
+                                  const fileName = file.original_name
                                   return (
                                     <div
                                       key={file.id}

@@ -473,9 +473,11 @@ export default function ProjectPhasesSidebar({
       </nav>
 
       {/* Team manager */}
-      <div className="border-t border-slate-100 flex-shrink-0">
-        <TeamManager projectId={projectId} />
-      </div>
+      {isAdmin && (
+        <div className="border-t border-slate-100 flex-shrink-0">
+          <TeamManager projectId={projectId} />
+        </div>
+      )}
     </aside>
   )
 }

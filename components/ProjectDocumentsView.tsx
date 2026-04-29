@@ -9,6 +9,7 @@ import DriveFilesView, { DriveRow } from './DriveFilesView'
 interface DocFile {
   id: string
   storage_path: string
+  original_name: string
   version_number: number
   comments: string | null
   created_at: string
@@ -68,6 +69,7 @@ export default function ProjectDocumentsView({
           id: `${req.id}_${file.id}`,
           fileId: file.id,
           storagePath: file.storage_path,
+          displayName: file.original_name,
           versionNumber: file.version_number,
           uploadedAt: file.created_at,
           docName: req.name,

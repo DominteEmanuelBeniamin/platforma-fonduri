@@ -53,6 +53,7 @@ interface DocumentRequest {
   files?: {
     id: string
     storage_path: string
+    original_name: string
     version_number: number
     comments: string | null
     created_at: string
@@ -447,6 +448,8 @@ export default function DocumentRequests({
         uploaded: successful.map((s: any) => ({
           storagePath: s.upload.storagePath,
           originalName: s.file.name,
+          mimeType: s.file.type,
+          fileSize: s.file.size,
           relativePath: s.file.relativePath,
         })),
       }),

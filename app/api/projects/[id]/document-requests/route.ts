@@ -36,6 +36,7 @@ export async function GET(
         files(
           id,
           storage_path,
+          original_name,
           version_number,
           comments,
           created_at,

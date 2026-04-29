@@ -17,7 +17,7 @@ export async function POST(request: Request,
     // Load file + project_id (via relationship)
     const { data: fileRow, error } = await admin
       .from('files')
-      .select('id, storage_path, requirement_id, document_requirements(project_id)')
+      .select('id, storage_path, original_name, requirement_id, document_requirements(project_id)')
       .eq('id', fileId)
       .single()
 
@@ -35,7 +35,9 @@ export async function POST(request: Request,
 
     // Signed URL
     const { data, error: signErr } = await admin.storage.from(BUCKET).createSignedUrl(
-      (fileRow as any).storage_path, expiresIn, { download: true }
+      (fileRow as any).storage_path,
+      expiresIn,
+      { download: (fileRow as any).original_name }
     )
 
 

@@ -15,6 +15,7 @@ export interface DriveRow {
   id: string           // unique row key
   fileId: string       // used for download + image preview API
   storagePath: string  // determines file type icon + image detection
+  displayName: string
   versionNumber?: number
   uploadedAt: string
 
@@ -57,10 +58,6 @@ function getExt(path: string) {
 
 function isImageExt(e: string) {
   return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(e)
-}
-
-function getFileName(path: string) {
-  return path.split('/').pop()?.replace(/^\d+_/, '') ?? path
 }
 
 function formatDate(iso: string) {
@@ -177,7 +174,8 @@ export default function DriveFilesView({
       if (!res.ok) { alert('Eroare la descărcare'); return }
       const { url } = await res.json()
       const a = document.createElement('a')
-      a.href = url; a.target = '_blank'; a.rel = 'noopener'
+      a.href = url
+      a.rel = 'noopener'
       document.body.appendChild(a); a.click(); document.body.removeChild(a)
     } finally { setDownloading(null) }
   }
@@ -195,7 +193,7 @@ export default function DriveFilesView({
   const filtered = useMemo(() => rows.filter(r => {
     if (search) {
       const q = search.toLowerCase()
-      const fn = getFileName(r.storagePath).toLowerCase()
+      const fn = r.displayName.toLowerCase()
       if (!r.docName.toLowerCase().includes(q) && !fn.includes(q)) return false
     }
     if (filterStatus !== 'all' && r.docStatus !== filterStatus) return false
@@ -389,7 +387,7 @@ export default function DriveFilesView({
                       )}
                     </p>
                     <p className="truncate" style={{ fontSize: '11px', color: '#9aa0a6' }}>
-                      {getFileName(row.storagePath)}
+                      {row.displayName}
                     </p>
                   </div>
                 </div>

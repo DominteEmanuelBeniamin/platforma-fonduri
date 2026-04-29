@@ -32,6 +32,7 @@ type FileProjectRow = {
 type FileStorageRow = {
   id: string
   storage_path: string
+  original_name: string
 }
 
 type ArchivePlanEntry = FileStorageRow & {
@@ -63,7 +64,7 @@ function normalizeZipBaseName(name?: string) {
   const trimmed = (name || 'documente').trim()
   const withoutZip = trimmed.replace(/\.zip$/i, '')
   const safe = withoutZip
-    .replace(/[^\w.\-() ]+/g, '_')
+    .replace(/[^\p{L}\p{N}.\-() ]+/gu, '_')
     .trim()
     .slice(0, 200)
   return safe || 'documente'
@@ -73,11 +74,11 @@ function getSafeZipFileName(name?: string) {
   return `${normalizeZipBaseName(name)}.zip`
 }
 
-function getSafeEntryName(storagePath: string, fallback: string, usedNames: Set<string>) {
-  const rawName = storagePath.split('/').filter(Boolean).pop() || fallback
+function getSafeEntryName(rawName: string, fallback: string, usedNames: Set<string>) {
+  const sourceName = rawName || fallback
 
   const safeName =
-    rawName
+    sourceName
       .replace(/[\\/:*?"<>|]+/g, '_')
       .replace(/\.\.+/g, '.')
       .trim()
@@ -315,7 +316,7 @@ export async function POST(request: Request) {
      */
     const { data: fileStorageRows, error: storageLookupError } = await admin
       .from('files')
-      .select('id, storage_path')
+      .select('id, storage_path, original_name')
       .in('id', fileIds)
 
     if (storageLookupError) {
@@ -349,7 +350,7 @@ export async function POST(request: Request) {
     const usedNames = new Set<string>()
     const archivePlan: ArchivePlanEntry[] = orderedFiles.map(file => ({
       ...file,
-      entryName: getSafeEntryName(file.storage_path, file.id, usedNames),
+      entryName: getSafeEntryName(file.original_name, file.id, usedNames),
     }))
 
     /**
