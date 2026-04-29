@@ -8,6 +8,31 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+const BUCKET = 'project-files'
+
+async function copyTemplateAttachmentToProject(projectId: string, sourcePath?: string | null) {
+  if (!sourcePath) return null
+
+  const fileName = sourcePath.split('/').filter(Boolean).pop()
+  if (!fileName) return null
+
+  const targetPath = `projects/${projectId}/document-request-templates/${crypto.randomUUID()}_${fileName}`
+  const { error } = await supabaseAdmin.storage
+    .from(BUCKET)
+    .copy(sourcePath, targetPath)
+
+  if (error) {
+    console.error('Failed to copy template attachment during import:', {
+      sourcePath,
+      targetPath,
+      error,
+    })
+    return null
+  }
+
+  return targetPath
+}
+
 interface RouteParams {
   params: Promise<{ id: string }>
 }
@@ -117,6 +142,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           .order('order_index')
 
         for (const tDoc of templateDocs || []) {
+          const attachmentPath = await copyTemplateAttachmentToProject(
+            projectId,
+            tDoc.attachment_path,
+          )
+
           await supabaseAdmin
             .from('document_requirements')
             .insert({
@@ -125,7 +155,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
               name: tDoc.name,
               description: tDoc.description,
               is_mandatory: tDoc.is_mandatory,
-              attachment_path: tDoc.attachment_path || null,
+              attachment_path: attachmentPath,
               status: 'pending',
               created_by: auth.profile.id,
             })

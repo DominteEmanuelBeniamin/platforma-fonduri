@@ -5,6 +5,8 @@ import { guardToResponse, requireAdmin, requireProjectAccess } from '../../_util
 import { createSupabaseServiceClient } from '../../_utils/supabase'
 import { logProjectAction, getClientIP, getUserAgent } from '../../_utils/audit'
 
+const SHARED_TEMPLATE_ATTACHMENT_PREFIX = 'templates/attachments/'
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -276,6 +278,7 @@ export async function DELETE(
       ...(fileRows ?? []).map(r => r.storage_path).filter((p): p is string => typeof p === 'string' && p.length > 0),
       ...(attachments ?? []).map(r => r.attachment_path).filter((p): p is string => typeof p === 'string' && p.length > 0),
     ]
+      .filter(path => !path.startsWith(SHARED_TEMPLATE_ATTACHMENT_PREFIX))
 
     const uniquePaths = Array.from(new Set(paths))
 

@@ -38,6 +38,9 @@ export async function POST(
 
     if (signErr || !data?.signedUrl) {
       console.error('signed url error:', signErr)
+      if ((signErr as any)?.statusCode === '404') {
+        return NextResponse.json({ error: 'Attachment file not found in storage' }, { status: 404 })
+      }
       return NextResponse.json({ error: 'Failed to create signed download URL' }, { status: 500 })
     }
 
