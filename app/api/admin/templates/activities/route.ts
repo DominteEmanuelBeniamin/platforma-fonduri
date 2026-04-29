@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { template_phase_id, name, description, order_index, estimated_days } = body
+    const { template_phase_id, name, description, order_index, estimated_days, default_consultant_id } = body
 
     if (!template_phase_id || !name) {
       return NextResponse.json({ error: 'Faza și numele sunt obligatorii' }, { status: 400 })
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
         .order('order_index', { ascending: false })
         .limit(1)
         .single()
-      
+
       finalOrderIndex = (maxOrder?.order_index || 0) + 1
     }
 
@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
         description: description || null,
         order_index: finalOrderIndex,
         estimated_days: estimated_days || null,
+        default_consultant_id: default_consultant_id || null,
         is_active: true
       })
       .select()

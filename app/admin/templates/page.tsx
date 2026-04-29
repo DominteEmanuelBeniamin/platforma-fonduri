@@ -27,11 +27,18 @@ interface DocumentRequirement {
   templateFileName: string | null
 }
 
+interface Consultant {
+  id: string
+  full_name: string | null
+  email: string
+}
+
 interface TemplateActivity {
   id: string
   name: string
   document_requirements: DocumentRequirement[]
   expanded: boolean
+  default_consultant_id?: string
 }
 
 interface TemplatePhase {
@@ -102,6 +109,7 @@ export default function AdminTemplatesPage() {
   const [templateDescription, setTemplateDescription] = useState('')
   const [phases, setPhases] = useState<TemplatePhase[]>([])
   const [saving, setSaving] = useState(false)
+  const [consultants, setConsultants] = useState<Consultant[]>([])
 
   const [addingDocTo, setAddingDocTo] = useState<{ phaseId: string, activityId: string } | null>(null)
   const [newDocName, setNewDocName] = useState('')
@@ -118,9 +126,10 @@ export default function AdminTemplatesPage() {
 
   const fetchData = async () => {
     try {
-      const [templatesRes, statusesRes] = await Promise.all([
+      const [templatesRes, statusesRes, usersRes] = await Promise.all([
         apiFetch('/api/admin/templates'),
-        apiFetch('/api/admin/statuses')
+        apiFetch('/api/admin/statuses'),
+        apiFetch('/api/users'),
       ])
       if (templatesRes.ok) {
         const data = await templatesRes.json()
@@ -129,6 +138,10 @@ export default function AdminTemplatesPage() {
       if (statusesRes.ok) {
         const data = await statusesRes.json()
         setStatuses(data.statuses || [])
+      }
+      if (usersRes.ok) {
+        const data = await usersRes.json()
+        setConsultants((data.users || []).filter((u: any) => u.role === 'consultant'))
       }
     } catch (error) {
       console.error('Eroare:', error)
@@ -375,7 +388,11 @@ export default function AdminTemplatesPage() {
             const actRes = await apiFetch(`/api/admin/templates/activities/${activity.id}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name: activity.name, order_index: aIdx + 1 })
+              body: JSON.stringify({
+                name: activity.name,
+                order_index: aIdx + 1,
+                default_consultant_id: activity.default_consultant_id || null,
+              })
             })
             if (!actRes.ok) throw new Error(await safeParseError(actRes, `Eroare la actualizare activitate "${activity.name}"`))
             activityId = activity.id
@@ -399,6 +416,7 @@ export default function AdminTemplatesPage() {
                 template_phase_id: phaseId,
                 name: activity.name,
                 order_index: aIdx + 1,
+                default_consultant_id: activity.default_consultant_id || null,
               })
             })
             if (!actRes.ok) throw new Error(await safeParseError(actRes, `Eroare la salvare activitate "${activity.name}"`))
@@ -482,11 +500,12 @@ export default function AdminTemplatesPage() {
       name: p.name,
       project_status_id: p.project_status_id,
       expanded: true,
-      activities: p.activities?.map(a => ({
+      activities: p.activities?.map((a: any) => ({
         id: a.id,
         name: a.name,
         expanded: true,
-        document_requirements: a.document_requirements?.map(d => ({
+        default_consultant_id: a.default_consultant_id || '',
+        document_requirements: a.document_requirements?.map((d: any) => ({
           id: d.id,
           name: d.name,
           description: d.description || '',
@@ -618,6 +637,16 @@ export default function AdminTemplatesPage() {
                                   placeholder="Nume activitate..."
                                   className="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm"
                                 />
+                                <select
+                                  value={activity.default_consultant_id ?? ''}
+                                  onChange={e => updateActivity(phase.id, activity.id, { default_consultant_id: e.target.value || undefined })}
+                                  className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 bg-white focus:border-indigo-400 outline-none min-w-[150px]"
+                                >
+                                  <option value="">Consultant implicit</option>
+                                  {consultants.map(c => (
+                                    <option key={c.id} value={c.id}>{c.full_name || c.email}</option>
+                                  ))}
+                                </select>
                                 <button onClick={() => updateActivity(phase.id, activity.id, { expanded: !activity.expanded })} className="p-1 text-slate-400">
                                   {activity.expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                                 </button>

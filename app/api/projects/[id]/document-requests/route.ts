@@ -30,6 +30,8 @@ export async function GET(
         created_by,
         created_at,
         creator:created_by(full_name, email),
+        assigned_to,
+        assigned_consultant:assigned_to(id, full_name, email),
         activity:activity_id(id, name, phase_id),
         files(
           id,

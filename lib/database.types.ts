@@ -369,10 +369,12 @@ export interface Project {
   persoana_contact: string | null;
   is_preluat: boolean;
   preluat_detalii: string | null;
+  general_consultant_id: string | null;
   created_at: string;
   updated_at: string;
   // Relații
   profiles?: Profile;
+  general_consultant?: { id: string; full_name: string | null; email: string } | null;
   program?: Program;
   measure?: ProgramMeasure;
   session?: MeasureSession;
@@ -492,7 +494,7 @@ export interface ProjectActivityUpdate {
   notes?: string;
 }
 
-// CERINȚĂ DOCUMENT (neschimbat)
+// CERINȚĂ DOCUMENT
 export interface ActivityDocumentRequirement {
   id: string;
   activity_id: string;
@@ -502,10 +504,14 @@ export interface ActivityDocumentRequirement {
   template_path: string | null;
   template_name: string | null;
   deadline_at: string | null;
+  reminder_sent_at: string | null;
+  reminder_type_sent: string | null;
   status: DocumentRequirementStatus;
   created_at: string;
   updated_at: string;
   created_by: string | null;
+  assigned_to: string | null;
+  assigned_consultant: { id: string; full_name: string | null; email: string } | null;
   files?: ActivityDocumentFile[];
 }
 

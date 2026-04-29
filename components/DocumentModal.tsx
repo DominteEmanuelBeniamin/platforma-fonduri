@@ -22,6 +22,13 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { downloadFilesArchive } from '@/app/api/_utils/download-files-archive'
+import { Mail } from 'lucide-react'
+import {
+  getReminderType,
+  generateMailtoLink,
+  REMINDER_LABELS,
+  REMINDER_BADGE,
+} from '@/lib/document-reminder'
 
 interface DocumentRequest {
   id: string
@@ -32,6 +39,7 @@ interface DocumentRequest {
   deadline_at: string | null
   created_by: string | null
   created_at: string
+  assigned_to: string | null
   creator?: { full_name: string | null; email: string | null }
   files?: {
     id: string
@@ -48,19 +56,59 @@ type ToastType = 'success' | 'error' | 'info'
 export default function DocumentModal({
   request,
   onClose,
-  onUpdate
+  onUpdate,
+  clientEmail,
+  clientName,
+  projectTitle,
 }: {
   request: DocumentRequest
   onClose: () => void
   onUpdate: () => void
+  clientEmail?: string | null
+  clientName?: string | null
+  projectTitle?: string
 }) {
-  const { apiFetch } = useAuth()
+  const { apiFetch, profile } = useAuth()
   const [notes, setNotes] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [showRejectConfirm, setShowRejectConfirm] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null)
+
+  // Deadline edit state
+  const [editingDeadline, setEditingDeadline] = useState(false)
+  const [deadlineValue, setDeadlineValue] = useState(
+    request.deadline_at ? request.deadline_at.slice(0, 10) : ''
+  )
+  const [savingDeadline, setSavingDeadline] = useState(false)
+  const [localDeadline, setLocalDeadline] = useState<string | null>(request.deadline_at)
+
+  const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
+
+  const handleSaveDeadline = async () => {
+    setSavingDeadline(true)
+    try {
+      const res = await apiFetch(`/api/document-requests/${request.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assigned_to: request.assigned_to ?? null,
+          deadline_at: deadlineValue || null,
+        }),
+      })
+      if (res.ok) {
+        setLocalDeadline(deadlineValue || null)
+        setEditingDeadline(false)
+        onUpdate()
+      } else {
+        const d = await res.json().catch(() => null)
+        alert(d?.error || 'Eroare la salvare')
+      }
+    } finally {
+      setSavingDeadline(false)
+    }
+  }
 
   // Status configuration
   const statusConfig = useMemo(() => {
@@ -103,9 +151,9 @@ export default function DocumentModal({
 
   // Check if deadline is overdue
   const isOverdue = useMemo(() => {
-    if (!request.deadline_at) return false
-    return new Date(request.deadline_at) < new Date() && request.status === 'pending'
-  }, [request.deadline_at, request.status])
+    if (!localDeadline) return false
+    return new Date(localDeadline) < new Date() && request.status === 'pending'
+  }, [localDeadline, request.status])
 
   // Toast system
   const showToast = (message: string, type: ToastType = 'info') => {
@@ -469,33 +517,98 @@ export default function DocumentModal({
               </div>
             </div>
 
-            {request.deadline_at && (
-              <div className={`flex items-center gap-3 p-4 rounded-xl border ${
-                isOverdue 
+            {/* Card termen limită — mereu vizibil, editabil pentru admin/consultant */}
+            <div className={`flex items-center gap-3 p-4 rounded-xl border sm:col-span-2 ${
+              localDeadline
+                ? isOverdue
                   ? 'border-red-200 bg-red-50'
                   : 'border-amber-200 bg-amber-50/50'
-              } sm:col-span-2`}>
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                  isOverdue ? 'bg-red-100' : 'bg-amber-100'
-                }`}>
-                  <Clock className={`w-5 h-5 ${isOverdue ? 'text-red-600' : 'text-amber-600'}`} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${
-                    isOverdue ? 'text-red-600' : 'text-amber-600'
-                  }`}>
-                    {isOverdue ? '⚠️ Termen depășit' : 'Termen limită'}
-                  </p>
-                  <p className={`text-sm font-bold ${isOverdue ? 'text-red-900' : 'text-amber-900'}`}>
-                    {new Date(request.deadline_at).toLocaleDateString('ro-RO', { 
-                      day: 'numeric', 
-                      month: 'long',
-                      year: 'numeric'
-                    })}
-                  </p>
-                </div>
+                : 'border-dashed border-slate-300 bg-slate-50/50'
+            }`}>
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                localDeadline
+                  ? isOverdue ? 'bg-red-100' : 'bg-amber-100'
+                  : 'bg-white border border-slate-200'
+              }`}>
+                <Clock className={`w-5 h-5 ${
+                  localDeadline
+                    ? isOverdue ? 'text-red-600' : 'text-amber-600'
+                    : 'text-slate-400'
+                }`} />
               </div>
-            )}
+
+              <div className="flex-1 min-w-0">
+                <p className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${
+                  localDeadline
+                    ? isOverdue ? 'text-red-600' : 'text-amber-600'
+                    : 'text-slate-500'
+                }`}>
+                  {localDeadline
+                    ? isOverdue ? '⚠️ Termen depășit' : 'Termen limită'
+                    : 'Termen limită'}
+                </p>
+
+                {editingDeadline ? (
+                  <div className="flex items-center gap-2 mt-1">
+                    <input
+                      type="date"
+                      value={deadlineValue}
+                      onChange={e => setDeadlineValue(e.target.value)}
+                      autoFocus
+                      disabled={savingDeadline}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') handleSaveDeadline()
+                        if (e.key === 'Escape') setEditingDeadline(false)
+                      }}
+                      className="text-sm px-2 py-1 border border-indigo-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-slate-800 disabled:opacity-50"
+                    />
+                    <button
+                      onClick={handleSaveDeadline}
+                      disabled={savingDeadline}
+                      className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 disabled:opacity-50 flex-shrink-0"
+                    >
+                      {savingDeadline
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        : <CheckCircle2 className="w-3.5 h-3.5" />
+                      }
+                    </button>
+                    <button
+                      onClick={() => setEditingDeadline(false)}
+                      className="p-1.5 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 flex-shrink-0"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <p className={`text-sm font-bold ${
+                      localDeadline
+                        ? isOverdue ? 'text-red-900' : 'text-amber-900'
+                        : 'text-slate-400 italic font-normal'
+                    }`}>
+                      {localDeadline
+                        ? new Date(localDeadline).toLocaleDateString('ro-RO', {
+                            day: 'numeric',
+                            month: 'long',
+                            year: 'numeric',
+                          })
+                        : 'Niciun termen setat'}
+                    </p>
+                    {isAdminOrConsultant && (
+                      <button
+                        onClick={() => {
+                          setDeadlineValue(localDeadline ? localDeadline.slice(0, 10) : '')
+                          setEditingDeadline(true)
+                        }}
+                        className="text-[11px] text-indigo-500 hover:text-indigo-700 hover:underline flex-shrink-0"
+                      >
+                        {localDeadline ? 'Modifică' : '+ Adaugă termen'}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Files Section - REDESIGNED */}
@@ -850,12 +963,51 @@ export default function DocumentModal({
               </button>
             </div>
           ) : (
-            <div className="flex items-center justify-center py-2">
-              <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl ${statusConfig.bg} ${statusConfig.border} border-2`}>
-                <StatusIcon className={`w-5 h-5 ${statusConfig.text}`} />
-                <span className={`font-bold text-sm ${statusConfig.text}`}>
-                  {statusConfig.label}
-                </span>
+            <div className="flex flex-col gap-3">
+              {/* Buton reminder client — mereu vizibil pentru pending */}
+              {request.status === 'pending' && (() => {
+                if (!clientEmail) {
+                  return (
+                    <div className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-slate-200 bg-slate-50 text-sm text-slate-400 cursor-not-allowed">
+                      <Mail className="w-4 h-4" />
+                      Reminder indisponibil — fără email client
+                    </div>
+                  )
+                }
+                const reminderType = getReminderType(localDeadline) ?? '1_week'
+                const badge = REMINDER_BADGE[reminderType]
+                const mailtoLink = generateMailtoLink(
+                  {
+                    requestName: request.name,
+                    requestDescription: request.description,
+                    deadlineAt: localDeadline,
+                    clientEmail,
+                    clientName: clientName ?? null,
+                    projectTitle: projectTitle ?? '',
+                    projectId: '',
+                  },
+                  reminderType
+                )
+                return (
+                  <a
+                    href={mailtoLink}
+                    className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 text-sm font-bold transition-opacity hover:opacity-80 ${badge.bg} ${badge.text} ${badge.border}`}
+                  >
+                    <Mail className="w-4 h-4" />
+                    Trimite reminder clientului
+                    <span className="opacity-60 font-normal">·</span>
+                    {REMINDER_LABELS[reminderType]}
+                  </a>
+                )
+              })()}
+
+              <div className="flex items-center justify-center py-1">
+                <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl ${statusConfig.bg} ${statusConfig.border} border-2`}>
+                  <StatusIcon className={`w-5 h-5 ${statusConfig.text}`} />
+                  <span className={`font-bold text-sm ${statusConfig.text}`}>
+                    {statusConfig.label}
+                  </span>
+                </div>
               </div>
             </div>
           )}
