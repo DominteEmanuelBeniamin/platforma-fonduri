@@ -3,13 +3,17 @@
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {useAuth} from "@/app/providers/AuthProvider"
+import { usePrivateChatUnread } from "@/hooks/usePrivateChatUnread"
 
 export default function Navbar() {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { loading: authLoading, user, profile, signOut } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
   const isLoggedIn = !authLoading && !!user
+  const canUsePrivateChat = profile?.role === 'admin' || profile?.role === 'consultant'
+  const { hasUnread, unreadConversationCount } = usePrivateChatUnread(
+    isLoggedIn && canUsePrivateChat
+  )
 
   const handleLogout = async () => {
     await signOut()
@@ -43,6 +47,22 @@ export default function Navbar() {
             >
               Proiecte
             </Link>
+            {canUsePrivateChat && (
+              <Link 
+              href="/chat" 
+              className={`relative px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/chat')}`}
+            >
+              Chat
+              {hasUnread && (
+                <span
+                  className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white"
+                  aria-label={`${unreadConversationCount} conversații necitite`}
+                >
+                  {unreadConversationCount > 9 ? '9+' : unreadConversationCount}
+                </span>
+              )}
+            </Link>
+            )}
             {profile?.role === 'admin' && (
               <>
                 <Link 
@@ -73,7 +93,9 @@ export default function Navbar() {
         {user ? (
           <div className="flex items-center gap-3 pl-4 border-l border-slate-200">
             <div className="hidden lg:block text-right">
-              <p className="text-xs font-semibold text-slate-900 truncate max-w-[150px]">{(user as any).email}</p>
+              <p className="text-xs font-semibold text-slate-900 truncate max-w-[150px]">
+                {typeof user === 'object' && user && 'email' in user ? String(user.email) : ''}
+              </p>
               <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">Cont Activ</p>
             </div>
             <button 

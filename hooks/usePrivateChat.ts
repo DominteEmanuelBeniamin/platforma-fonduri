@@ -1,0 +1,529 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+'use client'
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { supabase } from '@/lib/supabaseClient'
+import { useAuth } from '@/app/providers/AuthProvider'
+
+export type PrivateChatProfile = {
+  id: string
+  full_name: string | null
+  email: string | null
+}
+
+export type PrivateChatMessage = {
+  id: string
+  conversation_id: string
+  created_by: string
+  body: string | null
+  created_at: string
+  edited_at: string | null
+  deleted_at: string | null
+  profiles: PrivateChatProfile | null
+  is_deleted?: boolean
+}
+
+type GetMessagesResponse = {
+  items: PrivateChatMessage[]
+  nextCursor: string | null
+}
+
+type PostMessageResponse = {
+  item: PrivateChatMessage
+}
+
+type PatchMessageResponse = {
+  item: PrivateChatMessage
+}
+
+type DeleteMessageResponse = {
+  ok: true
+}
+
+type GetMessageByIdResponse = {
+  item: PrivateChatMessage
+}
+
+type ReadResponse = {
+  ok: true
+  lastReadAt: string
+}
+
+type ReadStateResponse = {
+  ok: true
+  lastReadAt: string | null
+  otherLastReadAt: string | null
+}
+
+type UsePrivateChatOptions = {
+  initialLimit?: number
+  initialLastReadAt?: string | null
+  initialOtherLastReadAt?: string | null
+}
+
+const maxIso = (a: string | null, b: string | null) => {
+  if (!a) return b
+  if (!b) return a
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b
+}
+
+export function usePrivateChat(
+  conversationId: string,
+  opts: UsePrivateChatOptions = {}
+) {
+  const { apiFetch, loading: authLoading, userId } = useAuth()
+  const initialLimit = opts.initialLimit ?? 50
+
+
+  const [messages, setMessages] = useState<PrivateChatMessage[]>([])
+  const [loading, setLoading] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [lastReadAt, setLastReadAt] = useState<string | null>(opts.initialLastReadAt ?? null)
+  const [otherLastReadAt, setOtherLastReadAt] = useState<string | null>(
+    opts.initialOtherLastReadAt ?? null
+  )
+
+  const idsRef = useRef<Set<string>>(new Set())
+  const initialLastReadAtRef = useRef(opts.initialLastReadAt ?? null)
+  const initialOtherLastReadAtRef = useRef(opts.initialOtherLastReadAt ?? null)
+
+  const resetState = useCallback(() => {
+    idsRef.current = new Set()
+    setMessages([])
+    setNextCursor(null)
+    setError(null)
+    setLoading(false)
+    setSending(false)
+    setLastReadAt(initialLastReadAtRef.current)
+    setOtherLastReadAt(initialOtherLastReadAtRef.current)
+  }, [])
+
+  const pushOne = useCallback((m: PrivateChatMessage) => {
+    if (idsRef.current.has(m.id)) return
+    idsRef.current.add(m.id)
+
+    setMessages((prev) => {
+      const next = prev.concat(m)
+      next.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      return next
+    })
+  }, [])
+
+  const upsertOne = useCallback((m: PrivateChatMessage) => {
+    idsRef.current.add(m.id)
+
+    setMessages((prev) => {
+      const existing = prev.find((x) => x.id === m.id)
+
+      const merged: PrivateChatMessage = existing
+        ? { ...existing, ...m, profiles: m.profiles ?? existing.profiles }
+        : m
+
+      const next = existing
+        ? prev.map((x) => (x.id === m.id ? merged : x))
+        : prev.concat(merged)
+
+      next.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      return next
+    })
+  }, [])
+
+  const fetchInitial = useCallback(async () => {
+    if (!conversationId) return
+    if (authLoading) return
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      const res = await apiFetch(
+        `/api/private-conversations/${conversationId}/messages?limit=${initialLimit}`,
+        { method: 'GET' }
+      )
+      const json = (await res.json().catch(() => null)) as GetMessagesResponse | null
+
+      if (!res.ok) {
+        setError((json as any)?.error ?? 'Failed to load messages')
+        resetState()
+        return
+      }
+
+      const apiItems = json?.items ?? []
+      const cursor = json?.nextCursor ?? null
+
+      const oldestFirst = apiItems.slice().reverse()
+
+      idsRef.current = new Set(oldestFirst.map((m) => m.id))
+      setMessages(oldestFirst)
+      setNextCursor(cursor)
+    } catch {
+      setError('Failed to load messages')
+    } finally {
+      setLoading(false)
+    }
+  }, [apiFetch, authLoading, conversationId, initialLimit, resetState])
+
+  const loadMore = useCallback(async () => {
+    if (!conversationId) return
+    if (authLoading) return
+    if (!nextCursor) return
+    if (loading) return
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      const url = `/api/private-conversations/${conversationId}/messages?limit=${initialLimit}&cursor=${encodeURIComponent(
+        nextCursor
+      )}`
+
+      const res = await apiFetch(url, { method: 'GET' })
+      const json = (await res.json().catch(() => null)) as GetMessagesResponse | null
+
+      if (!res.ok) {
+        setError((json as any)?.error ?? 'Failed to load more messages')
+        return
+      }
+
+      const apiItems = json?.items ?? []
+      const cursor = json?.nextCursor ?? null
+      const oldestFirst = apiItems.slice().reverse()
+
+      setMessages((prev) => {
+        const merged = [...oldestFirst, ...prev]
+        const seen = new Set<string>()
+        const out: PrivateChatMessage[] = []
+
+        for (const m of merged) {
+          if (seen.has(m.id)) continue
+          seen.add(m.id)
+          out.push(m)
+        }
+
+        idsRef.current = new Set(out.map((m) => m.id))
+        out.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+        return out
+      })
+
+      setNextCursor(cursor)
+    } catch {
+      setError('Failed to load more messages')
+    } finally {
+      setLoading(false)
+    }
+  }, [apiFetch, authLoading, conversationId, initialLimit, loading, nextCursor])
+
+  const sendMessage = useCallback(
+    async (body: string) => {
+      const trimmed = body.trim()
+      if (!trimmed) return
+
+      setSending(true)
+      setError(null)
+
+      try {
+        const res = await apiFetch(`/api/private-conversations/${conversationId}/messages`, {
+          method: 'POST',
+          body: JSON.stringify({ body: trimmed }),
+        })
+        const json = (await res.json().catch(() => null)) as PostMessageResponse | null
+
+        if (!res.ok) {
+          setError((json as any)?.error ?? 'Failed to send message')
+          return
+        }
+
+        const item = json?.item
+        if (item) pushOne(item)
+      } catch {
+        setError('Failed to send message')
+      } finally {
+        setSending(false)
+      }
+    },
+    [apiFetch, conversationId, pushOne]
+  )
+
+  const editMessage = useCallback(
+    async (messageId: string, body: string) => {
+      const trimmed = body.trim()
+      if (!trimmed) return
+
+      setError(null)
+
+      try {
+        const res = await apiFetch(
+          `/api/private-conversations/${conversationId}/messages/${messageId}`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({ body: trimmed }),
+          }
+        )
+        const json = (await res.json().catch(() => null)) as PatchMessageResponse | null
+
+        if (!res.ok) {
+          setError((json as any)?.error ?? 'Failed to edit message')
+          return
+        }
+
+        if (json?.item) upsertOne(json.item)
+      } catch {
+        setError('Failed to edit message')
+      }
+    },
+    [apiFetch, conversationId, upsertOne]
+  )
+
+  const deleteMessage = useCallback(
+    async (messageId: string) => {
+      setError(null)
+
+      try {
+        const res = await apiFetch(
+          `/api/private-conversations/${conversationId}/messages/${messageId}`,
+          {
+            method: 'DELETE',
+          }
+        )
+        const json = (await res.json().catch(() => null)) as DeleteMessageResponse | null
+
+        if (!res.ok || !json?.ok) {
+          setError((json as any)?.error ?? 'Failed to delete message')
+          return
+        }
+
+        const nowIso = new Date().toISOString()
+        setMessages((prev) =>
+          prev.map((m) => (m.id === messageId ? { ...m, deleted_at: nowIso } : m))
+        )
+      } catch {
+        setError('Failed to delete message')
+      }
+    },
+    [apiFetch, conversationId]
+  )
+
+  const markAsRead = useCallback(async (readThroughAt?: string | null) => {
+    if (!conversationId) return
+    if (authLoading) return
+
+    try {
+      const res = await apiFetch(`/api/private-conversations/${conversationId}/read`, {
+        method: 'POST',
+        body: JSON.stringify({ readThroughAt: readThroughAt ?? undefined }),
+      })
+      const json = (await res.json().catch(() => null)) as ReadResponse | null
+
+      if (!res.ok || !json?.ok || !json.lastReadAt) return
+      setLastReadAt((prev) => maxIso(prev, json.lastReadAt))
+    } catch {
+      // silent fail
+    }
+  }, [apiFetch, authLoading, conversationId])
+
+  const refreshReadState = useCallback(async () => {
+    if (!conversationId) return
+    if (authLoading) return
+
+    try {
+      const res = await apiFetch(`/api/private-conversations/${conversationId}/read`, {
+        method: 'GET',
+      })
+      const json = (await res.json().catch(() => null)) as ReadStateResponse | null
+
+      if (!res.ok || !json?.ok) return
+      setLastReadAt((prev) => maxIso(prev, json.lastReadAt))
+      setOtherLastReadAt((prev) => maxIso(prev, json.otherLastReadAt))
+    } catch {
+      // silent fail
+    }
+  }, [apiFetch, authLoading, conversationId])
+
+  const hasPendingOutgoingReadReceipt = useMemo(() => {
+    if (!userId) return false
+
+    const otherReadTime = otherLastReadAt ? new Date(otherLastReadAt).getTime() : null
+
+    return messages.some((m) => {
+      if (m.deleted_at) return false
+      if (m.created_by !== userId) return false
+      if (otherReadTime === null) return true
+      return new Date(m.created_at).getTime() > otherReadTime
+    })
+  }, [messages, otherLastReadAt, userId])
+
+  const unreadCount = useMemo(() => {
+    if (!lastReadAt) {
+      return messages.filter((m) => !m.deleted_at && m.created_by !== userId).length
+    }
+
+    const lastReadTime = new Date(lastReadAt).getTime()
+
+    return messages.filter(
+      (m) =>
+        !m.deleted_at &&
+        m.created_by !== userId &&
+        new Date(m.created_at).getTime() > lastReadTime
+    ).length
+  }, [lastReadAt, messages, userId])
+
+  useEffect(() => {
+    if (!conversationId) return
+    if (authLoading) return
+
+    let cancelled = false
+
+    const fetchFullById = async (id: string) => {
+      const res = await apiFetch(
+        `/api/private-conversations/${conversationId}/messages/${id}`,
+        { method: 'GET' }
+      )
+      const json = (await res.json().catch(() => null)) as GetMessageByIdResponse | null
+      if (!res.ok) return null
+      return json?.item ?? null
+    }
+
+    const channel = supabase
+      .channel(`private-chat-${conversationId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'private_messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        async (payload) => {
+          try {
+            const row = payload.new as { id?: string; deleted_at?: string | null } | null
+            const id = row?.id
+            if (!id) return
+            if (row?.deleted_at) return
+            if (idsRef.current.has(id)) return
+            const item = await fetchFullById(id)
+            if (cancelled) return
+            if (item && !item.deleted_at) upsertOne(item)
+          } catch {
+            // ignore
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'private_messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        async (payload) => {
+          try {
+            const row = payload.new as {
+              id?: string
+              deleted_at?: string | null
+            } | null
+
+            const id = row?.id
+            if (!id) return
+
+            if (row?.deleted_at) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === id
+                    ? { ...m, deleted_at: row.deleted_at ?? new Date().toISOString() }
+                    : m
+                )
+              )
+              return
+            }
+
+            const item = await fetchFullById(id)
+            if (cancelled) return
+            if (item && !item.deleted_at) upsertOne(item)
+          } catch {
+            // ignore
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'private_conversation_participants',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          const row = payload.new as {
+            user_id?: string
+            last_read_at?: string | null
+          } | null
+
+          if (!row?.user_id) return
+
+          if (row.user_id === userId) {
+            setLastReadAt((prev) => maxIso(prev, row.last_read_at ?? null))
+            return
+          }
+
+          setOtherLastReadAt((prev) => maxIso(prev, row.last_read_at ?? null))
+        }
+      )
+      .subscribe()
+
+    return () => {
+      cancelled = true
+      supabase.removeChannel(channel)
+    }
+  }, [apiFetch, authLoading, conversationId, upsertOne, userId])
+
+  useEffect(() => {
+    if (!conversationId) return
+    if (authLoading) return
+
+    resetState()
+    fetchInitial()
+  }, [conversationId, authLoading, fetchInitial, resetState])
+
+  useEffect(() => {
+    if (!conversationId) return
+    if (authLoading) return
+
+    void refreshReadState()
+  }, [authLoading, conversationId, refreshReadState])
+
+  useEffect(() => {
+    if (!conversationId) return
+    if (authLoading) return
+    if (!hasPendingOutgoingReadReceipt) return
+
+    // Realtime for participant read rows is not dependable in this setup, so poll only
+    // while there is an outgoing message that may still become read.
+    const interval = window.setInterval(() => {
+      void refreshReadState()
+    }, 2000)
+
+    return () => window.clearInterval(interval)
+  }, [authLoading, conversationId, hasPendingOutgoingReadReceipt, refreshReadState])
+
+  const hasMore = useMemo(() => !!nextCursor, [nextCursor])
+
+  return {
+    messages,
+    loading,
+    sending,
+    error,
+    hasMore,
+    loadMore,
+    sendMessage,
+    editMessage,
+    deleteMessage,
+    setError,
+    unreadCount,
+    markAsRead,
+    lastReadAt,
+    otherLastReadAt,
+  }
+}
