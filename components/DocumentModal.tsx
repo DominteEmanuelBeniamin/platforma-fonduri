@@ -841,7 +841,7 @@ export default function DocumentModal({
                                 </div>
 
                                 {group.files.map(file => {
-                                  const fileName = file.original_name
+                                  const fileName = file.original_name?.trim() || file.storage_path.split('/').filter(Boolean).pop() || 'fisier'
                                   return (
                                     <div
                                       key={file.id}

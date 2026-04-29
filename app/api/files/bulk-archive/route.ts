@@ -74,6 +74,16 @@ function getSafeZipFileName(name?: string) {
   return `${normalizeZipBaseName(name)}.zip`
 }
 
+function resolveEntrySourceName(file: FileStorageRow, fallback: string) {
+  const originalName =
+    typeof file.original_name === 'string' ? file.original_name.trim() : ''
+
+  if (originalName) return originalName
+
+  const storageBase = file.storage_path.split('/').filter(Boolean).pop()
+  return storageBase || fallback
+}
+
 function getSafeEntryName(rawName: string, fallback: string, usedNames: Set<string>) {
   const sourceName = rawName || fallback
 
@@ -350,7 +360,7 @@ export async function POST(request: Request) {
     const usedNames = new Set<string>()
     const archivePlan: ArchivePlanEntry[] = orderedFiles.map(file => ({
       ...file,
-      entryName: getSafeEntryName(file.original_name, file.id, usedNames),
+      entryName: getSafeEntryName(resolveEntrySourceName(file, file.id), file.id, usedNames),
     }))
 
     /**
