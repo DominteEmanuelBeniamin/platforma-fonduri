@@ -50,8 +50,8 @@ export async function DELETE(
     }
 
     return NextResponse.json({ message: 'Member removed' })
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('DELETE /api/projects/[id]/members/[memberId] error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Server error' }, { status: 500 })
   }
 }

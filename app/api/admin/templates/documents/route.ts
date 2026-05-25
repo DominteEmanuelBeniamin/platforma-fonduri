@@ -17,7 +17,15 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { template_activity_id, name, description, is_mandatory, order_index, attachment_path } = body
+    const {
+      template_activity_id,
+      name,
+      description,
+      is_mandatory,
+      order_index,
+      attachment_path,
+      attachment_original_name,
+    } = body
 
     if (!template_activity_id || !name) {
       return NextResponse.json({ error: 'Activitatea și numele sunt obligatorii' }, { status: 400 })
@@ -46,6 +54,8 @@ export async function POST(req: NextRequest) {
         is_mandatory: is_mandatory || false,
         order_index: finalOrderIndex,
         attachment_path: attachment_path || null,
+        attachment_original_name: attachment_path ? attachment_original_name || null : null,
+        is_active: true,
       })
       .select()
       .single()

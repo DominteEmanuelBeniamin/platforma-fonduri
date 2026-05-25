@@ -14,7 +14,7 @@
 | Decision | MVP contract |
 |----------|--------------|
 | Timeline scope | Cronologia afiseaza submissions si atasamente active de cerere |
-| Internal file meaning | In MVP, "intern" inseamna model/atasament incarcat pe o cerere de admin sau consultant |
+| Internal file meaning | In MVP, "intern" inseamna model/atasament atasat unei cereri de admin sau consultant |
 | Private files | Nu exista in MVP in aceasta cronologie |
 | Labels | Randurile au tip explicit: `Fisier incarcat` sau `Model/atasament cerere` |
 | Uploader label | Se afiseaza doar cand metadata este reala; nu se ghiceste din storage path |
@@ -54,7 +54,7 @@ Cronologia **Documente** afiseaza, in acelasi view, atat fisierele incarcate pen
 ### 5.1 In Scope
 
 - Intrare de timeline pentru fiecare fisier din `files`.
-- Intrare de timeline pentru fiecare `attachment_path` activ pe cerere activa.
+- Intrare de timeline pentru fiecare `attachment_path` activ, disponibil si vizibil pe cerere activa.
 - Tip si origine vizibila pe rand.
 - Download autorizat pentru ambele tipuri.
 - Sortare coerenta si empty state corect.
@@ -64,7 +64,7 @@ Cronologia **Documente** afiseaza, in acelasi view, atat fisierele incarcate pen
 - Un drive generic de fisiere interne independente de cereri.
 - Fisiere private ale echipei.
 - Folder management.
-- Timeline pentru atasamente retrase sau cereri soft-deleted.
+- Timeline pentru atasamente retrase, indisponibile sau cereri soft-deleted.
 - Deduplicarea globala a storage-ului.
 
 ---
@@ -78,7 +78,7 @@ MVP-ul are doua tipuri de rand:
 | `submission_file` | `files` | Fisier incarcat pentru cererea de document |
 | `request_attachment` | `document_requirements.attachment_path` | Model sau atasament pus la dispozitie pe cerere |
 
-Un rand `request_attachment` nu este un document aprobat si nu foloseste statusul de review ca si cum ar fi upload de client.
+Un rand `request_attachment` nu este un document aprobat si nu foloseste statusul de review ca si cum ar fi upload de client. Statusul cererii poate ramane disponibil pentru filtrare interna daca este util, dar UI-ul nu il afiseaza ca status al atasamentului.
 
 ---
 
@@ -105,6 +105,8 @@ Fiecare rand afiseaza cand datele exista:
 - data relevanta;
 - status de review numai pentru `submission_file`;
 - actiune de download.
+
+Pentru `request_attachment`, data afisata este data atasarii daca exista in schema. Daca schema curenta nu pastreaza acest timestamp, UI-ul poate folosi data cererii doar pentru sortare stabila si trebuie sa evite etichete care sugereaza fals ca atasamentul a fost incarcat atunci.
 
 ### 8.2 Labels
 
@@ -136,6 +138,7 @@ Cand uploader-ul real exista in metadata, UI-ul il poate afisa. Daca atasamentul
 | FR-05 | Sortarea ramane stabila cand tipurile de rand sunt mixte. |
 | FR-06 | Cererile retrase nu emit randuri active in timeline. |
 | FR-07 | Lipsa metadata de uploader nu produce label fals. |
+| FR-08 | Atasamentele marcate missing sau fara path disponibil nu emit rand activ in cronologie. |
 
 ---
 
@@ -152,19 +155,24 @@ type ProjectDocumentTimelineEntry =
       file_id: string
       request_id: string
       request_name: string
+      display_name: string
       version_number: number
       created_at: string
       status: 'pending' | 'review' | 'approved' | 'rejected'
+      label: 'Fisier incarcat'
     }
   | {
       entry_type: 'request_attachment'
       request_id: string
       request_name: string
+      display_name: string
       display_at: string | null
+      label: 'Model/atasament cerere'
+      status: null
     }
 ```
 
-DTO-ul poate fi calculat initial din payload-ul existent, dar tipurile trebuie sa ramana distincte in componenta. `display_at` foloseste timestamp-ul real al atasamentului cand exista; daca schema curenta nu il pastreaza, UI-ul poate avea fallback fara a inventa o data falsa.
+DTO-ul poate fi calculat initial din payload-ul existent, dar tipurile trebuie sa ramana distincte in componenta. `display_at` foloseste timestamp-ul real al atasamentului cand exista; daca schema curenta nu il pastreaza, UI-ul poate avea fallback tehnic pentru sortare fara a inventa o data falsa in etichetele vizibile.
 
 ### 10.2 Download Contract
 
@@ -195,6 +203,7 @@ UI-ul nu construieste URL-uri de storage.
 | Cerere cu ambele tipuri | Doua randuri distincte, etichetate corect |
 | Atasament fara uploader real | Nu se inventeaza actor |
 | Cerere retrasa | Nu apare in timeline activ |
+| Atasament marcat indisponibil | Nu apare ca rand descarcabil activ |
 | Client descarca atasament vizibil | Download autorizat |
 
 ---
@@ -204,8 +213,10 @@ UI-ul nu construieste URL-uri de storage.
 - [ ] Cronologia `Documente` include fisierele incarcate si atasamentele active ale cererilor.
 - [ ] Fiecare rand arata tipul corect al intrarii.
 - [ ] Modelul/atasamentul nu este prezentat drept document incarcat pentru review.
+- [ ] Randurile `request_attachment` nu afiseaza status de aprobare/respingere ca status propriu.
 - [ ] Download-ul functioneaza prin endpoint autorizat pentru ambele tipuri.
 - [ ] Randurile cu metadata incompleta au fallback corect.
+- [ ] Atasamentele lipsa sau retrase nu apar ca descarcabile active.
 - [ ] Nu sunt expuse fisiere private inexistente in modelul MVP.
 
 ---

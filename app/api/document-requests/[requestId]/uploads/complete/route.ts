@@ -43,8 +43,9 @@ export async function POST(request: Request,
     // Load requirement -> project_id
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('id, project_id')
+      .select('id, project_id, deleted_at')
       .eq('id', requestId)
+      .is('deleted_at', null)
       .single()
 
     if (reqErr) {
@@ -71,14 +72,14 @@ export async function POST(request: Request,
     console.log('Project access granted for user:', access.user.id, 'project:', reqRow.project_id)
 
     // Insert files (schema-aligned)
-    const rows = uploaded.map((u: any) => ({
+    const rows = uploaded.map((u: { storagePath: string; originalName: string }) => ({
       requirement_id: requestId,
       storage_path: u.storagePath,
+      original_name: u.originalName,
       version_number: versionNumber,
       uploaded_by: access.user.id,
       // comments: null (default)
       // created_at: default
-      // NOTE: nu avem coloane pentru original_name/mime/size momentan
     }))
 
     const { error: insErr } = await admin.from('files').insert(rows)
@@ -92,6 +93,7 @@ export async function POST(request: Request,
       .from('document_requirements')
       .update({ status: 'review' })
       .eq('id', requestId)
+      .is('deleted_at', null)
 
     if (updErr) {
       console.error('requirements update error:', updErr)
@@ -103,7 +105,7 @@ export async function POST(request: Request,
                       request.headers.get('x-real-ip') || 
                       null
 
-    const fileNames = (uploaded as any[]).map(u => u.originalName).join(', ')
+    const fileNames = uploaded.map((u: { originalName: string }) => u.originalName).join(', ')
 
     await admin
       .from('audit_logs')

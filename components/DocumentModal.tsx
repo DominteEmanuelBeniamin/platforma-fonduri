@@ -18,7 +18,8 @@ import {
   Loader2,
   Eye,
   Package,
-  History
+  Upload,
+  Trash2
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { Mail } from 'lucide-react'
@@ -35,6 +36,8 @@ interface DocumentRequest {
   description: string | null
   status: 'pending' | 'review' | 'approved' | 'rejected'
   attachment_path: string | null
+  attachment_missing_at?: string | null
+  attachment_missing_checked_at?: string | null
   deadline_at: string | null
   created_by: string | null
   created_at: string
@@ -47,13 +50,21 @@ interface DocumentRequest {
     comments: string | null
     created_at: string
     uploaded_by: string | null
+    deleted_at?: string | null
   }[]
+  latest_rejection?: {
+    id: string
+    reason: string
+    reviewed_at: string
+    reviewed_by: { id: string; full_name: string | null } | null
+  } | null
 }
 
 type ToastType = 'success' | 'error' | 'info'
 
 export default function DocumentModal({
   request,
+  projectId,
   onClose,
   onUpdate,
   clientEmail,
@@ -61,6 +72,7 @@ export default function DocumentModal({
   projectTitle,
 }: {
   request: DocumentRequest
+  projectId: string
   onClose: () => void
   onUpdate: () => void
   clientEmail?: string | null
@@ -74,6 +86,10 @@ export default function DocumentModal({
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [showRejectConfirm, setShowRejectConfirm] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null)
+  const [attachmentMissing, setAttachmentMissing] = useState(!!request.attachment_missing_at)
+  const [localAttachmentPath, setLocalAttachmentPath] = useState<string | null>(request.attachment_path)
+  const [attachmentActionLoading, setAttachmentActionLoading] = useState(false)
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null)
 
   // Deadline edit state
   const [editingDeadline, setEditingDeadline] = useState(false)
@@ -84,6 +100,11 @@ export default function DocumentModal({
   const [localDeadline, setLocalDeadline] = useState<string | null>(request.deadline_at)
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
+
+  useEffect(() => {
+    setLocalAttachmentPath(request.attachment_path)
+    setAttachmentMissing(!!request.attachment_missing_at)
+  }, [request.id, request.attachment_path, request.attachment_missing_at])
 
   const handleSaveDeadline = async () => {
     setSavingDeadline(true)
@@ -203,7 +224,7 @@ export default function DocumentModal({
   type DocFile = NonNullable<DocumentRequest['files']>[number]
 
   const groupedVersions = useMemo(() => {
-    const files: DocFile[] = (request.files ?? []) as DocFile[]
+    const files: DocFile[] = ((request.files ?? []) as DocFile[]).filter(file => !file.deleted_at)
 
     const map = new Map<number, DocFile[]>()
 
@@ -226,6 +247,11 @@ export default function DocumentModal({
       })
       .sort((a, b) => b.version - a.version)
   }, [request.files])
+
+  const latestRejectionReason = useMemo(() => {
+    if (request.status !== 'rejected') return null
+    return request.latest_rejection?.reason ?? null
+  }, [request.latest_rejection?.reason, request.status])
 
 
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
@@ -303,6 +329,7 @@ export default function DocumentModal({
   const [imagePreviewLoading, setImagePreviewLoading] = useState(false)
 
   const downloadAttachmentModel = async () => {
+    if (!localAttachmentPath || attachmentMissing) return
     setDownloadingId('attachment')
     try {
       const res = await apiFetch(`/api/document-requests/${request.id}/attachment/signed-download`, {
@@ -310,7 +337,13 @@ export default function DocumentModal({
         body: JSON.stringify({ expiresIn: 60 * 5 })
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || res.statusText)
+      if (!res.ok) {
+        if (res.status === 404) {
+          setAttachmentMissing(true)
+          onUpdate()
+        }
+        throw new Error(data?.error || res.statusText)
+      }
       
       forceDownload(data.url)
       showToast('Descărcare începută', 'success')
@@ -318,6 +351,75 @@ export default function DocumentModal({
       showToast('Eroare la descărcare: ' + error.message, 'error')
     } finally {
       setDownloadingId(null)
+    }
+  }
+
+  const patchAttachmentPath = async (attachmentPath: string | null, attachmentOriginalName?: string | null) => {
+    const res = await apiFetch(`/api/document-requests/${request.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        attachment_path: attachmentPath,
+        attachment_original_name: attachmentOriginalName ?? null,
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data?.error || 'Nu s-a putut actualiza modelul')
+  }
+
+  const handleReplacementModel = async (file: File | null | undefined) => {
+    if (!file || !isAdminOrConsultant) return
+
+    setAttachmentActionLoading(true)
+    try {
+      const initRes = await apiFetch(`/api/projects/${projectId}/document-requests/attachment/init`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: file.name,
+          type: file.type || 'application/octet-stream',
+        }),
+      })
+      const initData = await initRes.json().catch(() => ({}))
+      if (!initRes.ok) throw new Error(initData?.error || 'Nu s-a putut inițializa upload-ul')
+
+      const uploadRes = await fetch(initData.signedUploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': file.type || 'application/octet-stream',
+          Authorization: `Bearer ${initData.token}`,
+        },
+        body: file,
+      })
+      if (!uploadRes.ok) throw new Error('Upload-ul modelului a eșuat')
+
+      await patchAttachmentPath(initData.storagePath, file.name)
+      setLocalAttachmentPath(initData.storagePath)
+      setAttachmentMissing(false)
+      onUpdate()
+      showToast('Modelul a fost actualizat.', 'success')
+    } catch (error: any) {
+      showToast('Eroare la actualizarea modelului: ' + error.message, 'error')
+    } finally {
+      if (attachmentInputRef.current) attachmentInputRef.current.value = ''
+      setAttachmentActionLoading(false)
+    }
+  }
+
+  const handleRemoveModel = async () => {
+    if (!isAdminOrConsultant || attachmentActionLoading) return
+    if (!confirm('Elimini modelul din această cerere? Clientul nu va mai vedea că există un model atașat.')) return
+
+    setAttachmentActionLoading(true)
+    try {
+      await patchAttachmentPath(null)
+      setLocalAttachmentPath(null)
+      setAttachmentMissing(false)
+      onUpdate()
+      showToast('Modelul a fost eliminat din cerere.', 'success')
+    } catch (error: any) {
+      showToast('Eroare la eliminarea modelului: ' + error.message, 'error')
+    } finally {
+      setAttachmentActionLoading(false)
     }
   }
 
@@ -654,7 +756,7 @@ export default function DocumentModal({
 
             <div className="space-y-3">
               {/* Model/Template - Dacă există */}
-              {request.attachment_path && (
+              {localAttachmentPath && !attachmentMissing && (
                 <div>
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
                     <span className="w-1 h-1 rounded-full bg-slate-400" />
@@ -684,6 +786,80 @@ export default function DocumentModal({
                       <Download className="w-5 h-5 text-indigo-400 sm:hidden" />
                     </div>
                   </button>
+                </div>
+              )}
+
+              {attachmentMissing && (
+                <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-amber-900 mb-1">
+                        {isAdminOrConsultant ? 'Model indisponibil' : 'Model indisponibil momentan'}
+                      </p>
+                      <p className="text-sm text-amber-800 leading-relaxed">
+                        {isAdminOrConsultant
+                          ? 'Fișierul model nu mai există în storage. Reîncarcă modelul sau elimină-l din cerere.'
+                          : 'Modelul pentru această cerere este momentan indisponibil. Echipa îl va atașa când este disponibil; așteaptă actualizarea cererii înainte de completare.'}
+                      </p>
+                      {isAdminOrConsultant && (
+                        <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                          <input
+                            ref={attachmentInputRef}
+                            type="file"
+                            className="hidden"
+                            accept=".pdf,.doc,.docx,.xls,.xlsx"
+                            onChange={(e) => handleReplacementModel(e.currentTarget.files?.[0])}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => attachmentInputRef.current?.click()}
+                            disabled={attachmentActionLoading}
+                            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 disabled:opacity-50"
+                          >
+                            {attachmentActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                            Reîncarcă model
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleRemoveModel}
+                            disabled={attachmentActionLoading}
+                            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-amber-300 text-amber-900 text-xs font-bold hover:bg-amber-100 disabled:opacity-50"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Elimină modelul
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!localAttachmentPath && !attachmentMissing && isAdminOrConsultant && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">Fără model atașat</p>
+                      <p className="text-xs text-slate-500">Poți atașa un model pentru client.</p>
+                    </div>
+                    <input
+                      ref={attachmentInputRef}
+                      type="file"
+                      className="hidden"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx"
+                      onChange={(e) => handleReplacementModel(e.currentTarget.files?.[0])}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => attachmentInputRef.current?.click()}
+                      disabled={attachmentActionLoading}
+                      className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {attachmentActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                      Atașează model
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -895,7 +1071,7 @@ export default function DocumentModal({
               )}
 
               {/* Empty state */}
-              {!request.attachment_path && (!request.files || request.files.length === 0) && (
+              {(!localAttachmentPath || attachmentMissing) && (!request.files || request.files.length === 0) && (
                 <div className="text-center py-12 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">
                   <div className="w-16 h-16 bg-white rounded-2xl shadow-sm border border-slate-200 flex items-center justify-center mx-auto mb-3">
                     <Package className="w-8 h-8 text-slate-300" />
@@ -908,14 +1084,14 @@ export default function DocumentModal({
           </div>
 
           {/* Comments from previous rejection */}
-          {request.status === 'rejected' && request.files?.length && request.files[request.files.length - 1]?.comments && (
+          {request.status === 'rejected' && (
             <div className="p-4 bg-red-50 border-2 border-red-200 rounded-xl">
               <div className="flex items-start gap-3">
                 <MessageSquare className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <p className="text-xs font-bold text-red-800 uppercase tracking-wide mb-1">Motiv respingere anterioară</p>
                   <p className="text-sm text-red-700 leading-relaxed">
-                    {request.files[request.files.length - 1].comments}
+                    {latestRejectionReason || 'Motivul respingerii nu este disponibil pentru acest istoric.'}
                   </p>
                 </div>
               </div>
@@ -1004,7 +1180,7 @@ export default function DocumentModal({
                     clientEmail,
                     clientName: clientName ?? null,
                     projectTitle: projectTitle ?? '',
-                    projectId: '',
+                    projectId,
                   },
                   reminderType
                 )

@@ -53,9 +53,9 @@ export async function GET(
     }
 
     return NextResponse.json({ members: data ?? [] })
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('GET /api/projects/[id]/members error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Server error' }, { status: 500 })
   }
 }
 
@@ -81,7 +81,7 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    const consultant_id = (body as any).consultant_id
+    const consultant_id = (body as { consultant_id?: unknown }).consultant_id
     if (!isNonEmptyString(consultant_id)) {
       return NextResponse.json({ error: 'consultant_id must be a non-empty string' }, { status: 400 })
     }
@@ -172,8 +172,8 @@ export async function POST(
     }
 
     return NextResponse.json({ message: 'Member added', member }, { status: 201 })
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('POST /api/projects/[id]/members error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Server error' }, { status: 500 })
   }
 }

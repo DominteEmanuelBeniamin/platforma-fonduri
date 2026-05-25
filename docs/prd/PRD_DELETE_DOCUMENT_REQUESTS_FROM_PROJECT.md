@@ -16,7 +16,7 @@
 | User action | Utilizatorul vede actiunea **Sterge din proiect** |
 | Data behavior | Cererea este soft-deleted/retrasa, nu hard-deleted |
 | Template impact | Niciunul; template-ul sursa nu este modificat |
-| Existing uploads | Raman in DB si storage pentru audit si recovery |
+| Existing uploads | Raman in DB si storage, dar uploadurile active sunt soft-deleted impreuna cu cererea |
 | Allowed actors | Admin si consultant cu acces de scriere la proiect |
 | Client behavior | Clientul nu vede cererea retrasa si nu poate actiona endpoint-ul |
 
@@ -60,6 +60,7 @@ Adminul sau consultantul retrage o cerere de document direct din pagina proiectu
 - Filtrarea cererilor retrase din view-urile active ale proiectului si ale clientului.
 - Audit entry pentru actiune.
 - Blocarea actiunilor ulterioare de upload/review pe cererea retrasa.
+- Soft delete pentru fisierele active deja incarcate pe cerere, fara hard delete din DB sau storage.
 
 ### 5.2 Out of Scope
 
@@ -110,6 +111,7 @@ Butonul final este **Sterge din proiect**. Textul UI poate folosi verbul "sterge
 - Un client care are pagina veche deschisa nu mai poate incarca fisiere pe ea.
 - Review-ul, reasignarea si reminder-ele pentru cererea retrasa sunt respinse server-side.
 - Datele istorice raman disponibile pentru audit si eventual restore ulterior.
+- Fisierele active deja incarcate nu mai apar in cronologia activa a proiectului deoarece sunt marcate soft-deleted; randurile din `files` si obiectele din storage raman pastrate.
 
 ---
 
@@ -124,7 +126,8 @@ Butonul final este **Sterge din proiect**. Textul UI poate folosi verbul "sterge
 | FR-05 | O cerere retrasa este exclusa implicit din query-urile active de cereri. |
 | FR-06 | Cererea retrasa nu mai accepta uploads, review sau editari operationale. |
 | FR-07 | Actiunea scrie audit cu actor, proiect, cerere, status anterior si timestamp. |
-| FR-08 | Endpoint-ul este idempotent pentru o cerere deja retrasa sau returneaza un conflict controlat, nu o stare partiala. |
+| FR-08 | Endpoint-ul este idempotent pentru o cerere deja retrasa: returneaza succes cu starea existenta, nu modifica din nou auditul operational. |
+| FR-09 | Retragerea cererii seteaza `files.deleted_at` si `files.deleted_by` pe uploadurile active ale cererii si nu sterge obiecte din bucket. |
 
 ---
 
@@ -140,7 +143,14 @@ Butonul final este **Sterge din proiect**. Textul UI poate folosi verbul "sterge
 | `deleted_by` | Pastreaza actorul |
 | `delete_reason` | Motiv optional pentru audit operational |
 
-Nu se sterg randuri din `files` si nu se sterg obiecte din bucket in acest flow.
+`files` are nevoie de campurile de soft delete folosite deja pentru filtrarea fisierelor active:
+
+| Field | Purpose |
+|-------|---------|
+| `deleted_at` | Marcheaza uploadul ca retras din fluxul activ odata cu cererea |
+| `deleted_by` | Pastreaza actorul care a retras cererea |
+
+La retragerea cererii, uploadurile ei active (`files.requirement_id = requestId` si `files.deleted_at is null`) primesc acelasi `deleted_at` si acelasi `deleted_by` ca `document_requirements`. Randurile din `files` nu sunt hard-deleted, nu se sterg obiecte din bucket in acest flow, iar fisierele deja soft-deleted nu sunt rescrise. Daca ulterior se construieste un view de audit/recovery, acesta poate citi fisierele istorice printr-un endpoint separat si explicit autorizat.
 
 ### 9.2 API
 
@@ -152,11 +162,14 @@ Comportament:
 
 1. incarca cererea si `project_id`;
 2. valideaza accesul prin proiect si rolul;
-3. seteaza campurile de soft delete;
-4. scrie audit;
-5. returneaza succes fara a afecta template-ul.
+3. genereaza valorile comune `deleted_at` si `deleted_by`;
+4. seteaza campurile de soft delete pe `document_requirements`;
+5. seteaza aceleasi campuri de soft delete pe uploadurile active din `files` pentru cerere;
+6. scrie audit o singura data pentru tranzitia activa -> retrasa;
+7. returneaza succes fara a afecta template-ul.
 
 Rutele care incarca sau modifica cereri trebuie sa trateze `deleted_at` ca stare terminala pentru fluxul activ.
+Rutele active de listare trebuie sa filtreze implicit `document_requirements.deleted_at is null` si `files.deleted_at is null` pentru uploaduri. Filtrul pe upload nu inlocuieste filtrul pe cererea parinte.
 
 ---
 
@@ -176,11 +189,11 @@ Rutele care incarca sau modifica cereri trebuie sa trateze `deleted_at` ca stare
 | Scenario | Expected result |
 |----------|-----------------|
 | Admin retrage cerere fara fisiere | Cererea dispare din view-ul activ, audit scris |
-| Consultant retrage cerere cu fisiere | Cererea dispare, fisierele raman pastrate |
+| Consultant retrage cerere cu fisiere | Cererea dispare, fisierele raman in DB/storage cu `files.deleted_at` si `files.deleted_by` setate pentru uploadurile active |
 | Client incearca endpoint-ul | `403` |
 | Client incearca upload dupa retragere | Request respins server-side |
 | Cererea provenea din template | Template-ul ramane neschimbat |
-| Cererea este retrasa de doua ori | Raspuns controlat fara corupere de date |
+| Cererea este retrasa de doua ori | Raspuns succes/idempotent, fara audit duplicat |
 
 ---
 
@@ -191,8 +204,9 @@ Rutele care incarca sau modifica cereri trebuie sa trateze `deleted_at` ca stare
 - [ ] Template-ul sursa nu este modificat.
 - [ ] Cererea retrasa nu mai apare clientului in fluxul activ.
 - [ ] Upload, review si reminder nu mai functioneaza pentru cererea retrasa.
-- [ ] Fisierele existente raman pastrate.
+- [ ] Uploadurile active existente sunt soft-deleted in `files`, iar randurile si obiectele din storage raman pastrate.
 - [ ] Audit log-ul retine actorul, proiectul si cererea retrasa.
+- [ ] Endpoint-ul de retragere este idempotent pentru o cerere deja retrasa.
 
 ---
 

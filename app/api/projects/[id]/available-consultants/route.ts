@@ -69,8 +69,8 @@ export async function GET(
     }
 
     return NextResponse.json({ consultants: consultants ?? [] })
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('GET /api/projects/[id]/available-consultants error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Server error' }, { status: 500 })
   }
 }

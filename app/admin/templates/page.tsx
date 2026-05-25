@@ -7,7 +7,7 @@ import Link from 'next/link'
 import { 
   Layers, Activity, FileText, ArrowLeft, Plus, Trash2,
   ChevronDown, ChevronRight, Check, X, Paperclip, Upload,
-  Loader2, Edit2
+  Loader2, Edit2, AlertCircle
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 
@@ -25,6 +25,8 @@ interface DocumentRequirement {
   is_mandatory: boolean
   templateFile: File | null
   templateFileName: string | null
+  templateFileMissingAt?: string | null
+  templateFileRemoved?: boolean
 }
 
 interface Consultant {
@@ -62,16 +64,48 @@ interface Template {
       id: string
       name: string
       order_index: number
-      document_requirements?: { 
-        id: string
-        name: string
-        description: string | null
-        is_mandatory: boolean
-        attachment_path: string | null
-      }[]
+        document_requirements?: {
+          id: string
+          name: string
+          description: string | null
+          is_mandatory: boolean
+          attachment_path: string | null
+          attachment_missing_at?: string | null
+        }[]
     }[]
   }[]
 }
+
+interface TemplatePropagationPreviewProject {
+  project_id: string
+  project_title: string
+  eligible: boolean
+  blocked_reasons?: string[]
+  totals: {
+    phases: number
+    activities: number
+    document_requests: number
+  }
+}
+
+interface TemplatePropagationPreview {
+  template?: {
+    id: string
+    name: string
+  }
+  eligible?: TemplatePropagationPreviewProject[]
+  ineligible?: TemplatePropagationPreviewProject[]
+  totals?: {
+    phases: number
+    activities: number
+    document_requests: number
+    candidate_projects?: number
+    eligible_projects?: number
+    ineligible_projects?: number
+  }
+}
+
+type PropagationTotals = TemplatePropagationPreviewProject['totals']
 
 function generateId() {
   return Math.random().toString(36).substring(2, 11)
@@ -92,6 +126,21 @@ function generateSlug(text: string): string {
 // IDs din DB sunt UUID (36 chars cu cratime), cele locale sunt scurte
 function isDbId(id: string): boolean {
   return id.length === 36 && id.includes('-')
+}
+
+function hasPropagationChanges(project: TemplatePropagationPreviewProject) {
+  return project.totals.phases + project.totals.activities + project.totals.document_requests > 0
+}
+
+function sumPropagationTotals(projects: TemplatePropagationPreviewProject[]): PropagationTotals {
+  return projects.reduce(
+    (totals, project) => ({
+      phases: totals.phases + project.totals.phases,
+      activities: totals.activities + project.totals.activities,
+      document_requests: totals.document_requests + project.totals.document_requests,
+    }),
+    { phases: 0, activities: 0, document_requests: 0 }
+  )
 }
 
 export default function AdminTemplatesPage() {
@@ -116,6 +165,11 @@ export default function AdminTemplatesPage() {
   const [newDocDescription, setNewDocDescription] = useState('')
   const [newDocMandatory, setNewDocMandatory] = useState(false)
   const [newDocTemplate, setNewDocTemplate] = useState<File | null>(null)
+  const [propagationTemplateId, setPropagationTemplateId] = useState<string | null>(null)
+  const [propagationPreview, setPropagationPreview] = useState<TemplatePropagationPreview | null>(null)
+  const [propagationSelectedProjectIds, setPropagationSelectedProjectIds] = useState<string[]>([])
+  const [propagationApplying, setPropagationApplying] = useState(false)
+  const [propagationError, setPropagationError] = useState<string | null>(null)
 
   useEffect(() => {
     if (authLoading) return
@@ -217,7 +271,9 @@ export default function AdminTemplatesPage() {
       description: newDocDescription.trim(),
       is_mandatory: newDocMandatory,
       templateFile: newDocTemplate,
-      templateFileName: newDocTemplate?.name || null
+      templateFileName: newDocTemplate?.name || null,
+      templateFileMissingAt: null,
+      templateFileRemoved: false,
     }
     setPhases(phases.map(p => 
       p.id === phaseId 
@@ -239,6 +295,31 @@ export default function AdminTemplatesPage() {
               ? { ...a, document_requirements: a.document_requirements.filter(d => d.id !== docId) }
               : a
           )} 
+        : p
+    ))
+  }
+
+  const updateDocRequirement = (
+    phaseId: string,
+    activityId: string,
+    docId: string,
+    updates: Partial<DocumentRequirement>
+  ) => {
+    setPhases(phases.map(p =>
+      p.id === phaseId
+        ? {
+            ...p,
+            activities: p.activities.map(a =>
+              a.id === activityId
+                ? {
+                    ...a,
+                    document_requirements: a.document_requirements.map(d =>
+                      d.id === docId ? { ...d, ...updates } : d
+                    )
+                  }
+                : a
+            )
+          }
         : p
     ))
   }
@@ -272,6 +353,82 @@ export default function AdminTemplatesPage() {
     } catch (error) {
       console.error('Upload error:', error)
       return null
+    }
+  }
+
+  const openTemplatePropagation = async (templateId: string) => {
+    const previewRes = await apiFetch(`/api/admin/templates/${templateId}/propagation/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    })
+    const previewData = await previewRes.json().catch(() => ({}))
+    if (!previewRes.ok) {
+      alert(previewData?.error || 'Preview-ul de propagare nu a putut fi încărcat')
+      return
+    }
+
+    const preview = previewData as TemplatePropagationPreview
+    const affectedEligible = (preview.eligible ?? []).filter(hasPropagationChanges)
+    const ineligible = preview.ineligible ?? []
+
+    if (affectedEligible.length === 0) {
+      if (ineligible.length > 0) {
+        alert(`${ineligible.length} proiect(e) folosesc template-ul, dar nu pot fi actualizate automat din cauza modificărilor locale.`)
+      }
+      return
+    }
+
+    setPropagationTemplateId(templateId)
+    setPropagationPreview(preview)
+    setPropagationSelectedProjectIds(affectedEligible.map(project => project.project_id))
+    setPropagationError(null)
+  }
+
+  const closeTemplatePropagation = () => {
+    if (propagationApplying) return
+    setPropagationTemplateId(null)
+    setPropagationPreview(null)
+    setPropagationSelectedProjectIds([])
+    setPropagationError(null)
+  }
+
+  const togglePropagationProject = (projectId: string) => {
+    setPropagationSelectedProjectIds((current) =>
+      current.includes(projectId)
+        ? current.filter(id => id !== projectId)
+        : [...current, projectId]
+    )
+  }
+
+  const applyTemplatePropagation = async () => {
+    if (!propagationTemplateId || propagationSelectedProjectIds.length === 0) return
+
+    setPropagationApplying(true)
+    setPropagationError(null)
+
+    try {
+      const applyRes = await apiFetch(`/api/admin/templates/${propagationTemplateId}/propagation/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_ids: propagationSelectedProjectIds })
+      })
+      const applyData = await applyRes.json().catch(() => ({}))
+      if (!applyRes.ok) {
+        setPropagationError(applyData?.error || 'Propagarea template-ului a eșuat')
+        return
+      }
+
+      const failed = (applyData.results ?? []).filter((result: any) => result.status === 'failed').length
+      alert(failed > 0
+        ? `Propagarea s-a încheiat cu ${failed} proiect(e) eșuate.`
+        : 'Modificările template-ului au fost propagate în proiectele eligibile.'
+      )
+      closeTemplatePropagation()
+    } catch (error: any) {
+      setPropagationError(error?.message || 'Propagarea template-ului a eșuat')
+    } finally {
+      setPropagationApplying(false)
     }
   }
 
@@ -430,10 +587,12 @@ export default function AdminTemplatesPage() {
 
             if (isDbId(doc.id)) {
               // PATCH document existent
-              let attachmentPath: string | undefined = undefined
+              let attachmentPath: string | null | undefined = undefined
               if (doc.templateFile) {
                 const uploaded = await uploadTemplateFile(doc.templateFile)
                 if (uploaded) attachmentPath = uploaded
+              } else if (doc.templateFileRemoved) {
+                attachmentPath = null
               }
               const patchBody: any = {
                 name: doc.name,
@@ -441,7 +600,10 @@ export default function AdminTemplatesPage() {
                 is_mandatory: doc.is_mandatory,
                 order_index: dIdx + 1,
               }
-              if (attachmentPath !== undefined) patchBody.attachment_path = attachmentPath
+              if (attachmentPath !== undefined) {
+                patchBody.attachment_path = attachmentPath
+                patchBody.attachment_original_name = attachmentPath ? doc.templateFileName : null
+              }
               await apiFetch(`/api/admin/templates/documents/${doc.id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
@@ -463,12 +625,17 @@ export default function AdminTemplatesPage() {
                   is_mandatory: doc.is_mandatory,
                   order_index: dIdx + 1,
                   attachment_path: attachmentPath,
+                  attachment_original_name: attachmentPath ? doc.templateFileName : null,
                 })
               })
               if (!docRes.ok) throw new Error(await safeParseError(docRes, `Eroare la salvare document "${doc.name}"`))
             }
           }
         }
+      }
+
+      if (editingTemplate) {
+        await openTemplatePropagation(templateId)
       }
 
       resetForm()
@@ -511,13 +678,24 @@ export default function AdminTemplatesPage() {
           description: d.description || '',
           is_mandatory: d.is_mandatory,
           templateFile: null,
-          templateFileName: d.attachment_path ? d.attachment_path.split('/').pop() || null : null
+          templateFileName: d.attachment_original_name || (d.attachment_path ? d.attachment_path.split('/').pop() || null : null),
+          templateFileMissingAt: d.attachment_missing_at || null,
+          templateFileRemoved: false,
         })) || []
       })) || []
     })) || []
     setPhases(editablePhases)
     setShowForm(true)
   }
+
+  const affectedPropagationProjects = (propagationPreview?.eligible ?? []).filter(hasPropagationChanges)
+  const selectedPropagationProjects = affectedPropagationProjects.filter(project =>
+    propagationSelectedProjectIds.includes(project.project_id)
+  )
+  const selectedPropagationTotals = sumPropagationTotals(selectedPropagationProjects)
+  const allPropagationProjectsSelected =
+    affectedPropagationProjects.length > 0 &&
+    affectedPropagationProjects.every(project => propagationSelectedProjectIds.includes(project.project_id))
 
   if (authLoading || loading) {
     return (
@@ -671,11 +849,49 @@ export default function AdminTemplatesPage() {
                                           <p className="text-xs text-slate-500 mt-0.5">{doc.description}</p>
                                         )}
                                         {doc.templateFileName && (
-                                          <div className="flex items-center gap-1 mt-1 text-xs text-indigo-600">
-                                            <Paperclip className="w-3 h-3" />
+                                          <div className={`flex items-center gap-1 mt-1 text-xs ${doc.templateFileMissingAt ? 'text-amber-700' : 'text-indigo-600'}`}>
+                                            {doc.templateFileMissingAt ? <AlertCircle className="w-3 h-3" /> : <Paperclip className="w-3 h-3" />}
                                             <span>{doc.templateFileName}</span>
+                                            {doc.templateFileMissingAt && <span className="font-semibold">(indisponibil)</span>}
                                           </div>
                                         )}
+                                        <div className="flex items-center gap-2 mt-2">
+                                          <label className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 bg-white text-xs text-slate-600 hover:text-indigo-700 hover:border-indigo-200 cursor-pointer">
+                                            <Upload className="w-3 h-3" />
+                                            {doc.templateFileName ? 'Înlocuiește model' : 'Atașează model'}
+                                            <input
+                                              type="file"
+                                              className="hidden"
+                                              accept=".pdf,.doc,.docx,.xls,.xlsx"
+                                              onChange={(e) => {
+                                                const file = e.currentTarget.files?.[0] || null
+                                                if (!file) return
+                                                updateDocRequirement(phase.id, activity.id, doc.id, {
+                                                  templateFile: file,
+                                                  templateFileName: file.name,
+                                                  templateFileMissingAt: null,
+                                                  templateFileRemoved: false,
+                                                })
+                                                e.currentTarget.value = ''
+                                              }}
+                                            />
+                                          </label>
+                                          {doc.templateFileName && (
+                                            <button
+                                              type="button"
+                                              onClick={() => updateDocRequirement(phase.id, activity.id, doc.id, {
+                                                templateFile: null,
+                                                templateFileName: null,
+                                                templateFileMissingAt: null,
+                                                templateFileRemoved: true,
+                                              })}
+                                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-red-100 bg-white text-xs text-red-600 hover:bg-red-50"
+                                            >
+                                              <X className="w-3 h-3" />
+                                              Elimină model
+                                            </button>
+                                          )}
+                                        </div>
                                       </div>
                                       <button onClick={() => removeDocRequirement(phase.id, activity.id, doc.id)} className="p-1 text-slate-400 hover:text-red-500">
                                         <X className="w-4 h-4" />
@@ -806,6 +1022,168 @@ export default function AdminTemplatesPage() {
           </div>
         )}
       </div>
+
+      {propagationPreview && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="template-propagation-title"
+        >
+          <div className="absolute inset-0" onClick={closeTemplatePropagation} />
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="px-6 py-5 border-b border-slate-100 bg-slate-50 flex items-start gap-4">
+              <div className="w-11 h-11 rounded-xl bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                <Layers className="w-5 h-5 text-indigo-600" />
+              </div>
+              <div className="flex-1 min-w-0 pr-10">
+                <h3 id="template-propagation-title" className="text-lg font-semibold text-slate-900">
+                  Propagă modificările template-ului
+                </h3>
+                <p className="text-sm text-slate-500 mt-1 truncate">
+                  {propagationPreview.template?.name || 'Template editat'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeTemplatePropagation}
+                disabled={propagationApplying}
+                aria-label="Închide"
+                className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 hover:bg-white rounded-lg disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div className="p-3 rounded-xl border border-indigo-100 bg-indigo-50">
+                  <p className="text-xs font-medium text-indigo-600">Proiecte selectate</p>
+                  <p className="text-xl font-semibold text-indigo-950 mt-1">{selectedPropagationProjects.length}</p>
+                </div>
+                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+                  <p className="text-xs font-medium text-slate-500">Faze</p>
+                  <p className="text-xl font-semibold text-slate-900 mt-1">{selectedPropagationTotals.phases}</p>
+                </div>
+                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+                  <p className="text-xs font-medium text-slate-500">Activități</p>
+                  <p className="text-xl font-semibold text-slate-900 mt-1">{selectedPropagationTotals.activities}</p>
+                </div>
+                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+                  <p className="text-xs font-medium text-slate-500">Cereri document</p>
+                  <p className="text-xl font-semibold text-slate-900 mt-1">{selectedPropagationTotals.document_requests}</p>
+                </div>
+              </div>
+
+              {propagationError && (
+                <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-100 text-sm text-red-700">
+                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <span>{propagationError}</span>
+                </div>
+              )}
+
+              <section className="space-y-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-900">Proiecte eligibile</h4>
+                    <p className="text-xs text-slate-500">{affectedPropagationProjects.length} proiect(e) cu modificări</p>
+                  </div>
+                  <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={allPropagationProjectsSelected}
+                      onChange={(e) => setPropagationSelectedProjectIds(
+                        e.target.checked ? affectedPropagationProjects.map(project => project.project_id) : []
+                      )}
+                      disabled={propagationApplying}
+                      className="w-4 h-4 rounded border-slate-300 text-indigo-600"
+                    />
+                    Selectează toate
+                  </label>
+                </div>
+
+                <div className="space-y-2">
+                  {affectedPropagationProjects.map((project) => {
+                    const checked = propagationSelectedProjectIds.includes(project.project_id)
+                    return (
+                      <label
+                        key={project.project_id}
+                        className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-colors ${
+                          checked
+                            ? 'border-indigo-200 bg-indigo-50/70'
+                            : 'border-slate-200 bg-white hover:bg-slate-50'
+                        } ${propagationApplying ? 'cursor-not-allowed opacity-70' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => togglePropagationProject(project.project_id)}
+                          disabled={propagationApplying}
+                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 mt-1"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-slate-900 break-words">{project.project_title}</p>
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            <span className="px-2 py-1 rounded-md bg-white border border-slate-200 text-xs text-slate-600">
+                              {project.totals.phases} faze
+                            </span>
+                            <span className="px-2 py-1 rounded-md bg-white border border-slate-200 text-xs text-slate-600">
+                              {project.totals.activities} activități
+                            </span>
+                            <span className="px-2 py-1 rounded-md bg-white border border-slate-200 text-xs text-slate-600">
+                              {project.totals.document_requests} cereri
+                            </span>
+                          </div>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              </section>
+
+              {(propagationPreview.ineligible ?? []).length > 0 && (
+                <section className="space-y-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-900">Proiecte blocate</h4>
+                    <p className="text-xs text-slate-500">Nu vor fi modificate automat.</p>
+                  </div>
+                  <div className="space-y-2">
+                    {(propagationPreview.ineligible ?? []).map((project) => (
+                      <div key={project.project_id} className="p-4 rounded-xl border border-amber-200 bg-amber-50/70">
+                        <p className="text-sm font-semibold text-amber-950 break-words">{project.project_title}</p>
+                        <p className="text-xs text-amber-800 mt-1">
+                          {project.blocked_reasons?.join(' ') || 'Lineage incomplet pentru propagare.'}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
+
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex flex-col-reverse gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={closeTemplatePropagation}
+                disabled={propagationApplying}
+                className="sm:flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-white disabled:opacity-50"
+              >
+                Mai târziu
+              </button>
+              <button
+                type="button"
+                onClick={applyTemplatePropagation}
+                disabled={propagationApplying || propagationSelectedProjectIds.length === 0}
+                className="sm:flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {propagationApplying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                {propagationApplying ? 'Se propagă...' : `Propagă în ${propagationSelectedProjectIds.length} proiect(e)`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal document */}
       {addingDocTo && (

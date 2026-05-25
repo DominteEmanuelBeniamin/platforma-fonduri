@@ -272,12 +272,41 @@ export async function DELETE(
       return NextResponse.json({ error: 'Failed to load project attachments' }, { status: 500 })
     }
 
-    const paths = [
+    const candidatePaths = Array.from(new Set([
       ...(fileRows ?? []).map(r => r.storage_path).filter((p): p is string => typeof p === 'string' && p.length > 0),
       ...(attachments ?? []).map(r => r.attachment_path).filter((p): p is string => typeof p === 'string' && p.length > 0),
-    ]
+    ]))
 
-    const uniquePaths = Array.from(new Set(paths))
+    const retainedAttachmentPaths = new Set<string>()
+
+    if (candidatePaths.length > 0) {
+      const [{ data: templateRefs, error: templateRefsErr }, { data: projectRefs, error: projectRefsErr }] = await Promise.all([
+        admin
+          .from('template_document_requirements')
+          .select('attachment_path')
+          .in('attachment_path', candidatePaths)
+          .eq('is_active', true),
+        admin
+          .from('document_requirements')
+          .select('attachment_path')
+          .in('attachment_path', candidatePaths)
+          .neq('project_id', projectId)
+          .is('deleted_at', null),
+      ])
+
+      if (templateRefsErr || projectRefsErr) {
+        console.error('Fetch attachment references error:', { templateRefsErr, projectRefsErr })
+        return NextResponse.json({ error: 'Failed to check shared attachment references' }, { status: 500 })
+      }
+
+      ;[...(templateRefs ?? []), ...(projectRefs ?? [])].forEach((row) => {
+        if (typeof row.attachment_path === 'string' && row.attachment_path.length > 0) {
+          retainedAttachmentPaths.add(row.attachment_path)
+        }
+      })
+    }
+
+    const uniquePaths = candidatePaths.filter(path => !retainedAttachmentPaths.has(path))
 
     if (uniquePaths.length > 0) {
       const { error: removeErr } = await admin.storage.from(bucket).remove(uniquePaths)

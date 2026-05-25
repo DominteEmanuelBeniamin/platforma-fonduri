@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
-import { guardToResponse, requireAdmin } from '@/app/api/_utils/auth'
+import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 
 // Inițializat în handler ca să preia env-ul la runtime, nu la cold-start
@@ -13,20 +13,17 @@ export async function PATCH(
   try {
     const { requestId } = await params
 
-    const ctx = await requireAdmin(request)
-    if (!ctx.ok) return guardToResponse(ctx)
-
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    // assigned_to trebuie să fie string (UUID) sau null
+    // assigned_to trebuie să fie string (UUID), null sau omis
     const rawAssigned = (body as any).assigned_to
-    if (rawAssigned !== null && typeof rawAssigned !== 'string') {
+    if (rawAssigned !== undefined && rawAssigned !== null && typeof rawAssigned !== 'string') {
       return NextResponse.json({ error: 'assigned_to trebuie să fie un UUID sau null' }, { status: 400 })
     }
-    const assigned_to: string | null = rawAssigned ?? null
+    const assigned_to: string | null | undefined = rawAssigned === undefined ? undefined : rawAssigned
 
     // deadline_at — string ISO sau null (undefined = nu se modifică)
     const rawDeadline = (body as any).deadline_at
@@ -39,13 +36,33 @@ export async function PATCH(
         ? rawDeadline
         : undefined
 
+    const rawAttachmentPath = (body as any).attachment_path
+    const attachment_path: string | null | undefined =
+      rawAttachmentPath === undefined
+        ? undefined
+        : rawAttachmentPath === null || rawAttachmentPath === ''
+        ? null
+        : typeof rawAttachmentPath === 'string'
+        ? rawAttachmentPath
+        : undefined
+    const rawAttachmentOriginalName = (body as any).attachment_original_name
+    const attachment_original_name: string | null | undefined =
+      rawAttachmentOriginalName === undefined
+        ? undefined
+        : rawAttachmentOriginalName === null || rawAttachmentOriginalName === ''
+        ? null
+        : typeof rawAttachmentOriginalName === 'string'
+        ? rawAttachmentOriginalName
+        : undefined
+
     const admin = createSupabaseServiceClient()
 
     // Obține cererea pentru a afla project_id și detalii email
     const { data: req, error: reqError } = await admin
       .from('document_requirements')
-      .select('id, project_id, name, description, deadline_at')
+      .select('id, project_id, name, description, deadline_at, attachment_path, attachment_missing_at, deleted_at')
       .eq('id', requestId)
+      .is('deleted_at', null)
       .maybeSingle()
 
     if (reqError) {
@@ -56,8 +73,14 @@ export async function PATCH(
       return NextResponse.json({ error: 'Cererea nu a fost găsită' }, { status: 404 })
     }
 
+    const access = await requireProjectAccess(request, req.project_id)
+    if (!access.ok) return guardToResponse(access)
+    if (access.profile.role === 'client') {
+      return NextResponse.json({ error: 'Nu ai permisiunea să modifici cereri' }, { status: 403 })
+    }
+
     // Dacă se atribuie cuiva, verifică că este consultant membru al proiectului
-    if (assigned_to !== null) {
+    if (assigned_to !== undefined && assigned_to !== null) {
       const { data: membership, error: memberError } = await admin
         .from('project_members')
         .select('id')
@@ -78,21 +101,62 @@ export async function PATCH(
     }
 
     // Construiește obiectul de update (doar câmpurile trimise)
-    const updatePayload: Record<string, any> = { assigned_to }
+    const updatePayload: Record<string, any> = {}
+    if (assigned_to !== undefined) updatePayload.assigned_to = assigned_to
     if (deadline_at !== undefined) updatePayload.deadline_at = deadline_at
+    if (attachment_path !== undefined) {
+      updatePayload.attachment_path = attachment_path
+      updatePayload.attachment_original_name = attachment_path
+        ? attachment_original_name ?? null
+        : null
+      updatePayload.attachment_missing_at = null
+      updatePayload.attachment_missing_checked_at = null
+    }
+
+    if (Object.keys(updatePayload).length === 0) {
+      return NextResponse.json({ error: 'Nu există câmpuri de actualizat' }, { status: 400 })
+    }
 
     const { error: updateError } = await admin
       .from('document_requirements')
       .update(updatePayload)
       .eq('id', requestId)
+      .is('deleted_at', null)
 
     if (updateError) {
       console.error('PATCH document-requests update error:', updateError)
       return NextResponse.json({ error: 'Eroare la actualizarea cererii' }, { status: 500 })
     }
 
+    if (attachment_path !== undefined && req.attachment_path !== attachment_path) {
+      await admin.from('audit_logs').insert({
+        user_id: access.user.id,
+        action_type: 'update',
+        entity_type: 'document',
+        entity_id: requestId,
+        entity_name: req.name || 'Cerere document',
+        old_values: {
+          project_id: req.project_id,
+          attachment_path: req.attachment_path ?? null,
+          attachment_missing_at: req.attachment_missing_at ?? null,
+        },
+        new_values: {
+          project_id: req.project_id,
+          attachment_path: attachment_path ?? null,
+          attachment_missing_at: null,
+        },
+        description: attachment_path
+          ? `${access.profile.email || 'User'} a înlocuit modelul cererii "${req.name || requestId}"`
+          : `${access.profile.email || 'User'} a eliminat modelul cererii "${req.name || requestId}"`,
+        ip_address:
+          request.headers.get('x-forwarded-for') ||
+          request.headers.get('x-real-ip') ||
+          null,
+      })
+    }
+
     // Trimite email consultantului atribuit (erorile de email nu blochează răspunsul)
-    if (assigned_to !== null) {
+    if (assigned_to !== undefined && assigned_to !== null) {
       try {
         const [{ data: consultant }, { data: project }] = await Promise.all([
           admin.from('profiles').select('full_name, email').eq('id', assigned_to).maybeSingle(),
@@ -172,6 +236,107 @@ export async function PATCH(
     return NextResponse.json({ ok: true })
   } catch (e: any) {
     console.error('PATCH document-requests exception:', e)
+    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ requestId: string }> }
+) {
+  try {
+    const { requestId } = await params
+    const body = await request.json().catch(() => null)
+    const deleteReason =
+      body && typeof body === 'object' && typeof (body as any).delete_reason === 'string'
+        ? (body as any).delete_reason.trim() || null
+        : null
+    const admin = createSupabaseServiceClient()
+
+    const { data: req, error: reqError } = await admin
+      .from('document_requirements')
+      .select('id, project_id, name, status, deleted_at, deleted_by, delete_reason')
+      .eq('id', requestId)
+      .maybeSingle()
+
+    if (reqError) {
+      console.error('DELETE document-requests fetch error:', reqError)
+      return NextResponse.json({ error: 'Eroare la încărcarea cererii' }, { status: 500 })
+    }
+    if (!req) {
+      return NextResponse.json({ error: 'Cererea nu a fost găsită' }, { status: 404 })
+    }
+
+    const access = await requireProjectAccess(request, req.project_id)
+    if (!access.ok) return guardToResponse(access)
+
+    if (access.profile.role === 'client') {
+      return NextResponse.json({ error: 'Nu ai permisiunea să ștergi cereri' }, { status: 403 })
+    }
+
+    if (req.deleted_at) {
+      return NextResponse.json({
+        ok: true,
+        deleted_at: req.deleted_at,
+        deleted_by: req.deleted_by,
+        already_deleted: true,
+      })
+    }
+
+    const deletedAt = new Date().toISOString()
+    const deletedBy = access.user.id
+
+    const { error: filesError } = await admin
+      .from('files')
+      .update({ deleted_at: deletedAt, deleted_by: deletedBy })
+      .eq('requirement_id', requestId)
+      .is('deleted_at', null)
+
+    if (filesError) {
+      console.error('DELETE document-requests files soft-delete error:', filesError)
+      return NextResponse.json({ error: 'Eroare la ștergerea fișierelor cererii' }, { status: 500 })
+    }
+
+    const { error: updateError } = await admin
+      .from('document_requirements')
+      .update({ deleted_at: deletedAt, deleted_by: deletedBy, delete_reason: deleteReason })
+      .eq('id', requestId)
+      .is('deleted_at', null)
+
+    if (updateError) {
+      console.error('DELETE document-requests update error:', updateError)
+      return NextResponse.json({ error: 'Eroare la ștergerea cererii' }, { status: 500 })
+    }
+
+    const ipAddress =
+      request.headers.get('x-forwarded-for') ||
+      request.headers.get('x-real-ip') ||
+      null
+
+    await admin.from('audit_logs').insert({
+      user_id: access.user.id,
+      action_type: 'delete',
+      entity_type: 'document',
+      entity_id: requestId,
+      entity_name: req.name || 'Cerere document',
+      old_values: {
+        project_id: req.project_id,
+        status: req.status,
+        deleted_at: req.deleted_at,
+      },
+      new_values: {
+        project_id: req.project_id,
+        deleted_at: deletedAt,
+        deleted_by: deletedBy,
+        delete_reason: deleteReason,
+      },
+      description: `${access.profile.email || 'User'} a șters cererea de document "${req.name || requestId}"`,
+      ip_address: ipAddress,
+    })
+
+    return NextResponse.json({ ok: true, deleted_at: deletedAt })
+  } catch (e: any) {
+    console.error('DELETE document-requests exception:', e)
     return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
   }
 }

@@ -173,7 +173,12 @@ export interface TemplateDocumentRequirement {
   name: string;
   description: string | null;
   is_mandatory: boolean;
+  is_active: boolean;
   order_index: number;
+  attachment_path: string | null;
+  attachment_original_name: string | null;
+  attachment_missing_at: string | null;
+  attachment_missing_checked_at: string | null;
   created_at: string;
 }
 
@@ -182,14 +187,24 @@ export interface TemplateDocumentRequirementCreate {
   name: string;
   description?: string;
   is_mandatory?: boolean;
+  is_active?: boolean;
   order_index?: number;
+  attachment_path?: string | null;
+  attachment_original_name?: string | null;
+  attachment_missing_at?: string | null;
+  attachment_missing_checked_at?: string | null;
 }
 
 export interface TemplateDocumentRequirementUpdate {
   name?: string;
   description?: string;
   is_mandatory?: boolean;
+  is_active?: boolean;
   order_index?: number;
+  attachment_path?: string | null;
+  attachment_original_name?: string | null;
+  attachment_missing_at?: string | null;
+  attachment_missing_checked_at?: string | null;
 }
 
 // View pentru template-uri
@@ -415,6 +430,7 @@ export interface ProjectPhase {
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
+  source_template_phase_id: string | null;
   // Relații
   activities?: ProjectActivity[];
   project_status?: ProjectStatus; // NOU
@@ -427,6 +443,7 @@ export interface ProjectPhaseCreate {
   slug: string;
   description?: string;
   order_index?: number;
+  source_template_phase_id?: string | null;
 }
 
 export interface ProjectPhaseUpdate {
@@ -438,6 +455,7 @@ export interface ProjectPhaseUpdate {
   status?: PhaseStatus;
   started_at?: string | null;
   completed_at?: string | null;
+  source_template_phase_id?: string | null;
 }
 
 // View pentru faze cu status
@@ -467,6 +485,7 @@ export interface ProjectActivity {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  source_template_activity_id: string | null;
   assigned_user?: { id: string; full_name: string | null; email: string };
   document_requirements?: ActivityDocumentRequirement[];
 }
@@ -478,6 +497,7 @@ export interface ProjectActivityCreate {
   order_index?: number;
   assigned_to?: string;
   deadline_at?: string;
+  source_template_activity_id?: string | null;
 }
 
 export interface ProjectActivityUpdate {
@@ -490,6 +510,7 @@ export interface ProjectActivityUpdate {
   started_at?: string | null;
   completed_at?: string | null;
   notes?: string;
+  source_template_activity_id?: string | null;
 }
 
 // CERINȚĂ DOCUMENT (neschimbat)
@@ -506,6 +527,13 @@ export interface ActivityDocumentRequirement {
   created_at: string;
   updated_at: string;
   created_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+  delete_reason: string | null;
+  attachment_original_name: string | null;
+  attachment_missing_at: string | null;
+  attachment_missing_checked_at: string | null;
+  source_template_document_requirement_id: string | null;
   files?: ActivityDocumentFile[];
 }
 
@@ -517,6 +545,29 @@ export interface ActivityDocumentRequirementCreate {
   template_path?: string;
   template_name?: string;
   deadline_at?: string;
+  delete_reason?: string | null;
+  attachment_original_name?: string | null;
+  attachment_missing_at?: string | null;
+  attachment_missing_checked_at?: string | null;
+  source_template_document_requirement_id?: string | null;
+}
+
+export interface DocumentRequestReview {
+  id: string;
+  requirement_id: string;
+  action: 'approved' | 'rejected';
+  reason: string | null;
+  reviewed_version_number: number;
+  reviewed_by: string | null;
+  reviewed_at: string;
+}
+
+export interface DocumentRequestReviewCreate {
+  requirement_id: string;
+  action: 'approved' | 'rejected';
+  reason?: string | null;
+  reviewed_version_number: number;
+  reviewed_by?: string | null;
 }
 
 // FIȘIER DOCUMENT (neschimbat)
@@ -534,6 +585,8 @@ export interface ActivityDocumentFile {
   reviewed_at: string | null;
   uploaded_by: string;
   uploaded_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
   uploader?: { full_name: string | null; email: string };
   reviewer?: { full_name: string | null; email: string };
 }
@@ -893,6 +946,7 @@ export interface Database {
       project_activities: { Row: ProjectActivity; Insert: ProjectActivityCreate; Update: ProjectActivityUpdate };
       activity_document_requirements: { Row: ActivityDocumentRequirement; Insert: ActivityDocumentRequirementCreate; Update: Partial<ActivityDocumentRequirementCreate> & { status?: DocumentRequirementStatus } };
       activity_document_files: { Row: ActivityDocumentFile; Insert: ActivityDocumentFileCreate & { uploaded_by: string }; Update: ActivityDocumentFileReview & { reviewed_by?: string; reviewed_at?: string } };
+      document_request_reviews: { Row: DocumentRequestReview; Insert: DocumentRequestReviewCreate; Update: never };
       
       audit_logs: { Row: AuditLog; Insert: Omit<AuditLog, 'id' | 'created_at'>; Update: never };
       notifications: { Row: Notification; Insert: NotificationCreate; Update: { is_read?: boolean } };

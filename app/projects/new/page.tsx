@@ -309,6 +309,7 @@ export default function NewProjectPage() {
       if (!projectRes.ok) throw new Error(projectData?.error || 'Eroare la creare proiect')
 
       const projectId = projectData.project?.id
+      if (!projectId) throw new Error('Proiectul a fost creat, dar răspunsul nu conține ID-ul proiectului.')
 
       // 2. Import template
       if (creationMode === 'template' && selectedTemplateId) {
@@ -317,7 +318,10 @@ export default function NewProjectPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ template_id: selectedTemplateId })
         })
-        if (!importRes.ok) console.error('Eroare import template')
+        const importData = await importRes.json().catch(() => ({}))
+        if (!importRes.ok) {
+          throw new Error(importData?.error || 'Proiectul a fost creat, dar importul template-ului a eșuat.')
+        }
 
         // Asignează consultanți per activitate (manual override sau default din template)
         const phasesRes = await apiFetch(`/api/projects/${projectId}/phases`)
@@ -404,7 +408,8 @@ export default function NewProjectPage() {
                   description: docReq.description || null,
                   is_mandatory: docReq.is_mandatory,
                   activity_id: newActivityId,
-                  attachment_path: attachmentPath
+                  attachment_path: attachmentPath,
+                  attachment_original_name: attachmentPath ? docReq.templateFileName : null,
                 })
               })
             }

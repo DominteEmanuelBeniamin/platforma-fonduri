@@ -16,7 +16,7 @@
 | Invalid reference | Un template nu trateaza un atasament lipsa ca fisier descarcabil |
 | App-side delete | Stergerea care afecteaza un atasament referit trebuie sa blocheze sau sa detaseze explicit referinta |
 | Existing stale data | UI-ul marcheaza referinta lipsa si ofera repair |
-| New project import | Nu copiaza silentios un atasament lipsa in proiect nou |
+| New project import | Nu copiaza `attachment_path` lipsa in proiect nou |
 | Current storage model | MVP poate pastra `attachment_path`, dar ii impune verificari de integritate |
 
 ---
@@ -35,7 +35,7 @@ Atasamentele folosite de template-uri au un lifecycle controlat:
 
 - delete-urile din aplicatie nu lasa referinte noi invalide;
 - referintele invalide deja existente sunt vizibile si reparabile;
-- proiectele noi nu primesc link-uri moarte din template.
+- proiectele noi nu primesc `attachment_path` catre fisiere lipsa din template.
 
 ---
 
@@ -57,7 +57,7 @@ Implementarea trebuie sa reproduca si sa testeze separat cauzele posibile:
 | DB reference stale | Randul referit a fost sters sau detasat incomplet |
 | Storage object missing | `attachment_path` a ramas in DB, dar obiectul nu mai exista in bucket |
 
-MVP-ul acopera simptomul in ambele cazuri: nu afiseaza success fals si nu propaga link mort.
+MVP-ul acopera simptomul in ambele cazuri: nu afiseaza succes fals, nu ofera download fals si nu propaga link mort. Implementarea poate marca referinta ca missing, dar aceasta marcare nu este un substitut pentru a evita copierea path-ului invalid in proiecte noi.
 
 ---
 
@@ -70,6 +70,7 @@ MVP-ul acopera simptomul in ambele cazuri: nu afiseaza success fals si nu propag
 - Repair actions: inlocuire atasament sau detasare referinta.
 - Protectie pentru delete-urile declansate din aplicatie.
 - Raport sau query de identificare a referintelor stale existente.
+- Warning explicit la import cand un model din template a fost omis pentru ca lipseste.
 
 ### 6.2 Out of Scope
 
@@ -122,9 +123,9 @@ Importul unui template verifica atasamentele copiate in proiect.
 | State | Import behavior |
 |-------|-----------------|
 | Atasament valid | Copiaza referinta |
-| Atasament lipsa | Nu copiaza link invalid si raporteaza warning adminului |
+| Atasament lipsa | Creeaza cererea fara `attachment_path` si raporteaza warning adminului |
 
-Importul nu trebuie sa introduca o referinta despre care serverul stie deja ca este invalida.
+Importul nu trebuie sa introduca o referinta despre care serverul stie deja ca este invalida. Daca un atasament lipseste, cererea din proiect se creeaza in continuare, dar fara model atasat; warning-ul trebuie sa permita adminului sa stie ce documente trebuie reparate in template.
 
 ---
 
@@ -137,8 +138,9 @@ Importul nu trebuie sa introduca o referinta despre care serverul stie deja ca e
 | FR-03 | Editorul template poate reprezenta `valid`, `missing` si `none` pentru atasament. |
 | FR-04 | Atasamentul lipsa are repair action prin inlocuire sau detasare. |
 | FR-05 | Download-ul pentru atasament lipsa raspunde cu eroare controlata. |
-| FR-06 | Importul nu copiaza o referinta cunoscuta ca lipsa. |
+| FR-06 | Importul nu copiaza `attachment_path` pentru o referinta cunoscuta ca lipsa. |
 | FR-07 | Exista o cale de scanare a referintelor stale istorice. |
+| FR-08 | Repararea prin replace sau detach reseteaza explicit statusul missing si scrie audit. |
 
 ---
 
@@ -156,6 +158,8 @@ MVP-ul poate continua cu `attachment_path`, dar serverul trebuie sa controleze p
 
 Pe termen lung, daca atasamentele devin reuse assets cu mai multi referenti, un `file_assets` record cu lifecycle si referinte este mai corect decat un raw path.
 
+Pentru MVP, un atasament este considerat disponibil doar daca serverul poate obtine un signed URL functional sau poate verifica obiectul in storage prin API-ul providerului. `attachment_path` prezent in DB nu este suficient.
+
 ### 10.2 Attachment Status
 
 Editorul are nevoie de un status explicit:
@@ -165,6 +169,8 @@ type TemplateAttachmentStatus = 'none' | 'valid' | 'missing'
 ```
 
 Statusul poate fi obtinut la editarea template-ului sau la verificarea atasamentului, dar UI-ul nu trebuie sa trateze `path !== null` ca `valid`.
+
+Campurile de tip `attachment_missing_at` si `attachment_missing_checked_at` pot fi folosite ca cache operational. La replace sau detach se reseteaza; la un nou esec de download/import se actualizeaza.
 
 ### 10.3 Repair Audit
 
@@ -196,7 +202,7 @@ Actiunile de inlocuire si detasare trebuie auditate cu:
 | Storage object lipsa | UI marcheaza missing si download este controlat |
 | Admin detaseaza referinta | Template nu mai arata fisier |
 | Admin inlocuieste fisier lipsa | Status revine valid |
-| Import cu referinta missing | Proiectul nu primeste link mort |
+| Import cu referinta missing | Proiectul nu primeste link mort, iar raspunsul include warning cu documentul afectat |
 | Delete path din aplicatie asupra fisierului referit | Referinta nu ramane stale silentios |
 
 ---
@@ -208,6 +214,7 @@ Actiunile de inlocuire si detasare trebuie auditate cu:
 - [ ] Adminul poate repara referinta prin replace sau detach.
 - [ ] Delete-urile relevante din aplicatie nu lasa referinte template invalide fara handling explicit.
 - [ ] Importul unui template nu copiaza o referinta cunoscuta ca lipsa in proiect nou.
+- [ ] Importul raporteaza warning pentru atasamente omise din cauza lipsei fisierului.
 - [ ] Referintele stale istorice pot fi identificate pentru cleanup.
 
 ---

@@ -4,28 +4,44 @@ import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 
 const BUCKET = 'project-files'
 
-export async function POST(request: Request,
+type FileDownloadRow = {
+  storage_path: string
+  document_requirements:
+    | { project_id: string | null; deleted_at: string | null }
+    | Array<{ project_id: string | null; deleted_at: string | null }>
+    | null
+}
+
+export async function POST(
+  request: Request,
   { params }: { params: Promise<{ fileId: string }> }
 ) {
   try {
     const { fileId } = await params
     const body = await request.json().catch(() => ({}))
-    const expiresIn = typeof body?.expiresIn === 'number' ? body.expiresIn : 60 * 5 // 5 min
+    const expiresIn = typeof body?.expiresIn === 'number' ? body.expiresIn : 60 * 5
 
     const admin = createSupabaseServiceClient()
 
-    // Load file + project_id (via relationship)
     const { data: fileRow, error } = await admin
       .from('files')
-      .select('id, storage_path, requirement_id, document_requirements(project_id)')
+      .select('id, storage_path, original_name, requirement_id, deleted_at, document_requirements(project_id, deleted_at)')
       .eq('id', fileId)
+      .is('deleted_at', null)
       .single()
 
     if (error || !fileRow) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 })
     }
 
-    const projectId = (fileRow as any).document_requirements?.project_id as string | undefined
+    const typedFileRow = fileRow as FileDownloadRow
+    const relation = typedFileRow.document_requirements
+    const requirement = Array.isArray(relation) ? relation[0] : relation
+    if (requirement?.deleted_at) {
+      return NextResponse.json({ error: 'File not found' }, { status: 404 })
+    }
+
+    const projectId = requirement?.project_id ?? undefined
     if (!projectId) {
       return NextResponse.json({ error: 'Invalid file relation' }, { status: 500 })
     }
@@ -33,12 +49,9 @@ export async function POST(request: Request,
     const access = await requireProjectAccess(request, projectId)
     if (!access.ok) return guardToResponse(access)
 
-    // Signed URL
-    const { data, error: signErr } = await admin.storage.from(BUCKET).createSignedUrl(
-      (fileRow as any).storage_path, expiresIn, { download: true }
-    )
-
-
+    const { data, error: signErr } = await admin.storage
+      .from(BUCKET)
+      .createSignedUrl(typedFileRow.storage_path, expiresIn, { download: true })
 
     if (signErr || !data?.signedUrl) {
       console.error('signed url error:', signErr)
@@ -46,8 +59,8 @@ export async function POST(request: Request,
     }
 
     return NextResponse.json({ url: data.signedUrl })
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('POST signed-download error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Server error' }, { status: 500 })
   }
 }

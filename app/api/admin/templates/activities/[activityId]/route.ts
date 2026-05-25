@@ -60,7 +60,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     const { error } = await supabaseAdmin
       .from('template_activities')
-      .delete()
+      .update({ is_active: false })
       .eq('id', activityId)
 
     if (error) throw error

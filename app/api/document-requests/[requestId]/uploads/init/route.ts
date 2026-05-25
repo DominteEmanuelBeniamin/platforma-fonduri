@@ -6,6 +6,12 @@ const BUCKET = 'project-files'
 const MAX_FILES = 50
 const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB
 
+type UploadInitFile = {
+  name: string
+  size: number
+  relativePath?: string | null
+}
+
 function safeSegment(s: string) {
   return s.replace(/[^\w.\- ()]/g, '_')
 }
@@ -46,8 +52,9 @@ export async function POST(request: Request,
     // Load requirement -> project_id
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('id, project_id')
+      .select('id, project_id, deleted_at')
       .eq('id', requestId)
+      .is('deleted_at', null)
       .single()
 
     if (reqErr || !reqRow) {
@@ -62,6 +69,7 @@ export async function POST(request: Request,
       .from('files')
       .select('version_number')
       .eq('requirement_id', requestId)
+      .is('deleted_at', null)
       .order('version_number', { ascending: false })
       .limit(1)
       .maybeSingle()
@@ -71,7 +79,7 @@ export async function POST(request: Request,
 
     // Signed upload URLs
     const uploads = await Promise.all(
-      body.files.map(async (f: any, idx: number) => {
+      (body.files as UploadInitFile[]).map(async (f, idx) => {
         const rel = safeRelativePath(f.relativePath)
         const finalName = rel ?? `${crypto.randomUUID()}_${safeSegment(f.name)}`
 
@@ -92,8 +100,8 @@ export async function POST(request: Request,
     )
 
     return NextResponse.json({ batchId, versionNumber, uploads })
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('POST uploads/init error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Server error' }, { status: 500 })
   }
 }

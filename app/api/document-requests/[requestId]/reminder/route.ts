@@ -21,8 +21,9 @@ export async function POST(
     // Obține cererea + project_id + deadline pentru a calcula tipul de reminder
     const { data: req, error: reqError } = await admin
       .from('document_requirements')
-      .select('id, project_id, deadline_at, reminder_sent_at, reminder_type_sent')
+      .select('id, project_id, deadline_at, reminder_sent_at, reminder_type_sent, deleted_at')
       .eq('id', requestId)
+      .is('deleted_at', null)
       .maybeSingle()
 
     if (reqError || !req) {
@@ -52,6 +53,7 @@ export async function POST(
       .from('document_requirements')
       .update({ reminder_sent_at: newSentAt, reminder_type_sent: newTypeSent })
       .eq('id', requestId)
+      .is('deleted_at', null)
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 })

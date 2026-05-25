@@ -43,8 +43,8 @@ export async function POST(
       token: data.token,
       type
     })
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('attachment/init exception:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Server error' }, { status: 500 })
   }
 }

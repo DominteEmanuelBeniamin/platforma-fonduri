@@ -28,8 +28,10 @@ import {
   Image as ImageIcon,
   File,
   Mail,
+  Trash2,
 } from 'lucide-react'
 import DocumentModal from './DocumentModal'
+import ConfirmDeleteModal from './ConfirmDeleteModal'
 import { useAuth } from '@/app/providers/AuthProvider'
 import {
   getReminderType,
@@ -44,9 +46,13 @@ interface DocumentRequest {
   description: string | null
   status: 'pending' | 'review' | 'approved' | 'rejected'
   attachment_path: string | null
+  attachment_missing_at?: string | null
+  attachment_missing_checked_at?: string | null
   deadline_at: string | null
   created_by: string | null
   created_at: string
+  deleted_at?: string | null
+  deleted_by?: string | null
   creator?: { full_name: string | null; email: string | null }
   assigned_to: string | null
   assigned_consultant: { id: string; full_name: string | null; email: string } | null
@@ -57,7 +63,14 @@ interface DocumentRequest {
     comments: string | null
     created_at: string
     uploaded_by: string | null
+    deleted_at?: string | null
   }[]
+  latest_rejection?: {
+    id: string
+    reason: string
+    reviewed_at: string
+    reviewed_by: { id: string; full_name: string | null } | null
+  } | null
 }
 
 type ValidationError = {
@@ -226,6 +239,9 @@ export default function DocumentRequests({
   const [uploadingFor, setUploadingFor] = useState<string | null>(null)
   const [clientFiles, setClientFiles] = useState<PickedFile[]>([])
   const [showFilePreview, setShowFilePreview] = useState(false)
+  const [requestToDelete, setRequestToDelete] = useState<DocumentRequest | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [missingAttachments, setMissingAttachments] = useState<Set<string>>(() => new Set())
 
   const canUploadFolder =
     typeof window !== 'undefined' &&
@@ -503,8 +519,35 @@ export default function DocumentRequests({
       body: JSON.stringify({ expiresIn: 60 * 5 }),
     })
     const data = await res.json().catch(() => ({}))
-    if (!res.ok) return alert('Eroare la descărcare: ' + (data?.error || res.statusText))
+    if (!res.ok) {
+      if (res.status === 404) {
+        setMissingAttachments(prev => new Set(prev).add(requestId))
+        await fetchRequests()
+      }
+      return alert('Eroare la descărcare: ' + (data?.error || res.statusText))
+    }
     forceDownload(data.url)
+  }
+
+  const handleDeleteRequest = async () => {
+    if (!requestToDelete) return
+
+    setDeleteLoading(true)
+    try {
+      const res = await apiFetch(`/api/document-requests/${requestToDelete.id}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ delete_reason: null }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || 'Nu s-a putut șterge cererea')
+
+      setRequestToDelete(null)
+      await fetchRequests()
+    } catch (e: any) {
+      alert('Eroare la ștergere: ' + e.message)
+    } finally {
+      setDeleteLoading(false)
+    }
   }
 
   // Create request (admin/consultant) via API, with optional template upload
@@ -550,6 +593,7 @@ export default function DocumentRequests({
           description: description.trim() || null,
           deadline_at: deadline || null,
           attachment_path,
+          attachment_original_name: attachment_path ? templateFile?.name || null : null,
           activity_id: activityId || null,
         }),
       })
@@ -579,18 +623,20 @@ export default function DocumentRequests({
         latestVersion: number | null
         latestFiles: ReqFile[]
         latestFile: ReqFile | null
+        rejectionReason: string | null
       }
     >()
 
     for (const req of requests) {
-      const files: ReqFile[] = (req.files ?? []) as ReqFile[]
+      const files: ReqFile[] = ((req.files ?? []) as ReqFile[]).filter(file => !file.deleted_at)
 
       if (files.length === 0) {
         map.set(req.id, {
           responseCount: 0,
           latestVersion: null,
           latestFiles: [],
-          latestFile: null
+          latestFile: null,
+          rejectionReason: req.status === 'rejected' ? req.latest_rejection?.reason ?? null : null
         })
         continue
       }
@@ -616,7 +662,8 @@ export default function DocumentRequests({
         responseCount: byVersion.size,          
         latestVersion,
         latestFiles,
-        latestFile: latestFiles[0] ?? null      
+        latestFile: latestFiles[0] ?? null,
+        rejectionReason: req.status === 'rejected' ? req.latest_rejection?.reason ?? null : null
       })
     }
 
@@ -819,7 +866,7 @@ export default function DocumentRequests({
                         ) : null}
 
 
-                        {req.attachment_path && (
+                        {req.attachment_path && !req.attachment_missing_at && !missingAttachments.has(req.id) && (
                           <button
                             onClick={(e) => { e.stopPropagation(); downloadAttachmentModel(req.id) }}
                             className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 transition-colors"
@@ -827,6 +874,12 @@ export default function DocumentRequests({
                             <Download className="w-3.5 h-3.5" />
                             Model
                           </button>
+                        )}
+                        {(req.attachment_missing_at || missingAttachments.has(req.id)) && (
+                          <span className={`flex items-center gap-1.5 ${isAdminOrConsultant ? 'text-amber-700' : 'text-slate-500'}`}>
+                            <AlertCircle className="w-3.5 h-3.5" />
+                            {isAdminOrConsultant ? 'Model indisponibil' : 'Model indisponibil momentan'}
+                          </span>
                         )}
                       </div>
 
@@ -866,9 +919,31 @@ export default function DocumentRequests({
                     </div>
 
                     {isAdminOrConsultant && (
-                      <ChevronRight className="w-5 h-5 text-slate-300 flex-shrink-0 hidden sm:block" />
+                      <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => setRequestToDelete(req)}
+                          className="p-2 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          title="Șterge din proiect"
+                          aria-label="Șterge din proiect"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                        <ChevronRight className="w-5 h-5 text-slate-300 hidden sm:block" />
+                      </div>
                     )}
                   </div>
+
+                  {isClient && (req.attachment_missing_at || missingAttachments.has(req.id)) && (
+                    <div className="mt-4 p-3 bg-amber-50 border border-amber-100 rounded-xl" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-amber-800">
+                          Modelul pentru această cerere este momentan indisponibil. Echipa îl va atașa când este disponibil; așteaptă actualizarea cererii înainte de completare.
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   {isClient && (req.status === 'pending' || req.status === 'rejected') && (
                     <div className="mt-4 pt-4 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
@@ -1141,13 +1216,16 @@ export default function DocumentRequests({
                         </div>
                       )}
 
-                      {req.status === 'rejected' && requestMeta.get(req.id)?.latestFile?.comments && (
+                      {req.status === 'rejected' && (
                         <div className="mt-3 p-3 bg-red-50 border border-red-100 rounded-xl">
                           <div className="flex items-start gap-2">
                             <MessageSquare className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
                             <div>
                               <p className="text-xs font-semibold text-red-800 mb-0.5">Motiv respingere:</p>
-                              <p className="text-sm text-red-700">{requestMeta.get(req.id)!.latestFile!.comments}</p>                            </div>
+                              <p className="text-sm text-red-700">
+                                {requestMeta.get(req.id)?.rejectionReason || 'Motivul respingerii nu este disponibil pentru acest istoric.'}
+                              </p>
+                            </div>
                           </div>
                         </div>
                       )}
@@ -1193,6 +1271,7 @@ export default function DocumentRequests({
       {selectedRequest && (
         <DocumentModal
           request={selectedRequest}
+          projectId={projectId}
           onClose={() => setSelectedRequest(null)}
           onUpdate={fetchRequests}
           clientEmail={clientEmail}
@@ -1200,6 +1279,35 @@ export default function DocumentRequests({
           projectTitle={projectTitle}
         />
       )}
+
+      <ConfirmDeleteModal
+        isOpen={!!requestToDelete}
+        onClose={() => {
+          if (deleteLoading) return
+          setRequestToDelete(null)
+        }}
+        onConfirm={handleDeleteRequest}
+        title={`Șterge din proiect "${requestToDelete?.name || 'document'}"`}
+        description={
+          requestToDelete
+            ? (() => {
+                const responseCount = (requestToDelete.files ?? []).filter(file => !file.deleted_at).length
+                const responseWarning = responseCount > 0
+                  ? responseCount === 1
+                    ? 'Se va șterge automat și 1 răspuns încărcat. '
+                    : `Se vor șterge automat și ${responseCount} răspunsuri încărcate. `
+                  : ''
+
+                return `Status curent: ${statusConfig[requestToDelete.status]?.label || requestToDelete.status}. ` +
+                  responseWarning +
+                  'Template-ul nu va fi modificat. Istoricul cererii rămâne păstrat.'
+              })()
+            : 'Template-ul nu va fi modificat. Istoricul cererii rămâne păstrat.'
+        }
+        confirmText="Șterge din proiect"
+        confirmWord="sterge"
+        loading={deleteLoading}
+      />
     </>
   )
 }

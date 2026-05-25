@@ -14,7 +14,7 @@
 | Decision | MVP contract |
 |----------|--------------|
 | Source of truth | Motivul apartine unui review event, nu unui rand arbitrar din `files` |
-| Rejection rule | Respingerile necesita motiv si versiune de upload evaluata |
+| Rejection rule | Respingerile necesita motiv si ultima versiune de upload evaluabila |
 | UI value | API-ul furnizeaza `latest_rejection` explicit |
 | Current `files.comments` | Nu mai este sursa principala pentru afisare |
 | History | Fiecare aprobare/respingere creeaza istoric de review |
@@ -36,7 +36,7 @@ In implementarea curenta, motivul este scris pe ultimul fisier gasit la review s
 
 ## 3. Goal
 
-Cand o versiune de document este respinsa, motivul ultimei respingeri este pastrat, returnat si afisat consecvent in fluxul clientului.
+Cand o versiune de document este respinsa, motivul ultimei respingeri este pastrat ca eveniment de review, returnat explicit de API si afisat consecvent in fluxul clientului.
 
 ---
 
@@ -87,6 +87,7 @@ Cand o versiune de document este respinsa, motivul ultimei respingeri este pastr
 - Butonul de respingere este blocat sau valideaza clar cand feedback-ul este gol.
 - API-ul respinge orice `rejected` fara motiv.
 - API-ul respinge review-ul daca nu exista o versiune de upload evaluabila.
+- Versiunea evaluata este ultima versiune incarcata la momentul review-ului, nu un fisier ales arbitrar din batch.
 
 ### 7.2 Client Visibility
 
@@ -102,6 +103,8 @@ Motivul apare:
 - pe cardul cererii din tab-ul **Documente**;
 - in modalul cererii;
 - langa actiunea de reincarcare.
+
+Daca cererea nu mai este in status `rejected`, `latest_rejection` poate ramane in payload pentru istoric, dar UI-ul activ nu il prezinta ca motiv curent decat unde exista context de istoric.
 
 ### 7.3 Legacy Fallback
 
@@ -124,6 +127,8 @@ Daca o cerere istorica este `rejected` si nu exista review event sau motiv recup
 | FR-05 | Un nou upload nu sterge istoricul respingerilor anterioare. |
 | FR-06 | Audit log-ul continua sa inregistreze review-ul, dar UI-ul nu parseaza audit pentru feedback. |
 | FR-07 | Cererile istorice fara motiv au fallback UI. |
+| FR-08 | Review-ul `approved` si `rejected` este refuzat daca nu exista fisiere active pentru cererea evaluata. |
+| FR-09 | `files.comments` poate ramane ca metadata legacy, dar fluxul nou nu il foloseste ca sursa de adevar pentru motiv. |
 
 ---
 
@@ -138,7 +143,7 @@ Tabela recomandata: `document_request_reviews`
 | `id` | Identificator review |
 | `requirement_id` | Cererea evaluata |
 | `action` | `approved` sau `rejected` |
-| `reason` | Obligatoriu pentru `rejected` |
+| `reason` | Obligatoriu pentru `rejected`, `null` pentru `approved` |
 | `reviewed_version_number` | Versiunea de upload evaluata |
 | `reviewed_by` | Actor |
 | `reviewed_at` | Timestamp |
@@ -160,11 +165,14 @@ type LatestRejection = {
 
 UI-ul nu trebuie sa deduca motivul din `request.files[request.files.length - 1]`.
 
+`latest_rejection` este cel mai recent review event cu `action = rejected` pentru cerere. Pentru afisarea motivului curent, UI-ul il foloseste numai cand statusul cererii este `rejected`.
+
 ### 9.3 Migration
 
 - Pentru date vechi, un backfill poate copia best-effort comentariile existente din fisiere in review events.
 - Backfill-ul nu inventeaza motive.
 - Cazurile fara motiv recuperabil raman marcate prin fallback.
+- Daca exista mai multe fisiere in aceeasi versiune cu comentarii diferite, backfill-ul trebuie sa marcheze cazul ca ambiguu sau sa aleaga o regula determinista documentata.
 
 ---
 
@@ -185,6 +193,7 @@ UI-ul nu trebuie sa deduca motivul din `request.files[request.files.length - 1]`
 | Respinge fara motiv | API refuza |
 | Respinge fara upload evaluabil | API refuza |
 | Respinge versiunea 1, client reincarca versiunea 2 | Motivul vechi ramane in istoric |
+| Dupa reincarcare cererea intra in review | Motivul vechi nu este afisat ca motiv curent de respingere |
 | Cerere cu mai multe fisiere in acelasi batch | Un singur review reason stabil |
 | Refresh dupa respingere | Card si modal arata acelasi motiv |
 | Cerere legacy fara motiv | Fallback explicit |
@@ -199,6 +208,7 @@ UI-ul nu trebuie sa deduca motivul din `request.files[request.files.length - 1]`
 - [ ] Cardul si modalul citesc aceeasi valoare `latest_rejection`.
 - [ ] Motivul nu depinde de ordinea randurilor din `files`.
 - [ ] Datele legacy fara motiv afiseaza fallback clar.
+- [ ] Dupa un upload nou, motivul vechi ramane in istoric dar nu este prezentat ca respingerea curenta.
 
 ---
 

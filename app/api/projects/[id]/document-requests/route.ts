@@ -3,12 +3,50 @@ import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 
+type LatestRejection = {
+  reason: string
+  reviewed_at: string
+  reviewed_by: { id: string; full_name: string | null } | null
+  reviewed_version_number: number
+} | null
+
+async function loadLatestRejections(admin: ReturnType<typeof createSupabaseServiceClient>, requestIds: string[]) {
+  const latest = new Map<string, LatestRejection>()
+  if (requestIds.length === 0) return latest
+
+  const { data, error } = await admin
+    .from('document_request_reviews')
+    .select('requirement_id, reason, reviewed_at, reviewed_version_number, reviewer:reviewed_by(id, full_name)')
+    .in('requirement_id', requestIds)
+    .eq('action', 'rejected')
+    .order('reviewed_at', { ascending: false })
+
+  if (error) {
+    console.error('latest rejection lookup error:', error)
+    return latest
+  }
+
+  for (const row of data ?? []) {
+    if (latest.has((row as any).requirement_id)) continue
+    const reviewerRelation = (row as any).reviewer
+    const reviewer = Array.isArray(reviewerRelation) ? reviewerRelation[0] : reviewerRelation
+    latest.set((row as any).requirement_id, {
+      reason: (row as any).reason || '',
+      reviewed_at: (row as any).reviewed_at,
+      reviewed_by: reviewer ? { id: reviewer.id, full_name: reviewer.full_name ?? null } : null,
+      reviewed_version_number: (row as any).reviewed_version_number,
+    })
+  }
+
+  return latest
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id:projectId } = await params
+    const { id: projectId } = await params
 
     const access = await requireProjectAccess(request, projectId)
     if (!access.ok) return guardToResponse(access)
@@ -26,9 +64,14 @@ export async function GET(
         status,
         is_mandatory,
         attachment_path,
+        attachment_original_name,
+        attachment_missing_at,
+        attachment_missing_checked_at,
         deadline_at,
         created_by,
         created_at,
+        deleted_at,
+        deleted_by,
         creator:created_by(full_name, email),
         assigned_to,
         assigned_consultant:assigned_to(id, full_name, email),
@@ -36,13 +79,17 @@ export async function GET(
         files(
           id,
           storage_path,
+          original_name,
           version_number,
           comments,
           created_at,
-          uploaded_by
+          uploaded_by,
+          deleted_at,
+          deleted_by
         )
       `)
       .eq('project_id', projectId)
+      .is('deleted_at', null)
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -50,7 +97,15 @@ export async function GET(
       return NextResponse.json({ error: 'Failed to load document requests' }, { status: 500 })
     }
 
-    return NextResponse.json({ requests: data ?? [] })
+    const rows = data ?? []
+    const latestRejections = await loadLatestRejections(admin, rows.map((row: any) => row.id))
+    const requests = rows.map((row: any) => ({
+      ...row,
+      latest_rejection: latestRejections.get(row.id) ?? null,
+      files: (row.files ?? []).filter((file: any) => !file.deleted_at),
+    }))
+
+    return NextResponse.json({ requests })
   } catch (e: any) {
     console.error('GET document-requests exception:', e)
     return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
@@ -62,12 +117,11 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id:projectId } = await params
+    const { id: projectId } = await params
 
     const access = await requireProjectAccess(request, projectId)
     if (!access.ok) return guardToResponse(access)
 
-    // doar admin/consultant pot crea cereri
     if (access.profile.role !== 'admin' && access.profile.role !== 'consultant') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
@@ -77,6 +131,10 @@ export async function POST(
     const description = typeof body?.description === 'string' ? body.description.trim() : null
     const deadline_at = typeof body?.deadline_at === 'string' && body.deadline_at ? body.deadline_at : null
     const attachment_path = typeof body?.attachment_path === 'string' && body.attachment_path ? body.attachment_path : null
+    const attachment_original_name =
+      typeof body?.attachment_original_name === 'string' && body.attachment_original_name
+        ? body.attachment_original_name
+        : null
     const activity_id = typeof body?.activity_id === 'string' && body.activity_id ? body.activity_id : null
     const is_mandatory = body?.is_mandatory === true
 
@@ -95,9 +153,12 @@ export async function POST(
         description: description || null,
         deadline_at,
         attachment_path,
+        attachment_original_name: attachment_path ? attachment_original_name : null,
+        attachment_missing_at: null,
+        attachment_missing_checked_at: null,
         is_mandatory,
         created_by: access.profile.id,
-        status: 'pending'
+        status: 'pending',
       })
       .select('id')
       .single()

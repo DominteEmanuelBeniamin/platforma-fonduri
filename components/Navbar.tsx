@@ -5,7 +5,6 @@ import { usePathname, useRouter } from "next/navigation"
 import {useAuth} from "@/app/providers/AuthProvider"
 
 export default function Navbar() {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { loading: authLoading, user, profile, signOut } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
@@ -73,7 +72,7 @@ export default function Navbar() {
         {user ? (
           <div className="flex items-center gap-3 pl-4 border-l border-slate-200">
             <div className="hidden lg:block text-right">
-              <p className="text-xs font-semibold text-slate-900 truncate max-w-[150px]">{(user as any).email}</p>
+              <p className="text-xs font-semibold text-slate-900 truncate max-w-[150px]">{profile?.email ?? ''}</p>
               <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">Cont Activ</p>
             </div>
             <button 

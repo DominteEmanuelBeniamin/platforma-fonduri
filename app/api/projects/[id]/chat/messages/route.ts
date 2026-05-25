@@ -50,7 +50,18 @@ const CreateMessageSchema = z.object({
   body: z.string().trim().min(1).max(5000),
 })
 
-const maskRow = (m: any) => {
+type ChatMessageRow = {
+  id: string
+  project_id: string
+  created_by: string
+  body: string | null
+  created_at: string
+  edited_at: string | null
+  deleted_at: string | null
+  profiles?: unknown
+}
+
+const maskRow = (m: ChatMessageRow) => {
   if (!m?.deleted_at) return { ...m, is_deleted: false }
   return {
     ...m,

@@ -8,6 +8,86 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+const BUCKET = 'project-files'
+
+async function storagePathExists(path: string) {
+  const { data, error } = await supabaseAdmin.storage
+    .from(BUCKET)
+    .createSignedUrl(path, 60)
+
+  if (error || !data?.signedUrl) return false
+
+  try {
+    const res = await fetch(data.signedUrl, { method: 'HEAD' })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+async function verifyTemplateDocumentAttachment(doc: any) {
+  if (!doc.attachment_path) return doc
+
+  const attachmentAvailable = await storagePathExists(doc.attachment_path)
+  const checkedAt = new Date().toISOString()
+
+  if (!attachmentAvailable) {
+    const missingAt = doc.attachment_missing_at || checkedAt
+
+    await Promise.all([
+      supabaseAdmin
+        .from('template_document_requirements')
+        .update({
+          attachment_missing_at: missingAt,
+          attachment_missing_checked_at: checkedAt,
+        })
+        .eq('attachment_path', doc.attachment_path),
+      supabaseAdmin
+        .from('document_requirements')
+        .update({
+          attachment_missing_at: missingAt,
+          attachment_missing_checked_at: checkedAt,
+        })
+        .eq('attachment_path', doc.attachment_path)
+        .is('deleted_at', null),
+    ])
+
+    return {
+      ...doc,
+      attachment_missing_at: missingAt,
+      attachment_missing_checked_at: checkedAt,
+    }
+  }
+
+  if (doc.attachment_missing_at) {
+    await Promise.all([
+      supabaseAdmin
+        .from('template_document_requirements')
+        .update({
+          attachment_missing_at: null,
+          attachment_missing_checked_at: checkedAt,
+        })
+        .eq('attachment_path', doc.attachment_path),
+      supabaseAdmin
+        .from('document_requirements')
+        .update({
+          attachment_missing_at: null,
+          attachment_missing_checked_at: checkedAt,
+        })
+        .eq('attachment_path', doc.attachment_path)
+        .is('deleted_at', null),
+    ])
+
+    return {
+      ...doc,
+      attachment_missing_at: null,
+      attachment_missing_checked_at: checkedAt,
+    }
+  }
+
+  return doc
+}
+
 // GET /api/admin/templates
 export async function GET(req: NextRequest) {
   try {
@@ -53,9 +133,14 @@ export async function GET(req: NextRequest) {
                   .from('template_document_requirements')
                   .select('*')
                   .eq('template_activity_id', activity.id)
+                  .eq('is_active', true)
                   .order('order_index', { ascending: true })
 
-                return { ...activity, document_requirements: docs || [] }
+                const verifiedDocs = await Promise.all(
+                  (docs || []).map(verifyTemplateDocumentAttachment)
+                )
+
+                return { ...activity, document_requirements: verifiedDocs }
               })
             )
 
