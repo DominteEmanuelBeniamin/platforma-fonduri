@@ -69,6 +69,7 @@ export default function UserFilesPage() {
               fileRows.push({
                 fileId:           file.id,
                 storagePath:      file.storage_path,
+                displayName:      file.original_name,
                 versionNumber:    file.version_number,
                 uploadedAt:       file.created_at,
                 reqName:          req.name,
@@ -92,6 +93,7 @@ export default function UserFilesPage() {
     id:            f.fileId,
     fileId:        f.fileId,
     storagePath:   f.storagePath,
+    displayName:   f.displayName,
     versionNumber: f.versionNumber,
     uploadedAt:    f.uploadedAt,
     docName:       f.reqName,

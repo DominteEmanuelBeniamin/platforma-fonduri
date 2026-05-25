@@ -3,6 +3,29 @@ import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 
 const MAX_FILES = 50
+const MAX_ORIGINAL_NAME_LENGTH = 200
+
+type UploadedInput = {
+  storagePath?: unknown
+  originalName?: unknown
+  mimeType?: unknown
+  fileSize?: unknown
+}
+
+type NormalizedUpload = {
+  storagePath: string
+  originalName: string
+  mimeType: string | null
+  fileSize: number | null
+}
+
+function normalizeOriginalName(name: string) {
+  return name
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, '_')
+    .replace(/\s+/g, ' ')
+    .slice(0, MAX_ORIGINAL_NAME_LENGTH)
+}
 
 export async function POST(request: Request,
   { params }: { params: Promise<{ requestId: string }> }) {
@@ -29,13 +52,36 @@ export async function POST(request: Request,
       return NextResponse.json({ error: `uploaded[] must be 1..${MAX_FILES}` }, { status: 400 })
     }
 
-    for (const u of uploaded) {
+    const normalizedUploads: NormalizedUpload[] = []
+    for (const item of uploaded) {
+      const u: UploadedInput | null = item && typeof item === 'object' ? item : null
       if (!u?.storagePath || typeof u.storagePath !== 'string') {
         return NextResponse.json({ error: 'Each uploaded item must include storagePath' }, { status: 400 })
       }
-      if (!u?.originalName || typeof u.originalName !== 'string') {
-        return NextResponse.json({ error: 'Each uploaded item must include originalName' }, { status: 400 })
+
+      const originalName = typeof u.originalName === 'string' ? normalizeOriginalName(u.originalName) : ''
+      if (!originalName) {
+        return NextResponse.json({ error: 'Each uploaded item must include a valid originalName' }, { status: 400 })
       }
+
+      if (u.mimeType !== undefined && u.mimeType !== null && typeof u.mimeType !== 'string') {
+        return NextResponse.json({ error: 'mimeType must be a string when provided' }, { status: 400 })
+      }
+
+      if (
+        u.fileSize !== undefined &&
+        u.fileSize !== null &&
+        (typeof u.fileSize !== 'number' || !Number.isFinite(u.fileSize) || u.fileSize < 0)
+      ) {
+        return NextResponse.json({ error: 'fileSize must be a non-negative number when provided' }, { status: 400 })
+      }
+
+      normalizedUploads.push({
+        storagePath: u.storagePath,
+        originalName,
+        mimeType: typeof u.mimeType === 'string' && u.mimeType.trim() ? u.mimeType.trim() : null,
+        fileSize: typeof u.fileSize === 'number' ? Math.trunc(u.fileSize) : null,
+      })
     }
 
     const admin = createSupabaseServiceClient()
@@ -72,10 +118,12 @@ export async function POST(request: Request,
     console.log('Project access granted for user:', access.user.id, 'project:', reqRow.project_id)
 
     // Insert files (schema-aligned)
-    const rows = uploaded.map((u: { storagePath: string; originalName: string }) => ({
+    const rows = normalizedUploads.map((u) => ({
       requirement_id: requestId,
       storage_path: u.storagePath,
       original_name: u.originalName,
+      mime_type: u.mimeType,
+      file_size: u.fileSize,
       version_number: versionNumber,
       uploaded_by: access.user.id,
       // comments: null (default)
@@ -101,11 +149,11 @@ export async function POST(request: Request,
     }
 
     // Audit log pentru upload documente
-    const ipAddress = request.headers.get('x-forwarded-for') || 
-                      request.headers.get('x-real-ip') || 
+    const ipAddress = request.headers.get('x-forwarded-for') ||
+                      request.headers.get('x-real-ip') ||
                       null
 
-    const fileNames = uploaded.map((u: { originalName: string }) => u.originalName).join(', ')
+    const fileNames = normalizedUploads.map((u) => u.originalName).join(', ')
 
     await admin
       .from('audit_logs')

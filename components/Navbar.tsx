@@ -3,12 +3,17 @@
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {useAuth} from "@/app/providers/AuthProvider"
+import { usePrivateChatUnread } from "@/hooks/usePrivateChatUnread"
 
 export default function Navbar() {
   const { loading: authLoading, user, profile, signOut } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
   const isLoggedIn = !authLoading && !!user
+  const canUsePrivateChat = profile?.role === 'admin' || profile?.role === 'consultant'
+  const { hasUnread, unreadConversationCount } = usePrivateChatUnread(
+    isLoggedIn && canUsePrivateChat
+  )
 
   const handleLogout = async () => {
     await signOut()
@@ -36,28 +41,44 @@ export default function Navbar() {
       <div className="flex-1 flex justify-center px-4">
         {isLoggedIn && (
           <div className="flex items-center gap-1 bg-slate-100/50 p-1 rounded-full border border-slate-200/50 overflow-hidden">
-            <Link 
-              href="/" 
+            <Link
+              href="/"
               className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/')}`}
             >
               Proiecte
             </Link>
+            {canUsePrivateChat && (
+              <Link
+                href="/chat"
+                className={`relative px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/chat')}`}
+              >
+                Chat
+                {hasUnread && (
+                  <span
+                    className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white"
+                    aria-label={`${unreadConversationCount} conversații necitite`}
+                  >
+                    {unreadConversationCount > 9 ? '9+' : unreadConversationCount}
+                  </span>
+                )}
+              </Link>
+            )}
             {profile?.role === 'admin' && (
               <>
-                <Link 
-                  href="/admin" 
+                <Link
+                  href="/admin"
                   className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/admin')}`}
                 >
                   Overview
                 </Link>
-                <Link 
-                  href="/admin/users" 
+                <Link
+                  href="/admin/users"
                   className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/admin/users')}`}
                 >
                   Utilizatori
                 </Link>
-                <Link 
-                  href="/admin/audit" 
+                <Link
+                  href="/admin/audit"
                   className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/admin/audit')}`}
                 >
                   Audit
@@ -72,10 +93,12 @@ export default function Navbar() {
         {user ? (
           <div className="flex items-center gap-3 pl-4 border-l border-slate-200">
             <div className="hidden lg:block text-right">
-              <p className="text-xs font-semibold text-slate-900 truncate max-w-[150px]">{profile?.email ?? ''}</p>
+              <p className="text-xs font-semibold text-slate-900 truncate max-w-[150px]">
+                {profile?.email ?? (typeof user === 'object' && user && 'email' in user ? String(user.email) : '')}
+              </p>
               <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">Cont Activ</p>
             </div>
-            <button 
+            <button
               onClick={handleLogout}
               className="group flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 text-slate-500 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all"
               title="Deconectare"

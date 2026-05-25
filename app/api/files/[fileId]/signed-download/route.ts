@@ -6,10 +6,17 @@ const BUCKET = 'project-files'
 
 type FileDownloadRow = {
   storage_path: string
+  original_name: string | null
   document_requirements:
     | { project_id: string | null; deleted_at: string | null }
     | Array<{ project_id: string | null; deleted_at: string | null }>
     | null
+}
+
+function getDownloadName(fileRow: FileDownloadRow) {
+  const originalName = typeof fileRow.original_name === 'string' ? fileRow.original_name.trim() : ''
+  if (originalName) return originalName
+  return fileRow.storage_path.split('/').filter(Boolean).pop() || 'fisier'
 }
 
 export async function POST(
@@ -51,7 +58,7 @@ export async function POST(
 
     const { data, error: signErr } = await admin.storage
       .from(BUCKET)
-      .createSignedUrl(typedFileRow.storage_path, expiresIn, { download: true })
+      .createSignedUrl(typedFileRow.storage_path, expiresIn, { download: getDownloadName(typedFileRow) })
 
     if (signErr || !data?.signedUrl) {
       console.error('signed url error:', signErr)

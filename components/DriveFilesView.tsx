@@ -62,8 +62,10 @@ function isImageExt(e: string) {
   return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(e)
 }
 
-function getFileName(path: string) {
-  return path.split('/').pop()?.replace(/^\d+_/, '') ?? path
+function getDisplayName(row: Pick<DriveRow, 'displayName' | 'storagePath'>) {
+  const displayName = row.displayName?.trim()
+  if (displayName) return displayName
+  return row.storagePath.split('/').filter(Boolean).pop() || 'fisier'
 }
 
 function formatDate(iso: string) {
@@ -204,7 +206,8 @@ export default function DriveFilesView({
       if (!res.ok) { alert(data?.error || 'Eroare la descărcare'); return }
       const { url } = data
       const a = document.createElement('a')
-      a.href = url; a.target = '_blank'; a.rel = 'noopener'
+      a.href = url
+      a.rel = 'noopener'
       document.body.appendChild(a); a.click(); document.body.removeChild(a)
     } finally { setDownloading(null) }
   }
@@ -222,7 +225,7 @@ export default function DriveFilesView({
   const filtered = useMemo(() => rows.filter(r => {
     if (search) {
       const q = search.toLowerCase()
-      const fn = getFileName(r.storagePath).toLowerCase()
+      const fn = getDisplayName(r).toLowerCase()
       if (!r.docName.toLowerCase().includes(q) && !fn.includes(q)) return false
     }
     if (filterStatus !== 'all' && r.docStatus !== filterStatus) return false
@@ -418,7 +421,7 @@ export default function DriveFilesView({
                       )}
                     </p>
                     <p className="truncate" style={{ fontSize: '11px', color: '#9aa0a6' }}>
-                      {row.entryLabel ? `${row.entryLabel} · ` : ''}{getFileName(row.storagePath)}
+                      {row.entryLabel ? `${row.entryLabel} · ` : ''}{getDisplayName(row)}
                     </p>
                   </div>
                 </div>

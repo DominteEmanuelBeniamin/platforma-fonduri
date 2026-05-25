@@ -271,8 +271,7 @@ export async function POST(request: Request) {
       .in('id', fileIds)
       .is('deleted_at', null)
       .is('document_requirements.deleted_at', null)
-     
-      
+
     if (projectLookupError) {
       console.error('bulk-archive: failed to resolve project ids', {
         error: projectLookupError,

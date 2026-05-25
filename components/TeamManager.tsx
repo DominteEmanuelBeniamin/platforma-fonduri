@@ -37,18 +37,25 @@ const getAvatarColor = (identifier: string) => {
 }
 
 export default function TeamManager({ projectId }: { projectId: string }) {
-  const { loading: authLoading, token, apiFetch } = useAuth()
+  const { loading: authLoading, token, apiFetch, profile } = useAuth()
 
   const [team, setTeam] = useState<any[]>([])
   const [consultants, setConsultants] = useState<any[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
+  const canManageTeam = profile?.role === 'admin'
 
   const fetchData = useCallback(async () => {
     if (!projectId) return
     if (authLoading) return
     if (!token) return
+    if (!canManageTeam) {
+      setTeam([])
+      setConsultants([])
+      setInitialLoading(false)
+      return
+    }
 
     setInitialLoading(true)
     try {
@@ -70,11 +77,15 @@ export default function TeamManager({ projectId }: { projectId: string }) {
     } finally {
       setInitialLoading(false)
     }
-  }, [projectId, authLoading, token, apiFetch])
+  }, [projectId, authLoading, token, apiFetch, canManageTeam])
 
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  if (!canManageTeam) {
+    return null
+  }
 
   const addMember = async () => {
     if (!selectedId) return

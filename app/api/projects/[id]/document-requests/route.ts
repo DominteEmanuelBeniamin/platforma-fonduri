@@ -80,6 +80,8 @@ export async function GET(
           id,
           storage_path,
           original_name,
+          mime_type,
+          file_size,
           version_number,
           comments,
           created_at,
