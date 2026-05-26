@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,8 +12,8 @@ const supabaseAdmin = createClient(
 // POST /api/admin/templates/activities - Creează activitate nouă în fază
 export async function POST(req: NextRequest) {
   try {
-    const user = await requireAdmin(req)
-    if (!user) {
+    const auth = await requireAdmin(req)
+    if (!auth.ok) {
       return NextResponse.json({ error: 'Doar adminii pot crea activități' }, { status: 403 })
     }
 
@@ -52,6 +53,17 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (error) throw error
+
+    await logAction({
+      actorId: auth.profile.id,
+      actionType: 'create',
+      entityType: 'template_activity',
+      entityId: activity.id,
+      entityName: activity.name,
+      newValues: activity,
+      description: `Creare activitate sablon ${activity.name}`,
+      request: req,
+    })
 
     return NextResponse.json({ activity }, { status: 201 })
   } catch (error: any) {

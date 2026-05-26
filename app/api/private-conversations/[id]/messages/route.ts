@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { guardToResponse } from '@/app/api/_utils/auth'
 import { requirePrivateConversationParticipant } from '@/app/api/_utils/private-chat'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { logAction } from '@/app/api/_utils/audit'
 
 const MAX_LIMIT = 200
 const DEFAULT_LIMIT = 50
@@ -187,6 +188,17 @@ export async function POST(
       .from('private_conversations')
       .update({ last_message_at: nowIso })
       .eq('id', conversationId)
+
+    await logAction({
+      actorId: accessRes.user.id,
+      actionType: 'create',
+      entityType: 'private_message',
+      entityId: data.id,
+      entityName: `msg:${data.id}`,
+      newValues: { conversation_id: conversationId },
+      description: `Trimitere mesaj privat in conversatia ${conversationId}`,
+      request,
+    })
 
     return Response.json({ item: data }, { status: 201 })
   } catch (err) {

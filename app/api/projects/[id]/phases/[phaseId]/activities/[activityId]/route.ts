@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireProjectAccess } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -37,6 +38,12 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (assigned_to !== undefined) updateData.assigned_to = assigned_to
     if (deadline_at !== undefined) updateData.deadline_at = deadline_at ?? null
 
+    const { data: before } = await supabaseAdmin
+      .from('project_activities')
+      .select('*')
+      .eq('id', activityId)
+      .maybeSingle()
+
     const { data: activity, error } = await supabaseAdmin
       .from('project_activities')
       .update(updateData)
@@ -45,6 +52,18 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       .single()
 
     if (error) throw error
+
+    await logAction({
+      actorId: auth.user.id,
+      actionType: 'update',
+      entityType: 'project_activity',
+      entityId: activityId,
+      entityName: activity.name,
+      oldValues: before ?? null,
+      newValues: updateData,
+      description: `Modificare activitate ${activity.name} in proiectul ${projectId}`,
+      request: req,
+    })
 
     return NextResponse.json({ activity })
   } catch (error: any) {
@@ -67,12 +86,29 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Doar adminii pot șterge' }, { status: 403 })
     }
 
+    const { data: before } = await supabaseAdmin
+      .from('project_activities')
+      .select('*')
+      .eq('id', activityId)
+      .maybeSingle()
+
     const { error } = await supabaseAdmin
       .from('project_activities')
       .delete()
       .eq('id', activityId)
 
     if (error) throw error
+
+    await logAction({
+      actorId: auth.user.id,
+      actionType: 'delete',
+      entityType: 'project_activity',
+      entityId: activityId,
+      entityName: before?.name ?? activityId,
+      oldValues: before ?? null,
+      description: `Stergere activitate ${before?.name ?? activityId} din proiectul ${projectId}`,
+      request: req,
+    })
 
     return NextResponse.json({ success: true })
   } catch (error: any) {

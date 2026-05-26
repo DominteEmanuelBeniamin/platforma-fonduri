@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { logAction } from '@/app/api/_utils/audit'
 
 const BUCKET = 'project-files'
 
@@ -134,6 +135,22 @@ export async function POST(
         attachment_path: reqRow.attachment_path,
       })
     }
+
+    await logAction({
+      actorId: access.user.id,
+      actionType: 'download',
+      entityType: 'file_access',
+      entityId: requestId,
+      entityName: reqRow.attachment_original_name || reqRow.attachment_path,
+      newValues: {
+        document_request_id: requestId,
+        project_id: reqRow.project_id,
+        attachment_path: reqRow.attachment_path,
+        expires_in: expiresIn,
+      },
+      description: `Descarcare model atasat cerere ${requestId} (proiect ${reqRow.project_id})`,
+      request,
+    })
 
     return NextResponse.json({ url: data.signedUrl })
   } catch (e: unknown) {

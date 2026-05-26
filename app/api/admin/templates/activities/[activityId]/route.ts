@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,6 +33,12 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (is_active !== undefined) updateData.is_active = is_active
     if (default_consultant_id !== undefined) updateData.default_consultant_id = default_consultant_id || null
 
+    const { data: before } = await supabaseAdmin
+      .from('template_activities')
+      .select('*')
+      .eq('id', activityId)
+      .maybeSingle()
+
     const { data: activity, error } = await supabaseAdmin
       .from('template_activities')
       .update(updateData)
@@ -40,6 +47,18 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       .single()
 
     if (error) throw error
+
+    await logAction({
+      actorId: auth.profile.id,
+      actionType: 'update',
+      entityType: 'template_activity',
+      entityId: activityId,
+      entityName: activity.name,
+      oldValues: before ?? null,
+      newValues: updateData,
+      description: `Modificare activitate sablon ${activity.name}`,
+      request: req,
+    })
 
     return NextResponse.json({ activity })
   } catch (error: any) {
@@ -58,12 +77,29 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     const { activityId } = await params
 
+    const { data: before } = await supabaseAdmin
+      .from('template_activities')
+      .select('*')
+      .eq('id', activityId)
+      .maybeSingle()
+
     const { error } = await supabaseAdmin
       .from('template_activities')
       .update({ is_active: false })
       .eq('id', activityId)
 
     if (error) throw error
+
+    await logAction({
+      actorId: auth.profile.id,
+      actionType: 'delete',
+      entityType: 'template_activity',
+      entityId: activityId,
+      entityName: before?.name ?? activityId,
+      oldValues: before ?? null,
+      description: `Dezactivare activitate sablon ${before?.name ?? activityId}`,
+      request: req,
+    })
 
     return NextResponse.json({ success: true })
   } catch (error: any) {

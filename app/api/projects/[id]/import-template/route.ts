@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireProfile } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -260,8 +261,24 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         .eq('id', projectId)
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    await logAction({
+      actorId: auth.profile.id,
+      actionType: 'create',
+      entityType: 'project',
+      entityId: projectId,
+      entityName: project.title,
+      newValues: {
+        template_id,
+        template_name: template.name,
+        phases_created: templatePhases.length,
+        warnings_count: warnings.length,
+      },
+      description: `Import template "${template.name}" in proiectul ${project.title} (${templatePhases.length} faze)`,
+      request: req,
+    })
+
+    return NextResponse.json({
+      success: true,
       message: `Template "${template.name}" importat cu succes`,
       phases_created: templatePhases.length,
       warnings,

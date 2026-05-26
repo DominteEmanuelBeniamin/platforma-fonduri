@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,8 +12,8 @@ const supabaseAdmin = createClient(
 // POST /api/admin/templates/documents - Creează document requirement în activitate
 export async function POST(req: NextRequest) {
   try {
-    const user = await requireAdmin(req)
-    if (!user) {
+    const auth = await requireAdmin(req)
+    if (!auth.ok) {
       return NextResponse.json({ error: 'Doar adminii pot crea cerințe de documente' }, { status: 403 })
     }
 
@@ -61,6 +62,17 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (error) throw error
+
+    await logAction({
+      actorId: auth.profile.id,
+      actionType: 'create',
+      entityType: 'template_document',
+      entityId: doc.id,
+      entityName: doc.name,
+      newValues: doc,
+      description: `Creare document sablon ${doc.name}`,
+      request: req,
+    })
 
     return NextResponse.json({ document: doc }, { status: 201 })
   } catch (error: any) {

@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -131,6 +132,22 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         }
       }
     }
+
+    await logAction({
+      actorId: auth.profile.id,
+      actionType: 'create',
+      entityType: 'template',
+      entityId: newTemplate.id,
+      entityName: newTemplate.name,
+      newValues: {
+        source_template_id: templateId,
+        source_template_name: original.name,
+        name: newTemplate.name,
+        slug: newTemplate.slug,
+      },
+      description: `Duplicare sablon ${original.name} -> ${newTemplate.name}`,
+      request: req,
+    })
 
     return NextResponse.json({ template: newTemplate }, { status: 201 })
   } catch (error: any) {

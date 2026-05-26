@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin, guardToResponse} from '../../../../_utils/auth'
 import { createSupabaseServiceClient } from '../../../../_utils/supabase'
+import { logAction } from '../../../../_utils/audit'
 
 
 export async function DELETE(
@@ -20,14 +21,14 @@ export async function DELETE(
     // 1) Admin-only
     const ctx = await requireAdmin(request)
     if (!ctx.ok) return guardToResponse(ctx)
-    
+
     const admin = createSupabaseServiceClient()
 
 
     // 2) Verificăm că membership-ul există și aparține proiectului
     const { data: existing, error: findErr } = await admin
       .from('project_members')
-      .select('id, project_id')
+      .select('id, project_id, consultant_id, role_in_project')
       .eq('id', memberId)
       .maybeSingle()
 
@@ -48,6 +49,17 @@ export async function DELETE(
     if (delErr) {
       return NextResponse.json({ error: delErr.message }, { status: 400 })
     }
+
+    await logAction({
+      actorId: ctx.user.id,
+      actionType: 'delete',
+      entityType: 'project_member',
+      entityId: memberId,
+      entityName: existing.consultant_id,
+      oldValues: existing,
+      description: `Scoatere membru ${existing.consultant_id} din proiectul ${projectId}`,
+      request,
+    })
 
     return NextResponse.json({ message: 'Member removed' })
   } catch (e: unknown) {

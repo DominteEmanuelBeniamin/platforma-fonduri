@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { logAction } from '@/app/api/_utils/audit'
 
 const BUCKET = 'project-files'
 
@@ -64,6 +65,22 @@ export async function POST(
       console.error('signed url error:', signErr)
       return NextResponse.json({ error: 'Failed to create signed download URL' }, { status: 500 })
     }
+
+    await logAction({
+      actorId: access.user.id,
+      actionType: 'download',
+      entityType: 'file_access',
+      entityId: fileId,
+      entityName: getDownloadName(typedFileRow),
+      newValues: {
+        file_id: fileId,
+        project_id: projectId,
+        storage_path: typedFileRow.storage_path,
+        expires_in: expiresIn,
+      },
+      description: `Descarcare fisier ${getDownloadName(typedFileRow)} (proiect ${projectId})`,
+      request,
+    })
 
     return NextResponse.json({ url: data.signedUrl })
   } catch (e: unknown) {

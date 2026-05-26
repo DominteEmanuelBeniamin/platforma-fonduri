@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { guardToResponse, requireAdmin, requireProjectAccess } from '../../../_utils/auth'
 import { createSupabaseServiceClient } from '../../../_utils/supabase'
+import { logAction } from '../../../_utils/audit'
 
 function isNonEmptyString(x: unknown): x is string {
   return typeof x === 'string' && x.trim().length > 0
@@ -170,6 +171,21 @@ export async function POST(
       console.error('Insert membership error:', insertErr)
       return NextResponse.json({ error: insertErr.message }, { status: 400 })
     }
+
+    await logAction({
+      actorId: ctx.user.id,
+      actionType: 'create',
+      entityType: 'project_member',
+      entityId: member.id,
+      entityName: consultantProfile.email ?? consultantProfile.full_name ?? cleanConsultantId,
+      newValues: {
+        project_id: projectId,
+        consultant_id: cleanConsultantId,
+        role_in_project: 'member',
+      },
+      description: `Adaugare membru ${consultantProfile.email ?? cleanConsultantId} in proiectul ${projectId}`,
+      request,
+    })
 
     return NextResponse.json({ message: 'Member added', member }, { status: 201 })
   } catch (e: unknown) {

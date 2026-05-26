@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -68,6 +69,12 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       }
     }
 
+    const { data: before } = await supabaseAdmin
+      .from('template_phases')
+      .select('*')
+      .eq('id', phaseId)
+      .maybeSingle()
+
     const { data: phase, error } = await supabaseAdmin
       .from('template_phases')
       .update(updateData)
@@ -76,6 +83,18 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       .single()
 
     if (error) throw error
+
+    await logAction({
+      actorId: auth.profile.id,
+      actionType: 'update',
+      entityType: 'template_phase',
+      entityId: phaseId,
+      entityName: phase.name,
+      oldValues: before ?? null,
+      newValues: updateData,
+      description: `Modificare faza sablon ${phase.name}`,
+      request: req,
+    })
 
     return NextResponse.json({ phase })
   } catch (error: any) {
@@ -94,12 +113,29 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     const { phaseId } = await params
 
+    const { data: before } = await supabaseAdmin
+      .from('template_phases')
+      .select('*')
+      .eq('id', phaseId)
+      .maybeSingle()
+
     const { error } = await supabaseAdmin
       .from('template_phases')
       .update({ is_active: false })
       .eq('id', phaseId)
 
     if (error) throw error
+
+    await logAction({
+      actorId: auth.profile.id,
+      actionType: 'delete',
+      entityType: 'template_phase',
+      entityId: phaseId,
+      entityName: before?.name ?? phaseId,
+      oldValues: before ?? null,
+      description: `Dezactivare faza sablon ${before?.name ?? phaseId}`,
+      request: req,
+    })
 
     return NextResponse.json({ success: true })
   } catch (error: any) {

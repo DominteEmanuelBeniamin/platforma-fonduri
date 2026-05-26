@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { requireProfile, guardToResponse } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { getReminderType } from '@/lib/document-reminder'
+import { logAction } from '@/app/api/_utils/audit'
 
 // POST /api/document-requests/[requestId]/reminder
 // Toggle reminder_sent_at: null → now()  |  now() → null
@@ -58,6 +59,26 @@ export async function POST(
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 })
     }
+
+    await logAction({
+      actorId: ctx.user.id,
+      actionType: 'update',
+      entityType: 'document',
+      entityId: requestId,
+      entityName: `reminder:${requestId}`,
+      oldValues: {
+        reminder_sent_at: req.reminder_sent_at,
+        reminder_type_sent: req.reminder_type_sent,
+      },
+      newValues: {
+        reminder_sent_at: newSentAt,
+        reminder_type_sent: newTypeSent,
+      },
+      description: isSent
+        ? `Anulare reminder pentru cererea ${requestId}`
+        : `Reminder trimis pentru cererea ${requestId}`,
+      request,
+    })
 
     return NextResponse.json({ reminder_sent_at: newSentAt, reminder_type_sent: newTypeSent })
   } catch (e: any) {
