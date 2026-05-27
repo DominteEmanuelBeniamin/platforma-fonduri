@@ -75,14 +75,21 @@ export async function POST(req: NextRequest) {
 
     if (error) throw error
 
+    const { data: templateRow } = await supabaseAdmin
+      .from('project_templates')
+      .select('name')
+      .eq('id', template_id)
+      .maybeSingle()
+    const templateName = templateRow?.name ?? template_id
+
     await logAction({
       actorId: auth.profile.id,
-      actionType: 'create',
+      actionType: 'add',
       entityType: 'template_phase',
       entityId: phase.id,
       entityName: phase.name,
-      newValues: phase,
-      description: `Creare faza sablon ${phase.name}`,
+      newValues: { ...phase, template_name: templateName },
+      description: `Adaugare faza "${phase.name}" in sablonul "${templateName}"`,
       request: req,
     })
 

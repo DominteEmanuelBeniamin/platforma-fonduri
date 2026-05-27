@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
-import { logAction } from '@/app/api/_utils/audit'
+import { computeDiff, logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -70,17 +70,20 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     if (error) throw error
 
-    await logAction({
-      actorId: auth.profile.id,
-      actionType: 'update',
-      entityType: 'template',
-      entityId: templateId,
-      entityName: template.name,
-      oldValues: before ?? null,
-      newValues: updateData,
-      description: `Modificare sablon ${template.name}`,
-      request: req,
-    })
+    const diff = computeDiff(before, updateData)
+    if (!diff.isEmpty) {
+      await logAction({
+        actorId: auth.profile.id,
+        actionType: 'update',
+        entityType: 'template',
+        entityId: templateId,
+        entityName: template.name,
+        oldValues: diff.oldValues,
+        newValues: diff.newValues,
+        description: `Modificare sablon "${template.name}" (${diff.changedKeys.join(', ')})`,
+        request: req,
+      })
+    }
 
     return NextResponse.json({ template })
   } catch (error: any) {

@@ -8,6 +8,7 @@ import {
   LogIn,
   LogOut,
   Plus,
+  PlusSquare,
   Pencil,
   Trash2,
   User,
@@ -31,10 +32,11 @@ import {
   CheckSquare,
   ListOrdered,
   HardDrive,
-  AlertTriangle,
+  Share2,
   History,
   FileDown,
 } from 'lucide-react'
+import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 
 interface AuditLog {
   id: string
@@ -81,7 +83,9 @@ const ACTION_CONFIG: Record<string, ActionConfig> = {
   login: { label: 'Autentificare', color: 'text-emerald-700', bgColor: 'bg-emerald-50', borderColor: 'border-emerald-200', icon: LogIn },
   logout: { label: 'Deconectare', color: 'text-slate-600', bgColor: 'bg-slate-100', borderColor: 'border-slate-200', icon: LogOut },
   create: { label: 'Creare', color: 'text-blue-700', bgColor: 'bg-blue-50', borderColor: 'border-blue-200', icon: Plus },
+  add: { label: 'Adaugare', color: 'text-cyan-700', bgColor: 'bg-cyan-50', borderColor: 'border-cyan-200', icon: PlusSquare },
   update: { label: 'Modificare', color: 'text-amber-700', bgColor: 'bg-amber-50', borderColor: 'border-amber-200', icon: Pencil },
+  propagate: { label: 'Propagare', color: 'text-purple-700', bgColor: 'bg-purple-50', borderColor: 'border-purple-200', icon: Share2 },
   delete: { label: 'Stergere', color: 'text-red-700', bgColor: 'bg-red-50', borderColor: 'border-red-200', icon: Trash2 },
   download: { label: 'Descarcare', color: 'text-violet-700', bgColor: 'bg-violet-50', borderColor: 'border-violet-200', icon: Download },
 }
@@ -440,9 +444,9 @@ export default function AuditPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-        <div className="flex flex-col lg:flex-row gap-4">
-          <form onSubmit={handleSearch} className="flex-1">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center gap-3">
+          <form onSubmit={handleSearch} className="flex-1 min-w-0">
             <div className="relative">
               <input
                 type="text"
@@ -455,6 +459,30 @@ export default function AuditPage() {
             </div>
           </form>
 
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={exportCsv}
+              disabled={exporting || loading}
+              className="px-4 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 whitespace-nowrap"
+            >
+              <FileDown className="w-4 h-4" />
+              {exporting ? 'Se exporta…' : 'Export CSV'}
+            </button>
+
+            {hasFilters && (
+              <button
+                onClick={clearFilters}
+                className="px-3 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap"
+                title="Reseteaza filtrele"
+              >
+                <X className="w-4 h-4" />
+                Reseteaza
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <SelectFilter value={actionType} onChange={setActionType} placeholder="Toate actiunile">
             {Object.entries(ACTION_CONFIG).map(([key, cfg]) => (
               <option key={key} value={key}>{cfg.label}</option>
@@ -475,38 +503,19 @@ export default function AuditPage() {
             ))}
           </SelectFilter>
 
-          <div className="flex items-center gap-2">
-            <DateInput value={fromDate} onChange={setFromDate} />
-            <span className="text-slate-400">→</span>
-            <DateInput value={toDate} onChange={setToDate} />
+          <div className="flex items-center gap-1.5 min-w-0">
+            <DateInput value={fromDate} onChange={setFromDate} ariaLabel="De la" />
+            <span className="text-slate-400 shrink-0">→</span>
+            <DateInput value={toDate} onChange={setToDate} ariaLabel="Pana la" />
           </div>
-
-          <button
-            onClick={exportCsv}
-            disabled={exporting || loading}
-            className="px-4 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
-          >
-            <FileDown className="w-4 h-4" />
-            {exporting ? 'Se exporta…' : 'Export CSV'}
-          </button>
-
-          {hasFilters && (
-            <button
-              onClick={clearFilters}
-              className="px-4 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2"
-            >
-              <X className="w-4 h-4" />
-              Reseteaza
-            </button>
-          )}
         </div>
 
         {(selectedUserLabel || selectedEntityLabel) && (
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 pt-1">
             {selectedUserLabel && (
               <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
                 Utilizator: {selectedUserLabel}
-                <button onClick={() => setUserIdFilter('')} className="hover:text-indigo-900">
+                <button onClick={() => setUserIdFilter('')} className="hover:text-indigo-900" aria-label="Elimina filtru utilizator">
                   <X className="w-3 h-3" />
                 </button>
               </span>
@@ -514,7 +523,7 @@ export default function AuditPage() {
             {selectedEntityLabel && (
               <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
                 Istoric entitate ({selectedEntityLabel})
-                <button onClick={() => setEntityId('')} className="hover:text-emerald-900">
+                <button onClick={() => setEntityId('')} className="hover:text-emerald-900" aria-label="Elimina filtru entitate">
                   <X className="w-3 h-3" />
                 </button>
               </span>
@@ -573,19 +582,24 @@ export default function AuditPage() {
         <Paginator pagination={pagination} onPageChange={fetchLogs} />
       )}
 
-      {deleteTarget && (
-        <DeleteModal
-          log={deleteTarget}
-          deleting={deleting}
-          error={deleteError}
-          onCancel={() => {
-            setDeleteTarget(null)
-            setDeleteError(null)
-          }}
-          onConfirm={confirmDelete}
-          formatDate={formatDate}
-        />
-      )}
+      <ConfirmDeleteModal
+        isOpen={!!deleteTarget}
+        loading={deleting}
+        error={deleteError}
+        title="Sterge intrarea de audit?"
+        description="Aceasta actiune va elimina intrarea, dar va crea o noua intrare in jurnal care inregistreaza stergerea (cu snapshot complet)."
+        confirmText="Sterge intrarea"
+        onClose={() => {
+          if (deleting) return
+          setDeleteTarget(null)
+          setDeleteError(null)
+        }}
+        onConfirm={confirmDelete}
+      >
+        {deleteTarget && (
+          <DeleteTargetSummary log={deleteTarget} formatDate={formatDate} />
+        )}
+      </ConfirmDeleteModal>
     </div>
   )
 }
@@ -636,16 +650,17 @@ function SelectFilter({
   )
 }
 
-function DateInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function DateInput({ value, onChange, ariaLabel }: { value: string; onChange: (v: string) => void; ariaLabel?: string }) {
   return (
-    <div className="relative">
+    <div className="relative flex-1 min-w-0">
       <input
         type="date"
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+        aria-label={ariaLabel}
+        className="w-full pl-9 pr-2 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
       />
-      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+      <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
     </div>
   )
 }
@@ -849,90 +864,35 @@ function Paginator({
   )
 }
 
-function DeleteModal({
-  log, deleting, error, onCancel, onConfirm, formatDate,
+function DeleteTargetSummary({
+  log, formatDate,
 }: {
   log: AuditLog
-  deleting: boolean
-  error: string | null
-  onCancel: () => void
-  onConfirm: () => void
   formatDate: (s: string) => string
 }) {
   const action = getActionConfig(log.action_type)
   const entity = getEntityConfig(log.entity_type)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
-        <div className="flex items-start gap-4 p-6 border-b border-slate-100">
-          <div className="w-11 h-11 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
-            <AlertTriangle className="w-6 h-6 text-red-600" />
-          </div>
-          <div className="flex-1">
-            <h2 className="text-lg font-semibold text-slate-900">Sterge intrarea de audit?</h2>
-            <p className="text-sm text-slate-500 mt-1">
-              Aceasta actiune va elimina intrarea, dar va crea o noua intrare in jurnal care inregistreaza stergerea (cu snapshot complet).
-            </p>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-3">
-          <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-200">
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <Calendar className="w-3.5 h-3.5" />
-              {formatDate(log.created_at)}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-semibold border ${action.bgColor} ${action.borderColor} ${action.color}`}
-              >
-                {action.label || log.action_type}
-              </span>
-              <span className="text-xs text-slate-600">{entity.label || log.entity_type}</span>
-              {log.entity_name && (
-                <span className="text-xs text-slate-400">• {log.entity_name}</span>
-              )}
-            </div>
-            {log.description && (
-              <p className="text-sm text-slate-700 pt-1">{log.description}</p>
-            )}
-          </div>
-
-          {error && (
-            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-        </div>
-
-        <div className="flex justify-end gap-2 p-4 bg-slate-50 border-t border-slate-100">
-          <button
-            onClick={onCancel}
-            disabled={deleting}
-            className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50"
-          >
-            Anuleaza
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={deleting}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
-          >
-            {deleting ? (
-              <>
-                <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Se sterge...
-              </>
-            ) : (
-              <>
-                <Trash2 className="w-3.5 h-3.5" />
-                Sterge intrarea
-              </>
-            )}
-          </button>
-        </div>
+    <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-200">
+      <div className="flex items-center gap-2 text-xs text-slate-500">
+        <Calendar className="w-3.5 h-3.5" />
+        {formatDate(log.created_at)}
       </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-semibold border ${action.bgColor} ${action.borderColor} ${action.color}`}
+        >
+          {action.label || log.action_type}
+        </span>
+        <span className="text-xs text-slate-600">{entity.label || log.entity_type}</span>
+        {log.entity_name && (
+          <span className="text-xs text-slate-400">• {log.entity_name}</span>
+        )}
+      </div>
+      {log.description && (
+        <p className="text-sm text-slate-700 pt-1">{log.description}</p>
+      )}
     </div>
   )
 }

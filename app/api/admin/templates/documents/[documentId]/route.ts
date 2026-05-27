@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { guardToResponse, requireAdmin } from '@/app/api/_utils/auth'
+import { computeDiff, logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,6 +11,20 @@ const supabaseAdmin = createClient(
 
 interface RouteParams {
   params: Promise<{ documentId: string }>
+}
+
+async function loadDocumentChain(templateActivityId: string | null | undefined) {
+  if (!templateActivityId) return { activityName: '', phaseName: '', templateName: '' }
+  const { data } = await supabaseAdmin
+    .from('template_activities')
+    .select('name, template_phases(name, project_templates(name))')
+    .eq('id', templateActivityId)
+    .maybeSingle()
+  return {
+    activityName: data?.name ?? templateActivityId,
+    phaseName: (data as any)?.template_phases?.name ?? '',
+    templateName: (data as any)?.template_phases?.project_templates?.name ?? '',
+  }
 }
 
 // PATCH /api/admin/templates/documents/[documentId]
@@ -36,7 +51,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     const { data: previousDoc, error: previousError } = await supabaseAdmin
       .from('template_document_requirements')
-      .select('id, name, attachment_path, attachment_missing_at')
+      .select('*')
       .eq('id', documentId)
       .maybeSingle()
 
@@ -51,25 +66,34 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     if (error) throw error
 
-    if (attachment_path !== undefined && previousDoc?.attachment_path !== doc.attachment_path) {
-      await supabaseAdmin.from('audit_logs').insert({
-        user_id: auth.user.id,
-        action_type: 'update',
-        entity_type: 'template_document_requirement',
-        entity_id: documentId,
-        entity_name: doc.name || previousDoc?.name || 'Document template',
-        old_values: {
-          attachment_path: previousDoc?.attachment_path ?? null,
-          attachment_missing_at: previousDoc?.attachment_missing_at ?? null,
-        },
-        new_values: {
-          attachment_path: doc.attachment_path ?? null,
-          attachment_missing_at: doc.attachment_missing_at ?? null,
-        },
-        description: doc.attachment_path
-          ? `${auth.profile.email || 'Admin'} a înlocuit modelul documentului "${doc.name || documentId}"`
-          : `${auth.profile.email || 'Admin'} a eliminat modelul documentului "${doc.name || documentId}"`,
-        ip_address: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || null,
+    const diff = computeDiff(previousDoc, updateData)
+    if (!diff.isEmpty) {
+      const { activityName, phaseName, templateName } = await loadDocumentChain(doc.template_activity_id)
+      const attachmentChanged =
+        attachment_path !== undefined && (previousDoc?.attachment_path ?? null) !== (doc.attachment_path ?? null)
+      const onlyAttachmentChange = diff.changedKeys.every(k =>
+        ['attachment_path', 'attachment_original_name', 'attachment_missing_at', 'attachment_missing_checked_at'].includes(k),
+      )
+
+      let descriptionText: string
+      if (attachmentChanged && onlyAttachmentChange) {
+        descriptionText = doc.attachment_path
+          ? `Inlocuire model document "${doc.name}" in activitatea "${activityName}" (faza "${phaseName}", sablonul "${templateName}")`
+          : `Eliminare model document "${doc.name}" in activitatea "${activityName}" (faza "${phaseName}", sablonul "${templateName}")`
+      } else {
+        descriptionText = `Modificare cerinta document "${doc.name}" in activitatea "${activityName}" (faza "${phaseName}", sablonul "${templateName}") (${diff.changedKeys.join(', ')})`
+      }
+
+      await logAction({
+        actorId: auth.profile.id,
+        actionType: 'update',
+        entityType: 'template_document',
+        entityId: documentId,
+        entityName: doc.name,
+        oldValues: { ...diff.oldValues, template_name: templateName, phase_name: phaseName, activity_name: activityName },
+        newValues: { ...diff.newValues, template_name: templateName, phase_name: phaseName, activity_name: activityName },
+        description: descriptionText,
+        request: req,
       })
     }
 
@@ -88,12 +112,30 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     const { documentId } = await params
 
+    const { data: before } = await supabaseAdmin
+      .from('template_document_requirements')
+      .select('*')
+      .eq('id', documentId)
+      .maybeSingle()
+
     const { error } = await supabaseAdmin
       .from('template_document_requirements')
       .update({ is_active: false })
       .eq('id', documentId)
 
     if (error) throw error
+
+    const { activityName, phaseName, templateName } = await loadDocumentChain(before?.template_activity_id)
+    await logAction({
+      actorId: auth.profile.id,
+      actionType: 'delete',
+      entityType: 'template_document',
+      entityId: documentId,
+      entityName: before?.name ?? documentId,
+      oldValues: before ? { ...before, template_name: templateName, phase_name: phaseName, activity_name: activityName } : null,
+      description: `Eliminare cerinta document "${before?.name ?? documentId}" din activitatea "${activityName}" (faza "${phaseName}", sablonul "${templateName}")`,
+      request: req,
+    })
 
     return NextResponse.json({ success: true })
   } catch (error: any) {

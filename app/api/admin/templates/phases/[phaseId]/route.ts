@@ -2,7 +2,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
-import { logAction } from '@/app/api/_utils/audit'
+import { computeDiff, logAction } from '@/app/api/_utils/audit'
+
+async function loadTemplateName(templateId: string | null | undefined): Promise<string> {
+  if (!templateId) return ''
+  const { data } = await supabaseAdmin
+    .from('project_templates')
+    .select('name')
+    .eq('id', templateId)
+    .maybeSingle()
+  return data?.name ?? templateId
+}
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -84,17 +94,21 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     if (error) throw error
 
-    await logAction({
-      actorId: auth.profile.id,
-      actionType: 'update',
-      entityType: 'template_phase',
-      entityId: phaseId,
-      entityName: phase.name,
-      oldValues: before ?? null,
-      newValues: updateData,
-      description: `Modificare faza sablon ${phase.name}`,
-      request: req,
-    })
+    const diff = computeDiff(before, updateData)
+    if (!diff.isEmpty) {
+      const templateName = await loadTemplateName(phase.template_id)
+      await logAction({
+        actorId: auth.profile.id,
+        actionType: 'update',
+        entityType: 'template_phase',
+        entityId: phaseId,
+        entityName: phase.name,
+        oldValues: { ...diff.oldValues, template_name: templateName },
+        newValues: { ...diff.newValues, template_name: templateName },
+        description: `Modificare faza "${phase.name}" in sablonul "${templateName}" (${diff.changedKeys.join(', ')})`,
+        request: req,
+      })
+    }
 
     return NextResponse.json({ phase })
   } catch (error: any) {
@@ -126,14 +140,15 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     if (error) throw error
 
+    const templateName = await loadTemplateName(before?.template_id)
     await logAction({
       actorId: auth.profile.id,
       actionType: 'delete',
       entityType: 'template_phase',
       entityId: phaseId,
       entityName: before?.name ?? phaseId,
-      oldValues: before ?? null,
-      description: `Dezactivare faza sablon ${before?.name ?? phaseId}`,
+      oldValues: before ? { ...before, template_name: templateName } : null,
+      description: `Eliminare faza "${before?.name ?? phaseId}" din sablonul "${templateName}"`,
       request: req,
     })
 

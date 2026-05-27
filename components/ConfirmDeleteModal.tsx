@@ -13,6 +13,8 @@ interface ConfirmDeleteModalProps {
   confirmText?: string
   confirmWord?: string
   loading?: boolean
+  error?: string | null
+  children?: React.ReactNode
 }
 
 export default function ConfirmDeleteModal({
@@ -23,7 +25,9 @@ export default function ConfirmDeleteModal({
   description = 'Această acțiune este permanentă și nu poate fi anulată.',
   confirmText = 'Șterge',
   confirmWord = 'sterge',
-  loading = false
+  loading = false,
+  error = null,
+  children
 }: ConfirmDeleteModalProps) {
   const [inputValue, setInputValue] = useState('')
 
@@ -113,6 +117,7 @@ export default function ConfirmDeleteModal({
 
         {/* Body */}
         <div className="px-6 py-5 space-y-4">
+          {children}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
               Pentru a confirma, scrie{' '}
@@ -130,6 +135,12 @@ export default function ConfirmDeleteModal({
               className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:border-red-500 focus:ring-4 focus:ring-red-500/10 outline-none transition-all bg-slate-50 focus:bg-white disabled:opacity-60"
             />
           </div>
+
+          {error && (
+            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
 
           {/* Feedback */}
           {inputValue.length > 0 && !isConfirmEnabled && (

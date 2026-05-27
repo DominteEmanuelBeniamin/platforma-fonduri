@@ -607,7 +607,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     await supabaseAdmin.from('audit_logs').insert({
       user_id: auth.profile.id,
-      action_type: 'update',
+      action_type: 'propagate',
       entity_type: 'template',
       entity_id: templateId,
       entity_name: template.name,
@@ -615,7 +615,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         project_ids: projectIds,
         results,
       },
-      description: `${auth.profile.email || 'Admin'} a propagat template-ul "${template.name}" către ${projectIds.length} proiect(e)`,
+      description: `Propagare sablon "${template.name}" catre ${projectIds.length} proiect(e)`,
       ip_address: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || null,
     })
 

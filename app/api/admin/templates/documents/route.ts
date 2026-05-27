@@ -63,14 +63,23 @@ export async function POST(req: NextRequest) {
 
     if (error) throw error
 
+    const { data: actRow } = await supabaseAdmin
+      .from('template_activities')
+      .select('name, template_phases(name, project_templates(name))')
+      .eq('id', template_activity_id)
+      .maybeSingle()
+    const activityName = actRow?.name ?? template_activity_id
+    const phaseName = (actRow as any)?.template_phases?.name ?? ''
+    const templateName = (actRow as any)?.template_phases?.project_templates?.name ?? ''
+
     await logAction({
       actorId: auth.profile.id,
-      actionType: 'create',
+      actionType: 'add',
       entityType: 'template_document',
       entityId: doc.id,
       entityName: doc.name,
-      newValues: doc,
-      description: `Creare document sablon ${doc.name}`,
+      newValues: { ...doc, template_name: templateName, phase_name: phaseName, activity_name: activityName },
+      description: `Adaugare cerinta document "${doc.name}" in activitatea "${activityName}" (faza "${phaseName}", sablonul "${templateName}")`,
       request: req,
     })
 

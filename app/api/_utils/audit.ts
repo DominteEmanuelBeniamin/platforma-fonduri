@@ -2,7 +2,69 @@
 // app/api/_utils/audit.ts
 import { createSupabaseServiceClient } from './supabase'
 
-type AuditActionType = 'create' | 'update' | 'delete' | 'login' | 'logout' | 'download'
+type AuditActionType =
+  | 'create'
+  | 'add'
+  | 'update'
+  | 'delete'
+  | 'propagate'
+  | 'login'
+  | 'logout'
+  | 'download'
+
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (a === null || a === undefined) return b === null || b === undefined
+  if (b === null || b === undefined) return false
+  if (typeof a !== typeof b) return false
+  if (typeof a !== 'object') return false
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false
+    return a.every((v, i) => deepEqual(v, b[i]))
+  }
+  const ka = Object.keys(a as object)
+  const kb = Object.keys(b as object)
+  if (ka.length !== kb.length) return false
+  return ka.every(k => deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
+}
+
+/**
+ * Compara `before` (snapshot complet) cu `update` (campurile trimise spre PATCH)
+ * si returneaza doar cheile cu valoare diferita. `null`/`undefined` sunt
+ * tratate echivalent, ca sa nu marchezi un PATCH no-op drept modificare.
+ */
+export function computeDiff(
+  before: Record<string, any> | null | undefined,
+  update: Record<string, any> | null | undefined,
+): {
+  oldValues: Record<string, any> | null
+  newValues: Record<string, any> | null
+  changedKeys: string[]
+  isEmpty: boolean
+} {
+  if (!update) return { oldValues: null, newValues: null, changedKeys: [], isEmpty: true }
+  const oldValues: Record<string, any> = {}
+  const newValues: Record<string, any> = {}
+  const changedKeys: string[] = []
+  for (const key of Object.keys(update)) {
+    const oldVal = before ? before[key] : undefined
+    const newVal = update[key]
+    const oNorm = oldVal === undefined ? null : oldVal
+    const nNorm = newVal === undefined ? null : newVal
+    if (!deepEqual(oNorm, nNorm)) {
+      changedKeys.push(key)
+      oldValues[key] = oldVal ?? null
+      newValues[key] = newVal ?? null
+    }
+  }
+  return {
+    oldValues: changedKeys.length > 0 ? oldValues : null,
+    newValues: changedKeys.length > 0 ? newValues : null,
+    changedKeys,
+    isEmpty: changedKeys.length === 0,
+  }
+}
 
 const SENSITIVE_KEYS = new Set([
   'password',
