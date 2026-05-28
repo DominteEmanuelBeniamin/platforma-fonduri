@@ -27,8 +27,10 @@ function normalizeOriginalName(name: string) {
     .slice(0, MAX_ORIGINAL_NAME_LENGTH)
 }
 
-export async function POST(request: Request,
-  { params }: { params: Promise<{ requestId: string }> }) {
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ requestId: string }> }
+) {
   try {
     const { requestId } = await params
     const body = await request.json().catch(() => null)
@@ -86,7 +88,6 @@ export async function POST(request: Request,
 
     const admin = createSupabaseServiceClient()
 
-    // Load requirement -> project_id
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
       .select('id, project_id, name, deleted_at')
@@ -98,7 +99,7 @@ export async function POST(request: Request,
       console.error('Failed to load document requirement:', reqErr)
       return NextResponse.json({ error: 'Document request not found: ' + reqErr.message }, { status: 404 })
     }
-    
+
     if (!reqRow) {
       console.error('Document requirement not found for requestId:', requestId)
       return NextResponse.json({ error: 'Document request not found' }, { status: 404 })
@@ -108,7 +109,7 @@ export async function POST(request: Request,
       console.error('Document requirement has no project_id:', reqRow)
       return NextResponse.json({ error: 'Document request is not linked to a project' }, { status: 500 })
     }
-    
+
     const access = await requireProjectAccess(request, reqRow.project_id)
     if (!access.ok) {
       console.error('Project access denied:', access.error, 'project_id:', reqRow.project_id)
@@ -125,7 +126,6 @@ export async function POST(request: Request,
     const projectTitle = projectRow?.title ?? reqRow.project_id
     const requestName = reqRow.name || requestId
 
-    // Insert files (schema-aligned)
     const rows = normalizedUploads.map((u) => ({
       requirement_id: requestId,
       storage_path: u.storagePath,
@@ -134,8 +134,6 @@ export async function POST(request: Request,
       file_size: u.fileSize,
       version_number: versionNumber,
       uploaded_by: access.user.id,
-      // comments: null (default)
-      // created_at: default
     }))
 
     const { error: insErr } = await admin.from('files').insert(rows)
@@ -144,7 +142,6 @@ export async function POST(request: Request,
       return NextResponse.json({ error: insErr.message }, { status: 400 })
     }
 
-    //Update requirement status -> review
     const { error: updErr } = await admin
       .from('document_requirements')
       .update({ status: 'review' })
@@ -156,7 +153,6 @@ export async function POST(request: Request,
       return NextResponse.json({ error: updErr.message }, { status: 400 })
     }
 
-    // Audit log pentru upload documente
     const ipAddress = request.headers.get('x-forwarded-for') ||
                       request.headers.get('x-real-ip') ||
                       null
@@ -178,10 +174,10 @@ export async function POST(request: Request,
           project_title: projectTitle,
           file_count: uploaded.length,
           version: versionNumber,
-          files: fileNames
+          files: fileNames,
         },
         description: `${access.profile.email || 'User'} a încărcat ${uploaded.length} fișier(e) pentru cererea "${requestName}" din proiectul "${projectTitle}"`,
-        ip_address: ipAddress
+        ip_address: ipAddress,
       })
 
     return NextResponse.json({ ok: true })

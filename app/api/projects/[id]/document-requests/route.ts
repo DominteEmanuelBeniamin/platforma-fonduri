@@ -150,7 +150,7 @@ export async function POST(
     const [{ data: projectRow }, { data: activityRow }] = await Promise.all([
       admin.from('projects').select('title').eq('id', projectId).maybeSingle(),
       activity_id
-        ? admin.from('activities').select('name').eq('id', activity_id).maybeSingle()
+        ? admin.from('project_activities').select('name').eq('id', activity_id).maybeSingle()
         : Promise.resolve({ data: null }),
     ])
     const projectTitle = projectRow?.title ?? projectId
