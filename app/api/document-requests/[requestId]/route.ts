@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 
 // Inițializat în handler ca să preia env-ul la runtime, nu la cold-start
@@ -60,7 +61,7 @@ export async function PATCH(
     // Obține cererea pentru a afla project_id și detalii email
     const { data: req, error: reqError } = await admin
       .from('document_requirements')
-      .select('id, project_id, name, description, deadline_at, attachment_path, attachment_missing_at, deleted_at')
+      .select('id, project_id, name, description, deadline_at, attachment_path, attachment_original_name, attachment_missing_at, deleted_at')
       .eq('id', requestId)
       .is('deleted_at', null)
       .maybeSingle()
@@ -78,6 +79,13 @@ export async function PATCH(
     if (access.profile.role === 'client') {
       return NextResponse.json({ error: 'Nu ai permisiunea să modifici cereri' }, { status: 403 })
     }
+
+    const { data: projectRow } = await admin
+      .from('projects')
+      .select('title')
+      .eq('id', req.project_id)
+      .maybeSingle()
+    const projectTitle = projectRow?.title ?? req.project_id
 
     // Dacă se atribuie cuiva, verifică că este consultant membru al proiectului
     if (assigned_to !== undefined && assigned_to !== null) {
@@ -128,30 +136,53 @@ export async function PATCH(
       return NextResponse.json({ error: 'Eroare la actualizarea cererii' }, { status: 500 })
     }
 
-    if (attachment_path !== undefined && req.attachment_path !== attachment_path) {
-      await admin.from('audit_logs').insert({
-        user_id: access.user.id,
-        action_type: 'update',
-        entity_type: 'document',
-        entity_id: requestId,
-        entity_name: req.name || 'Cerere document',
-        old_values: {
+    if (deadline_at !== undefined && req.deadline_at !== deadline_at) {
+      await logAction({
+        actorId: access.user.id,
+        actionType: 'update',
+        entityType: 'document',
+        entityId: requestId,
+        entityName: req.name || 'Cerere document',
+        oldValues: {
           project_id: req.project_id,
+          project_title: projectTitle,
+          deadline_at: req.deadline_at ?? null,
+        },
+        newValues: {
+          project_id: req.project_id,
+          project_title: projectTitle,
+          deadline_at: deadline_at ?? null,
+        },
+        description: `${access.profile.email || 'User'} a modificat termenul limită al cererii "${req.name || requestId}" din proiectul "${projectTitle}"`,
+        request,
+      })
+    }
+
+    if (attachment_path !== undefined && req.attachment_path !== attachment_path) {
+      await logAction({
+        actorId: access.user.id,
+        actionType: 'update',
+        entityType: 'document',
+        entityId: requestId,
+        entityName: req.name || 'Cerere document',
+        oldValues: {
+          project_id: req.project_id,
+          project_title: projectTitle,
           attachment_path: req.attachment_path ?? null,
+          attachment_original_name: req.attachment_original_name ?? null,
           attachment_missing_at: req.attachment_missing_at ?? null,
         },
-        new_values: {
+        newValues: {
           project_id: req.project_id,
+          project_title: projectTitle,
           attachment_path: attachment_path ?? null,
+          attachment_original_name: attachment_path ? attachment_original_name ?? null : null,
           attachment_missing_at: null,
         },
         description: attachment_path
-          ? `${access.profile.email || 'User'} a înlocuit modelul cererii "${req.name || requestId}"`
-          : `${access.profile.email || 'User'} a eliminat modelul cererii "${req.name || requestId}"`,
-        ip_address:
-          request.headers.get('x-forwarded-for') ||
-          request.headers.get('x-real-ip') ||
-          null,
+          ? `${access.profile.email || 'User'} a înlocuit modelul cererii "${req.name || requestId}" din proiectul "${projectTitle}"`
+          : `${access.profile.email || 'User'} a eliminat modelul cererii "${req.name || requestId}" din proiectul "${projectTitle}"`,
+        request,
       })
     }
 
@@ -274,6 +305,13 @@ export async function DELETE(
       return NextResponse.json({ error: 'Nu ai permisiunea să ștergi cereri' }, { status: 403 })
     }
 
+    const { data: deleteProjectRow } = await admin
+      .from('projects')
+      .select('title')
+      .eq('id', req.project_id)
+      .maybeSingle()
+    const deleteProjectTitle = deleteProjectRow?.title ?? req.project_id
+
     if (req.deleted_at) {
       return NextResponse.json({
         ok: true,
@@ -321,16 +359,18 @@ export async function DELETE(
       entity_name: req.name || 'Cerere document',
       old_values: {
         project_id: req.project_id,
+        project_title: deleteProjectTitle,
         status: req.status,
         deleted_at: req.deleted_at,
       },
       new_values: {
         project_id: req.project_id,
+        project_title: deleteProjectTitle,
         deleted_at: deletedAt,
         deleted_by: deletedBy,
         delete_reason: deleteReason,
       },
-      description: `${access.profile.email || 'User'} a șters cererea de document "${req.name || requestId}"`,
+      description: `${access.profile.email || 'User'} a șters cererea de document "${req.name || requestId}" din proiectul "${deleteProjectTitle}"`,
       ip_address: ipAddress,
     })
 

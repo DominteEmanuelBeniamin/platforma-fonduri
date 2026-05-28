@@ -10,6 +10,7 @@ import {
   Loader2, Edit2, AlertCircle
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 
 interface ProjectStatus {
   id: string
@@ -75,6 +76,46 @@ interface Template {
     }[]
   }[]
 }
+
+type TemplateValidationResult = {
+  ok: boolean
+  errors: Set<string>
+  firstMessage: string | null
+}
+
+type TemplateDeleteTarget =
+  | {
+      type: 'template'
+      templateId: string
+      templateName: string
+      phaseCount: number
+      activityCount: number
+      documentCount: number
+    }
+  | {
+      type: 'phase'
+      phaseId: string
+      phaseName: string
+      activityCount: number
+      documentCount: number
+      persisted: boolean
+    }
+  | {
+      type: 'activity'
+      phaseId: string
+      activityId: string
+      activityName: string
+      documentCount: number
+      persisted: boolean
+    }
+  | {
+      type: 'document'
+      phaseId: string
+      activityId: string
+      documentId: string
+      documentName: string
+      persisted: boolean
+    }
 
 interface TemplatePropagationPreviewProject {
   project_id: string
@@ -143,6 +184,70 @@ function sumPropagationTotals(projects: TemplatePropagationPreviewProject[]): Pr
   )
 }
 
+function countTemplateDocuments(template: Template) {
+  return (template.phases ?? []).reduce(
+    (sum, phase) =>
+      sum + (phase.activities ?? []).reduce(
+        (activitySum, activity) => activitySum + (activity.document_requirements?.length ?? 0),
+        0
+      ),
+    0
+  )
+}
+
+function countPhaseDocuments(phase: TemplatePhase) {
+  return phase.activities.reduce(
+    (sum, activity) => sum + activity.document_requirements.length,
+    0
+  )
+}
+
+function getDeleteModalText(target: TemplateDeleteTarget | null) {
+  if (!target) {
+    return {
+      title: 'Confirmare ștergere',
+      description: 'Această acțiune este permanentă și nu poate fi anulată.',
+      confirmText: 'Șterge',
+    }
+  }
+
+  if (target.type === 'template') {
+    return {
+      title: `Șterge template-ul "${target.templateName}"?`,
+      description: 'Template-ul va fi șters permanent împreună cu toate fazele, activitățile și cererile de document definite în el.',
+      confirmText: 'Șterge template-ul',
+    }
+  }
+
+  if (target.type === 'phase') {
+    return {
+      title: `Șterge faza "${target.phaseName}"?`,
+      description: target.persisted
+        ? 'Faza va fi eliminată din template la salvare, împreună cu activitățile și cererile de document din ea.'
+        : 'Faza va fi eliminată din formular, împreună cu activitățile și cererile de document din ea.',
+      confirmText: 'Șterge faza',
+    }
+  }
+
+  if (target.type === 'activity') {
+    return {
+      title: `Șterge activitatea "${target.activityName}"?`,
+      description: target.persisted
+        ? 'Activitatea va fi eliminată din template la salvare, împreună cu cererile de document din ea.'
+        : 'Activitatea va fi eliminată din formular, împreună cu cererile de document din ea.',
+      confirmText: 'Șterge activitatea',
+    }
+  }
+
+  return {
+    title: `Șterge cererea "${target.documentName}"?`,
+    description: target.persisted
+      ? 'Cererea de document va fi eliminată din template la salvare.'
+      : 'Cererea de document va fi eliminată din formular.',
+    confirmText: 'Șterge cererea',
+  }
+}
+
 export default function AdminTemplatesPage() {
   const router = useRouter()
   const { loading: authLoading, token, apiFetch, profile } = useAuth()
@@ -158,7 +263,12 @@ export default function AdminTemplatesPage() {
   const [templateDescription, setTemplateDescription] = useState('')
   const [phases, setPhases] = useState<TemplatePhase[]>([])
   const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [validationErrors, setValidationErrors] = useState<Set<string>>(new Set())
   const [consultants, setConsultants] = useState<Consultant[]>([])
+  const [deleteTarget, setDeleteTarget] = useState<TemplateDeleteTarget | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const [addingDocTo, setAddingDocTo] = useState<{ phaseId: string, activityId: string } | null>(null)
   const [newDocName, setNewDocName] = useState('')
@@ -299,6 +409,46 @@ export default function AdminTemplatesPage() {
     ))
   }
 
+  const requestDeletePhase = (phase: TemplatePhase) => {
+    setDeleteError(null)
+    setDeleteTarget({
+      type: 'phase',
+      phaseId: phase.id,
+      phaseName: phase.name.trim() || 'Fază fără nume',
+      activityCount: phase.activities.length,
+      documentCount: countPhaseDocuments(phase),
+      persisted: isDbId(phase.id),
+    })
+  }
+
+  const requestDeleteActivity = (phaseId: string, activity: TemplateActivity) => {
+    setDeleteError(null)
+    setDeleteTarget({
+      type: 'activity',
+      phaseId,
+      activityId: activity.id,
+      activityName: activity.name.trim() || 'Activitate fără nume',
+      documentCount: activity.document_requirements.length,
+      persisted: isDbId(activity.id),
+    })
+  }
+
+  const requestDeleteDocRequirement = (
+    phaseId: string,
+    activityId: string,
+    doc: DocumentRequirement
+  ) => {
+    setDeleteError(null)
+    setDeleteTarget({
+      type: 'document',
+      phaseId,
+      activityId,
+      documentId: doc.id,
+      documentName: doc.name.trim() || 'Document fără nume',
+      persisted: isDbId(doc.id),
+    })
+  }
+
   const updateDocRequirement = (
     phaseId: string,
     activityId: string,
@@ -326,11 +476,110 @@ export default function AdminTemplatesPage() {
 
   const getStatusColor = (statusId: string) => statuses.find(s => s.id === statusId)?.color || '#6B7280'
 
+  const clearValidationError = (key: string) => {
+    setValidationErrors(prev => {
+      if (!prev.has(key)) return prev
+      const next = new Set(prev)
+      next.delete(key)
+      return next
+    })
+    setFormError(null)
+  }
+
+  const hasValidationError = (key: string) => validationErrors.has(key)
+
+  const validateTemplateForm = (): TemplateValidationResult => {
+    const errors = new Set<string>()
+    const messages: string[] = []
+
+    if (!templateName.trim()) {
+      errors.add('template:name')
+      messages.push('Numele template-ului este obligatoriu.')
+    }
+
+    phases.forEach((phase, phaseIdx) => {
+      const phaseLabel = phase.name.trim() || `Faza ${phaseIdx + 1}`
+
+      if (!phase.name.trim()) {
+        errors.add(`phase:${phase.id}:name`)
+        messages.push(`Faza ${phaseIdx + 1} nu are nume.`)
+      }
+
+      if (!phase.project_status_id) {
+        errors.add(`phase:${phase.id}:project_status_id`)
+        messages.push(`Faza "${phaseLabel}" nu are status asociat.`)
+      }
+
+      phase.activities.forEach((activity, activityIdx) => {
+        const activityLabel = activity.name.trim() || `Activitatea ${activityIdx + 1}`
+
+        if (!activity.name.trim()) {
+          errors.add(`activity:${phase.id}:${activity.id}:name`)
+          messages.push(`Activitatea ${activityIdx + 1} din faza "${phaseLabel}" nu are nume.`)
+        }
+
+        activity.document_requirements.forEach((doc, docIdx) => {
+          if (!doc.name.trim()) {
+            errors.add(`doc:${phase.id}:${activity.id}:${doc.id}:name`)
+            messages.push(`Cererea de document ${docIdx + 1} din activitatea "${activityLabel}" nu are nume.`)
+          }
+        })
+      })
+    })
+
+    if (errors.size > 0) {
+      setPhases(current =>
+        current.map(phase => {
+          const phaseHasErrors =
+            errors.has(`phase:${phase.id}:name`) ||
+            errors.has(`phase:${phase.id}:project_status_id`) ||
+            phase.activities.some(activity =>
+              errors.has(`activity:${phase.id}:${activity.id}:name`) ||
+              activity.document_requirements.some(doc =>
+                errors.has(`doc:${phase.id}:${activity.id}:${doc.id}:name`)
+              )
+            )
+
+          return {
+            ...phase,
+            expanded: phase.expanded || phaseHasErrors,
+            activities: phase.activities.map(activity => {
+              const activityHasErrors =
+                errors.has(`activity:${phase.id}:${activity.id}:name`) ||
+                activity.document_requirements.some(doc =>
+                  errors.has(`doc:${phase.id}:${activity.id}:${doc.id}:name`)
+                )
+
+              return {
+                ...activity,
+                expanded: activity.expanded || activityHasErrors,
+              }
+            }),
+          }
+        })
+      )
+    }
+
+    return {
+      ok: errors.size === 0,
+      errors,
+      firstMessage: messages[0] ?? null,
+    }
+  }
+
+  const openCreateForm = () => {
+    setFormError(null)
+    setValidationErrors(new Set())
+    setShowForm(true)
+  }
+
   const resetForm = () => {
     setTemplateName('')
     setTemplateDescription('')
     setPhases([])
     setEditingTemplate(null)
+    setFormError(null)
+    setValidationErrors(new Set())
     setShowForm(false)
   }
 
@@ -372,10 +621,8 @@ export default function AdminTemplatesPage() {
     const affectedEligible = (preview.eligible ?? []).filter(hasPropagationChanges)
     const ineligible = preview.ineligible ?? []
 
-    if (affectedEligible.length === 0) {
-      if (ineligible.length > 0) {
-        alert(`${ineligible.length} proiect(e) folosesc template-ul, dar nu pot fi actualizate automat din cauza modificărilor locale.`)
-      }
+    if (affectedEligible.length === 0 && ineligible.length === 0) {
+      alert('Nu există proiecte care necesită propagarea modificărilor.')
       return
     }
 
@@ -419,11 +666,21 @@ export default function AdminTemplatesPage() {
         return
       }
 
-      const failed = (applyData.results ?? []).filter((result: any) => result.status === 'failed').length
-      alert(failed > 0
-        ? `Propagarea s-a încheiat cu ${failed} proiect(e) eșuate.`
-        : 'Modificările template-ului au fost propagate în proiectele eligibile.'
-      )
+      const failedResults = (applyData.results ?? []).filter((result: any) => result.status === 'failed')
+      if (failedResults.length > 0) {
+        const projectTitles = new Map([
+          ...(propagationPreview?.eligible ?? []).map(project => [project.project_id, project.project_title] as const),
+          ...(propagationPreview?.ineligible ?? []).map(project => [project.project_id, project.project_title] as const),
+        ])
+        setPropagationError(
+          failedResults
+            .map((result: any) => `${projectTitles.get(result.project_id) || result.project_id}: ${result.error || 'Propagarea a eșuat.'}`)
+            .join(' ')
+        )
+        return
+      }
+
+      alert('Modificările template-ului au fost propagate în proiectele eligibile.')
       closeTemplatePropagation()
     } catch (error: any) {
       setPropagationError(error?.message || 'Propagarea template-ului a eșuat')
@@ -433,11 +690,15 @@ export default function AdminTemplatesPage() {
   }
 
   const handleSave = async () => {
-    if (!templateName.trim()) {
-      alert('Numele template-ului este obligatoriu')
+    const validation = validateTemplateForm()
+    if (!validation.ok) {
+      setValidationErrors(validation.errors)
+      setFormError(validation.firstMessage || 'Completează câmpurile obligatorii înainte de salvare.')
       return
     }
 
+    setFormError(null)
+    setValidationErrors(new Set())
     setSaving(true)
     try {
       const safeParseError = async (res: Response, fallback: string) => {
@@ -647,14 +908,65 @@ export default function AdminTemplatesPage() {
     }
   }
 
-  const handleDelete = async (templateId: string) => {
-    if (!confirm('Sigur vrei să ștergi acest template?')) return
+  const requestDeleteTemplate = (template: Template) => {
+    const phaseCount = template.phases?.length ?? 0
+    const activityCount = template.phases?.reduce(
+      (sum, phase) => sum + (phase.activities?.length ?? 0),
+      0
+    ) ?? 0
+
+    setDeleteError(null)
+    setDeleteTarget({
+      type: 'template',
+      templateId: template.id,
+      templateName: template.name,
+      phaseCount,
+      activityCount,
+      documentCount: countTemplateDocuments(template),
+    })
+  }
+
+  const closeDeleteModal = () => {
+    if (deleteLoading) return
+    setDeleteTarget(null)
+    setDeleteError(null)
+  }
+
+  const confirmDeleteTarget = async () => {
+    if (!deleteTarget) return
+
+    if (deleteTarget.type === 'phase') {
+      removePhase(deleteTarget.phaseId)
+      setDeleteTarget(null)
+      return
+    }
+
+    if (deleteTarget.type === 'activity') {
+      removeActivity(deleteTarget.phaseId, deleteTarget.activityId)
+      setDeleteTarget(null)
+      return
+    }
+
+    if (deleteTarget.type === 'document') {
+      removeDocRequirement(deleteTarget.phaseId, deleteTarget.activityId, deleteTarget.documentId)
+      setDeleteTarget(null)
+      return
+    }
+
     try {
-      const res = await apiFetch(`/api/admin/templates/${templateId}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error('Eroare la ștergere')
-      fetchData()
+      setDeleteLoading(true)
+      setDeleteError(null)
+      const res = await apiFetch(`/api/admin/templates/${deleteTarget.templateId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        throw new Error(data?.error || 'Eroare la ștergerea template-ului')
+      }
+      setDeleteTarget(null)
+      await fetchData()
     } catch (error: any) {
-      alert('Eroare: ' + error.message)
+      setDeleteError(error?.message || 'Eroare la ștergere')
+    } finally {
+      setDeleteLoading(false)
     }
   }
 
@@ -662,6 +974,8 @@ export default function AdminTemplatesPage() {
     setEditingTemplate(template)
     setTemplateName(template.name)
     setTemplateDescription(template.description || '')
+    setFormError(null)
+    setValidationErrors(new Set())
     const editablePhases: TemplatePhase[] = template.phases?.map(p => ({
       id: p.id,
       name: p.name,
@@ -696,6 +1010,7 @@ export default function AdminTemplatesPage() {
   const allPropagationProjectsSelected =
     affectedPropagationProjects.length > 0 &&
     affectedPropagationProjects.every(project => propagationSelectedProjectIds.includes(project.project_id))
+  const deleteModalText = getDeleteModalText(deleteTarget)
 
   if (authLoading || loading) {
     return (
@@ -721,7 +1036,7 @@ export default function AdminTemplatesPage() {
           </div>
           {!showForm && (
             <button
-              onClick={() => setShowForm(true)}
+              onClick={openCreateForm}
               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700"
             >
               <Plus className="w-4 h-4" /> Template nou
@@ -742,16 +1057,31 @@ export default function AdminTemplatesPage() {
             </div>
 
             <div className="p-6 space-y-6">
+              {formError && (
+                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Nume template *</label>
                   <input
                     type="text"
                     value={templateName}
-                    onChange={(e) => setTemplateName(e.target.value)}
+                    onChange={(e) => {
+                      setTemplateName(e.target.value)
+                      clearValidationError('template:name')
+                    }}
                     placeholder="Ex: Proiect Standard"
-                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                      hasValidationError('template:name') ? 'border-red-300 bg-red-50' : 'border-slate-200'
+                    }`}
                   />
+                  {hasValidationError('template:name') && (
+                    <p className="mt-1 text-xs text-red-600">Numele template-ului este obligatoriu.</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Descriere</label>
@@ -784,26 +1114,42 @@ export default function AdminTemplatesPage() {
                         <input
                           type="text"
                           value={phase.name}
-                          onChange={(e) => updatePhase(phase.id, { name: e.target.value })}
+                          onChange={(e) => {
+                            updatePhase(phase.id, { name: e.target.value })
+                            clearValidationError(`phase:${phase.id}:name`)
+                          }}
                           placeholder="Nume fază..."
-                          className="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm"
+                          className={`flex-1 px-3 py-1.5 border rounded-lg text-sm ${
+                            hasValidationError(`phase:${phase.id}:name`) ? 'border-red-300 bg-red-50' : 'border-slate-200'
+                          }`}
                         />
                         <select
                           value={phase.project_status_id}
-                          onChange={(e) => updatePhase(phase.id, { project_status_id: e.target.value })}
-                          className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm"
+                          onChange={(e) => {
+                            updatePhase(phase.id, { project_status_id: e.target.value })
+                            clearValidationError(`phase:${phase.id}:project_status_id`)
+                          }}
+                          className={`px-3 py-1.5 border rounded-lg text-sm ${
+                            hasValidationError(`phase:${phase.id}:project_status_id`) ? 'border-red-300 bg-red-50' : 'border-slate-200'
+                          }`}
                         >
                           {statuses.map(s => (
                             <option key={s.id} value={s.id}>{s.name}</option>
                           ))}
                         </select>
-                        <button onClick={() => removePhase(phase.id)} className="p-1.5 text-slate-400 hover:text-red-600">
+                        <button onClick={() => requestDeletePhase(phase)} className="p-1.5 text-slate-400 hover:text-red-600">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
 
                       {phase.expanded && (
                         <div className="p-4 space-y-3">
+                          {(hasValidationError(`phase:${phase.id}:name`) || hasValidationError(`phase:${phase.id}:project_status_id`)) && (
+                            <p className="text-xs text-red-600">
+                              Completează numele fazei și statusul înainte de salvare.
+                            </p>
+                          )}
+
                           {phase.activities.map((activity) => (
                             <div key={activity.id} className="pl-4 border-l-2 border-slate-200">
                               <div className="flex items-center gap-2 mb-2">
@@ -811,9 +1157,14 @@ export default function AdminTemplatesPage() {
                                 <input
                                   type="text"
                                   value={activity.name}
-                                  onChange={(e) => updateActivity(phase.id, activity.id, { name: e.target.value })}
+                                  onChange={(e) => {
+                                    updateActivity(phase.id, activity.id, { name: e.target.value })
+                                    clearValidationError(`activity:${phase.id}:${activity.id}:name`)
+                                  }}
                                   placeholder="Nume activitate..."
-                                  className="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm"
+                                  className={`flex-1 px-3 py-1.5 border rounded-lg text-sm ${
+                                    hasValidationError(`activity:${phase.id}:${activity.id}:name`) ? 'border-red-300 bg-red-50' : 'border-slate-200'
+                                  }`}
                                 />
                                 <select
                                   value={activity.default_consultant_id ?? ''}
@@ -828,23 +1179,37 @@ export default function AdminTemplatesPage() {
                                 <button onClick={() => updateActivity(phase.id, activity.id, { expanded: !activity.expanded })} className="p-1 text-slate-400">
                                   {activity.expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                                 </button>
-                                <button onClick={() => removeActivity(phase.id, activity.id)} className="p-1 text-slate-400 hover:text-red-500">
+                                <button onClick={() => requestDeleteActivity(phase.id, activity)} className="p-1 text-slate-400 hover:text-red-500">
                                   <X className="w-4 h-4" />
                                 </button>
                               </div>
 
                               {activity.expanded && (
                                 <div className="ml-6 space-y-2">
+                                  {hasValidationError(`activity:${phase.id}:${activity.id}:name`) && (
+                                    <p className="text-xs text-red-600">Numele activității este obligatoriu.</p>
+                                  )}
+
                                   {activity.document_requirements.map(doc => (
-                                    <div key={doc.id} className="flex items-start gap-2 p-3 bg-slate-50 rounded-lg border border-slate-100">
+                                    <div
+                                      key={doc.id}
+                                      className={`flex items-start gap-2 p-3 rounded-lg border ${
+                                        hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:name`)
+                                          ? 'bg-red-50 border-red-200'
+                                          : 'bg-slate-50 border-slate-100'
+                                      }`}
+                                    >
                                       <FileText className="w-4 h-4 text-slate-400 mt-0.5" />
                                       <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 flex-wrap">
-                                          <span className="font-medium text-sm text-slate-900">{doc.name}</span>
+                                          <span className="font-medium text-sm text-slate-900">{doc.name || 'Document fără nume'}</span>
                                           {doc.is_mandatory && (
                                             <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded">Obligatoriu</span>
                                           )}
                                         </div>
+                                        {hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:name`) && (
+                                          <p className="text-xs text-red-600 mt-0.5">Numele documentului este obligatoriu.</p>
+                                        )}
                                         {doc.description && (
                                           <p className="text-xs text-slate-500 mt-0.5">{doc.description}</p>
                                         )}
@@ -893,7 +1258,7 @@ export default function AdminTemplatesPage() {
                                           )}
                                         </div>
                                       </div>
-                                      <button onClick={() => removeDocRequirement(phase.id, activity.id, doc.id)} className="p-1 text-slate-400 hover:text-red-500">
+                                      <button onClick={() => requestDeleteDocRequirement(phase.id, activity.id, doc)} className="p-1 text-slate-400 hover:text-red-500">
                                         <X className="w-4 h-4" />
                                       </button>
                                     </div>
@@ -952,12 +1317,12 @@ export default function AdminTemplatesPage() {
         {!showForm && (
           <div className="space-y-4">
             {templates.length === 0 ? (
-              <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+          <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
                 <Layers className="w-16 h-16 text-slate-300 mx-auto mb-4" />
                 <h3 className="text-lg font-semibold text-slate-900 mb-2">Niciun template creat</h3>
                 <p className="text-slate-500 mb-4">Creează primul template pentru a genera proiecte rapid</p>
                 <button
-                  onClick={() => setShowForm(true)}
+                  onClick={openCreateForm}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700"
                 >
                   <Plus className="w-4 h-4" /> Creează template
@@ -987,7 +1352,7 @@ export default function AdminTemplatesPage() {
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleDelete(template.id)}
+                        onClick={() => requestDeleteTemplate(template)}
                         className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -1022,6 +1387,54 @@ export default function AdminTemplatesPage() {
           </div>
         )}
       </div>
+
+      <ConfirmDeleteModal
+        isOpen={!!deleteTarget}
+        onClose={closeDeleteModal}
+        onConfirm={confirmDeleteTarget}
+        title={deleteModalText.title}
+        description={deleteModalText.description}
+        confirmText={deleteModalText.confirmText}
+        confirmWord="sterge"
+        loading={deleteLoading}
+        error={deleteError}
+      >
+        {deleteTarget && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 space-y-2">
+            {deleteTarget.type === 'template' && (
+              <>
+                <p className="font-semibold text-slate-900">{deleteTarget.templateName}</p>
+                <p>
+                  Conține {deleteTarget.phaseCount} faze, {deleteTarget.activityCount} activități și {deleteTarget.documentCount} cereri de document.
+                </p>
+                <p className="text-red-700">
+                  Dacă template-ul este folosit de proiecte existente, ștergerea va fi blocată.
+                </p>
+              </>
+            )}
+
+            {deleteTarget.type === 'phase' && (
+              <>
+                <p className="font-semibold text-slate-900">{deleteTarget.phaseName}</p>
+                <p>
+                  Include {deleteTarget.activityCount} activități și {deleteTarget.documentCount} cereri de document.
+                </p>
+              </>
+            )}
+
+            {deleteTarget.type === 'activity' && (
+              <>
+                <p className="font-semibold text-slate-900">{deleteTarget.activityName}</p>
+                <p>Include {deleteTarget.documentCount} cereri de document.</p>
+              </>
+            )}
+
+            {deleteTarget.type === 'document' && (
+              <p className="font-semibold text-slate-900">{deleteTarget.documentName}</p>
+            )}
+          </div>
+        )}
+      </ConfirmDeleteModal>
 
       {propagationPreview && (
         <div
@@ -1089,21 +1502,34 @@ export default function AdminTemplatesPage() {
                     <h4 className="text-sm font-semibold text-slate-900">Proiecte eligibile</h4>
                     <p className="text-xs text-slate-500">{affectedPropagationProjects.length} proiect(e) cu modificări</p>
                   </div>
-                  <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={allPropagationProjectsSelected}
-                      onChange={(e) => setPropagationSelectedProjectIds(
-                        e.target.checked ? affectedPropagationProjects.map(project => project.project_id) : []
-                      )}
-                      disabled={propagationApplying}
-                      className="w-4 h-4 rounded border-slate-300 text-indigo-600"
-                    />
-                    Selectează toate
-                  </label>
+                  {affectedPropagationProjects.length > 0 && (
+                    <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={allPropagationProjectsSelected}
+                        onChange={(e) => setPropagationSelectedProjectIds(
+                          e.target.checked ? affectedPropagationProjects.map(project => project.project_id) : []
+                        )}
+                        disabled={propagationApplying}
+                        className="w-4 h-4 rounded border-slate-300 text-indigo-600"
+                      />
+                      Selectează toate
+                    </label>
+                  )}
                 </div>
 
                 <div className="space-y-2">
+                  {affectedPropagationProjects.length === 0 && (
+                    <div className="p-4 rounded-xl border border-slate-200 bg-slate-50">
+                      <p className="text-sm font-medium text-slate-700">
+                        Nu există proiecte eligibile pentru propagare automată.
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Verifică proiectele blocate de mai jos pentru motivul exact.
+                      </p>
+                    </div>
+                  )}
+
                   {affectedPropagationProjects.map((project) => {
                     const checked = propagationSelectedProjectIds.includes(project.project_id)
                     return (
@@ -1152,9 +1578,14 @@ export default function AdminTemplatesPage() {
                     {(propagationPreview.ineligible ?? []).map((project) => (
                       <div key={project.project_id} className="p-4 rounded-xl border border-amber-200 bg-amber-50/70">
                         <p className="text-sm font-semibold text-amber-950 break-words">{project.project_title}</p>
-                        <p className="text-xs text-amber-800 mt-1">
-                          {project.blocked_reasons?.join(' ') || 'Lineage incomplet pentru propagare.'}
-                        </p>
+                        <ul className="mt-2 space-y-1 text-xs text-amber-800">
+                          {(project.blocked_reasons && project.blocked_reasons.length > 0
+                            ? project.blocked_reasons
+                            : ['Mapping incomplet pentru propagare.']
+                          ).map((reason) => (
+                            <li key={reason}>{reason}</li>
+                          ))}
+                        </ul>
                       </div>
                     ))}
                   </div>

@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 
 type LatestRejection = {
@@ -146,6 +147,15 @@ export async function POST(
 
     const admin = createSupabaseServiceClient()
 
+    const [{ data: projectRow }, { data: activityRow }] = await Promise.all([
+      admin.from('projects').select('title').eq('id', projectId).maybeSingle(),
+      activity_id
+        ? admin.from('activities').select('name').eq('id', activity_id).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ])
+    const projectTitle = projectRow?.title ?? projectId
+    const activityName = activityRow?.name ?? null
+
     const { data, error } = await admin
       .from('document_requirements')
       .insert({
@@ -162,12 +172,47 @@ export async function POST(
         created_by: access.profile.id,
         status: 'pending',
       })
-      .select('id')
+      .select(`
+        id,
+        project_id,
+        activity_id,
+        name,
+        description,
+        status,
+        is_mandatory,
+        attachment_path,
+        attachment_original_name,
+        deadline_at,
+        created_by,
+        created_at
+      `)
       .single()
 
     if (error) {
       console.error('POST document-requests error:', error)
       return NextResponse.json({ error: 'Failed to create document request' }, { status: 500 })
+    }
+
+    if (data) {
+      const attachmentText = data.attachment_original_name
+        ? ` cu modelul "${data.attachment_original_name}"`
+        : ''
+
+      await logAction({
+        actorId: access.user.id,
+        actionType: 'create',
+        entityType: 'document',
+        entityId: data.id,
+        entityName: data.name,
+        newValues: {
+          ...data,
+          project_title: projectTitle,
+          activity_name: activityName,
+          has_attachment: Boolean(data.attachment_path),
+        },
+        description: `${access.profile.email || 'User'} a adăugat cererea de document "${data.name}" în proiectul "${projectTitle}"${attachmentText}`,
+        request,
+      })
     }
 
     return NextResponse.json({ ok: true, id: data?.id })

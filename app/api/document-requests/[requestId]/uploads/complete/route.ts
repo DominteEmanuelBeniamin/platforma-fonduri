@@ -89,7 +89,7 @@ export async function POST(request: Request,
     // Load requirement -> project_id
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('id, project_id, deleted_at')
+      .select('id, project_id, name, deleted_at')
       .eq('id', requestId)
       .is('deleted_at', null)
       .single()
@@ -116,6 +116,14 @@ export async function POST(request: Request,
     }
 
     console.log('Project access granted for user:', access.user.id, 'project:', reqRow.project_id)
+
+    const { data: projectRow } = await admin
+      .from('projects')
+      .select('title')
+      .eq('id', reqRow.project_id)
+      .maybeSingle()
+    const projectTitle = projectRow?.title ?? reqRow.project_id
+    const requestName = reqRow.name || requestId
 
     // Insert files (schema-aligned)
     const rows = normalizedUploads.map((u) => ({
@@ -162,14 +170,17 @@ export async function POST(request: Request,
         action_type: 'create',
         entity_type: 'file',
         entity_id: requestId,
-        entity_name: `${uploaded.length} fișier(e)`,
+        entity_name: requestName,
         new_values: {
           requirement_id: requestId,
+          requirement_name: requestName,
+          project_id: reqRow.project_id,
+          project_title: projectTitle,
           file_count: uploaded.length,
           version: versionNumber,
           files: fileNames
         },
-        description: `${access.profile.email || 'User'} a încărcat ${uploaded.length} fișier(e) pentru cererea ${requestId}`,
+        description: `${access.profile.email || 'User'} a încărcat ${uploaded.length} fișier(e) pentru cererea "${requestName}" din proiectul "${projectTitle}"`,
         ip_address: ipAddress
       })
 

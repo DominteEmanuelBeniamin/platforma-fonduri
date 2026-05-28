@@ -128,14 +128,21 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     if (error) throw error
 
+    const { data: projectRow } = await supabaseAdmin
+      .from('projects')
+      .select('title')
+      .eq('id', projectId)
+      .maybeSingle()
+    const projectTitle = projectRow?.title ?? projectId
+
     await logAction({
       actorId: auth.user.id,
       actionType: 'create',
       entityType: 'project_phase',
       entityId: phase.id,
       entityName: phase.name,
-      newValues: phase,
-      description: `Creare faza ${phase.name} in proiectul ${projectId}`,
+      newValues: { ...phase, project_title: projectTitle },
+      description: `Creare faza "${phase.name}" in proiectul "${projectTitle}"`,
       request: req,
     })
 

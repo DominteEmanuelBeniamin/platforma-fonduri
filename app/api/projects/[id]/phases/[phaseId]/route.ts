@@ -9,6 +9,15 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+async function loadProjectTitle(projectId: string) {
+  const { data } = await supabaseAdmin
+    .from('projects')
+    .select('title')
+    .eq('id', projectId)
+    .maybeSingle()
+  return data?.title ?? projectId
+}
+
 interface RouteParams {
   params: Promise<{ id: string; phaseId: string }>
 }
@@ -90,15 +99,17 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     if (error) throw error
 
+    const projectTitle = await loadProjectTitle(projectId)
+
     await logAction({
       actorId: auth.user.id,
       actionType: 'update',
       entityType: 'project_phase',
       entityId: phaseId,
       entityName: phase.name,
-      oldValues: before ?? null,
-      newValues: updateData,
-      description: `Modificare faza ${phase.name} in proiectul ${projectId}`,
+      oldValues: before ? { ...before, project_title: projectTitle } : null,
+      newValues: { ...updateData, project_id: projectId, project_title: projectTitle },
+      description: `Modificare faza "${phase.name}" in proiectul "${projectTitle}"`,
       request: req,
     })
 
@@ -138,14 +149,16 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     if (error) throw error
 
+    const projectTitle = await loadProjectTitle(projectId)
+
     await logAction({
       actorId: auth.user.id,
       actionType: 'delete',
       entityType: 'project_phase',
       entityId: phaseId,
       entityName: before?.name ?? phaseId,
-      oldValues: before ?? null,
-      description: `Stergere faza ${before?.name ?? phaseId} din proiectul ${projectId}`,
+      oldValues: before ? { ...before, project_title: projectTitle } : null,
+      description: `Stergere faza "${before?.name ?? phaseId}" din proiectul "${projectTitle}"`,
       request: req,
     })
 

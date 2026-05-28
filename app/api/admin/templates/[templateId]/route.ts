@@ -108,6 +108,37 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       .eq('id', templateId)
       .maybeSingle()
 
+    if (!before) {
+      return NextResponse.json({ error: 'Template negăsit' }, { status: 404 })
+    }
+
+    const { data: linkedProjects, count: linkedProjectsCount, error: linkedProjectsError } = await supabaseAdmin
+      .from('projects')
+      .select('id, title', { count: 'exact' })
+      .eq('template_id', templateId)
+      .range(0, 4)
+
+    if (linkedProjectsError) throw linkedProjectsError
+
+    if ((linkedProjectsCount ?? 0) > 0) {
+      const projectNames = (linkedProjects ?? [])
+        .map(project => `"${project.title || project.id}"`)
+        .join(', ')
+      const suffix = (linkedProjectsCount ?? 0) > (linkedProjects?.length ?? 0)
+        ? ` și încă ${(linkedProjectsCount ?? 0) - (linkedProjects?.length ?? 0)}`
+        : ''
+
+      return NextResponse.json(
+        {
+          error: `Template-ul "${before.name}" nu poate fi șters deoarece este folosit de ${linkedProjectsCount} proiect(e): ${projectNames}${suffix}. Elimină sau schimbă template-ul de pe proiectele respective înainte de ștergere.`,
+          code: 'template_in_use',
+          project_count: linkedProjectsCount,
+          projects: linkedProjects ?? [],
+        },
+        { status: 409 }
+      )
+    }
+
     // Ștergerea va fi cascade datorită ON DELETE CASCADE
     const { error } = await supabaseAdmin
       .from('project_templates')

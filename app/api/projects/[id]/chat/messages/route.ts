@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
+import { getClientIP, getUserAgent, logChatMessageAction, toMessagePreview } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 
 const MAX_LIMIT = 200
@@ -160,6 +161,13 @@ export async function POST(
 
     const admin = createSupabaseServiceClient()
 
+    const { data: projectRow } = await admin
+      .from('projects')
+      .select('title')
+      .eq('id', projectId)
+      .maybeSingle()
+    const projectTitle = projectRow?.title ?? projectId
+
     const insertPayload = {
       project_id: projectId,
       created_by: accessRes.user.id,
@@ -189,6 +197,27 @@ export async function POST(
       console.error('POST chat message failed:', { projectId, error })
       return Response.json({ error: 'Failed to create chat message' }, { status: 500 })
     }
+
+    await logChatMessageAction({
+      actorId: accessRes.user.id,
+      actionType: 'create',
+      projectId,
+      messageId: data.id,
+      messagePreview: toMessagePreview(data.body),
+      newValues: {
+        id: data.id,
+        project_id: data.project_id,
+        project_title: projectTitle,
+        created_by: data.created_by,
+        body_preview: toMessagePreview(data.body),
+        created_at: data.created_at,
+        edited_at: data.edited_at,
+        deleted_at: data.deleted_at,
+      },
+      description: `${accessRes.profile.email || 'User'} a trimis un mesaj în proiectul "${projectTitle}"`,
+      ipAddress: getClientIP(request),
+      userAgent: getUserAgent(request),
+    })
 
     return Response.json({ item: data }, { status: 201 })
   } catch (err) {

@@ -22,6 +22,7 @@ type RollbackTracker = {
   activityUpdates: Array<{ id: string; name: string }>
   documentRequirementUpdates: Array<{
     id: string
+    activity_id: string | null
     attachment_path: string | null
     attachment_original_name: string | null
     attachment_missing_at: string | null
@@ -172,8 +173,12 @@ async function insertDocs(
   deletedDocBySource: Map<string, any>
 ) {
   let applied = 0
-  let skipped = 0
+  const skipped = 0
   const warnings: any[] = []
+
+  if (!activityId) {
+    throw new Error('Activitatea proiectului nu a putut fi identificată pentru propagarea cererilor de document.')
+  }
 
   for (const tDoc of templateDocs) {
     const attachmentPath = tDoc.attachment_path || null
@@ -259,8 +264,10 @@ async function insertDocs(
       .single()
 
     if (error) {
-      if ((error as any).code === '23505') skipped += 1
-      else throw error
+      if ((error as any).code === '23505') {
+        throw new Error(`Cererea de document "${tDoc.name}" nu a putut fi propagată deoarece există deja o cerere cu același mapping sau nume în proiect. Reîncarcă preview-ul de propagare și rezolvă conflictul de mapping înainte de aplicare.`)
+      }
+      throw error
     } else {
       if (insertedDoc?.id) rollback.documentRequirementIds.push(insertedDoc.id)
       applied += 1
@@ -295,6 +302,7 @@ async function rollbackCreated(rollback: RollbackTracker) {
     await supabaseAdmin
       .from('document_requirements')
       .update({
+        activity_id: doc.activity_id,
         attachment_path: doc.attachment_path,
         attachment_original_name: doc.attachment_original_name,
         attachment_missing_at: doc.attachment_missing_at,
@@ -384,8 +392,7 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
 
         if (error) {
           if ((error as any).code === '23505') {
-            totals.skipped += 1
-            continue
+            throw new Error(`Faza "${tPhase.name}" nu a putut fi propagată deoarece proiectul are deja o fază cu același nume/slug sau același mapping. Reîncarcă preview-ul de propagare și rezolvă conflictul înainte de aplicare.`)
           }
           throw error
         }
@@ -438,8 +445,7 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
 
           if (error) {
             if ((error as any).code === '23505') {
-              totals.skipped += 1
-              continue
+              throw new Error(`Activitatea "${tActivity.name}" nu a putut fi propagată deoarece faza din proiect are deja o activitate cu același nume sau același mapping. Reîncarcă preview-ul de propagare și rezolvă conflictul înainte de aplicare.`)
             }
             throw error
           }
@@ -464,26 +470,34 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
           totals.activities += 1
         }
 
+        if (!activityId) {
+          throw new Error('Activitatea proiectului nu a putut fi identificată pentru propagarea cererilor de document.')
+        }
+
         for (const tDoc of tActivity.document_requirements ?? []) {
           const docRow = docBySource.get(tDoc.id)
           const attachmentPath = tDoc.attachment_path || null
           const originalName = tDoc.attachment_original_name || null
-
-          if (
-            !docRow ||
-            !attachmentPath ||
+          const shouldMoveToActivity = Boolean(docRow && docRow.activity_id !== activityId)
+          const shouldUpdateAttachment = Boolean(
+            docRow &&
+            attachmentPath &&
             (
-              docRow.attachment_path === attachmentPath &&
-              docRow.attachment_original_name === originalName
+              docRow.attachment_path !== attachmentPath ||
+              docRow.attachment_original_name !== originalName
             )
-          ) {
+          )
+
+          if (!docRow || (!shouldMoveToActivity && !shouldUpdateAttachment)) {
             continue
           }
 
-          const attachmentAvailable = !tDoc.attachment_missing_at && await storagePathExists(attachmentPath)
-          const checkedAt = new Date().toISOString()
+          const checkedAt = attachmentPath ? new Date().toISOString() : null
+          const attachmentAvailable = shouldUpdateAttachment && !tDoc.attachment_missing_at
+            ? await storagePathExists(attachmentPath)
+            : false
 
-          if (!attachmentAvailable) {
+          if (shouldUpdateAttachment && !attachmentAvailable) {
             warnings.push({
               type: 'missing_template_attachment',
               template_document_requirement_id: tDoc.id,
@@ -496,36 +510,55 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
                 attachment_missing_checked_at: checkedAt,
               })
               .eq('id', tDoc.id)
-            totals.skipped += 1
-            continue
+
+            if (!shouldMoveToActivity) {
+              totals.skipped += 1
+              continue
+            }
           }
 
           rollback.documentRequirementUpdates.push({
             id: docRow.id,
+            activity_id: docRow.activity_id ?? null,
             attachment_path: docRow.attachment_path ?? null,
             attachment_original_name: docRow.attachment_original_name ?? null,
             attachment_missing_at: docRow.attachment_missing_at ?? null,
             attachment_missing_checked_at: docRow.attachment_missing_checked_at ?? null,
           })
 
+          const updatePayload: Record<string, any> = {}
+          if (shouldMoveToActivity) {
+            updatePayload.activity_id = activityId
+          }
+
+          if (shouldUpdateAttachment && attachmentAvailable) {
+            updatePayload.attachment_path = attachmentPath
+            updatePayload.attachment_original_name = originalName
+            updatePayload.attachment_missing_at = null
+            updatePayload.attachment_missing_checked_at = checkedAt
+          }
+
           const { error } = await supabaseAdmin
             .from('document_requirements')
-            .update({
-              attachment_path: attachmentPath,
-              attachment_original_name: originalName,
-              attachment_missing_at: null,
-              attachment_missing_checked_at: checkedAt,
-            })
+            .update(updatePayload)
             .eq('id', docRow.id)
             .is('deleted_at', null)
 
           if (error) throw error
-          docBySource.set(tDoc.id, {
+
+          const updatedDocRow = {
             ...docRow,
-            attachment_path: attachmentPath,
-            attachment_original_name: originalName,
-            attachment_missing_at: null,
-            attachment_missing_checked_at: checkedAt,
+            ...(shouldMoveToActivity ? { activity_id: activityId } : {}),
+            ...(shouldUpdateAttachment && attachmentAvailable ? {
+              attachment_path: attachmentPath,
+              attachment_original_name: originalName,
+              attachment_missing_at: null,
+              attachment_missing_checked_at: checkedAt,
+            } : {}),
+          }
+
+          docBySource.set(tDoc.id, {
+            ...updatedDocRow,
           })
           totals.document_requests += 1
         }

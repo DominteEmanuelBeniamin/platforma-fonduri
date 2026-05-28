@@ -22,7 +22,7 @@ export async function POST(
     // Obține cererea + project_id + deadline pentru a calcula tipul de reminder
     const { data: req, error: reqError } = await admin
       .from('document_requirements')
-      .select('id, project_id, deadline_at, reminder_sent_at, reminder_type_sent, deleted_at')
+      .select('id, project_id, name, deadline_at, reminder_sent_at, reminder_type_sent, deleted_at')
       .eq('id', requestId)
       .is('deleted_at', null)
       .maybeSingle()
@@ -45,6 +45,14 @@ export async function POST(
       }
     }
 
+    const { data: projectRow } = await admin
+      .from('projects')
+      .select('title')
+      .eq('id', req.project_id)
+      .maybeSingle()
+    const projectTitle = projectRow?.title ?? req.project_id
+    const requestName = req.name || requestId
+
     // Toggle: dacă era trimis → anulează; dacă nu era → marchează cu tipul curent
     const isSent = !!req.reminder_sent_at
     const newSentAt = isSent ? null : new Date().toISOString()
@@ -65,18 +73,24 @@ export async function POST(
       actionType: 'update',
       entityType: 'document',
       entityId: requestId,
-      entityName: `reminder:${requestId}`,
+      entityName: requestName,
       oldValues: {
+        project_id: req.project_id,
+        project_title: projectTitle,
+        document_request_name: requestName,
         reminder_sent_at: req.reminder_sent_at,
         reminder_type_sent: req.reminder_type_sent,
       },
       newValues: {
+        project_id: req.project_id,
+        project_title: projectTitle,
+        document_request_name: requestName,
         reminder_sent_at: newSentAt,
         reminder_type_sent: newTypeSent,
       },
       description: isSent
-        ? `Anulare reminder pentru cererea ${requestId}`
-        : `Reminder trimis pentru cererea ${requestId}`,
+        ? `Anulare reminder pentru cererea "${requestName}" din proiectul "${projectTitle}"`
+        : `Reminder trimis pentru cererea "${requestName}" din proiectul "${projectTitle}"`,
       request,
     })
 

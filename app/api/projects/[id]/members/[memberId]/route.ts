@@ -40,6 +40,14 @@ export async function DELETE(
       return NextResponse.json({ error: 'Member does not belong to this project' }, { status: 400 })
     }
 
+    const [{ data: projectRow }, { data: consultantProfile }] = await Promise.all([
+      admin.from('projects').select('title').eq('id', projectId).maybeSingle(),
+      admin.from('profiles').select('full_name, email').eq('id', existing.consultant_id).maybeSingle(),
+    ])
+    const projectTitle = projectRow?.title ?? projectId
+    const consultantLabel =
+      consultantProfile?.email ?? consultantProfile?.full_name ?? existing.consultant_id
+
     // 3) Ștergere
     const { error: delErr } = await admin
       .from('project_members')
@@ -55,9 +63,14 @@ export async function DELETE(
       actionType: 'delete',
       entityType: 'project_member',
       entityId: memberId,
-      entityName: existing.consultant_id,
-      oldValues: existing,
-      description: `Scoatere membru ${existing.consultant_id} din proiectul ${projectId}`,
+      entityName: consultantLabel,
+      oldValues: {
+        ...existing,
+        project_title: projectTitle,
+        consultant_name: consultantProfile?.full_name ?? null,
+        consultant_email: consultantProfile?.email ?? null,
+      },
+      description: `Scoatere membru ${consultantLabel} din proiectul "${projectTitle}"`,
       request,
     })
 
