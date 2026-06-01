@@ -14,6 +14,7 @@ interface DocFile {
   comments: string | null
   created_at: string
   uploaded_by: string | null
+  deleted_at?: string | null
 }
 
 interface DocRequest {
@@ -22,11 +23,17 @@ interface DocRequest {
   description: string | null
   status: 'pending' | 'review' | 'approved' | 'rejected'
   attachment_path: string | null
+  attachment_missing_at?: string | null
   deadline_at: string | null
   created_at: string
   creator?: { full_name: string | null; email: string | null }
   activity?: { id: string; name: string; phase_id: string } | null
   files?: DocFile[]
+}
+
+function getStorageDisplayName(path: string | null) {
+  if (!path) return undefined
+  return path.split('/').filter(Boolean).pop() || undefined
 }
 
 interface ProjectDocumentsViewProps {
@@ -55,24 +62,45 @@ export default function ProjectDocumentsView({
     return m
   }, [phases])
 
-  // Map to DriveRow — one row per uploaded file
+  // Map to DriveRow: one row for each active request attachment and uploaded file.
   const driveRows = useMemo((): DriveRow[] => {
     const result: DriveRow[] = []
     requests.forEach(req => {
-      if (!req.files?.length) return   // only actual uploads
       const phaseName = req.activity
         ? phaseMap[`act_${req.activity.id}`] || phaseMap[req.activity.phase_id] || undefined
         : undefined
       const activityName = req.activity?.name ?? undefined
-      req.files.forEach(file => {
+
+      if (req.attachment_path && !req.attachment_missing_at) {
+        result.push({
+          id: `${req.id}_attachment`,
+          requestId: req.id,
+          downloadKind: 'requestAttachment',
+          storagePath: req.attachment_path,
+          displayName: getStorageDisplayName(req.attachment_path) || 'Model document',
+          uploadedAt: req.created_at,
+          docName: req.name,
+          entryType: 'request_attachment',
+          entryLabel: 'Model/atașament cerere',
+          docStatus: null,
+          secondaryMain: phaseName,
+          secondarySub: activityName,
+          onRowClick: onOpenRequest ? () => onOpenRequest(req) : undefined,
+        })
+      }
+
+      ;(req.files ?? []).filter(file => !file.deleted_at).forEach(file => {
         result.push({
           id: `${req.id}_${file.id}`,
           fileId: file.id,
+          downloadKind: 'file',
           storagePath: file.storage_path,
           displayName: file.original_name,
           versionNumber: file.version_number,
           uploadedAt: file.created_at,
           docName: req.name,
+          entryType: 'submission_file',
+          entryLabel: 'Fișier încărcat',
           docStatus: req.status,
           secondaryMain: phaseName,
           secondarySub: activityName,

@@ -1,44 +1,55 @@
 import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { logAction } from '@/app/api/_utils/audit'
 
 const BUCKET = 'project-files'
 
-function getDownloadName(fileRow: any) {
-  const originalName =
-    typeof fileRow?.original_name === 'string' ? fileRow.original_name.trim() : ''
-
-  if (originalName) return originalName
-
-  if (typeof fileRow?.storage_path === 'string') {
-    return fileRow.storage_path.split('/').filter(Boolean).pop() || 'fisier'
-  }
-
-  return 'fisier'
+type FileDownloadRow = {
+  storage_path: string
+  original_name: string | null
+  document_requirements:
+    | { project_id: string | null; name: string | null; deleted_at: string | null }
+    | Array<{ project_id: string | null; name: string | null; deleted_at: string | null }>
+    | null
 }
 
-export async function POST(request: Request,
+function getDownloadName(fileRow: FileDownloadRow) {
+  const originalName = typeof fileRow.original_name === 'string' ? fileRow.original_name.trim() : ''
+  if (originalName) return originalName
+  return fileRow.storage_path.split('/').filter(Boolean).pop() || 'fisier'
+}
+
+export async function POST(
+  request: Request,
   { params }: { params: Promise<{ fileId: string }> }
 ) {
   try {
     const { fileId } = await params
     const body = await request.json().catch(() => ({}))
-    const expiresIn = typeof body?.expiresIn === 'number' ? body.expiresIn : 60 * 5 // 5 min
+    const expiresIn = typeof body?.expiresIn === 'number' ? body.expiresIn : 60 * 5
 
     const admin = createSupabaseServiceClient()
 
-    // Load file + project_id (via relationship)
     const { data: fileRow, error } = await admin
       .from('files')
-      .select('id, storage_path, original_name, requirement_id, document_requirements(project_id)')
+      .select('id, storage_path, original_name, requirement_id, deleted_at, document_requirements(project_id, name, deleted_at)')
       .eq('id', fileId)
+      .is('deleted_at', null)
       .single()
 
     if (error || !fileRow) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 })
     }
 
-    const projectId = (fileRow as any).document_requirements?.project_id as string | undefined
+    const typedFileRow = fileRow as FileDownloadRow
+    const relation = typedFileRow.document_requirements
+    const requirement = Array.isArray(relation) ? relation[0] : relation
+    if (requirement?.deleted_at) {
+      return NextResponse.json({ error: 'File not found' }, { status: 404 })
+    }
+
+    const projectId = requirement?.project_id ?? undefined
     if (!projectId) {
       return NextResponse.json({ error: 'Invalid file relation' }, { status: 500 })
     }
@@ -46,23 +57,44 @@ export async function POST(request: Request,
     const access = await requireProjectAccess(request, projectId)
     if (!access.ok) return guardToResponse(access)
 
-    // Signed URL
-    const { data, error: signErr } = await admin.storage.from(BUCKET).createSignedUrl(
-      (fileRow as any).storage_path,
-      expiresIn,
-      { download: getDownloadName(fileRow) }
-    )
+    const { data: projectRow } = await admin
+      .from('projects')
+      .select('title')
+      .eq('id', projectId)
+      .maybeSingle()
+    const projectTitle = projectRow?.title ?? projectId
+    const requirementName = requirement?.name || null
 
-
+    const { data, error: signErr } = await admin.storage
+      .from(BUCKET)
+      .createSignedUrl(typedFileRow.storage_path, expiresIn, { download: getDownloadName(typedFileRow) })
 
     if (signErr || !data?.signedUrl) {
       console.error('signed url error:', signErr)
       return NextResponse.json({ error: 'Failed to create signed download URL' }, { status: 500 })
     }
 
+    await logAction({
+      actorId: access.user.id,
+      actionType: 'download',
+      entityType: 'file_access',
+      entityId: fileId,
+      entityName: getDownloadName(typedFileRow),
+      newValues: {
+        file_id: fileId,
+        project_id: projectId,
+        project_title: projectTitle,
+        document_request_name: requirementName,
+        storage_path: typedFileRow.storage_path,
+        expires_in: expiresIn,
+      },
+      description: `Descarcare fisier "${getDownloadName(typedFileRow)}" din proiectul "${projectTitle}"${requirementName ? ` pentru cererea "${requirementName}"` : ''}`,
+      request,
+    })
+
     return NextResponse.json({ url: data.signedUrl })
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('POST signed-download error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Server error' }, { status: 500 })
   }
 }

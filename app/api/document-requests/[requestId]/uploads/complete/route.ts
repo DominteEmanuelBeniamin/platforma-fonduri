@@ -5,6 +5,20 @@ import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 const MAX_FILES = 50
 const MAX_ORIGINAL_NAME_LENGTH = 200
 
+type UploadedInput = {
+  storagePath?: unknown
+  originalName?: unknown
+  mimeType?: unknown
+  fileSize?: unknown
+}
+
+type NormalizedUpload = {
+  storagePath: string
+  originalName: string
+  mimeType: string | null
+  fileSize: number | null
+}
+
 function normalizeOriginalName(name: string) {
   return name
     .trim()
@@ -13,8 +27,10 @@ function normalizeOriginalName(name: string) {
     .slice(0, MAX_ORIGINAL_NAME_LENGTH)
 }
 
-export async function POST(request: Request,
-  { params }: { params: Promise<{ requestId: string }> }) {
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ requestId: string }> }
+) {
   try {
     const { requestId } = await params
     const body = await request.json().catch(() => null)
@@ -38,50 +54,52 @@ export async function POST(request: Request,
       return NextResponse.json({ error: `uploaded[] must be 1..${MAX_FILES}` }, { status: 400 })
     }
 
-    const normalizedUploads = uploaded.map((u: any) => ({
-      ...u,
-      originalName:
-        typeof u?.originalName === 'string'
-          ? normalizeOriginalName(u.originalName)
-          : u?.originalName,
-      mimeType:
-        typeof u?.mimeType === 'string' && u.mimeType.trim()
-          ? u.mimeType.trim()
-          : null,
-    }))
-
-    for (const u of normalizedUploads) {
+    const normalizedUploads: NormalizedUpload[] = []
+    for (const item of uploaded) {
+      const u: UploadedInput | null = item && typeof item === 'object' ? item : null
       if (!u?.storagePath || typeof u.storagePath !== 'string') {
         return NextResponse.json({ error: 'Each uploaded item must include storagePath' }, { status: 400 })
       }
-      if (!u?.originalName || typeof u.originalName !== 'string') {
+
+      const originalName = typeof u.originalName === 'string' ? normalizeOriginalName(u.originalName) : ''
+      if (!originalName) {
         return NextResponse.json({ error: 'Each uploaded item must include a valid originalName' }, { status: 400 })
       }
-      if (u?.mimeType !== undefined && typeof u.mimeType !== 'string') {
+
+      if (u.mimeType !== undefined && u.mimeType !== null && typeof u.mimeType !== 'string') {
         return NextResponse.json({ error: 'mimeType must be a string when provided' }, { status: 400 })
       }
+
       if (
-        u?.fileSize !== undefined &&
+        u.fileSize !== undefined &&
+        u.fileSize !== null &&
         (typeof u.fileSize !== 'number' || !Number.isFinite(u.fileSize) || u.fileSize < 0)
       ) {
         return NextResponse.json({ error: 'fileSize must be a non-negative number when provided' }, { status: 400 })
       }
+
+      normalizedUploads.push({
+        storagePath: u.storagePath,
+        originalName,
+        mimeType: typeof u.mimeType === 'string' && u.mimeType.trim() ? u.mimeType.trim() : null,
+        fileSize: typeof u.fileSize === 'number' ? Math.trunc(u.fileSize) : null,
+      })
     }
 
     const admin = createSupabaseServiceClient()
 
-    // Load requirement -> project_id
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('id, project_id')
+      .select('id, project_id, name, deleted_at')
       .eq('id', requestId)
+      .is('deleted_at', null)
       .single()
 
     if (reqErr) {
       console.error('Failed to load document requirement:', reqErr)
       return NextResponse.json({ error: 'Document request not found: ' + reqErr.message }, { status: 404 })
     }
-    
+
     if (!reqRow) {
       console.error('Document requirement not found for requestId:', requestId)
       return NextResponse.json({ error: 'Document request not found' }, { status: 404 })
@@ -91,7 +109,7 @@ export async function POST(request: Request,
       console.error('Document requirement has no project_id:', reqRow)
       return NextResponse.json({ error: 'Document request is not linked to a project' }, { status: 500 })
     }
-    
+
     const access = await requireProjectAccess(request, reqRow.project_id)
     if (!access.ok) {
       console.error('Project access denied:', access.error, 'project_id:', reqRow.project_id)
@@ -100,17 +118,22 @@ export async function POST(request: Request,
 
     console.log('Project access granted for user:', access.user.id, 'project:', reqRow.project_id)
 
-    // Insert files (schema-aligned)
-    const rows = normalizedUploads.map((u: any) => ({
+    const { data: projectRow } = await admin
+      .from('projects')
+      .select('title')
+      .eq('id', reqRow.project_id)
+      .maybeSingle()
+    const projectTitle = projectRow?.title ?? reqRow.project_id
+    const requestName = reqRow.name || requestId
+
+    const rows = normalizedUploads.map((u) => ({
       requirement_id: requestId,
       storage_path: u.storagePath,
       original_name: u.originalName,
       mime_type: u.mimeType,
-      file_size: typeof u.fileSize === 'number' ? Math.trunc(u.fileSize) : null,
+      file_size: u.fileSize,
       version_number: versionNumber,
       uploaded_by: access.user.id,
-      // comments: null (default)
-      // created_at: default
     }))
 
     const { error: insErr } = await admin.from('files').insert(rows)
@@ -119,23 +142,22 @@ export async function POST(request: Request,
       return NextResponse.json({ error: insErr.message }, { status: 400 })
     }
 
-    //Update requirement status -> review
     const { error: updErr } = await admin
       .from('document_requirements')
       .update({ status: 'review' })
       .eq('id', requestId)
+      .is('deleted_at', null)
 
     if (updErr) {
       console.error('requirements update error:', updErr)
       return NextResponse.json({ error: updErr.message }, { status: 400 })
     }
 
-    // Audit log pentru upload documente
-    const ipAddress = request.headers.get('x-forwarded-for') || 
-                      request.headers.get('x-real-ip') || 
+    const ipAddress = request.headers.get('x-forwarded-for') ||
+                      request.headers.get('x-real-ip') ||
                       null
 
-    const fileNames = normalizedUploads.map((u: any) => u.originalName).join(', ')
+    const fileNames = normalizedUploads.map((u) => u.originalName).join(', ')
 
     await admin
       .from('audit_logs')
@@ -144,15 +166,18 @@ export async function POST(request: Request,
         action_type: 'create',
         entity_type: 'file',
         entity_id: requestId,
-        entity_name: `${uploaded.length} fișier(e)`,
+        entity_name: requestName,
         new_values: {
           requirement_id: requestId,
+          requirement_name: requestName,
+          project_id: reqRow.project_id,
+          project_title: projectTitle,
           file_count: uploaded.length,
           version: versionNumber,
-          files: fileNames
+          files: fileNames,
         },
-        description: `${access.profile.email || 'User'} a încărcat ${uploaded.length} fișier(e) pentru cererea ${requestId}`,
-        ip_address: ipAddress
+        description: `${access.profile.email || 'User'} a încărcat ${uploaded.length} fișier(e) pentru cererea "${requestName}" din proiectul "${projectTitle}"`,
+        ip_address: ipAddress,
       })
 
     return NextResponse.json({ ok: true })

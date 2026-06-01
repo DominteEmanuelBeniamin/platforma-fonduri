@@ -5,6 +5,7 @@ import {
   requirePrivateMessageOwner,
 } from '@/app/api/_utils/private-chat'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { logAction, toMessagePreview } from '@/app/api/_utils/audit'
 
 const UpdateMessageSchema = z.object({
   body: z.string().trim().min(1).max(5000),
@@ -143,6 +144,18 @@ export async function PATCH(
       return Response.json({ error: 'Failed to update private message' }, { status: 500 })
     }
 
+    await logAction({
+      actorId: accessRes.user.id,
+      actionType: 'update',
+      entityType: 'private_message',
+      entityId: messageId,
+      entityName: `msg:${messageId}`,
+      // Decision: update fara preview (vezi PRD 1)
+      newValues: { conversation_id: conversationId, edited_at: nowIso },
+      description: `Editare mesaj privat in conversatia ${conversationId}`,
+      request,
+    })
+
     return Response.json({ item: maskRow(data) })
   } catch (err) {
     console.error('PATCH private message unexpected error:', err)
@@ -190,6 +203,22 @@ export async function DELETE(
       })
       return Response.json({ error: 'Failed to delete private message' }, { status: 500 })
     }
+
+    await logAction({
+      actorId: accessRes.user.id,
+      actionType: 'delete',
+      entityType: 'private_message',
+      entityId: messageId,
+      entityName: `msg:${messageId}`,
+      // Decision: delete CU preview pentru forensic (vezi PRD 1)
+      oldValues: {
+        conversation_id: conversationId,
+        preview: toMessagePreview(ownerRes.message.body),
+        created_at: ownerRes.message.created_at,
+      },
+      description: `Stergere mesaj privat in conversatia ${conversationId}`,
+      request,
+    })
 
     return Response.json({ ok: true })
   } catch (err) {

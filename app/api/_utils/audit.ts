@@ -2,7 +2,181 @@
 // app/api/_utils/audit.ts
 import { createSupabaseServiceClient } from './supabase'
 
-type AuditActionType = 'create' | 'update' | 'delete' | 'login' | 'logout'
+type AuditActionType =
+  | 'create'
+  | 'add'
+  | 'update'
+  | 'delete'
+  | 'propagate'
+  | 'login'
+  | 'logout'
+  | 'download'
+
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (a === null || a === undefined) return b === null || b === undefined
+  if (b === null || b === undefined) return false
+  if (typeof a !== typeof b) return false
+  if (typeof a !== 'object') return false
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false
+    return a.every((v, i) => deepEqual(v, b[i]))
+  }
+  const ka = Object.keys(a as object)
+  const kb = Object.keys(b as object)
+  if (ka.length !== kb.length) return false
+  return ka.every(k => deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
+}
+
+/**
+ * Compara `before` (snapshot complet) cu `update` (campurile trimise spre PATCH)
+ * si returneaza doar cheile cu valoare diferita. `null`/`undefined` sunt
+ * tratate echivalent, ca sa nu marchezi un PATCH no-op drept modificare.
+ */
+export function computeDiff(
+  before: Record<string, any> | null | undefined,
+  update: Record<string, any> | null | undefined,
+): {
+  oldValues: Record<string, any> | null
+  newValues: Record<string, any> | null
+  changedKeys: string[]
+  isEmpty: boolean
+} {
+  if (!update) return { oldValues: null, newValues: null, changedKeys: [], isEmpty: true }
+  const oldValues: Record<string, any> = {}
+  const newValues: Record<string, any> = {}
+  const changedKeys: string[] = []
+  for (const key of Object.keys(update)) {
+    const oldVal = before ? before[key] : undefined
+    const newVal = update[key]
+    const oNorm = oldVal === undefined ? null : oldVal
+    const nNorm = newVal === undefined ? null : newVal
+    if (!deepEqual(oNorm, nNorm)) {
+      changedKeys.push(key)
+      oldValues[key] = oldVal ?? null
+      newValues[key] = newVal ?? null
+    }
+  }
+  return {
+    oldValues: changedKeys.length > 0 ? oldValues : null,
+    newValues: changedKeys.length > 0 ? newValues : null,
+    changedKeys,
+    isEmpty: changedKeys.length === 0,
+  }
+}
+
+const SENSITIVE_KEYS = new Set([
+  'password',
+  'password_hash',
+  'token',
+  'access_token',
+  'refresh_token',
+  'signed_url',
+  'signature',
+  'secret',
+  'api_key',
+])
+
+const MAX_PAYLOAD_BYTES = 32 * 1024
+
+function sanitize(value: unknown): unknown {
+  if (value === null || value === undefined) return value
+  if (Array.isArray(value)) return value.map(sanitize)
+  if (typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (SENSITIVE_KEYS.has(k.toLowerCase())) {
+        out[k] = '[redacted]'
+      } else {
+        out[k] = sanitize(v)
+      }
+    }
+    return out
+  }
+  return value
+}
+
+function truncatePayload(
+  payload: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  if (!payload) return null
+  const cleaned = sanitize(payload) as Record<string, unknown>
+  try {
+    const serialized = JSON.stringify(cleaned)
+    if (serialized.length <= MAX_PAYLOAD_BYTES) return cleaned
+    return {
+      _truncated: true,
+      _original_size: serialized.length,
+      _preview: serialized.slice(0, 1024),
+    }
+  } catch {
+    return { _truncated: true, _serialization_failed: true }
+  }
+}
+
+export interface LogActionParams {
+  actorId: string | null
+  actionType: AuditActionType | string
+  entityType: string
+  entityId?: string | null
+  entityName?: string | null
+  oldValues?: Record<string, any> | null
+  newValues?: Record<string, any> | null
+  description: string
+  request?: Request
+  ipAddress?: string
+  userAgent?: string
+}
+
+/**
+ * Helper generic pentru a scrie o intrare in audit_logs.
+ * Sanitizeaza chei sensibile si truncheaza payload-uri peste 32 KB.
+ * Nu arunca exceptii — esuarea scrierii este loggata structurat.
+ */
+export async function logAction(params: LogActionParams): Promise<void> {
+  try {
+    const admin = createSupabaseServiceClient()
+
+    const ipAddress =
+      params.ipAddress ??
+      (params.request ? getClientIP(params.request) : 'unknown')
+    const userAgent =
+      params.userAgent ??
+      (params.request ? getUserAgent(params.request) : 'unknown')
+
+    const oldValues = truncatePayload(params.oldValues ?? null)
+    const newValues = truncatePayload(params.newValues ?? null)
+
+    const { error } = await admin.from('audit_logs').insert({
+      user_id: params.actorId,
+      action_type: params.actionType,
+      entity_type: params.entityType,
+      entity_id: params.entityId ?? null,
+      entity_name: params.entityName ?? null,
+      old_values: oldValues,
+      new_values: newValues,
+      description: params.description,
+      ip_address: ipAddress,
+      user_agent: userAgent,
+    })
+
+    if (error) {
+      console.error('[audit_log_failure]', {
+        entityType: params.entityType,
+        entityId: params.entityId,
+        error: error.message,
+      })
+    }
+  } catch (e) {
+    const err = e as Error
+    console.error('[audit_log_failure]', {
+      entityType: params.entityType,
+      entityId: params.entityId,
+      error: err?.message ?? String(e),
+    })
+  }
+}
 
 interface LogUserActionParams {
   adminId: string
@@ -142,14 +316,17 @@ export function toMessagePreview(body: string | null | undefined, maxLen = 200) 
 }
 
 export function getClientIP(request: Request): string {
+  const cf = request.headers.get('cf-connecting-ip')
+  if (cf) return cf.trim()
+
+  const realIP = request.headers.get('x-real-ip')
+  if (realIP) return realIP.trim()
+
   const forwarded = request.headers.get('x-forwarded-for')
   if (forwarded) {
     return forwarded.split(',')[0].trim()
   }
-  
-  const realIP = request.headers.get('x-real-ip')
-  if (realIP) return realIP
-  
+
   return 'unknown'
 }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { guardToResponse, requireAdmin, requireProjectAccess } from '../../../_utils/auth'
 import { createSupabaseServiceClient } from '../../../_utils/supabase'
+import { logAction } from '../../../_utils/audit'
 
 function isNonEmptyString(x: unknown): x is string {
   return typeof x === 'string' && x.trim().length > 0
@@ -53,9 +54,9 @@ export async function GET(
     }
 
     return NextResponse.json({ members: data ?? [] })
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('GET /api/projects/[id]/members error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Server error' }, { status: 500 })
   }
 }
 
@@ -81,7 +82,7 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    const consultant_id = (body as any).consultant_id
+    const consultant_id = (body as { consultant_id?: unknown }).consultant_id
     if (!isNonEmptyString(consultant_id)) {
       return NextResponse.json({ error: 'consultant_id must be a non-empty string' }, { status: 400 })
     }
@@ -92,7 +93,7 @@ export async function POST(
     // 1) Verificăm proiectul există (opțional, dar bun pentru 404 explicit)
     const { data: project, error: projectErr } = await admin
       .from('projects')
-      .select('id')
+      .select('id, title')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -103,6 +104,7 @@ export async function POST(
     if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     }
+    const projectTitle = project.title ?? projectId
 
     // 2) Verificăm consultantul există și are rol consultant
     const { data: consultantProfile, error: consultantErr } = await admin
@@ -171,9 +173,27 @@ export async function POST(
       return NextResponse.json({ error: insertErr.message }, { status: 400 })
     }
 
+    await logAction({
+      actorId: ctx.user.id,
+      actionType: 'create',
+      entityType: 'project_member',
+      entityId: member.id,
+      entityName: consultantProfile.email ?? consultantProfile.full_name ?? cleanConsultantId,
+      newValues: {
+        project_id: projectId,
+        project_title: projectTitle,
+        consultant_id: cleanConsultantId,
+        consultant_name: consultantProfile.full_name ?? null,
+        consultant_email: consultantProfile.email ?? null,
+        role_in_project: 'member',
+      },
+      description: `Adaugare membru ${consultantProfile.email ?? consultantProfile.full_name ?? cleanConsultantId} in proiectul "${projectTitle}"`,
+      request,
+    })
+
     return NextResponse.json({ message: 'Member added', member }, { status: 201 })
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('POST /api/projects/[id]/members error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Server error' }, { status: 500 })
   }
 }

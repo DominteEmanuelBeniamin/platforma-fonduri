@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -112,6 +113,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           .from('template_document_requirements')
           .select('*')
           .eq('template_activity_id', activity.id)
+          .eq('is_active', true)
           .order('order_index')
 
         for (const doc of docs || []) {
@@ -122,11 +124,30 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
               name: doc.name,
               description: doc.description,
               is_mandatory: doc.is_mandatory,
-              order_index: doc.order_index
+              order_index: doc.order_index,
+              attachment_path: doc.attachment_path,
+              attachment_original_name: doc.attachment_original_name,
+              is_active: true,
             })
         }
       }
     }
+
+    await logAction({
+      actorId: auth.profile.id,
+      actionType: 'create',
+      entityType: 'template',
+      entityId: newTemplate.id,
+      entityName: newTemplate.name,
+      newValues: {
+        source_template_id: templateId,
+        source_template_name: original.name,
+        name: newTemplate.name,
+        slug: newTemplate.slug,
+      },
+      description: `Duplicare sablon ${original.name} -> ${newTemplate.name}`,
+      request: req,
+    })
 
     return NextResponse.json({ template: newTemplate }, { status: 201 })
   } catch (error: any) {

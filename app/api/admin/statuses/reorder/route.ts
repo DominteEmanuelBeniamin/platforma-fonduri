@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,8 +12,8 @@ const supabaseAdmin = createClient(
 // POST /api/admin/statuses/reorder
 export async function POST(req: NextRequest) {
   try {
-    const user = await requireAdmin(req)
-    if (!user) {
+    const auth = await requireAdmin(req)
+    if (!auth.ok) {
       return NextResponse.json({ error: 'Doar adminii pot reordona statusuri' }, { status: 403 })
     }
 
@@ -32,6 +33,17 @@ export async function POST(req: NextRequest) {
 
       if (error) throw error
     }
+
+    await logAction({
+      actorId: auth.profile.id,
+      actionType: 'update',
+      entityType: 'status_reorder',
+      entityId: null,
+      entityName: 'Reordonare statusuri',
+      newValues: { order: orders },
+      description: `Reordonare a ${orders.length} statusuri`,
+      request: req,
+    })
 
     return NextResponse.json({ success: true })
   } catch (error: any) {

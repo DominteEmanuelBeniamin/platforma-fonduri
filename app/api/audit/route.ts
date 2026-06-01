@@ -29,6 +29,7 @@ export async function GET(request: Request) {
     // Parametri de filtrare
     const actionType = searchParams.get('action_type')
     const entityType = searchParams.get('entity_type')
+    const entityId = searchParams.get('entity_id')
     const userId = searchParams.get('user_id')
     const fromDate = searchParams.get('from_date')
     const toDate = searchParams.get('to_date')
@@ -57,6 +58,10 @@ export async function GET(request: Request) {
 
     if (entityType) {
       query = query.eq('entity_type', entityType)
+    }
+
+    if (entityId) {
+      query = query.eq('entity_id', entityId)
     }
 
     if (userId) {

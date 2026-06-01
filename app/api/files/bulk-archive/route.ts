@@ -5,6 +5,7 @@ import { pipeline } from 'node:stream/promises'
 import { z } from 'zod'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { logAction } from '@/app/api/_utils/audit'
 
 const BUCKET = 'project-files'
 const SIGNED_URL_EXPIRES_IN = 60 * 10 // 10 minute
@@ -26,6 +27,7 @@ type FileProjectRow = {
   id: string
   document_requirements: {
     project_id: string | null
+    deleted_at?: string | null
   } | null
 }
 
@@ -266,10 +268,10 @@ export async function POST(request: Request) {
      */
     const { data: fileProjectRows, error: projectLookupError } = await admin
       .from('files')
-      .select('id, document_requirements!inner(project_id)')
+      .select('id, document_requirements!inner(project_id, deleted_at)')
       .in('id', fileIds)
-     
-      
+      .is('deleted_at', null)
+      .is('document_requirements.deleted_at', null)
     if (projectLookupError) {
       console.error('bulk-archive: failed to resolve project ids', {
         error: projectLookupError,
@@ -328,6 +330,7 @@ export async function POST(request: Request) {
       .from('files')
       .select('id, storage_path, original_name')
       .in('id', fileIds)
+      .is('deleted_at', null)
 
     if (storageLookupError) {
       console.error('bulk-archive: failed to load file storage paths', {
@@ -371,6 +374,28 @@ export async function POST(request: Request) {
     for (const entry of archivePlan) {
       await preflightFileOrThrow(admin, entry, entry.entryName)
     }
+
+    // Audit: o intrare per fisier (PRD 7.5)
+    await Promise.all(
+      archivePlan.map(entry =>
+        logAction({
+          actorId: access.user.id,
+          actionType: 'download',
+          entityType: 'file_access',
+          entityId: entry.id,
+          entityName: entry.entryName,
+          newValues: {
+            file_id: entry.id,
+            project_id: projectId,
+            storage_path: entry.storage_path,
+            zip_name: zipFileName,
+            batch_size: archivePlan.length,
+          },
+          description: `Descarcare in arhiva ${zipFileName} a fisierului ${entry.entryName}`,
+          request,
+        })
+      )
+    )
 
     /**
      * 6) Streaming ZIP.

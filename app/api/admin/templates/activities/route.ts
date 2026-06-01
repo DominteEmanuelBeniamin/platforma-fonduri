@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,8 +12,8 @@ const supabaseAdmin = createClient(
 // POST /api/admin/templates/activities - Creează activitate nouă în fază
 export async function POST(req: NextRequest) {
   try {
-    const user = await requireAdmin(req)
-    if (!user) {
+    const auth = await requireAdmin(req)
+    if (!auth.ok) {
       return NextResponse.json({ error: 'Doar adminii pot crea activități' }, { status: 403 })
     }
 
@@ -52,6 +53,25 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (error) throw error
+
+    const { data: phaseRow } = await supabaseAdmin
+      .from('template_phases')
+      .select('name, template_id, project_templates(name)')
+      .eq('id', template_phase_id)
+      .maybeSingle()
+    const phaseName = phaseRow?.name ?? template_phase_id
+    const templateName = (phaseRow as any)?.project_templates?.name ?? phaseRow?.template_id ?? ''
+
+    await logAction({
+      actorId: auth.profile.id,
+      actionType: 'add',
+      entityType: 'template_activity',
+      entityId: activity.id,
+      entityName: activity.name,
+      newValues: { ...activity, template_name: templateName, phase_name: phaseName },
+      description: `Adaugare activitate "${activity.name}" in faza "${phaseName}" (sablonul "${templateName}")`,
+      request: req,
+    })
 
     return NextResponse.json({ activity }, { status: 201 })
   } catch (error: any) {

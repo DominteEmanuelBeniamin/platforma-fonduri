@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -37,8 +38,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 // PATCH /api/admin/statuses/[statusId] - Actualizare status
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
   try {
-    const user = await requireAdmin(req)
-    if (!user) {
+    const auth = await requireAdmin(req)
+    if (!auth.ok) {
       return NextResponse.json({ error: 'Doar adminii pot modifica statusuri' }, { status: 403 })
     }
 
@@ -49,7 +50,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     // Verifică dacă statusul există
     const { data: existing } = await supabaseAdmin
       .from('project_statuses')
-      .select('id')
+      .select('*')
       .eq('id', statusId)
       .single()
 
@@ -89,6 +90,18 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     if (error) throw error
 
+    await logAction({
+      actorId: auth.profile.id,
+      actionType: 'update',
+      entityType: 'status',
+      entityId: statusId,
+      entityName: status.name,
+      oldValues: existing,
+      newValues: updateData,
+      description: `Modificare status ${status.name}`,
+      request: req,
+    })
+
     return NextResponse.json({ status })
   } catch (error: any) {
     console.error('PATCH /api/admin/statuses/[statusId] error:', error)
@@ -99,8 +112,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 // DELETE /api/admin/statuses/[statusId]
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
-    const user = await requireAdmin(req)
-    if (!user) {
+    const auth = await requireAdmin(req)
+    if (!auth.ok) {
       return NextResponse.json({ error: 'Doar adminii pot șterge statusuri' }, { status: 403 })
     }
 
@@ -132,12 +145,29 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       }, { status: 400 })
     }
 
+    const { data: before } = await supabaseAdmin
+      .from('project_statuses')
+      .select('*')
+      .eq('id', statusId)
+      .maybeSingle()
+
     const { error } = await supabaseAdmin
       .from('project_statuses')
       .delete()
       .eq('id', statusId)
 
     if (error) throw error
+
+    await logAction({
+      actorId: auth.profile.id,
+      actionType: 'delete',
+      entityType: 'status',
+      entityId: statusId,
+      entityName: before?.name ?? statusId,
+      oldValues: before ?? null,
+      description: `Stergere status ${before?.name ?? statusId}`,
+      request: req,
+    })
 
     return NextResponse.json({ success: true })
   } catch (error: any) {

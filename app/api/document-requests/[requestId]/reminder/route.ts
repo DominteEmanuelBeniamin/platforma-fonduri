@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { requireProfile, guardToResponse } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { getReminderType } from '@/lib/document-reminder'
+import { logAction } from '@/app/api/_utils/audit'
 
 // POST /api/document-requests/[requestId]/reminder
 // Toggle reminder_sent_at: null → now()  |  now() → null
@@ -21,8 +22,9 @@ export async function POST(
     // Obține cererea + project_id + deadline pentru a calcula tipul de reminder
     const { data: req, error: reqError } = await admin
       .from('document_requirements')
-      .select('id, project_id, deadline_at, reminder_sent_at, reminder_type_sent')
+      .select('id, project_id, name, deadline_at, reminder_sent_at, reminder_type_sent, deleted_at')
       .eq('id', requestId)
+      .is('deleted_at', null)
       .maybeSingle()
 
     if (reqError || !req) {
@@ -43,6 +45,14 @@ export async function POST(
       }
     }
 
+    const { data: projectRow } = await admin
+      .from('projects')
+      .select('title')
+      .eq('id', req.project_id)
+      .maybeSingle()
+    const projectTitle = projectRow?.title ?? req.project_id
+    const requestName = req.name || requestId
+
     // Toggle: dacă era trimis → anulează; dacă nu era → marchează cu tipul curent
     const isSent = !!req.reminder_sent_at
     const newSentAt = isSent ? null : new Date().toISOString()
@@ -52,10 +62,37 @@ export async function POST(
       .from('document_requirements')
       .update({ reminder_sent_at: newSentAt, reminder_type_sent: newTypeSent })
       .eq('id', requestId)
+      .is('deleted_at', null)
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 })
     }
+
+    await logAction({
+      actorId: ctx.user.id,
+      actionType: 'update',
+      entityType: 'document',
+      entityId: requestId,
+      entityName: requestName,
+      oldValues: {
+        project_id: req.project_id,
+        project_title: projectTitle,
+        document_request_name: requestName,
+        reminder_sent_at: req.reminder_sent_at,
+        reminder_type_sent: req.reminder_type_sent,
+      },
+      newValues: {
+        project_id: req.project_id,
+        project_title: projectTitle,
+        document_request_name: requestName,
+        reminder_sent_at: newSentAt,
+        reminder_type_sent: newTypeSent,
+      },
+      description: isSent
+        ? `Anulare reminder pentru cererea "${requestName}" din proiectul "${projectTitle}"`
+        : `Reminder trimis pentru cererea "${requestName}" din proiectul "${projectTitle}"`,
+      request,
+    })
 
     return NextResponse.json({ reminder_sent_at: newSentAt, reminder_type_sent: newTypeSent })
   } catch (e: any) {

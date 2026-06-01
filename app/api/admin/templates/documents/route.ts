@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,13 +12,21 @@ const supabaseAdmin = createClient(
 // POST /api/admin/templates/documents - Creează document requirement în activitate
 export async function POST(req: NextRequest) {
   try {
-    const user = await requireAdmin(req)
-    if (!user) {
+    const auth = await requireAdmin(req)
+    if (!auth.ok) {
       return NextResponse.json({ error: 'Doar adminii pot crea cerințe de documente' }, { status: 403 })
     }
 
     const body = await req.json()
-    const { template_activity_id, name, description, is_mandatory, order_index, attachment_path } = body
+    const {
+      template_activity_id,
+      name,
+      description,
+      is_mandatory,
+      order_index,
+      attachment_path,
+      attachment_original_name,
+    } = body
 
     if (!template_activity_id || !name) {
       return NextResponse.json({ error: 'Activitatea și numele sunt obligatorii' }, { status: 400 })
@@ -46,11 +55,33 @@ export async function POST(req: NextRequest) {
         is_mandatory: is_mandatory || false,
         order_index: finalOrderIndex,
         attachment_path: attachment_path || null,
+        attachment_original_name: attachment_path ? attachment_original_name || null : null,
+        is_active: true,
       })
       .select()
       .single()
 
     if (error) throw error
+
+    const { data: actRow } = await supabaseAdmin
+      .from('template_activities')
+      .select('name, template_phases(name, project_templates(name))')
+      .eq('id', template_activity_id)
+      .maybeSingle()
+    const activityName = actRow?.name ?? template_activity_id
+    const phaseName = (actRow as any)?.template_phases?.name ?? ''
+    const templateName = (actRow as any)?.template_phases?.project_templates?.name ?? ''
+
+    await logAction({
+      actorId: auth.profile.id,
+      actionType: 'add',
+      entityType: 'template_document',
+      entityId: doc.id,
+      entityName: doc.name,
+      newValues: { ...doc, template_name: templateName, phase_name: phaseName, activity_name: activityName },
+      description: `Adaugare cerinta document "${doc.name}" in activitatea "${activityName}" (faza "${phaseName}", sablonul "${templateName}")`,
+      request: req,
+    })
 
     return NextResponse.json({ document: doc }, { status: 201 })
   } catch (error: any) {

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin, guardToResponse} from '../../../../_utils/auth'
 import { createSupabaseServiceClient } from '../../../../_utils/supabase'
+import { logAction } from '../../../../_utils/audit'
 
 
 export async function DELETE(
@@ -20,14 +21,14 @@ export async function DELETE(
     // 1) Admin-only
     const ctx = await requireAdmin(request)
     if (!ctx.ok) return guardToResponse(ctx)
-    
+
     const admin = createSupabaseServiceClient()
 
 
     // 2) Verificăm că membership-ul există și aparține proiectului
     const { data: existing, error: findErr } = await admin
       .from('project_members')
-      .select('id, project_id')
+      .select('id, project_id, consultant_id, role_in_project')
       .eq('id', memberId)
       .maybeSingle()
 
@@ -39,6 +40,14 @@ export async function DELETE(
       return NextResponse.json({ error: 'Member does not belong to this project' }, { status: 400 })
     }
 
+    const [{ data: projectRow }, { data: consultantProfile }] = await Promise.all([
+      admin.from('projects').select('title').eq('id', projectId).maybeSingle(),
+      admin.from('profiles').select('full_name, email').eq('id', existing.consultant_id).maybeSingle(),
+    ])
+    const projectTitle = projectRow?.title ?? projectId
+    const consultantLabel =
+      consultantProfile?.email ?? consultantProfile?.full_name ?? existing.consultant_id
+
     // 3) Ștergere
     const { error: delErr } = await admin
       .from('project_members')
@@ -49,9 +58,25 @@ export async function DELETE(
       return NextResponse.json({ error: delErr.message }, { status: 400 })
     }
 
+    await logAction({
+      actorId: ctx.user.id,
+      actionType: 'delete',
+      entityType: 'project_member',
+      entityId: memberId,
+      entityName: consultantLabel,
+      oldValues: {
+        ...existing,
+        project_title: projectTitle,
+        consultant_name: consultantProfile?.full_name ?? null,
+        consultant_email: consultantProfile?.email ?? null,
+      },
+      description: `Scoatere membru ${consultantLabel} din proiectul "${projectTitle}"`,
+      request,
+    })
+
     return NextResponse.json({ message: 'Member removed' })
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('DELETE /api/projects/[id]/members/[memberId] error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Server error' }, { status: 500 })
   }
 }

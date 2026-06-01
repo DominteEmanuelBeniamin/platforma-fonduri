@@ -55,6 +55,14 @@ export default function ProjectDetailsPage() {
 
   const [activeView, setActiveView] = useState<'phases' | 'documents'>('phases')
 
+  const documentEntriesCount = useMemo(() => {
+    return allDocRequests.reduce((total, req) => {
+      const requestAttachmentCount = req.attachment_path && !req.attachment_missing_at ? 1 : 0
+      const uploadedFilesCount = (req.files ?? []).filter((file: any) => !file.deleted_at).length
+      return total + requestAttachmentCount + uploadedFilesCount
+    }, 0)
+  }, [allDocRequests])
+
   // Citim lastSeen din localStorage
   const getLastSeen = useCallback(() => {
     if (typeof window === 'undefined' || !projectId) return null
@@ -377,9 +385,9 @@ export default function ProjectDetailsPage() {
               >
                 <FolderOpen className="w-4 h-4" />
                 Documente
-                {allDocRequests.length > 0 && (
+                {documentEntriesCount > 0 && (
                   <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full font-medium">
-                    {allDocRequests.length}
+                    {documentEntriesCount}
                   </span>
                 )}
               </button>

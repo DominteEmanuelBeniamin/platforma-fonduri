@@ -2,11 +2,92 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireProfile, requireAdmin } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+const BUCKET = 'project-files'
+
+async function storagePathExists(path: string) {
+  const { data, error } = await supabaseAdmin.storage
+    .from(BUCKET)
+    .createSignedUrl(path, 60)
+
+  if (error || !data?.signedUrl) return false
+
+  try {
+    const res = await fetch(data.signedUrl, { method: 'HEAD' })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+async function verifyTemplateDocumentAttachment(doc: any) {
+  if (!doc.attachment_path) return doc
+
+  const attachmentAvailable = await storagePathExists(doc.attachment_path)
+  const checkedAt = new Date().toISOString()
+
+  if (!attachmentAvailable) {
+    const missingAt = doc.attachment_missing_at || checkedAt
+
+    await Promise.all([
+      supabaseAdmin
+        .from('template_document_requirements')
+        .update({
+          attachment_missing_at: missingAt,
+          attachment_missing_checked_at: checkedAt,
+        })
+        .eq('attachment_path', doc.attachment_path),
+      supabaseAdmin
+        .from('document_requirements')
+        .update({
+          attachment_missing_at: missingAt,
+          attachment_missing_checked_at: checkedAt,
+        })
+        .eq('attachment_path', doc.attachment_path)
+        .is('deleted_at', null),
+    ])
+
+    return {
+      ...doc,
+      attachment_missing_at: missingAt,
+      attachment_missing_checked_at: checkedAt,
+    }
+  }
+
+  if (doc.attachment_missing_at) {
+    await Promise.all([
+      supabaseAdmin
+        .from('template_document_requirements')
+        .update({
+          attachment_missing_at: null,
+          attachment_missing_checked_at: checkedAt,
+        })
+        .eq('attachment_path', doc.attachment_path),
+      supabaseAdmin
+        .from('document_requirements')
+        .update({
+          attachment_missing_at: null,
+          attachment_missing_checked_at: checkedAt,
+        })
+        .eq('attachment_path', doc.attachment_path)
+        .is('deleted_at', null),
+    ])
+
+    return {
+      ...doc,
+      attachment_missing_at: null,
+      attachment_missing_checked_at: checkedAt,
+    }
+  }
+
+  return doc
+}
 
 // GET /api/admin/templates
 export async function GET(req: NextRequest) {
@@ -53,9 +134,14 @@ export async function GET(req: NextRequest) {
                   .from('template_document_requirements')
                   .select('*')
                   .eq('template_activity_id', activity.id)
+                  .eq('is_active', true)
                   .order('order_index', { ascending: true })
 
-                return { ...activity, document_requirements: docs || [] }
+                const verifiedDocs = await Promise.all(
+                  (docs || []).map(verifyTemplateDocumentAttachment)
+                )
+
+                return { ...activity, document_requirements: verifiedDocs }
               })
             )
 
@@ -114,6 +200,23 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (error) throw error
+
+    await logAction({
+      actorId: auth.profile.id,
+      actionType: 'create',
+      entityType: 'template',
+      entityId: template.id,
+      entityName: template.name,
+      newValues: {
+        name: template.name,
+        slug: template.slug,
+        description: template.description,
+        measure_id: template.measure_id,
+        is_default: template.is_default,
+      },
+      description: `Creare sablon ${template.name}`,
+      request: req,
+    })
 
     return NextResponse.json({ template }, { status: 201 })
   } catch (error: any) {

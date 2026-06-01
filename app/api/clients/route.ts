@@ -16,7 +16,7 @@ export async function GET(request: Request) {
 
         return NextResponse.json({clients: data})
     }
-    catch (error: any) {
-        return NextResponse.json({error: error.message}, {status: 400})
+    catch (error: unknown) {
+        return NextResponse.json({error: error instanceof Error ? error.message : 'Server error'}, {status: 400})
     }
 }

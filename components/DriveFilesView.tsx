@@ -1,26 +1,28 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
 import { useMemo, useState, useRef, useEffect } from 'react'
 import {
   FileText, FileSpreadsheet, Image as ImageIcon,
-  Download, CheckCircle2, XCircle, Clock, Eye,
+  Download,
   Search, FolderOpen, ChevronDown, Grid3X3, List,
-  AlertCircle,
 } from 'lucide-react'
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
 export interface DriveRow {
   id: string           // unique row key
-  fileId: string       // used for download + image preview API
+  fileId?: string      // used for file download + image preview API
+  requestId?: string   // used for request attachment download
+  downloadKind?: 'file' | 'requestAttachment'
   storagePath: string  // determines file type icon + image detection
   displayName?: string
   versionNumber?: number
   uploadedAt: string
 
   docName: string
-  docStatus: 'pending' | 'review' | 'approved' | 'rejected'
+  entryType?: 'submission_file' | 'request_attachment'
+  entryLabel?: string
+  docStatus: 'pending' | 'review' | 'approved' | 'rejected' | null
 
   // optional secondary column (phase or project)
   secondaryMain?: string      // bold line
@@ -112,7 +114,16 @@ function FilePreview({ path, previewUrl, size = 'md' }: { path: string; previewU
   return <FileIconDrive path={path} size={size} />
 }
 
-function StatusPill({ status }: { status: DriveRow['docStatus'] }) {
+function StatusPill({ status, label }: { status: DriveRow['docStatus']; label?: string }) {
+  if (!status) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full"
+        style={{ backgroundColor: '#f1f3f4', color: '#5f6368' }}>
+        {label || 'Fără status'}
+      </span>
+    )
+  }
+
   const map = {
     approved: { label: 'Aprobat',       bg: '#e6f4ea', text: '#137333', dot: '#34a853' },
     rejected: { label: 'Respins',       bg: '#fce8e6', text: '#c5221f', dot: '#ea4335' },
@@ -152,17 +163,20 @@ export default function DriveFilesView({
   // Fetch signed preview URLs for images
   useEffect(() => {
     rows.forEach(row => {
+      if (row.downloadKind === 'requestAttachment') return
+      if (!row.fileId) return
+      const fileId = row.fileId
       if (!isImageExt(getExt(row.storagePath))) return
-      if (fetchedIds.current.has(row.fileId)) return
-      fetchedIds.current.add(row.fileId)
+      if (fetchedIds.current.has(fileId)) return
+      fetchedIds.current.add(fileId)
       ;(async () => {
         try {
-          const res = await apiFetch(`/api/files/${row.fileId}/signed-download`, {
+          const res = await apiFetch(`/api/files/${fileId}/signed-download`, {
             method: 'POST', body: JSON.stringify({ expiresIn: 3600 }),
           })
           if (res.ok) {
             const { url } = await res.json()
-            setPreviewUrls(prev => ({ ...prev, [row.fileId]: url }))
+            setPreviewUrls(prev => ({ ...prev, [fileId]: url }))
           }
         } catch { /* silent */ }
       })()
@@ -170,15 +184,27 @@ export default function DriveFilesView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows])
 
-  async function handleDownload(e: React.MouseEvent, fileId: string) {
+  async function handleDownload(e: React.MouseEvent, row: DriveRow) {
     e.stopPropagation()
-    setDownloading(fileId)
+    if (row.downloadKind === 'requestAttachment' && !row.requestId) return
+    if (row.downloadKind !== 'requestAttachment' && !row.fileId) return
+
+    const downloadId = row.downloadKind === 'requestAttachment'
+      ? `attachment-${row.requestId}`
+      : row.fileId!
+
+    setDownloading(downloadId)
     try {
-      const res = await apiFetch(`/api/files/${fileId}/signed-download`, {
+      const endpoint = row.downloadKind === 'requestAttachment'
+        ? `/api/document-requests/${row.requestId}/attachment/signed-download`
+        : `/api/files/${row.fileId!}/signed-download`
+
+      const res = await apiFetch(endpoint, {
         method: 'POST', body: JSON.stringify({ expiresIn: 300 }),
       })
-      if (!res.ok) { alert('Eroare la descărcare'); return }
-      const { url } = await res.json()
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { alert(data?.error || 'Eroare la descărcare'); return }
+      const { url } = data
       const a = document.createElement('a')
       a.href = url
       a.rel = 'noopener'
@@ -214,7 +240,7 @@ export default function DriveFilesView({
   const sorted = useMemo(() => [...filtered].sort((a, b) => {
     let cmp = 0
     if (sortKey === 'name')      cmp = a.docName.localeCompare(b.docName)
-    if (sortKey === 'status')    cmp = a.docStatus.localeCompare(b.docStatus)
+    if (sortKey === 'status')    cmp = (a.docStatus ?? '').localeCompare(b.docStatus ?? '')
     if (sortKey === 'date')      cmp = new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime()
     if (sortKey === 'secondary') cmp = (a.secondaryMain ?? '').localeCompare(b.secondaryMain ?? '')
     return sortDir === 'asc' ? cmp : -cmp
@@ -227,6 +253,8 @@ export default function DriveFilesView({
 
   const stats = useMemo(() => ({
     total:    rows.length,
+    submissions: rows.filter(r => r.docStatus !== null).length,
+    attachments: rows.filter(r => r.docStatus === null).length,
     approved: rows.filter(r => r.docStatus === 'approved').length,
     review:   rows.filter(r => r.docStatus === 'review').length,
     pending:  rows.filter(r => r.docStatus === 'pending').length,
@@ -305,7 +333,7 @@ export default function DriveFilesView({
           <div className="flex-1" />
 
           <span style={{ fontSize: '12px', color: '#5f6368' }}>
-            {sorted.length !== rows.length ? `${sorted.length} din ` : ''}{rows.length} {rows.length === 1 ? 'fișier' : 'fișiere'}
+            {sorted.length !== rows.length ? `${sorted.length} din ` : ''}{rows.length} {rows.length === 1 ? 'intrare' : 'intrări'}
           </span>
 
           {/* View toggle */}
@@ -381,7 +409,7 @@ export default function DriveFilesView({
                 }}>
                 {/* Name */}
                 <div className="flex items-center gap-3 min-w-0">
-                  <FilePreview path={row.storagePath} previewUrl={previewUrls[row.fileId]} size="sm" />
+                  <FilePreview path={row.storagePath} previewUrl={row.fileId ? previewUrls[row.fileId] : undefined} size="sm" />
                   <div className="min-w-0">
                     <p className="truncate font-medium" style={{ fontSize: '13px', color: '#202124' }}>
                       {row.docName}
@@ -393,7 +421,7 @@ export default function DriveFilesView({
                       )}
                     </p>
                     <p className="truncate" style={{ fontSize: '11px', color: '#9aa0a6' }}>
-                      {getDisplayName(row)}
+                      {row.entryLabel ? `${row.entryLabel} · ` : ''}{getDisplayName(row)}
                     </p>
                   </div>
                 </div>
@@ -422,7 +450,7 @@ export default function DriveFilesView({
                 </div>
 
                 {/* Status */}
-                <div><StatusPill status={row.docStatus} /></div>
+                <div><StatusPill status={row.docStatus} label={row.entryLabel} /></div>
 
                 {/* Date */}
                 <p style={{ fontSize: '12px', color: '#5f6368' }}>{formatDate(row.uploadedAt)}</p>
@@ -431,14 +459,14 @@ export default function DriveFilesView({
                 <div className="flex items-center justify-end" onClick={e => e.stopPropagation()}>
                   {hoveredId === row.id && (
                     <button
-                      onClick={e => handleDownload(e, row.fileId)}
-                      disabled={downloading === row.fileId}
+                      onClick={e => handleDownload(e, row)}
+                      disabled={downloading === (row.downloadKind === 'requestAttachment' ? `attachment-${row.requestId}` : row.fileId)}
                       className="p-1.5 rounded-full transition-colors"
                       style={{ color: '#5f6368' }}
                       onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
                       onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
                       title="Descarcă">
-                      {downloading === row.fileId
+                      {downloading === (row.downloadKind === 'requestAttachment' ? `attachment-${row.requestId}` : row.fileId)
                         ? <span className="w-4 h-4 border-2 rounded-full animate-spin block" style={{ borderColor: '#dadce0', borderTopColor: '#1a73e8' }} />
                         : <Download className="w-4 h-4" />
                       }
@@ -466,7 +494,7 @@ export default function DriveFilesView({
                 }}>
                 {/* Preview area */}
                 <div className="relative overflow-hidden" style={{ height: '130px', backgroundColor: '#f8f9fa' }}>
-                  {isImageExt(getExt(row.storagePath)) && previewUrls[row.fileId] ? (
+                  {row.fileId && isImageExt(getExt(row.storagePath)) && previewUrls[row.fileId] ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={previewUrls[row.fileId]} alt={row.docName}
                       className="absolute inset-0 w-full h-full object-cover" />
@@ -489,13 +517,15 @@ export default function DriveFilesView({
                     {row.secondaryMain && (
                       <p className="truncate mt-0.5" style={{ fontSize: '10px', color: '#9aa0a6' }}>{row.secondaryMain}</p>
                     )}
-                    <p className="mt-0.5" style={{ fontSize: '10px', color: '#9aa0a6' }}>{formatDate(row.uploadedAt)}</p>
+                    <p className="mt-0.5" style={{ fontSize: '10px', color: '#9aa0a6' }}>
+                      {row.entryLabel ? `${row.entryLabel} · ` : ''}{formatDate(row.uploadedAt)}
+                    </p>
                   </div>
                   <div onClick={e => e.stopPropagation()} className="flex-shrink-0">
                     {hoveredId === row.id && (
                       <button
-                        onClick={e => handleDownload(e, row.fileId)}
-                        disabled={downloading === row.fileId}
+                        onClick={e => handleDownload(e, row)}
+                        disabled={downloading === (row.downloadKind === 'requestAttachment' ? `attachment-${row.requestId}` : row.fileId)}
                         className="p-1 rounded-full"
                         style={{ color: '#5f6368' }}
                         onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
@@ -508,7 +538,7 @@ export default function DriveFilesView({
 
                 {/* Status */}
                 <div className="px-3 pb-2.5">
-                  <StatusPill status={row.docStatus} />
+                  <StatusPill status={row.docStatus} label={row.entryLabel} />
                 </div>
               </div>
             ))}

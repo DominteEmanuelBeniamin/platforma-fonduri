@@ -2,11 +2,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireProjectAccess } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+async function loadProjectTitle(projectId: string) {
+  const { data } = await supabaseAdmin
+    .from('projects')
+    .select('title')
+    .eq('id', projectId)
+    .maybeSingle()
+  return data?.title ?? projectId
+}
 
 interface RouteParams {
   params: Promise<{ id: string; phaseId: string }>
@@ -72,6 +82,13 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       }
     }
 
+    const { data: before } = await supabaseAdmin
+      .from('project_phases')
+      .select('*')
+      .eq('id', phaseId)
+      .eq('project_id', projectId)
+      .maybeSingle()
+
     const { data: phase, error } = await supabaseAdmin
       .from('project_phases')
       .update(updateData)
@@ -81,6 +98,20 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       .single()
 
     if (error) throw error
+
+    const projectTitle = await loadProjectTitle(projectId)
+
+    await logAction({
+      actorId: auth.user.id,
+      actionType: 'update',
+      entityType: 'project_phase',
+      entityId: phaseId,
+      entityName: phase.name,
+      oldValues: before ? { ...before, project_title: projectTitle } : null,
+      newValues: { ...updateData, project_id: projectId, project_title: projectTitle },
+      description: `Modificare faza "${phase.name}" in proiectul "${projectTitle}"`,
+      request: req,
+    })
 
     return NextResponse.json({ phase })
   } catch (error: any) {
@@ -103,6 +134,13 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Doar adminii pot șterge faze' }, { status: 403 })
     }
 
+    const { data: before } = await supabaseAdmin
+      .from('project_phases')
+      .select('*')
+      .eq('id', phaseId)
+      .eq('project_id', projectId)
+      .maybeSingle()
+
     const { error } = await supabaseAdmin
       .from('project_phases')
       .delete()
@@ -110,6 +148,19 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       .eq('project_id', projectId)
 
     if (error) throw error
+
+    const projectTitle = await loadProjectTitle(projectId)
+
+    await logAction({
+      actorId: auth.user.id,
+      actionType: 'delete',
+      entityType: 'project_phase',
+      entityId: phaseId,
+      entityName: before?.name ?? phaseId,
+      oldValues: before ? { ...before, project_title: projectTitle } : null,
+      description: `Stergere faza "${before?.name ?? phaseId}" din proiectul "${projectTitle}"`,
+      request: req,
+    })
 
     return NextResponse.json({ success: true })
   } catch (error: any) {

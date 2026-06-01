@@ -1,5 +1,13 @@
+type SupabaseSessionClient = {
+  auth: {
+    getSession: () => Promise<{
+      data: { session: { access_token: string } | null }
+    }>
+  }
+}
+
 export async function apiFetch(
-    supabase: any,
+    supabase: SupabaseSessionClient,
     url: string,
     options: RequestInit = {}
   ) {
