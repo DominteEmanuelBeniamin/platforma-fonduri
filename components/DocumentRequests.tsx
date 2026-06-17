@@ -39,11 +39,13 @@ import {
   REMINDER_LABELS,
   REMINDER_BADGE,
 } from '@/lib/document-reminder'
+import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS, REQUIREMENT_BADGE } from '@/lib/requirement-type'
 
 interface DocumentRequest {
   id: string
   name: string
   description: string | null
+  requirement_type?: RequirementType
   status: 'pending' | 'review' | 'approved' | 'rejected'
   attachment_path: string | null
   attachment_missing_at?: string | null
@@ -232,6 +234,7 @@ export default function DocumentRequests({
   // Create request form
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [category, setCategory] = useState<RequirementType>('obligatoriu')
   const [templateFile, setTemplateFile] = useState<File | null>(null)
   const [deadline, setDeadline] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -594,6 +597,7 @@ export default function DocumentRequests({
         body: JSON.stringify({
           name: name.trim(),
           description: description.trim() || null,
+          requirement_type: category,
           deadline_at: deadline || null,
           attachment_path,
           attachment_original_name: attachment_path ? templateFile?.name || null : null,
@@ -605,6 +609,7 @@ export default function DocumentRequests({
 
       setName('')
       setDescription('')
+      setCategory('obligatoriu')
       setTemplateFile(null)
       setDeadline('')
       setShowForm(false)
@@ -783,6 +788,25 @@ export default function DocumentRequests({
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">Tip cerință</label>
+                <div className="flex flex-wrap gap-4">
+                  {REQUIREMENT_TYPES.map(rt => (
+                    <label key={rt} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="liveDocCategory"
+                        value={rt}
+                        checked={category === rt}
+                        onChange={() => setCategory(rt)}
+                        className="w-4 h-4 border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-sm text-slate-700">{REQUIREMENT_LABELS[rt]}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                 <label className="flex-1 cursor-pointer">
                   <div className={`px-4 py-3 border-2 border-dashed rounded-xl text-center transition-all ${
@@ -844,6 +868,16 @@ export default function DocumentRequests({
                           {status.label}
                         </span>
                       </div>
+
+                      {(() => {
+                        const rt = req.requirement_type as RequirementType | undefined
+                        const badge = rt ? REQUIREMENT_BADGE[rt] : null
+                        return rt && badge ? (
+                          <span className={`inline-block mb-2 text-[11px] px-1.5 py-0.5 rounded ${badge.bg} ${badge.text}`}>
+                            {REQUIREMENT_LABELS[rt]}
+                          </span>
+                        ) : null
+                      })()}
 
                       {req.description && <p className="text-sm text-slate-600 mb-3 line-clamp-2">{req.description}</p>}
 

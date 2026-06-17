@@ -33,6 +33,7 @@ type RollbackTracker = {
     name: string
     description: string | null
     is_mandatory: boolean | null
+    requirement_type: string | null
     status: string
     attachment_path: string | null
     attachment_original_name: string | null
@@ -125,6 +126,7 @@ async function loadProjectLineage(projectId: string) {
       name,
       description,
       is_mandatory,
+      requirement_type,
       status,
       source_template_document_requirement_id,
       attachment_path,
@@ -205,6 +207,7 @@ async function insertDocs(
         name: deletedDoc.name,
         description: deletedDoc.description ?? null,
         is_mandatory: deletedDoc.is_mandatory ?? null,
+        requirement_type: deletedDoc.requirement_type ?? null,
         status: deletedDoc.status,
         attachment_path: deletedDoc.attachment_path ?? null,
         attachment_original_name: deletedDoc.attachment_original_name ?? null,
@@ -222,6 +225,7 @@ async function insertDocs(
           name: tDoc.name,
           description: tDoc.description,
           is_mandatory: tDoc.is_mandatory,
+          requirement_type: tDoc.requirement_type,
           attachment_path: attachmentAvailable ? attachmentPath : null,
           attachment_original_name: attachmentAvailable ? tDoc.attachment_original_name || null : null,
           attachment_missing_at: attachmentPath && !attachmentAvailable ? attachmentCheckedAt : null,
@@ -247,6 +251,7 @@ async function insertDocs(
         name: tDoc.name,
         description: tDoc.description,
         is_mandatory: tDoc.is_mandatory,
+        requirement_type: tDoc.requirement_type,
         attachment_path: attachmentAvailable ? attachmentPath : null,
         attachment_original_name: attachmentAvailable ? tDoc.attachment_original_name || null : null,
         attachment_missing_at: attachmentPath && !attachmentAvailable ? attachmentCheckedAt : null,
@@ -279,6 +284,7 @@ async function rollbackCreated(rollback: RollbackTracker) {
         name: doc.name,
         description: doc.description,
         is_mandatory: doc.is_mandatory,
+        requirement_type: doc.requirement_type,
         status: doc.status,
         attachment_path: doc.attachment_path,
         attachment_original_name: doc.attachment_original_name,
