@@ -64,6 +64,7 @@ export async function GET(
         description,
         status,
         is_mandatory,
+        is_outgoing,
         attachment_path,
         attachment_original_name,
         attachment_missing_at,
@@ -140,9 +141,14 @@ export async function POST(
         : null
     const activity_id = typeof body?.activity_id === 'string' && body.activity_id ? body.activity_id : null
     const is_mandatory = body?.is_mandatory === true
+    const is_outgoing = body?.is_outgoing === true
 
     if (!name) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+    }
+
+    if (is_outgoing && !attachment_path) {
+      return NextResponse.json({ error: 'Trebuie atașat un fișier pentru documentul trimis clientului.' }, { status: 400 })
     }
 
     const admin = createSupabaseServiceClient()
@@ -169,8 +175,9 @@ export async function POST(
         attachment_missing_at: null,
         attachment_missing_checked_at: null,
         is_mandatory,
+        is_outgoing,
         created_by: access.profile.id,
-        status: 'pending',
+        status: is_outgoing ? 'approved' : 'pending',
       })
       .select(`
         id,
@@ -180,6 +187,7 @@ export async function POST(
         description,
         status,
         is_mandatory,
+        is_outgoing,
         attachment_path,
         attachment_original_name,
         deadline_at,
