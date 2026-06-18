@@ -110,6 +110,13 @@ export async function PATCH(
       return NextResponse.json({ error: 'Nu ai permisiunea să modifici cereri' }, { status: 403 })
     }
 
+    const { data: projectRow } = await admin
+      .from('projects')
+      .select('title')
+      .eq('id', req.project_id)
+      .maybeSingle()
+    const projectTitle = projectRow?.title ?? req.project_id
+
     // Dacă se atribuie cuiva, verifică că este consultant membru al proiectului
     if (assigned_to !== undefined && assigned_to !== null) {
       const { data: membership, error: memberError } = await admin
@@ -178,13 +185,15 @@ export async function PATCH(
       entityName: name ?? req.name ?? 'Cerere document',
       oldValues: {
         project_id: req.project_id,
+        project_title: projectTitle,
         ...(diff.oldValues ?? {}),
       },
       newValues: {
         project_id: req.project_id,
+        project_title: projectTitle,
         ...(diff.newValues ?? {}),
       },
-      description: `${access.profile.email || 'User'} a modificat cererea de document "${name ?? req.name ?? requestId}" (${diff.changedKeys.join(', ')})`,
+      description: `${access.profile.email || 'User'} a modificat cererea de document "${name ?? req.name ?? requestId}" din proiectul "${projectTitle}" (${diff.changedKeys.join(', ')})`,
       request,
     })
 
@@ -307,6 +316,13 @@ export async function DELETE(
       return NextResponse.json({ error: 'Nu ai permisiunea să ștergi cereri' }, { status: 403 })
     }
 
+    const { data: deleteProjectRow } = await admin
+      .from('projects')
+      .select('title')
+      .eq('id', req.project_id)
+      .maybeSingle()
+    const deleteProjectTitle = deleteProjectRow?.title ?? req.project_id
+
     if (req.deleted_at) {
       return NextResponse.json({
         ok: true,
@@ -349,16 +365,18 @@ export async function DELETE(
       entityName: req.name || 'Cerere document',
       oldValues: {
         project_id: req.project_id,
+        project_title: deleteProjectTitle,
         status: req.status,
         deleted_at: req.deleted_at,
       },
       newValues: {
         project_id: req.project_id,
+        project_title: deleteProjectTitle,
         deleted_at: deletedAt,
         deleted_by: deletedBy,
         delete_reason: deleteReason,
       },
-      description: `${access.profile.email || 'User'} a șters cererea de document "${req.name || requestId}"`,
+      description: `${access.profile.email || 'User'} a șters cererea de document "${req.name || requestId}" din proiectul "${deleteProjectTitle}"`,
       request,
     })
 

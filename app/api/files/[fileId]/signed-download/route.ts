@@ -9,8 +9,8 @@ type FileDownloadRow = {
   storage_path: string
   original_name: string | null
   document_requirements:
-    | { project_id: string | null; deleted_at: string | null }
-    | Array<{ project_id: string | null; deleted_at: string | null }>
+    | { project_id: string | null; name: string | null; deleted_at: string | null }
+    | Array<{ project_id: string | null; name: string | null; deleted_at: string | null }>
     | null
 }
 
@@ -33,7 +33,7 @@ export async function POST(
 
     const { data: fileRow, error } = await admin
       .from('files')
-      .select('id, storage_path, original_name, requirement_id, deleted_at, document_requirements(project_id, deleted_at)')
+      .select('id, storage_path, original_name, requirement_id, deleted_at, document_requirements(project_id, name, deleted_at)')
       .eq('id', fileId)
       .is('deleted_at', null)
       .single()
@@ -57,6 +57,14 @@ export async function POST(
     const access = await requireProjectAccess(request, projectId)
     if (!access.ok) return guardToResponse(access)
 
+    const { data: projectRow } = await admin
+      .from('projects')
+      .select('title')
+      .eq('id', projectId)
+      .maybeSingle()
+    const projectTitle = projectRow?.title ?? projectId
+    const requirementName = requirement?.name || null
+
     const { data, error: signErr } = await admin.storage
       .from(BUCKET)
       .createSignedUrl(typedFileRow.storage_path, expiresIn, { download: getDownloadName(typedFileRow) })
@@ -75,10 +83,12 @@ export async function POST(
       newValues: {
         file_id: fileId,
         project_id: projectId,
+        project_title: projectTitle,
+        document_request_name: requirementName,
         storage_path: typedFileRow.storage_path,
         expires_in: expiresIn,
       },
-      description: `Descarcare fisier ${getDownloadName(typedFileRow)} (proiect ${projectId})`,
+      description: `Descarcare fisier "${getDownloadName(typedFileRow)}" din proiectul "${projectTitle}"${requirementName ? ` pentru cererea "${requirementName}"` : ''}`,
       request,
     })
 

@@ -93,7 +93,7 @@ export async function POST(
     // 1) Verificăm proiectul există (opțional, dar bun pentru 404 explicit)
     const { data: project, error: projectErr } = await admin
       .from('projects')
-      .select('id')
+      .select('id, title')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -104,6 +104,7 @@ export async function POST(
     if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     }
+    const projectTitle = project.title ?? projectId
 
     // 2) Verificăm consultantul există și are rol consultant
     const { data: consultantProfile, error: consultantErr } = await admin
@@ -180,10 +181,13 @@ export async function POST(
       entityName: consultantProfile.email ?? consultantProfile.full_name ?? cleanConsultantId,
       newValues: {
         project_id: projectId,
+        project_title: projectTitle,
         consultant_id: cleanConsultantId,
+        consultant_name: consultantProfile.full_name ?? null,
+        consultant_email: consultantProfile.email ?? null,
         role_in_project: 'member',
       },
-      description: `Adaugare membru ${consultantProfile.email ?? cleanConsultantId} in proiectul ${projectId}`,
+      description: `Adaugare membru ${consultantProfile.email ?? consultantProfile.full_name ?? cleanConsultantId} in proiectul "${projectTitle}"`,
       request,
     })
 

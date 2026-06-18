@@ -446,8 +446,8 @@ export default function AuditPage() {
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
         <div className="flex flex-col md:flex-row md:items-center gap-3">
-          <form onSubmit={handleSearch} className="flex-1 min-w-0">
-            <div className="relative">
+          <form onSubmit={handleSearch} className="flex-1 min-w-0 flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1 min-w-0">
               <input
                 type="text"
                 value={searchInput}
@@ -457,13 +457,21 @@ export default function AuditPage() {
               />
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-4 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 whitespace-nowrap"
+            >
+              <Search className="w-4 h-4" />
+              Cauta
+            </button>
           </form>
 
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={exportCsv}
               disabled={exporting || loading}
-              className="px-4 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 whitespace-nowrap"
+              className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 whitespace-nowrap"
             >
               <FileDown className="w-4 h-4" />
               {exporting ? 'Se exporta…' : 'Export CSV'}

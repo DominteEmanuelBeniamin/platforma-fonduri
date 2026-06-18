@@ -90,7 +90,7 @@ export async function POST(
 
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('project_id, attachment_path, attachment_original_name, attachment_missing_at, deleted_at')
+      .select('project_id, name, attachment_path, attachment_original_name, attachment_missing_at, deleted_at')
       .eq('id', requestId)
       .is('deleted_at', null)
       .single()
@@ -101,6 +101,14 @@ export async function POST(
 
     const access = await requireProjectAccess(request, reqRow.project_id)
     if (!access.ok) return guardToResponse(access)
+
+    const { data: projectRow } = await admin
+      .from('projects')
+      .select('title')
+      .eq('id', reqRow.project_id)
+      .maybeSingle()
+    const projectTitle = projectRow?.title ?? reqRow.project_id
+    const requestName = reqRow.name || requestId
 
     if (!reqRow.attachment_path) {
       return NextResponse.json({ error: 'No attachment on this request' }, { status: 404 })
@@ -144,11 +152,14 @@ export async function POST(
       entityName: reqRow.attachment_original_name || reqRow.attachment_path,
       newValues: {
         document_request_id: requestId,
+        document_request_name: requestName,
         project_id: reqRow.project_id,
+        project_title: projectTitle,
         attachment_path: reqRow.attachment_path,
+        attachment_original_name: reqRow.attachment_original_name ?? null,
         expires_in: expiresIn,
       },
-      description: `Descarcare model atasat cerere ${requestId} (proiect ${reqRow.project_id})`,
+      description: `Descarcare model atasat cererii "${requestName}" din proiectul "${projectTitle}"`,
       request,
     })
 

@@ -149,6 +149,15 @@ export async function POST(
 
     const admin = createSupabaseServiceClient()
 
+    const [{ data: projectRow }, { data: activityRow }] = await Promise.all([
+      admin.from('projects').select('title').eq('id', projectId).maybeSingle(),
+      activity_id
+        ? admin.from('project_activities').select('name').eq('id', activity_id).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ])
+    const projectTitle = projectRow?.title ?? projectId
+    const activityName = activityRow?.name ?? null
+
     const insertPayload = {
       project_id: projectId,
       activity_id,
@@ -168,7 +177,21 @@ export async function POST(
     const { data, error } = await admin
       .from('document_requirements')
       .insert(insertPayload)
-      .select('id')
+      .select(`
+        id,
+        project_id,
+        activity_id,
+        name,
+        description,
+        status,
+        is_mandatory,
+        requirement_type,
+        attachment_path,
+        attachment_original_name,
+        deadline_at,
+        created_by,
+        created_at
+      `)
       .single()
 
     if (error) {
@@ -176,17 +199,27 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to create document request' }, { status: 500 })
     }
 
-    await logAction({
-      actorId: access.user.id,
-      actionType: 'create',
-      entityType: 'document',
-      entityId: data?.id ?? null,
-      entityName: name,
-      oldValues: null,
-      newValues: insertPayload,
-      description: `${access.profile.email || 'User'} a creat cererea de document "${name}"`,
-      request,
-    })
+    if (data) {
+      const attachmentText = data.attachment_original_name
+        ? ` cu modelul "${data.attachment_original_name}"`
+        : ''
+
+      await logAction({
+        actorId: access.user.id,
+        actionType: 'create',
+        entityType: 'document',
+        entityId: data.id,
+        entityName: data.name,
+        newValues: {
+          ...data,
+          project_title: projectTitle,
+          activity_name: activityName,
+          has_attachment: Boolean(data.attachment_path),
+        },
+        description: `${access.profile.email || 'User'} a adăugat cererea de document "${data.name}" în proiectul "${projectTitle}"${attachmentText}`,
+        request,
+      })
+    }
 
     return NextResponse.json({ ok: true, id: data?.id })
   } catch (e: any) {

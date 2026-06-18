@@ -12,6 +12,22 @@ interface RouteParams {
   params: Promise<{ templateId: string }>
 }
 
+function normalizeLabel(value: string | null | undefined) {
+  return (value ?? '').trim().toLowerCase()
+}
+
+function normalizeSlug(value: string | null | undefined) {
+  return normalizeLabel(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function addBlockedReason(blocked: string[], reason: string) {
+  if (!blocked.includes(reason)) blocked.push(reason)
+}
+
 async function loadTemplate(templateId: string) {
   const { data: template, error } = await supabaseAdmin
     .from('project_templates')
@@ -62,13 +78,15 @@ async function loadTemplate(templateId: string) {
 async function buildProjectPreview(project: any, template: any) {
   const { data: phases, error: phasesError } = await supabaseAdmin
     .from('project_phases')
-    .select('id, source_template_phase_id, name, project_status_id')
+    .select('id, source_template_phase_id, name, slug, project_status_id')
     .eq('project_id', project.id)
 
   if (phasesError) throw phasesError
 
   const phaseRows = phases ?? []
   const phaseBySource = new Map(phaseRows.map((phase: any) => [phase.source_template_phase_id, phase]))
+  const phaseByName = new Map(phaseRows.map((phase: any) => [normalizeLabel(phase.name), phase]))
+  const phaseBySlug = new Map(phaseRows.map((phase: any) => [normalizeSlug(phase.slug || phase.name), phase]))
   const hasUnsafeLineage = phaseRows.length === 0 || phaseRows.some((phase: any) => !phase.source_template_phase_id)
 
   const phaseIds = phaseRows.map((phase: any) => phase.id)
@@ -84,10 +102,16 @@ async function buildProjectPreview(project: any, template: any) {
   const activityRows = activities ?? []
   const hasUnsafeActivityLineage = activityRows.some((activity: any) => !activity.source_template_activity_id)
   const activityBySource = new Map(activityRows.map((activity: any) => [activity.source_template_activity_id, activity]))
+  const activitiesByPhase = new Map<string, any[]>()
+  for (const activity of activityRows) {
+    const phaseActivities = activitiesByPhase.get(activity.phase_id) ?? []
+    phaseActivities.push(activity)
+    activitiesByPhase.set(activity.phase_id, phaseActivities)
+  }
 
   const { data: docs, error: docsError } = await supabaseAdmin
     .from('document_requirements')
-    .select('id, source_template_document_requirement_id, attachment_path, attachment_original_name')
+    .select('id, activity_id, name, source_template_document_requirement_id, attachment_path, attachment_original_name')
     .eq('project_id', project.id)
     .is('deleted_at', null)
 
@@ -100,6 +124,13 @@ async function buildProjectPreview(project: any, template: any) {
       .filter((doc: any) => doc.source_template_document_requirement_id)
       .map((doc: any) => [doc.source_template_document_requirement_id, doc])
   )
+  const docsByActivity = new Map<string, any[]>()
+  for (const doc of docRows) {
+    if (!doc.activity_id) continue
+    const activityDocs = docsByActivity.get(doc.activity_id) ?? []
+    activityDocs.push(doc)
+    docsByActivity.set(doc.activity_id, activityDocs)
+  }
 
   const additions = {
     phases: [] as any[],
@@ -116,37 +147,69 @@ async function buildProjectPreview(project: any, template: any) {
   for (const tPhase of template.phases ?? []) {
     const phase = phaseBySource.get(tPhase.id)
     if (!phase) {
+      const phaseName = normalizeLabel(tPhase.name)
+      const phaseSlug = normalizeSlug(tPhase.slug || tPhase.name)
+      const conflictingPhase = phaseByName.get(phaseName) || phaseBySlug.get(phaseSlug)
+      if (conflictingPhase && conflictingPhase.source_template_phase_id !== tPhase.id) {
+        addBlockedReason(
+          blocked,
+          `Proiectul are deja faza "${conflictingPhase.name}" fără legătură cu faza "${tPhase.name}" din template.`
+        )
+      }
       additions.phases.push({ id: tPhase.id, name: tPhase.name })
-      continue
-    }
-    if (phase.name !== tPhase.name || phase.project_status_id !== tPhase.project_status_id) {
+    } else if (phase.name !== tPhase.name || phase.project_status_id !== tPhase.project_status_id) {
       updates.phases.push({ id: tPhase.id, name: tPhase.name })
     }
 
     for (const tActivity of tPhase.activities ?? []) {
       const activity = activityBySource.get(tActivity.id)
       if (!activity) {
+        if (phase) {
+          const conflictingActivity = (activitiesByPhase.get(phase.id) ?? []).find((projectActivity: any) =>
+            normalizeLabel(projectActivity.name) === normalizeLabel(tActivity.name) &&
+            projectActivity.source_template_activity_id !== tActivity.id
+          )
+          if (conflictingActivity) {
+            addBlockedReason(
+              blocked,
+              `Faza "${phase.name}" are deja activitatea "${conflictingActivity.name}" fără legătură cu activitatea "${tActivity.name}" din template. Redenumește activitatea locală sau leag-o manual de template înainte de propagare.`
+            )
+          }
+        }
         additions.activities.push({ id: tActivity.id, name: tActivity.name, parent_phase_id: tPhase.id })
-        continue
-      }
-      if (activity.name !== tActivity.name) {
+      } else if (activity.name !== tActivity.name) {
         updates.activities.push({ id: tActivity.id, name: tActivity.name, parent_phase_id: tPhase.id })
       }
 
       for (const tDoc of tActivity.document_requirements ?? []) {
         const doc = docBySource.get(tDoc.id)
         if (!doc) {
+          if (activity) {
+            const conflictingDoc = (docsByActivity.get(activity.id) ?? []).find((projectDoc: any) =>
+              normalizeLabel(projectDoc.name) === normalizeLabel(tDoc.name) &&
+              projectDoc.source_template_document_requirement_id !== tDoc.id
+            )
+            if (conflictingDoc) {
+              addBlockedReason(
+                blocked,
+                `Activitatea "${activity.name}" are deja cererea de document "${conflictingDoc.name}" fără legătură cu cererea "${tDoc.name}" din template. Redenumește cererea locală sau leag-o manual de template înainte de propagare.`
+              )
+            }
+          }
           additions.document_requests.push({
             id: tDoc.id,
             name: tDoc.name,
             parent_activity_id: tActivity.id,
           })
         } else if (
+          activity &&
+          (doc.activity_id !== activity.id ||
           tDoc.attachment_path &&
           !tDoc.attachment_missing_at &&
           (
             doc.attachment_path !== tDoc.attachment_path ||
             doc.attachment_original_name !== (tDoc.attachment_original_name || null)
+          )
           )
         ) {
           updates.document_requests.push({
@@ -160,13 +223,13 @@ async function buildProjectPreview(project: any, template: any) {
   }
 
   if (hasUnsafeLineage) {
-    blocked.push('Proiectul nu are lineage complet pentru fazele importate din template.')
+    addBlockedReason(blocked, 'Proiectul are faze locale care nu sunt legate de template, deci propagarea automată este blocată până se clarifică mapping-ul.')
   }
   if (hasUnsafeActivityLineage) {
-    blocked.push('Proiectul nu are lineage complet pentru activitățile importate din template.')
+    addBlockedReason(blocked, 'Proiectul are activități locale care nu sunt legate de template, deci propagarea automată este blocată până se clarifică mapping-ul.')
   }
   if (hasUnsafeDocumentLineage) {
-    blocked.push('Proiectul nu are lineage complet pentru cererile de documente importate din template.')
+    addBlockedReason(blocked, 'Proiectul are cereri de documente locale care nu sunt legate de template, deci propagarea automată este blocată până se clarifică mapping-ul.')
   }
 
   return {

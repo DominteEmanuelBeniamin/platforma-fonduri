@@ -15,6 +15,15 @@ async function loadMessage(admin: ReturnType<typeof createSupabaseServiceClient>
     .maybeSingle()
 }
 
+async function loadProjectTitle(admin: ReturnType<typeof createSupabaseServiceClient>, projectId: string) {
+  const { data } = await admin
+    .from('projects')
+    .select('title')
+    .eq('id', projectId)
+    .maybeSingle()
+  return data?.title ?? projectId
+}
+
 function canMutateMessage(role: string, callerId: string, messageCreatedBy: string) {
   if (role === 'admin') return true
   return callerId === messageCreatedBy
@@ -146,6 +155,8 @@ export async function PATCH(
       return Response.json({ error: 'Failed to update message' }, { status: 500 })
     }
 
+    const projectTitle = await loadProjectTitle(admin, projectId)
+
     // AUDIT LOG 
     await logChatMessageAction({
       actorId: accessRes.user.id,
@@ -156,6 +167,7 @@ export async function PATCH(
       oldValues: {
         id: msg.id,
         project_id: msg.project_id,
+        project_title: projectTitle,
         created_by: msg.created_by,
         body_preview: toMessagePreview(msg.body),
         edited_at: msg.edited_at,
@@ -164,12 +176,13 @@ export async function PATCH(
       newValues: {
         id: data.id,
         project_id: data.project_id,
+        project_title: projectTitle,
         created_by: data.created_by,
         body_preview: toMessagePreview(data.body),
         edited_at: data.edited_at,
         deleted_at: data.deleted_at,
       },
-      description: `${accessRes.profile.email || 'User'} a editat un mesaj în proiectul ${projectId}`,
+      description: `${accessRes.profile.email || 'User'} a editat un mesaj în proiectul "${projectTitle}"`,
       ipAddress: getClientIP(request),
       userAgent: getUserAgent(request),
     })
@@ -224,6 +237,8 @@ export async function DELETE(
       return Response.json({ error: 'Failed to delete message' }, { status: 500 })
     }
 
+    const projectTitle = await loadProjectTitle(admin, projectId)
+
     await logChatMessageAction({
       actorId: accessRes.user.id,
       actionType: 'delete',
@@ -233,6 +248,7 @@ export async function DELETE(
       oldValues: {
         id: msg.id,
         project_id: msg.project_id,
+        project_title: projectTitle,
         created_by: msg.created_by,
         body_preview: toMessagePreview(msg.body),
         edited_at: msg.edited_at,
@@ -241,12 +257,13 @@ export async function DELETE(
       newValues: {
         id: msg.id,
         project_id: msg.project_id,
+        project_title: projectTitle,
         created_by: msg.created_by,
         body_preview: toMessagePreview(msg.body),
         edited_at: msg.edited_at,
         deleted_at: deletedAt,
       },
-      description: `${accessRes.profile.email || 'User'} a șters un mesaj în proiectul ${projectId}`,
+      description: `${accessRes.profile.email || 'User'} a șters un mesaj în proiectul "${projectTitle}"`,
       ipAddress: getClientIP(request),
       userAgent: getUserAgent(request),
     })
