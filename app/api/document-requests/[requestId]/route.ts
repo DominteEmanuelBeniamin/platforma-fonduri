@@ -2,7 +2,9 @@
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
+import { computeDiff, logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { isRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 
 // Inițializat în handler ca să preia env-ul la runtime, nu la cold-start
 
@@ -16,6 +18,35 @@ export async function PATCH(
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    }
+
+    const rawName = (body as any).name
+    const name: string | undefined =
+      rawName === undefined
+        ? undefined
+        : typeof rawName === 'string'
+        ? rawName.trim()
+        : undefined
+    if (rawName !== undefined && !name) {
+      return NextResponse.json({ error: 'Numele cererii este obligatoriu' }, { status: 400 })
+    }
+
+    const rawDescription = (body as any).description
+    const description: string | null | undefined =
+      rawDescription === undefined
+        ? undefined
+        : rawDescription === null || rawDescription === ''
+        ? null
+        : typeof rawDescription === 'string'
+        ? rawDescription.trim() || null
+        : undefined
+    if (rawDescription !== undefined && description === undefined) {
+      return NextResponse.json({ error: 'Descrierea trebuie să fie text sau null' }, { status: 400 })
+    }
+
+    const rawRequirementType = (body as any).requirement_type
+    if (rawRequirementType !== undefined && !isRequirementType(rawRequirementType)) {
+      return NextResponse.json({ error: 'Tipul cerinței este invalid' }, { status: 400 })
     }
 
     // assigned_to trebuie să fie string (UUID), null sau omis
@@ -60,7 +91,7 @@ export async function PATCH(
     // Obține cererea pentru a afla project_id și detalii email
     const { data: req, error: reqError } = await admin
       .from('document_requirements')
-      .select('id, project_id, name, description, deadline_at, attachment_path, attachment_missing_at, deleted_at')
+      .select('id, project_id, name, description, deadline_at, requirement_type, is_mandatory, assigned_to, attachment_path, attachment_original_name, attachment_missing_at, attachment_missing_checked_at, deleted_at')
       .eq('id', requestId)
       .is('deleted_at', null)
       .maybeSingle()
@@ -102,6 +133,12 @@ export async function PATCH(
 
     // Construiește obiectul de update (doar câmpurile trimise)
     const updatePayload: Record<string, any> = {}
+    if (name !== undefined) updatePayload.name = name
+    if (description !== undefined) updatePayload.description = description
+    if (rawRequirementType !== undefined) {
+      updatePayload.requirement_type = rawRequirementType
+      updatePayload.is_mandatory = requirementTypeToMandatory(rawRequirementType)
+    }
     if (assigned_to !== undefined) updatePayload.assigned_to = assigned_to
     if (deadline_at !== undefined) updatePayload.deadline_at = deadline_at
     if (attachment_path !== undefined) {
@@ -117,6 +154,11 @@ export async function PATCH(
       return NextResponse.json({ error: 'Nu există câmpuri de actualizat' }, { status: 400 })
     }
 
+    const diff = computeDiff(req as Record<string, any>, updatePayload)
+    if (diff.isEmpty) {
+      return NextResponse.json({ ok: true })
+    }
+
     const { error: updateError } = await admin
       .from('document_requirements')
       .update(updatePayload)
@@ -128,32 +170,23 @@ export async function PATCH(
       return NextResponse.json({ error: 'Eroare la actualizarea cererii' }, { status: 500 })
     }
 
-    if (attachment_path !== undefined && req.attachment_path !== attachment_path) {
-      await admin.from('audit_logs').insert({
-        user_id: access.user.id,
-        action_type: 'update',
-        entity_type: 'document',
-        entity_id: requestId,
-        entity_name: req.name || 'Cerere document',
-        old_values: {
-          project_id: req.project_id,
-          attachment_path: req.attachment_path ?? null,
-          attachment_missing_at: req.attachment_missing_at ?? null,
-        },
-        new_values: {
-          project_id: req.project_id,
-          attachment_path: attachment_path ?? null,
-          attachment_missing_at: null,
-        },
-        description: attachment_path
-          ? `${access.profile.email || 'User'} a înlocuit modelul cererii "${req.name || requestId}"`
-          : `${access.profile.email || 'User'} a eliminat modelul cererii "${req.name || requestId}"`,
-        ip_address:
-          request.headers.get('x-forwarded-for') ||
-          request.headers.get('x-real-ip') ||
-          null,
-      })
-    }
+    await logAction({
+      actorId: access.user.id,
+      actionType: 'update',
+      entityType: 'document',
+      entityId: requestId,
+      entityName: name ?? req.name ?? 'Cerere document',
+      oldValues: {
+        project_id: req.project_id,
+        ...(diff.oldValues ?? {}),
+      },
+      newValues: {
+        project_id: req.project_id,
+        ...(diff.newValues ?? {}),
+      },
+      description: `${access.profile.email || 'User'} a modificat cererea de document "${name ?? req.name ?? requestId}" (${diff.changedKeys.join(', ')})`,
+      request,
+    })
 
     // Trimite email consultantului atribuit (erorile de email nu blochează răspunsul)
     if (assigned_to !== undefined && assigned_to !== null) {
@@ -308,30 +341,25 @@ export async function DELETE(
       return NextResponse.json({ error: 'Eroare la ștergerea cererii' }, { status: 500 })
     }
 
-    const ipAddress =
-      request.headers.get('x-forwarded-for') ||
-      request.headers.get('x-real-ip') ||
-      null
-
-    await admin.from('audit_logs').insert({
-      user_id: access.user.id,
-      action_type: 'delete',
-      entity_type: 'document',
-      entity_id: requestId,
-      entity_name: req.name || 'Cerere document',
-      old_values: {
+    await logAction({
+      actorId: access.user.id,
+      actionType: 'delete',
+      entityType: 'document',
+      entityId: requestId,
+      entityName: req.name || 'Cerere document',
+      oldValues: {
         project_id: req.project_id,
         status: req.status,
         deleted_at: req.deleted_at,
       },
-      new_values: {
+      newValues: {
         project_id: req.project_id,
         deleted_at: deletedAt,
         deleted_by: deletedBy,
         delete_reason: deleteReason,
       },
       description: `${access.profile.email || 'User'} a șters cererea de document "${req.name || requestId}"`,
-      ip_address: ipAddress,
+      request,
     })
 
     return NextResponse.json({ ok: true, deleted_at: deletedAt })

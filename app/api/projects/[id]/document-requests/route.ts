@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
+import { logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { normalizeRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 
@@ -148,23 +149,25 @@ export async function POST(
 
     const admin = createSupabaseServiceClient()
 
+    const insertPayload = {
+      project_id: projectId,
+      activity_id,
+      name,
+      description: description || null,
+      deadline_at,
+      attachment_path,
+      attachment_original_name: attachment_path ? attachment_original_name : null,
+      attachment_missing_at: null,
+      attachment_missing_checked_at: null,
+      requirement_type,
+      is_mandatory: requirementTypeToMandatory(requirement_type),
+      created_by: access.profile.id,
+      status: 'pending',
+    }
+
     const { data, error } = await admin
       .from('document_requirements')
-      .insert({
-        project_id: projectId,
-        activity_id,
-        name,
-        description: description || null,
-        deadline_at,
-        attachment_path,
-        attachment_original_name: attachment_path ? attachment_original_name : null,
-        attachment_missing_at: null,
-        attachment_missing_checked_at: null,
-        requirement_type,
-        is_mandatory: requirementTypeToMandatory(requirement_type),
-        created_by: access.profile.id,
-        status: 'pending',
-      })
+      .insert(insertPayload)
       .select('id')
       .single()
 
@@ -172,6 +175,18 @@ export async function POST(
       console.error('POST document-requests error:', error)
       return NextResponse.json({ error: 'Failed to create document request' }, { status: 500 })
     }
+
+    await logAction({
+      actorId: access.user.id,
+      actionType: 'create',
+      entityType: 'document',
+      entityId: data?.id ?? null,
+      entityName: name,
+      oldValues: null,
+      newValues: insertPayload,
+      description: `${access.profile.email || 'User'} a creat cererea de document "${name}"`,
+      request,
+    })
 
     return NextResponse.json({ ok: true, id: data?.id })
   } catch (e: any) {

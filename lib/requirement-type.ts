@@ -10,11 +10,11 @@ export const REQUIREMENT_LABELS: Record<RequirementType, string> = {
   optional: 'Opțional',
 }
 
-// Stil badge per categorie. `optional` nu afișează badge (ca să nu încarce UI-ul).
-export const REQUIREMENT_BADGE: Record<RequirementType, { bg: string; text: string } | null> = {
-  obligatoriu: { bg: 'bg-red-100', text: 'text-red-600' },
-  daca_e_cazul: { bg: 'bg-amber-100', text: 'text-amber-700' },
-  optional: null,
+// Stil badge per categorie.
+export const REQUIREMENT_BADGE: Record<RequirementType, { bg: string; text: string; border: string }> = {
+  obligatoriu: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
+  daca_e_cazul: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
+  optional: { bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200' },
 }
 
 export function isRequirementType(value: unknown): value is RequirementType {
