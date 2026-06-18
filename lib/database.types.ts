@@ -236,6 +236,7 @@ export interface Profile {
   full_name: string | null;
   role: UserRole;
   cui_firma: string | null;
+  nume_firma: string | null;
   cif: string | null;
   adresa_firma: string | null;
   telefon: string | null;

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { guardToResponse, requireAdmin } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
+import { normalizeRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -35,12 +36,18 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     const { documentId } = await params
     const body = await req.json()
-    const { name, description, is_mandatory, order_index, attachment_path, attachment_original_name } = body
+    const { name, description, is_mandatory, requirement_type, order_index, attachment_path, attachment_original_name } = body
 
     const updateData: Record<string, any> = {}
     if (name !== undefined) updateData.name = name
     if (description !== undefined) updateData.description = description
-    if (is_mandatory !== undefined) updateData.is_mandatory = is_mandatory
+    if (requirement_type !== undefined) {
+      const rt = normalizeRequirementType(requirement_type, is_mandatory)
+      updateData.requirement_type = rt
+      updateData.is_mandatory = requirementTypeToMandatory(rt)
+    } else if (is_mandatory !== undefined) {
+      updateData.is_mandatory = is_mandatory
+    }
     if (order_index !== undefined) updateData.order_index = order_index
     if (attachment_path !== undefined) {
       updateData.attachment_path = attachment_path || null
