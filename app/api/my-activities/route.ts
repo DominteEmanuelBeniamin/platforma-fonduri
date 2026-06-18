@@ -43,6 +43,7 @@ export async function GET(request: Request) {
           .select('id', { count: 'exact', head: true })
           .eq('activity_id', act.id)
           .in('status', ['pending', 'review'])
+          .eq('is_outgoing', false)
           .is('deleted_at', null)
 
         return {

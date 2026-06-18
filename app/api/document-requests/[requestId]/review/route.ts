@@ -27,13 +27,16 @@ export async function POST(
 
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('id, project_id, status, name, deleted_at')
+      .select('id, project_id, status, name, is_outgoing, deleted_at')
       .eq('id', requestId)
       .is('deleted_at', null)
       .single()
 
     if (reqErr || !reqRow) {
       return NextResponse.json({ error: 'Document request not found' }, { status: 404 })
+    }
+    if (reqRow.is_outgoing) {
+      return NextResponse.json({ error: 'Documentele trimise clientului nu intră în fluxul de review.' }, { status: 400 })
     }
 
     const access = await requireProjectAccess(request, reqRow.project_id)

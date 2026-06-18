@@ -90,7 +90,7 @@ export async function POST(
 
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('project_id, name, attachment_path, attachment_original_name, attachment_missing_at, deleted_at')
+      .select('project_id, name, is_outgoing, attachment_path, attachment_original_name, attachment_missing_at, deleted_at')
       .eq('id', requestId)
       .is('deleted_at', null)
       .single()
@@ -158,8 +158,11 @@ export async function POST(
         attachment_path: reqRow.attachment_path,
         attachment_original_name: reqRow.attachment_original_name ?? null,
         expires_in: expiresIn,
+        is_outgoing: Boolean(reqRow.is_outgoing),
       },
-      description: `Descarcare model atasat cererii "${requestName}" din proiectul "${projectTitle}"`,
+      description: reqRow.is_outgoing
+        ? `Descarcare document trimis clientului "${requestName}" din proiectul "${projectTitle}"`
+        : `Descarcare model atasat cererii "${requestName}" din proiectul "${projectTitle}"`,
       request,
     })
 

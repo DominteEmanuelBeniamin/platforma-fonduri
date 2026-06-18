@@ -177,7 +177,7 @@ export async function POST(
         is_mandatory,
         is_outgoing,
         created_by: access.profile.id,
-        status: is_outgoing ? 'approved' : 'pending',
+        status: 'pending',
       })
       .select(`
         id,
@@ -203,8 +203,13 @@ export async function POST(
 
     if (data) {
       const attachmentText = data.attachment_original_name
-        ? ` cu modelul "${data.attachment_original_name}"`
+        ? is_outgoing
+          ? ` cu fișierul "${data.attachment_original_name}"`
+          : ` cu modelul "${data.attachment_original_name}"`
         : ''
+      const description = is_outgoing
+        ? `${access.profile.email || 'User'} a trimis documentul "${data.name}" către client în proiectul "${projectTitle}"${attachmentText}`
+        : `${access.profile.email || 'User'} a adăugat cererea de document "${data.name}" în proiectul "${projectTitle}"${attachmentText}`
 
       await logAction({
         actorId: access.user.id,
@@ -217,8 +222,9 @@ export async function POST(
           project_title: projectTitle,
           activity_name: activityName,
           has_attachment: Boolean(data.attachment_path),
+          is_outgoing: Boolean(data.is_outgoing),
         },
-        description: `${access.profile.email || 'User'} a adăugat cererea de document "${data.name}" în proiectul "${projectTitle}"${attachmentText}`,
+        description,
         request,
       })
     }

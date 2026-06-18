@@ -22,7 +22,9 @@ interface DocRequest {
   name: string
   description: string | null
   status: 'pending' | 'review' | 'approved' | 'rejected'
+  is_outgoing?: boolean
   attachment_path: string | null
+  attachment_original_name?: string | null
   attachment_missing_at?: string | null
   deadline_at: string | null
   created_at: string
@@ -72,20 +74,21 @@ export default function ProjectDocumentsView({
       const activityName = req.activity?.name ?? undefined
 
       if (req.attachment_path && !req.attachment_missing_at) {
+        const isOutgoing = req.is_outgoing === true
         result.push({
           id: `${req.id}_attachment`,
           requestId: req.id,
           downloadKind: 'requestAttachment',
           storagePath: req.attachment_path,
-          displayName: getStorageDisplayName(req.attachment_path) || 'Model document',
+          displayName: req.attachment_original_name || getStorageDisplayName(req.attachment_path) || (isOutgoing ? 'Document trimis clientului' : 'Model document'),
           uploadedAt: req.created_at,
           docName: req.name,
-          entryType: 'request_attachment',
-          entryLabel: 'Model/atașament cerere',
-          docStatus: null,
+          entryType: isOutgoing ? 'outgoing_document' : 'request_attachment',
+          entryLabel: isOutgoing ? 'Document trimis clientului' : 'Model/atașament cerere',
+          docStatus: isOutgoing ? 'sent' : null,
           secondaryMain: phaseName,
           secondarySub: activityName,
-          onRowClick: onOpenRequest ? () => onOpenRequest(req) : undefined,
+          onRowClick: !isOutgoing && onOpenRequest ? () => onOpenRequest(req) : undefined,
         })
       }
 

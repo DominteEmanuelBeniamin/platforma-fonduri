@@ -61,7 +61,7 @@ export async function PATCH(
     // Obține cererea pentru a afla project_id și detalii email
     const { data: req, error: reqError } = await admin
       .from('document_requirements')
-      .select('id, project_id, name, description, deadline_at, attachment_path, attachment_original_name, attachment_missing_at, deleted_at')
+      .select('id, project_id, name, description, deadline_at, is_outgoing, attachment_path, attachment_original_name, attachment_missing_at, deleted_at')
       .eq('id', requestId)
       .is('deleted_at', null)
       .maybeSingle()
@@ -159,15 +159,24 @@ export async function PATCH(
     }
 
     if (attachment_path !== undefined && req.attachment_path !== attachment_path) {
+      const attachmentDescription = req.is_outgoing
+        ? attachment_path
+          ? `${access.profile.email || 'User'} a înlocuit fișierul documentului trimis "${req.name || requestId}" din proiectul "${projectTitle}"`
+          : `${access.profile.email || 'User'} a eliminat fișierul documentului trimis "${req.name || requestId}" din proiectul "${projectTitle}"`
+        : attachment_path
+        ? `${access.profile.email || 'User'} a înlocuit modelul cererii "${req.name || requestId}" din proiectul "${projectTitle}"`
+        : `${access.profile.email || 'User'} a eliminat modelul cererii "${req.name || requestId}" din proiectul "${projectTitle}"`
+
       await logAction({
         actorId: access.user.id,
         actionType: 'update',
         entityType: 'document',
         entityId: requestId,
-        entityName: req.name || 'Cerere document',
+        entityName: req.name || (req.is_outgoing ? 'Document trimis clientului' : 'Cerere document'),
         oldValues: {
           project_id: req.project_id,
           project_title: projectTitle,
+          is_outgoing: Boolean(req.is_outgoing),
           attachment_path: req.attachment_path ?? null,
           attachment_original_name: req.attachment_original_name ?? null,
           attachment_missing_at: req.attachment_missing_at ?? null,
@@ -175,13 +184,12 @@ export async function PATCH(
         newValues: {
           project_id: req.project_id,
           project_title: projectTitle,
+          is_outgoing: Boolean(req.is_outgoing),
           attachment_path: attachment_path ?? null,
           attachment_original_name: attachment_path ? attachment_original_name ?? null : null,
           attachment_missing_at: null,
         },
-        description: attachment_path
-          ? `${access.profile.email || 'User'} a înlocuit modelul cererii "${req.name || requestId}" din proiectul "${projectTitle}"`
-          : `${access.profile.email || 'User'} a eliminat modelul cererii "${req.name || requestId}" din proiectul "${projectTitle}"`,
+        description: attachmentDescription,
         request,
       })
     }
@@ -286,7 +294,7 @@ export async function DELETE(
 
     const { data: req, error: reqError } = await admin
       .from('document_requirements')
-      .select('id, project_id, name, status, deleted_at, deleted_by, delete_reason')
+      .select('id, project_id, name, status, is_outgoing, deleted_at, deleted_by, delete_reason')
       .eq('id', requestId)
       .maybeSingle()
 
@@ -356,21 +364,25 @@ export async function DELETE(
       action_type: 'delete',
       entity_type: 'document',
       entity_id: requestId,
-      entity_name: req.name || 'Cerere document',
+      entity_name: req.name || (req.is_outgoing ? 'Document trimis clientului' : 'Cerere document'),
       old_values: {
         project_id: req.project_id,
         project_title: deleteProjectTitle,
         status: req.status,
+        is_outgoing: Boolean(req.is_outgoing),
         deleted_at: req.deleted_at,
       },
       new_values: {
         project_id: req.project_id,
         project_title: deleteProjectTitle,
+        is_outgoing: Boolean(req.is_outgoing),
         deleted_at: deletedAt,
         deleted_by: deletedBy,
         delete_reason: deleteReason,
       },
-      description: `${access.profile.email || 'User'} a șters cererea de document "${req.name || requestId}" din proiectul "${deleteProjectTitle}"`,
+      description: req.is_outgoing
+        ? `${access.profile.email || 'User'} a șters documentul trimis clientului "${req.name || requestId}" din proiectul "${deleteProjectTitle}"`
+        : `${access.profile.email || 'User'} a șters cererea de document "${req.name || requestId}" din proiectul "${deleteProjectTitle}"`,
       ip_address: ipAddress,
     })
 

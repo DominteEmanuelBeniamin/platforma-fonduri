@@ -45,6 +45,7 @@ interface DocumentRequest {
   name: string
   description: string | null
   status: 'pending' | 'review' | 'approved' | 'rejected'
+  is_outgoing?: boolean
   attachment_path: string | null
   attachment_missing_at?: string | null
   attachment_missing_checked_at?: string | null
@@ -1417,6 +1418,10 @@ export default function DocumentRequests({
         description={
           requestToDelete
             ? (() => {
+                if (requestToDelete.is_outgoing) {
+                  return 'Documentul trimis clientului va fi eliminat din proiect. Istoricul acțiunii rămâne păstrat.'
+                }
+
                 const responseCount = (requestToDelete.files ?? []).filter(file => !file.deleted_at).length
                 const responseWarning = responseCount > 0
                   ? responseCount === 1
