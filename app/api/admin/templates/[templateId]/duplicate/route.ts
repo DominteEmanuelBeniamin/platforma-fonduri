@@ -124,6 +124,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
               name: doc.name,
               description: doc.description,
               is_mandatory: doc.is_mandatory,
+              requirement_type: doc.requirement_type,
               order_index: doc.order_index,
               attachment_path: doc.attachment_path,
               attachment_original_name: doc.attachment_original_name,

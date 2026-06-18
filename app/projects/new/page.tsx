@@ -2,16 +2,18 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { 
+import {
   FolderPlus, Building2, FileText, ArrowLeft, AlertCircle,
   Layers, Plus, Trash2, ChevronDown, ChevronRight, Activity,
-  Check, X, Paperclip, Upload, Loader2
+  Check, X, Paperclip, Upload, Loader2, Pencil
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS, REQUIREMENT_BADGE } from '@/lib/requirement-type'
 
 interface ClientProfile {
   id: string
   full_name?: string | null
+  nume_firma?: string | null
   email?: string | null
   cif?: string | null
 }
@@ -45,7 +47,7 @@ interface ManualDocumentRequest {
   id: string
   name: string
   description: string
-  is_mandatory: boolean
+  requirement_type: RequirementType
   templateFile: File | null
   templateFileName: string | null
 }
@@ -100,9 +102,10 @@ export default function NewProjectPage() {
 
   // Pentru adding document modal
   const [addingDocToActivity, setAddingDocToActivity] = useState<{phaseId: string, activityId: string} | null>(null)
+  const [editingDocId, setEditingDocId] = useState<string | null>(null)
   const [newDocName, setNewDocName] = useState('')
   const [newDocDescription, setNewDocDescription] = useState('')
-  const [newDocMandatory, setNewDocMandatory] = useState(false)
+  const [newDocCategory, setNewDocCategory] = useState<RequirementType>('obligatoriu')
   const [newDocTemplate, setNewDocTemplate] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -191,42 +194,59 @@ export default function NewProjectPage() {
   // Document request functions
   const openAddDocModal = (phaseId: string, activityId: string) => {
     setAddingDocToActivity({ phaseId, activityId })
+    setEditingDocId(null)
     setNewDocName('')
     setNewDocDescription('')
-    setNewDocMandatory(false)
+    setNewDocCategory('obligatoriu')
     setNewDocTemplate(null)
+  }
+
+  const openEditDocModal = (phaseId: string, activityId: string, doc: ManualDocumentRequest) => {
+    setAddingDocToActivity({ phaseId, activityId })
+    setEditingDocId(doc.id)
+    setNewDocName(doc.name)
+    setNewDocDescription(doc.description)
+    setNewDocCategory(doc.requirement_type)
+    setNewDocTemplate(doc.templateFile)
   }
 
   const closeAddDocModal = () => {
     setAddingDocToActivity(null)
+    setEditingDocId(null)
     setNewDocName('')
     setNewDocDescription('')
-    setNewDocMandatory(false)
+    setNewDocCategory('obligatoriu')
     setNewDocTemplate(null)
   }
 
   const confirmAddDoc = () => {
     if (!addingDocToActivity || !newDocName.trim()) return
-    
+
     const { phaseId, activityId } = addingDocToActivity
-    const newDoc: ManualDocumentRequest = {
-      id: generateId(),
+    const docData = {
       name: newDocName.trim(),
       description: newDocDescription.trim(),
-      is_mandatory: newDocMandatory,
+      requirement_type: newDocCategory,
       templateFile: newDocTemplate,
-      templateFileName: newDocTemplate?.name || null
+      templateFileName: newDocTemplate?.name || null,
     }
 
-    setManualPhases(manualPhases.map(p => 
-      p.id === phaseId 
-        ? { 
-            ...p, 
-            activities: p.activities.map(a => 
-              a.id === activityId 
-                ? { ...a, documentRequests: [...a.documentRequests, newDoc] }
+    setManualPhases(manualPhases.map(p =>
+      p.id === phaseId
+        ? {
+            ...p,
+            activities: p.activities.map(a =>
+              a.id === activityId
+                ? {
+                    ...a,
+                    documentRequests: editingDocId
+                      ? a.documentRequests.map(d =>
+                          d.id === editingDocId ? { ...d, ...docData } : d
+                        )
+                      : [...a.documentRequests, { id: generateId(), ...docData }],
+                  }
                 : a
-            ) 
+            )
           }
         : p
     ))
@@ -406,7 +426,7 @@ export default function NewProjectPage() {
                 body: JSON.stringify({
                   name: docReq.name,
                   description: docReq.description || null,
-                  is_mandatory: docReq.is_mandatory,
+                  requirement_type: docReq.requirement_type,
                   activity_id: newActivityId,
                   attachment_path: attachmentPath,
                   attachment_original_name: attachmentPath ? docReq.templateFileName : null,
@@ -496,7 +516,7 @@ export default function NewProjectPage() {
                     <option value="">Alege beneficiarul</option>
                     {clients.map(client => (
                       <option key={client.id} value={client.id}>
-                        {client.full_name || client.email} {client.cif ? `(CIF: ${client.cif})` : ''}
+                        {client.nume_firma || client.full_name || client.email} {client.cif ? `(CIF: ${client.cif})` : ''}
                       </option>
                     ))}
                   </select>
@@ -659,7 +679,11 @@ export default function NewProjectPage() {
                                       <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 flex-wrap">
                                           <span className="font-medium text-sm text-slate-900">{doc.name}</span>
-                                          {doc.is_mandatory && <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded">Obligatoriu</span>}
+                                          {REQUIREMENT_BADGE[doc.requirement_type] && (
+                                            <span className={`text-xs px-1.5 py-0.5 rounded ${REQUIREMENT_BADGE[doc.requirement_type]!.bg} ${REQUIREMENT_BADGE[doc.requirement_type]!.text}`}>
+                                              {REQUIREMENT_LABELS[doc.requirement_type]}
+                                            </span>
+                                          )}
                                         </div>
                                         {doc.description && <p className="text-xs text-slate-500 mt-0.5">{doc.description}</p>}
                                         {doc.templateFileName && (
@@ -669,7 +693,10 @@ export default function NewProjectPage() {
                                           </div>
                                         )}
                                       </div>
-                                      <button type="button" onClick={() => removeDocRequest(phase.id, activity.id, doc.id)} className="p-1 text-slate-400 hover:text-red-500">
+                                      <button type="button" onClick={() => openEditDocModal(phase.id, activity.id, doc)} className="p-1 text-slate-400 hover:text-indigo-600" title="Modifică cererea">
+                                        <Pencil className="w-4 h-4" />
+                                      </button>
+                                      <button type="button" onClick={() => removeDocRequest(phase.id, activity.id, doc.id)} className="p-1 text-slate-400 hover:text-red-500" title="Șterge cererea">
                                         <X className="w-4 h-4" />
                                       </button>
                                     </div>
@@ -726,7 +753,7 @@ export default function NewProjectPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-semibold text-slate-900">Adaugă cerere document</h3>
+              <h3 className="font-semibold text-slate-900">{editingDocId ? 'Modifică cererea de document' : 'Adaugă cerere document'}</h3>
               <button onClick={closeAddDocModal} className="p-1 text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
@@ -768,10 +795,17 @@ export default function NewProjectPage() {
                 )}
               </div>
 
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={newDocMandatory} onChange={(e) => setNewDocMandatory(e.target.checked)} className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
-                <span className="text-sm text-slate-700">Document obligatoriu</span>
-              </label>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Tip cerință</label>
+                <div className="space-y-2">
+                  {REQUIREMENT_TYPES.map(rt => (
+                    <label key={rt} className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" name="newDocCategory" value={rt} checked={newDocCategory === rt} onChange={() => setNewDocCategory(rt)} className="w-4 h-4 border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                      <span className="text-sm text-slate-700">{REQUIREMENT_LABELS[rt]}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-3">
@@ -780,7 +814,7 @@ export default function NewProjectPage() {
               </button>
               <button type="button" onClick={confirmAddDoc} disabled={!newDocName.trim()}
                 className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
-                <Check className="w-4 h-4" /> Adaugă
+                <Check className="w-4 h-4" /> {editingDocId ? 'Salvează' : 'Adaugă'}
               </button>
             </div>
           </div>

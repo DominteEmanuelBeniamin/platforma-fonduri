@@ -29,6 +29,7 @@ import {
   File,
   Mail,
   Trash2,
+  Pencil,
 } from 'lucide-react'
 import DocumentModal from './DocumentModal'
 import ConfirmDeleteModal from './ConfirmDeleteModal'
@@ -39,13 +40,16 @@ import {
   REMINDER_LABELS,
   REMINDER_BADGE,
 } from '@/lib/document-reminder'
+import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS, REQUIREMENT_BADGE } from '@/lib/requirement-type'
 
 interface DocumentRequest {
   id: string
   name: string
   description: string | null
+  requirement_type?: RequirementType
   status: 'pending' | 'review' | 'approved' | 'rejected'
   attachment_path: string | null
+  attachment_original_name?: string | null
   attachment_missing_at?: string | null
   attachment_missing_checked_at?: string | null
   deadline_at: string | null
@@ -216,6 +220,7 @@ export default function DocumentRequests({
   const [internalRequests, setInternalRequests] = useState<DocumentRequest[]>([])
   const [loading, setLoading] = useState(!externalRequests)
   const [showForm, setShowForm] = useState(false)
+  const [editingRequest, setEditingRequest] = useState<DocumentRequest | null>(null)
   
   const folderInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -232,6 +237,7 @@ export default function DocumentRequests({
   // Create request form
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [category, setCategory] = useState<RequirementType>('obligatoriu')
   const [templateFile, setTemplateFile] = useState<File | null>(null)
   const [deadline, setDeadline] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -363,6 +369,40 @@ export default function DocumentRequests({
 
   const handleTemplateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) setTemplateFile(e.target.files[0])
+  }
+
+  const resetRequestForm = () => {
+    setName('')
+    setDescription('')
+    setCategory('obligatoriu')
+    setTemplateFile(null)
+    setDeadline('')
+    setEditingRequest(null)
+  }
+
+  const openCreateForm = () => {
+    if (showForm && !editingRequest) {
+      setShowForm(false)
+      resetRequestForm()
+      return
+    }
+    resetRequestForm()
+    setShowForm(true)
+  }
+
+  const openEditForm = (request: DocumentRequest) => {
+    setEditingRequest(request)
+    setName(request.name)
+    setDescription(request.description ?? '')
+    setCategory(request.requirement_type ?? 'obligatoriu')
+    setTemplateFile(null)
+    setDeadline(request.deadline_at ? request.deadline_at.slice(0, 10) : '')
+    setShowForm(true)
+  }
+
+  const closeRequestForm = () => {
+    setShowForm(false)
+    resetRequestForm()
   }
 
   // Upload improved cu progress tracking și error handling granular
@@ -560,7 +600,7 @@ export default function DocumentRequests({
     setSubmitting(true)
 
     try {
-      let attachment_path: string | null = null
+      let attachment_path: string | null | undefined = editingRequest ? undefined : null
 
       if (templateFile) {
         // 1) init template upload
@@ -588,26 +628,35 @@ export default function DocumentRequests({
         attachment_path = init.storagePath
       }
 
-      // 3) create request row
-      const res = await apiFetch(`/api/projects/${projectId}/document-requests`, {
-        method: 'POST',
-        body: JSON.stringify({
-          name: name.trim(),
-          description: description.trim() || null,
-          deadline_at: deadline || null,
-          attachment_path,
-          attachment_original_name: attachment_path ? templateFile?.name || null : null,
-          activity_id: activityId || null,
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || 'Create request failed')
+      const requestBody: Record<string, unknown> = {
+        name: name.trim(),
+        description: description.trim() || null,
+        requirement_type: category,
+        deadline_at: deadline || null,
+      }
 
-      setName('')
-      setDescription('')
-      setTemplateFile(null)
-      setDeadline('')
-      setShowForm(false)
+      if (attachment_path !== undefined) {
+        requestBody.attachment_path = attachment_path
+        requestBody.attachment_original_name = attachment_path ? templateFile?.name || null : null
+      }
+
+      if (!editingRequest) {
+        requestBody.activity_id = activityId || null
+      }
+
+      const res = await apiFetch(
+        editingRequest
+          ? `/api/document-requests/${editingRequest.id}`
+          : `/api/projects/${projectId}/document-requests`,
+        {
+          method: editingRequest ? 'PATCH' : 'POST',
+          body: JSON.stringify(requestBody),
+        },
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || (editingRequest ? 'Update request failed' : 'Create request failed'))
+
+      closeRequestForm()
       await fetchRequests()
     } catch (e: any) {
       alert('Eroare: ' + e.message)
@@ -737,12 +786,12 @@ export default function DocumentRequests({
 
             {isAdminOrConsultant && (
               <button
-                onClick={() => setShowForm(!showForm)}
+                onClick={openCreateForm}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all flex-shrink-0 ${
                   showForm ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-900/10'
                 }`}
               >
-                {showForm ? (<><X className="w-4 h-4" /><span className="hidden sm:inline">Anulează</span></>) : (<><Plus className="w-4 h-4" /><span className="hidden sm:inline">Cerere de document nouă</span></>)}
+                {showForm && !editingRequest ? (<><X className="w-4 h-4" /><span className="hidden sm:inline">Anulează</span></>) : (<><Plus className="w-4 h-4" /><span className="hidden sm:inline">Cerere de document nouă</span></>)}
               </button>
             )}
           </div>
@@ -751,6 +800,23 @@ export default function DocumentRequests({
         {showForm && isAdminOrConsultant && (
           <div className="p-4 sm:p-5 bg-slate-50/80 border-b border-slate-200">
             <form onSubmit={handleSubmit} className="space-y-4">
+              {editingRequest && (
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Modifică cererea de document</p>
+                    <p className="text-xs text-slate-500">Actualizează detaliile cererii pentru client.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeRequestForm}
+                    className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                    title="Anulează editarea"
+                    aria-label="Anulează editarea"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">Titlu document</label>
@@ -783,6 +849,25 @@ export default function DocumentRequests({
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">Tip cerință</label>
+                <div className="flex flex-wrap gap-4">
+                  {REQUIREMENT_TYPES.map(rt => (
+                    <label key={rt} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="liveDocCategory"
+                        value={rt}
+                        checked={category === rt}
+                        onChange={() => setCategory(rt)}
+                        className="w-4 h-4 border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-sm text-slate-700">{REQUIREMENT_LABELS[rt]}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                 <label className="flex-1 cursor-pointer">
                   <div className={`px-4 py-3 border-2 border-dashed rounded-xl text-center transition-all ${
@@ -791,7 +876,11 @@ export default function DocumentRequests({
                     <div className="flex items-center justify-center gap-2 text-sm">
                       <Paperclip className={`w-4 h-4 ${templateFile ? 'text-indigo-600' : 'text-slate-400'}`} />
                       <span className={templateFile ? 'text-indigo-700 font-medium' : 'text-slate-500'}>
-                        {templateFile ? templateFile.name : 'Atașează model (opțional)'}
+                        {templateFile
+                          ? templateFile.name
+                          : editingRequest
+                          ? 'Înlocuiește model (opțional)'
+                          : 'Atașează model (opțional)'}
                       </span>
                     </div>
                   </div>
@@ -803,9 +892,26 @@ export default function DocumentRequests({
                   disabled={submitting || !name.trim()}
                   className="px-6 py-3 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-600/20 active:scale-[0.98]"
                 >
-                  {submitting ? 'Se trimite...' : 'Trimite cerere'}
+                  {submitting
+                    ? editingRequest ? 'Se salvează...' : 'Se trimite...'
+                    : editingRequest ? 'Salvează modificările' : 'Trimite cerere'}
                 </button>
               </div>
+              {editingRequest?.attachment_path && !editingRequest.attachment_missing_at && (
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <Paperclip className="w-3.5 h-3.5 text-slate-400" />
+                  <span>
+                    Model existent: {editingRequest.attachment_original_name || 'fișier atașat'}
+                    {templateFile ? ' · va fi înlocuit la salvare' : ''}
+                  </span>
+                </div>
+              )}
+              {editingRequest?.attachment_missing_at && (
+                <div className="flex items-center gap-2 text-xs text-amber-700">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  <span>Modelul existent este indisponibil. Alege un fișier nou pentru înlocuire.</span>
+                </div>
+              )}
             </form>
           </div>
         )}
@@ -844,6 +950,16 @@ export default function DocumentRequests({
                           {status.label}
                         </span>
                       </div>
+
+                      {(() => {
+                        const rt = req.requirement_type as RequirementType | undefined
+                        const badge = rt ? REQUIREMENT_BADGE[rt] : null
+                        return rt && badge ? (
+                          <span className={`inline-block mb-2 text-[11px] px-1.5 py-0.5 rounded border ${badge.bg} ${badge.text} ${badge.border}`}>
+                            {REQUIREMENT_LABELS[rt]}
+                          </span>
+                        ) : null
+                      })()}
 
                       {req.description && <p className="text-sm text-slate-600 mb-3 line-clamp-2">{req.description}</p>}
 
@@ -923,6 +1039,15 @@ export default function DocumentRequests({
 
                     {isAdminOrConsultant && (
                       <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => openEditForm(req)}
+                          className="p-2 rounded-lg text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                          title="Modifică cererea"
+                          aria-label="Modifică cererea"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
                         <button
                           type="button"
                           onClick={() => setRequestToDelete(req)}

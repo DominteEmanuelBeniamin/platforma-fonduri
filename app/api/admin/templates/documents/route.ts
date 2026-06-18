@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
+import { normalizeRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,6 +28,7 @@ export async function POST(req: NextRequest) {
       attachment_path,
       attachment_original_name,
     } = body
+    const requirement_type = normalizeRequirementType(body?.requirement_type, is_mandatory)
 
     if (!template_activity_id || !name) {
       return NextResponse.json({ error: 'Activitatea și numele sunt obligatorii' }, { status: 400 })
@@ -52,7 +54,8 @@ export async function POST(req: NextRequest) {
         template_activity_id,
         name,
         description: description || null,
-        is_mandatory: is_mandatory || false,
+        requirement_type,
+        is_mandatory: requirementTypeToMandatory(requirement_type),
         order_index: finalOrderIndex,
         attachment_path: attachment_path || null,
         attachment_original_name: attachment_path ? attachment_original_name || null : null,

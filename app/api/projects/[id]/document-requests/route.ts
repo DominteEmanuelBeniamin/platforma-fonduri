@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { normalizeRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 
 type LatestRejection = {
   reason: string
@@ -64,6 +65,7 @@ export async function GET(
         description,
         status,
         is_mandatory,
+        requirement_type,
         attachment_path,
         attachment_original_name,
         attachment_missing_at,
@@ -139,7 +141,7 @@ export async function POST(
         ? body.attachment_original_name
         : null
     const activity_id = typeof body?.activity_id === 'string' && body.activity_id ? body.activity_id : null
-    const is_mandatory = body?.is_mandatory === true
+    const requirement_type = normalizeRequirementType(body?.requirement_type, body?.is_mandatory === true)
 
     if (!name) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 })
@@ -156,22 +158,25 @@ export async function POST(
     const projectTitle = projectRow?.title ?? projectId
     const activityName = activityRow?.name ?? null
 
+    const insertPayload = {
+      project_id: projectId,
+      activity_id,
+      name,
+      description: description || null,
+      deadline_at,
+      attachment_path,
+      attachment_original_name: attachment_path ? attachment_original_name : null,
+      attachment_missing_at: null,
+      attachment_missing_checked_at: null,
+      requirement_type,
+      is_mandatory: requirementTypeToMandatory(requirement_type),
+      created_by: access.profile.id,
+      status: 'pending',
+    }
+
     const { data, error } = await admin
       .from('document_requirements')
-      .insert({
-        project_id: projectId,
-        activity_id,
-        name,
-        description: description || null,
-        deadline_at,
-        attachment_path,
-        attachment_original_name: attachment_path ? attachment_original_name : null,
-        attachment_missing_at: null,
-        attachment_missing_checked_at: null,
-        is_mandatory,
-        created_by: access.profile.id,
-        status: 'pending',
-      })
+      .insert(insertPayload)
       .select(`
         id,
         project_id,
@@ -180,6 +185,7 @@ export async function POST(
         description,
         status,
         is_mandatory,
+        requirement_type,
         attachment_path,
         attachment_original_name,
         deadline_at,

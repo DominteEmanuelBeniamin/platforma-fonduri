@@ -10,6 +10,7 @@ import {
   Loader2, Edit2, AlertCircle
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS, REQUIREMENT_BADGE, normalizeRequirementType } from '@/lib/requirement-type'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 
 interface ProjectStatus {
@@ -23,7 +24,7 @@ interface DocumentRequirement {
   id: string
   name: string
   description: string
-  is_mandatory: boolean
+  requirement_type: RequirementType
   templateFile: File | null
   templateFileName: string | null
   templateFileMissingAt?: string | null
@@ -70,6 +71,7 @@ interface Template {
           name: string
           description: string | null
           is_mandatory: boolean
+          requirement_type?: RequirementType | null
           attachment_path: string | null
           attachment_missing_at?: string | null
         }[]
@@ -271,9 +273,10 @@ export default function AdminTemplatesPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const [addingDocTo, setAddingDocTo] = useState<{ phaseId: string, activityId: string } | null>(null)
+  const [editingDocId, setEditingDocId] = useState<string | null>(null)
   const [newDocName, setNewDocName] = useState('')
   const [newDocDescription, setNewDocDescription] = useState('')
-  const [newDocMandatory, setNewDocMandatory] = useState(false)
+  const [newDocCategory, setNewDocCategory] = useState<RequirementType>('obligatoriu')
   const [newDocTemplate, setNewDocTemplate] = useState<File | null>(null)
   const [propagationTemplateId, setPropagationTemplateId] = useState<string | null>(null)
   const [propagationPreview, setPropagationPreview] = useState<TemplatePropagationPreview | null>(null)
@@ -358,40 +361,71 @@ export default function AdminTemplatesPage() {
 
   const openAddDocModal = (phaseId: string, activityId: string) => {
     setAddingDocTo({ phaseId, activityId })
+    setEditingDocId(null)
     setNewDocName('')
     setNewDocDescription('')
-    setNewDocMandatory(false)
+    setNewDocCategory('obligatoriu')
     setNewDocTemplate(null)
+  }
+
+  const openEditDocModal = (phaseId: string, activityId: string, doc: DocumentRequirement) => {
+    setAddingDocTo({ phaseId, activityId })
+    setEditingDocId(doc.id)
+    setNewDocName(doc.name)
+    setNewDocDescription(doc.description)
+    setNewDocCategory(doc.requirement_type)
+    setNewDocTemplate(doc.templateFile)
   }
 
   const closeDocModal = () => {
     setAddingDocTo(null)
+    setEditingDocId(null)
     setNewDocName('')
     setNewDocDescription('')
-    setNewDocMandatory(false)
+    setNewDocCategory('obligatoriu')
     setNewDocTemplate(null)
   }
 
   const confirmAddDoc = () => {
     if (!addingDocTo || !newDocName.trim()) return
     const { phaseId, activityId } = addingDocTo
+
+    if (editingDocId) {
+      const updates: Partial<DocumentRequirement> = {
+        name: newDocName.trim(),
+        description: newDocDescription.trim(),
+        requirement_type: newDocCategory,
+      }
+      // Modelul se actualizează doar dacă s-a ales un fișier nou în modal,
+      // ca să nu pierdem modelul existent când editezi doar numele/descrierea.
+      if (newDocTemplate) {
+        updates.templateFile = newDocTemplate
+        updates.templateFileName = newDocTemplate.name
+        updates.templateFileMissingAt = null
+        updates.templateFileRemoved = false
+      }
+      updateDocRequirement(phaseId, activityId, editingDocId, updates)
+      closeDocModal()
+      return
+    }
+
     const newDoc: DocumentRequirement = {
       id: generateId(),
       name: newDocName.trim(),
       description: newDocDescription.trim(),
-      is_mandatory: newDocMandatory,
+      requirement_type: newDocCategory,
       templateFile: newDocTemplate,
       templateFileName: newDocTemplate?.name || null,
       templateFileMissingAt: null,
       templateFileRemoved: false,
     }
-    setPhases(phases.map(p => 
-      p.id === phaseId 
-        ? { ...p, activities: p.activities.map(a => 
-            a.id === activityId 
+    setPhases(phases.map(p =>
+      p.id === phaseId
+        ? { ...p, activities: p.activities.map(a =>
+            a.id === activityId
               ? { ...a, document_requirements: [...a.document_requirements, newDoc] }
               : a
-          )} 
+          )}
         : p
     ))
     closeDocModal()
@@ -858,7 +892,7 @@ export default function AdminTemplatesPage() {
               const patchBody: any = {
                 name: doc.name,
                 description: doc.description || null,
-                is_mandatory: doc.is_mandatory,
+                requirement_type: doc.requirement_type,
                 order_index: dIdx + 1,
               }
               if (attachmentPath !== undefined) {
@@ -883,7 +917,7 @@ export default function AdminTemplatesPage() {
                   template_activity_id: activityId,
                   name: doc.name,
                   description: doc.description || null,
-                  is_mandatory: doc.is_mandatory,
+                  requirement_type: doc.requirement_type,
                   order_index: dIdx + 1,
                   attachment_path: attachmentPath,
                   attachment_original_name: attachmentPath ? doc.templateFileName : null,
@@ -990,7 +1024,7 @@ export default function AdminTemplatesPage() {
           id: d.id,
           name: d.name,
           description: d.description || '',
-          is_mandatory: d.is_mandatory,
+          requirement_type: normalizeRequirementType(d.requirement_type, d.is_mandatory),
           templateFile: null,
           templateFileName: d.attachment_original_name || (d.attachment_path ? d.attachment_path.split('/').pop() || null : null),
           templateFileMissingAt: d.attachment_missing_at || null,
@@ -1203,8 +1237,10 @@ export default function AdminTemplatesPage() {
                                       <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 flex-wrap">
                                           <span className="font-medium text-sm text-slate-900">{doc.name || 'Document fără nume'}</span>
-                                          {doc.is_mandatory && (
-                                            <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded">Obligatoriu</span>
+                                          {REQUIREMENT_BADGE[doc.requirement_type] && (
+                                            <span className={`text-xs px-1.5 py-0.5 rounded border ${REQUIREMENT_BADGE[doc.requirement_type].bg} ${REQUIREMENT_BADGE[doc.requirement_type].text} ${REQUIREMENT_BADGE[doc.requirement_type].border}`}>
+                                              {REQUIREMENT_LABELS[doc.requirement_type]}
+                                            </span>
                                           )}
                                         </div>
                                         {hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:name`) && (
@@ -1258,7 +1294,10 @@ export default function AdminTemplatesPage() {
                                           )}
                                         </div>
                                       </div>
-                                      <button onClick={() => requestDeleteDocRequirement(phase.id, activity.id, doc)} className="p-1 text-slate-400 hover:text-red-500">
+                                      <button onClick={() => openEditDocModal(phase.id, activity.id, doc)} className="p-1 text-slate-400 hover:text-indigo-600" title="Modifică cererea">
+                                        <Edit2 className="w-4 h-4" />
+                                      </button>
+                                      <button onClick={() => requestDeleteDocRequirement(phase.id, activity.id, doc)} className="p-1 text-slate-400 hover:text-red-500" title="Șterge cererea">
                                         <X className="w-4 h-4" />
                                       </button>
                                     </div>
@@ -1621,7 +1660,7 @@ export default function AdminTemplatesPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-semibold text-slate-900">Adaugă cerere document</h3>
+              <h3 className="font-semibold text-slate-900">{editingDocId ? 'Modifică cererea de document' : 'Adaugă cerere document'}</h3>
               <button onClick={closeDocModal} className="p-1 text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
@@ -1674,15 +1713,24 @@ export default function AdminTemplatesPage() {
                   </label>
                 )}
               </div>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={newDocMandatory}
-                  onChange={(e) => setNewDocMandatory(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-300 text-indigo-600"
-                />
-                <span className="text-sm text-slate-700">Document obligatoriu</span>
-              </label>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Tip cerință</label>
+                <div className="space-y-2">
+                  {REQUIREMENT_TYPES.map(rt => (
+                    <label key={rt} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="newDocCategoryTemplate"
+                        value={rt}
+                        checked={newDocCategory === rt}
+                        onChange={() => setNewDocCategory(rt)}
+                        className="w-4 h-4 border-slate-300 text-indigo-600"
+                      />
+                      <span className="text-sm text-slate-700">{REQUIREMENT_LABELS[rt]}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-3">
               <button
@@ -1696,7 +1744,7 @@ export default function AdminTemplatesPage() {
                 disabled={!newDocName.trim()}
                 className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                <Check className="w-4 h-4" /> Adaugă
+                <Check className="w-4 h-4" /> {editingDocId ? 'Salvează' : 'Adaugă'}
               </button>
             </div>
           </div>
