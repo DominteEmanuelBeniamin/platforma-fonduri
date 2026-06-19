@@ -1,9 +1,8 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable react-hooks/exhaustive-deps */
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft,
@@ -63,54 +62,9 @@ export default function ProjectDetailsPage() {
     }, 0)
   }, [allDocRequests])
 
-  // Citim lastSeen din localStorage
-  const getLastSeen = useCallback(() => {
-    if (typeof window === 'undefined' || !projectId) return null
-    return localStorage.getItem(`chat_last_seen_${projectId}`)
-  }, [projectId])
-
-  const markAsRead = useCallback(() => {
-    if (!projectId) return
-    const now = new Date().toISOString()
-    localStorage.setItem(`chat_last_seen_${projectId}`, now)
-    setUnreadCount(0)
-  }, [projectId])
-
   const handleOpenChat = () => {
-    markAsRead()
     setChatOpen(true)
   }
-
-  // Realtime listener pentru unread count (lightweight, fără fetch)
-  useEffect(() => {
-    if (!projectId || authLoading) return
-    if (typeof window === 'undefined') return
-
-    const { supabase } = require('@/lib/supabaseClient')
-    const channel = supabase
-      .channel(`unread-${projectId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'project_chat_messages',
-          filter: `project_id=eq.${projectId}`,
-        },
-        (payload: any) => {
-          const row = payload.new
-          if (!row?.id || row?.deleted_at) return
-          if (row.created_by !== profile?.id && !chatOpen) {
-            setUnreadCount((prev) => prev + 1)
-          }
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [projectId, authLoading, profile?.id, chatOpen])
 
   const isAdmin = profile?.role === 'admin'
   const isConsultant = profile?.role === 'consultant'
@@ -225,7 +179,11 @@ export default function ProjectDetailsPage() {
   const handleToggleExpand = (phaseId: string) => {
     setExpandedPhases(prev => {
       const s = new Set(prev)
-      s.has(phaseId) ? s.delete(phaseId) : s.add(phaseId)
+      if (s.has(phaseId)) {
+        s.delete(phaseId)
+      } else {
+        s.add(phaseId)
+      }
       return s
     })
   }
@@ -471,7 +429,7 @@ export default function ProjectDetailsPage() {
           onClose={() => setChatOpen(false)}
           title="Chat proiect"
           projectId={projectId}
-          markAsRead={markAsRead}
+          onUnreadCountChange={setUnreadCount}
         />
       )}
 

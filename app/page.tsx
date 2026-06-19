@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from './providers/AuthProvider'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
-import { Mail, FileText, Clock, AlertTriangle, Check } from 'lucide-react'
+import { Mail, FileText, Clock, AlertTriangle, Check, MessageSquare } from 'lucide-react'
+import { useProjectChatUnread } from '@/hooks/useProjectChatUnread'
 import {
   getReminderType,
   generateMailtoLink,
@@ -27,6 +28,11 @@ export default function Dashboard() {
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [myDocRequests, setMyDocRequests] = useState<any[]>([])
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const { unreadProjects } = useProjectChatUnread(!authLoading && !!token)
+
+  const unreadProjectCountById = useMemo(() => {
+    return new Map(unreadProjects.map((item) => [item.projectId, item.unreadMessageCount]))
+  }, [unreadProjects])
 
   const fetchMyProjects = async () => {
     const res = await apiFetch('/api/projects')
@@ -390,10 +396,15 @@ export default function Dashboard() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
           {projects.map((project, idx) => {
+            const projectUnreadCount = unreadProjectCountById.get(project.id) ?? 0
+            const hasUnreadChat = projectUnreadCount > 0
+
             return (
               <div
                 key={project.id}
-                className="group bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-xl hover:shadow-indigo-900/5 hover:-translate-y-1 transition-all duration-300 h-full flex flex-col"
+                className={`group bg-white border rounded-2xl shadow-sm hover:shadow-xl hover:shadow-indigo-900/5 hover:-translate-y-1 transition-all duration-300 h-full flex flex-col ${
+                  hasUnreadChat ? 'border-rose-200 ring-2 ring-rose-100' : 'border-slate-200'
+                }`}
                 style={{ animationDelay: `${idx * 50}ms` }}
               >
                 <div className="flex items-start justify-between p-6 pb-0">
@@ -404,6 +415,16 @@ export default function Dashboard() {
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {hasUnreadChat && (
+                      <span
+                        className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-600 ring-1 ring-rose-100"
+                        title={`${projectUnreadCount} mesaje necitite in chatul proiectului`}
+                      >
+                        <MessageSquare className="h-3 w-3" />
+                        {projectUnreadCount > 99 ? '99+' : projectUnreadCount}
+                      </span>
+                    )}
+
                     {isAdmin && (
                       <div className="relative">
                         <button
