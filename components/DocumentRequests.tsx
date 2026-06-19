@@ -48,6 +48,7 @@ interface DocumentRequest {
   description: string | null
   requirement_type?: RequirementType
   status: 'pending' | 'review' | 'approved' | 'rejected'
+  is_outgoing?: boolean
   attachment_path: string | null
   attachment_original_name?: string | null
   attachment_missing_at?: string | null
@@ -242,6 +243,12 @@ export default function DocumentRequests({
   const [deadline, setDeadline] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
+  // Trimitere document către client (is_outgoing)
+  const [showSendDoc, setShowSendDoc] = useState(false)
+  const [sendName, setSendName] = useState('')
+  const [sendFile, setSendFile] = useState<File | null>(null)
+  const [sendSubmitting, setSendSubmitting] = useState(false)
+
   // Client upload state - IMPROVED
   const [uploadingFor, setUploadingFor] = useState<string | null>(null)
   const [clientFiles, setClientFiles] = useState<PickedFile[]>([])
@@ -258,7 +265,7 @@ export default function DocumentRequests({
 
   // Requests derivate: externe filtrate sau interne
   const requests = useMemo(() => {
-    const src = externalRequests ?? internalRequests
+    const src = (externalRequests ?? internalRequests).filter((r: any) => !r.is_outgoing)
     if (activityId !== undefined) {
       // activityId=string -> filtrare; activityId=null -> fără activitate (generale)
       return src.filter((r: any) =>
@@ -267,6 +274,11 @@ export default function DocumentRequests({
     }
     return src
   }, [externalRequests, internalRequests, activityId])
+
+  // Documente trimise de consultant CĂTRE client (informative) — nivel proiect
+  const outgoingDocs = useMemo(() => {
+    return (externalRequests ?? internalRequests).filter((r: any) => r.is_outgoing && !r.deleted_at)
+  }, [externalRequests, internalRequests])
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
   const isAdmin = profile?.role === 'admin'
@@ -665,6 +677,57 @@ export default function DocumentRequests({
     }
   }
 
+  // Trimite un document către client: încarcă fișierul și creează o cerere is_outgoing
+  const handleSendDocument = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!sendName.trim() || !sendFile) return
+    setSendSubmitting(true)
+    try {
+      const initRes = await apiFetch(`/api/projects/${projectId}/document-requests/attachment/init`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: sendFile.name,
+          size: sendFile.size,
+          type: sendFile.type || 'application/octet-stream',
+        }),
+      })
+      const init = await initRes.json().catch(() => ({}))
+      if (!initRes.ok) throw new Error(init?.error || 'Inițializarea încărcării a eșuat')
+
+      const putRes = await fetch(init.signedUploadUrl, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${init.token}`,
+          'Content-Type': sendFile.type || 'application/octet-stream',
+        },
+        body: sendFile,
+      })
+      if (!putRes.ok) throw new Error('Încărcarea fișierului a eșuat')
+
+      const res = await apiFetch(`/api/projects/${projectId}/document-requests`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: sendName.trim(),
+          is_outgoing: true,
+          attachment_path: init.storagePath,
+          attachment_original_name: sendFile.name,
+          activity_id: null,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || 'Trimiterea documentului a eșuat')
+
+      setSendName('')
+      setSendFile(null)
+      setShowSendDoc(false)
+      await fetchRequests()
+    } catch (e: any) {
+      alert('Eroare: ' + e.message)
+    } finally {
+      setSendSubmitting(false)
+    }
+  }
+
   type ReqFile = NonNullable<DocumentRequest['files']>[number]
 
   const requestMeta = useMemo(() => {
@@ -785,14 +848,25 @@ export default function DocumentRequests({
             </div>
 
             {isAdminOrConsultant && (
-              <button
-                onClick={openCreateForm}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all flex-shrink-0 ${
-                  showForm ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-900/10'
-                }`}
-              >
-                {showForm && !editingRequest ? (<><X className="w-4 h-4" /><span className="hidden sm:inline">Anulează</span></>) : (<><Plus className="w-4 h-4" /><span className="hidden sm:inline">Cerere de document nouă</span></>)}
-              </button>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {!activityId && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSendDoc(true)}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-600/10"
+                  >
+                    <Upload className="w-4 h-4" /><span className="hidden sm:inline">Trimite document</span>
+                  </button>
+                )}
+                <button
+                  onClick={openCreateForm}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                    showForm ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-900/10'
+                  }`}
+                >
+                  {showForm && !editingRequest ? (<><X className="w-4 h-4" /><span className="hidden sm:inline">Anulează</span></>) : (<><Plus className="w-4 h-4" /><span className="hidden sm:inline">Cerere de document nouă</span></>)}
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -913,6 +987,56 @@ export default function DocumentRequests({
                 </div>
               )}
             </form>
+          </div>
+        )}
+
+        {!activityId && (outgoingDocs.length > 0 || isAdminOrConsultant) && (
+          <div className="border-b border-slate-100 bg-emerald-50/30">
+            <div className="px-4 sm:px-5 py-3 flex items-center gap-2">
+              <FolderUp className="w-4 h-4 text-emerald-600" />
+              <h3 className="text-sm font-semibold text-slate-900">Documente trimise clientului</h3>
+              <span className="text-xs text-slate-500">({outgoingDocs.length})</span>
+            </div>
+            {outgoingDocs.length === 0 ? (
+              isAdminOrConsultant && (
+                <p className="px-4 sm:px-5 pb-4 text-xs text-slate-500">
+                  Trimite un document către client cu butonul „Trimite document”.
+                </p>
+              )
+            ) : (
+              <div className="divide-y divide-emerald-100/70">
+                {outgoingDocs.map((doc: any) => (
+                  <div key={doc.id} className="px-4 sm:px-5 py-3 flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-white border border-emerald-200 flex items-center justify-center text-emerald-600 flex-shrink-0">
+                      <FileText className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-900 truncate">{doc.name}</p>
+                      <p className="text-xs text-slate-500 truncate">
+                        {doc.attachment_original_name || 'document'} · {new Date(doc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => downloadAttachmentModel(doc.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-white text-emerald-700 text-xs font-semibold hover:bg-emerald-50 flex-shrink-0"
+                    >
+                      <Download className="w-3.5 h-3.5" /> Descarcă
+                    </button>
+                    {isAdminOrConsultant && (
+                      <button
+                        type="button"
+                        onClick={() => setRequestToDelete(doc)}
+                        className="p-1.5 text-slate-400 hover:text-red-500 flex-shrink-0"
+                        title="Șterge documentul trimis"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -1419,6 +1543,10 @@ export default function DocumentRequests({
         description={
           requestToDelete
             ? (() => {
+                if (requestToDelete.is_outgoing) {
+                  return 'Documentul trimis clientului va fi eliminat din proiect. Istoricul acțiunii rămâne păstrat.'
+                }
+
                 const responseCount = (requestToDelete.files ?? []).filter(file => !file.deleted_at).length
                 const responseWarning = responseCount > 0
                   ? responseCount === 1
@@ -1436,6 +1564,59 @@ export default function DocumentRequests({
         confirmWord="sterge"
         loading={deleteLoading}
       />
+
+      {showSendDoc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="font-semibold text-slate-900">Trimite document către client</h3>
+              <button type="button" onClick={() => { setShowSendDoc(false); setSendName(''); setSendFile(null) }} className="p-1 text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSendDocument}>
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Nume document *</label>
+                  <input type="text" value={sendName} onChange={(e) => setSendName(e.target.value)} placeholder="Ex: Contract semnat" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Fișier *</label>
+                  {sendFile ? (
+                    <div className="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                      <Paperclip className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-emerald-900 truncate">{sendFile.name}</p>
+                        <p className="text-xs text-emerald-600">{formatFileSize(sendFile.size)}</p>
+                      </div>
+                      <button type="button" onClick={() => setSendFile(null)} className="p-1 text-emerald-600 hover:text-emerald-800">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:border-emerald-300 hover:bg-emerald-50/50 transition-colors">
+                      <Upload className="w-8 h-8 text-slate-400" />
+                      <span className="text-sm text-slate-600 font-medium">Click pentru a încărca</span>
+                      <span className="text-xs text-slate-400">PDF, DOC, DOCX, XLS, XLSX, imagini</span>
+                      <input type="file" onChange={(e) => setSendFile(e.target.files?.[0] || null)} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp" />
+                    </label>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500">Clientul va putea descărca acest document. Nu i se va cere să încarce nimic înapoi.</p>
+              </div>
+              <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-3">
+                <button type="button" onClick={() => { setShowSendDoc(false); setSendName(''); setSendFile(null) }} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-white">
+                  Anulează
+                </button>
+                <button type="submit" disabled={sendSubmitting || !sendName.trim() || !sendFile} className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                  {sendSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                  {sendSubmitting ? 'Se trimite...' : 'Trimite'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   )
 }

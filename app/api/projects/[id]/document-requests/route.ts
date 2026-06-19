@@ -65,6 +65,7 @@ export async function GET(
         description,
         status,
         is_mandatory,
+        is_outgoing,
         requirement_type,
         attachment_path,
         attachment_original_name,
@@ -141,10 +142,15 @@ export async function POST(
         ? body.attachment_original_name
         : null
     const activity_id = typeof body?.activity_id === 'string' && body.activity_id ? body.activity_id : null
+    const is_outgoing = body?.is_outgoing === true
     const requirement_type = normalizeRequirementType(body?.requirement_type, body?.is_mandatory === true)
 
     if (!name) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+    }
+
+    if (is_outgoing && !attachment_path) {
+      return NextResponse.json({ error: 'Trebuie atașat un fișier pentru documentul trimis clientului.' }, { status: 400 })
     }
 
     const admin = createSupabaseServiceClient()
@@ -170,6 +176,7 @@ export async function POST(
       attachment_missing_checked_at: null,
       requirement_type,
       is_mandatory: requirementTypeToMandatory(requirement_type),
+      is_outgoing,
       created_by: access.profile.id,
       status: 'pending',
     }
@@ -185,6 +192,7 @@ export async function POST(
         description,
         status,
         is_mandatory,
+        is_outgoing,
         requirement_type,
         attachment_path,
         attachment_original_name,
@@ -201,8 +209,13 @@ export async function POST(
 
     if (data) {
       const attachmentText = data.attachment_original_name
-        ? ` cu modelul "${data.attachment_original_name}"`
+        ? is_outgoing
+          ? ` cu fișierul "${data.attachment_original_name}"`
+          : ` cu modelul "${data.attachment_original_name}"`
         : ''
+      const description = is_outgoing
+        ? `${access.profile.email || 'User'} a trimis documentul "${data.name}" către client în proiectul "${projectTitle}"${attachmentText}`
+        : `${access.profile.email || 'User'} a adăugat cererea de document "${data.name}" în proiectul "${projectTitle}"${attachmentText}`
 
       await logAction({
         actorId: access.user.id,
@@ -215,8 +228,9 @@ export async function POST(
           project_title: projectTitle,
           activity_name: activityName,
           has_attachment: Boolean(data.attachment_path),
+          is_outgoing: Boolean(data.is_outgoing),
         },
-        description: `${access.profile.email || 'User'} a adăugat cererea de document "${data.name}" în proiectul "${projectTitle}"${attachmentText}`,
+        description,
         request,
       })
     }

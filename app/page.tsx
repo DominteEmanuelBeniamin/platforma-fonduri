@@ -28,14 +28,6 @@ export default function Dashboard() {
   const [myDocRequests, setMyDocRequests] = useState<any[]>([])
   const [togglingId, setTogglingId] = useState<string | null>(null)
 
-  const statusConfig: Record<string, { bg: string; text: string; dot: string; label: string; border: string }> = {
-    contractare: { bg: 'bg-amber-100', text: 'text-amber-800', dot: 'bg-amber-600', border: 'border-amber-200', label: 'În Contractare' },
-    implementare: { bg: 'bg-indigo-100', text: 'text-indigo-800', dot: 'bg-indigo-600', border: 'border-indigo-200', label: 'În Implementare' },
-    monitorizare: { bg: 'bg-blue-100', text: 'text-blue-800', dot: 'bg-blue-600', border: 'border-blue-200', label: 'Monitorizare' },
-    approved: { bg: 'bg-emerald-100', text: 'text-emerald-800', dot: 'bg-emerald-600', border: 'border-emerald-200', label: 'Aprobat' },
-    pending: { bg: 'bg-slate-100', text: 'text-slate-700', dot: 'bg-slate-500', border: 'border-slate-200', label: 'În așteptare' },
-  }
-
   const fetchMyProjects = async () => {
     const res = await apiFetch('/api/projects')
     const json = await res.json()
@@ -136,8 +128,6 @@ export default function Dashboard() {
 
   const stats = {
     total: projects.length,
-    contractare: projects.filter(p => p.status === 'contractare').length,
-    implementare: projects.filter(p => p.status === 'implementare').length
   }
 
   return (
@@ -162,34 +152,14 @@ export default function Dashboard() {
       </div>
 
       {/* 2. STATS BAR */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+      <div className="flex">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 min-w-[200px]">
           <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600">
             <span className="font-bold text-lg">#</span>
           </div>
           <div>
-            <p className="text-xs text-slate-500 font-medium uppercase">Total</p>
+            <p className="text-xs text-slate-500 font-medium uppercase">Total proiecte</p>
             <p className="text-xl font-bold text-slate-900">{stats.total}</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center text-amber-600">
-            <span className="font-bold text-lg">C</span>
-          </div>
-          <div>
-            <p className="text-xs text-slate-500 font-medium uppercase">Contractare</p>
-            <p className="text-xl font-bold text-slate-900">{stats.contractare}</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
-            <span className="font-bold text-lg">I</span>
-          </div>
-          <div>
-            <p className="text-xs text-slate-500 font-medium uppercase">Implementare</p>
-            <p className="text-xl font-bold text-slate-900">{stats.implementare}</p>
           </div>
         </div>
       </div>
@@ -420,8 +390,6 @@ export default function Dashboard() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
           {projects.map((project, idx) => {
-            const status = statusConfig[project.status] || statusConfig.pending
-
             return (
               <div
                 key={project.id}
@@ -436,11 +404,6 @@ export default function Dashboard() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <div className={`px-3 py-1 rounded-full border text-[11px] font-bold uppercase flex items-center gap-1.5 ${status.bg} ${status.border} ${status.text}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
-                      {status.label}
-                    </div>
-
                     {isAdmin && (
                       <div className="relative">
                         <button

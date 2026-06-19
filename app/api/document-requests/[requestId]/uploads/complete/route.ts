@@ -90,7 +90,7 @@ export async function POST(
 
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('id, project_id, name, deleted_at')
+      .select('id, project_id, name, is_outgoing, deleted_at')
       .eq('id', requestId)
       .is('deleted_at', null)
       .single()
@@ -108,6 +108,9 @@ export async function POST(
     if (!reqRow.project_id) {
       console.error('Document requirement has no project_id:', reqRow)
       return NextResponse.json({ error: 'Document request is not linked to a project' }, { status: 500 })
+    }
+    if (reqRow.is_outgoing) {
+      return NextResponse.json({ error: 'Documentele trimise clientului nu acceptă răspunsuri încărcate.' }, { status: 400 })
     }
 
     const access = await requireProjectAccess(request, reqRow.project_id)

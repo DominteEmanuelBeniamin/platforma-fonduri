@@ -46,6 +46,7 @@ export async function GET(request: Request) {
       `)
       .in('project_id', projectIds)
       .in('status', ['pending', 'review'])
+      .eq('is_outgoing', false)
       .is('deleted_at', null)
       .order('deadline_at', { ascending: true, nullsFirst: false })
 

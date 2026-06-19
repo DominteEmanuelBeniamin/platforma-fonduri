@@ -52,13 +52,16 @@ export async function POST(request: Request,
     // Load requirement -> project_id
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('id, project_id, deleted_at')
+      .select('id, project_id, is_outgoing, deleted_at')
       .eq('id', requestId)
       .is('deleted_at', null)
       .single()
 
     if (reqErr || !reqRow) {
       return NextResponse.json({ error: 'Document request not found' }, { status: 404 })
+    }
+    if (reqRow.is_outgoing) {
+      return NextResponse.json({ error: 'Documentele trimise clientului nu acceptă răspunsuri încărcate.' }, { status: 400 })
     }
 
     const access = await requireProjectAccess(request, reqRow.project_id)

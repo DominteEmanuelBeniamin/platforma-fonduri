@@ -20,9 +20,9 @@ export interface DriveRow {
   uploadedAt: string
 
   docName: string
-  entryType?: 'submission_file' | 'request_attachment'
+  entryType?: 'submission_file' | 'request_attachment' | 'outgoing_document'
   entryLabel?: string
-  docStatus: 'pending' | 'review' | 'approved' | 'rejected' | null
+  docStatus: 'pending' | 'review' | 'approved' | 'rejected' | 'sent' | null
 
   // optional secondary column (phase or project)
   secondaryMain?: string      // bold line
@@ -129,6 +129,7 @@ function StatusPill({ status, label }: { status: DriveRow['docStatus']; label?: 
     rejected: { label: 'Respins',       bg: '#fce8e6', text: '#c5221f', dot: '#ea4335' },
     review:   { label: 'În verificare', bg: '#e8f0fe', text: '#1a73e8', dot: '#4285f4' },
     pending:  { label: 'În așteptare',  bg: '#fef7e0', text: '#b06000', dot: '#fbbc04' },
+    sent:     { label: 'Trimis clientului', bg: '#e6f4ea', text: '#137333', dot: '#34a853' },
   }
   const c = map[status] ?? map.pending
   return (
@@ -258,6 +259,7 @@ export default function DriveFilesView({
     approved: rows.filter(r => r.docStatus === 'approved').length,
     review:   rows.filter(r => r.docStatus === 'review').length,
     pending:  rows.filter(r => r.docStatus === 'pending').length,
+    sent:     rows.filter(r => r.docStatus === 'sent').length,
     rejected: rows.filter(r => r.docStatus === 'rejected').length,
   }), [rows])
 
@@ -301,6 +303,7 @@ export default function DriveFilesView({
               }}>
               <option value="all">Status</option>
               <option value="pending">În așteptare</option>
+              <option value="sent">Trimise clientului</option>
               <option value="review">În verificare</option>
               <option value="approved">Aprobate</option>
               <option value="rejected">Respinse</option>
@@ -552,6 +555,7 @@ export default function DriveFilesView({
           <div className="flex items-center gap-4">
             {[
               { label: 'Aprobate',      val: stats.approved, color: '#137333' },
+              { label: 'Trimise clientului', val: stats.sent, color: '#137333' },
               { label: 'În verificare', val: stats.review,   color: '#1a73e8' },
               { label: 'În așteptare',  val: stats.pending,  color: '#b06000' },
               { label: 'Respinse',      val: stats.rejected, color: '#c5221f' },
