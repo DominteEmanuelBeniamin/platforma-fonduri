@@ -4,7 +4,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/app/providers/AuthProvider'
-import { emitProjectChatProjectRead } from '@/hooks/useProjectChatUnread'
 
 export type ChatProfile = {
   id: string
@@ -59,7 +58,6 @@ type ReadResponse = {
   ok: true
   lastReadAt: string | null
   readStates: ProjectChatReadState[]
-  participantCount: number
 }
 
 const maxIso = (a: string | null, b: string | null) => {
@@ -96,7 +94,6 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [lastReadAt, setLastReadAt] = useState<string | null>(null)
   const [readStates, setReadStates] = useState<ProjectChatReadState[]>([])
-  const [participantCount, setParticipantCount] = useState(0)
 
   const idsRef = useRef<Set<string>>(new Set())
 
@@ -109,7 +106,6 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
     setSending(false)
     setLastReadAt(null)
     setReadStates([])
-    setParticipantCount(0)
   }, [])
 
   const unreadCount = useMemo(() => {
@@ -169,7 +165,6 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
 
       setLastReadAt((prev) => maxIso(prev, json.lastReadAt))
       setReadStates(json.readStates ?? [])
-      setParticipantCount(json.participantCount ?? json.readStates?.length ?? 0)
     } catch {
       // silent fail; the chat still works without read receipts.
     }
@@ -191,8 +186,6 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
 
         setLastReadAt((prev) => maxIso(prev, json.lastReadAt))
         setReadStates(json.readStates ?? [])
-        setParticipantCount(json.participantCount ?? json.readStates?.length ?? 0)
-        emitProjectChatProjectRead(projectId)
       } catch {
         // silent fail
       }
@@ -498,7 +491,6 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
     markAsRead,
     lastReadAt,
     readStates,
-    participantCount,
     refreshReadState,
   }
 }

@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from './providers/AuthProvider'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import { Mail, FileText, Clock, AlertTriangle, Check, MessageSquare } from 'lucide-react'
-import { useProjectChatUnread } from '@/hooks/useProjectChatUnread'
+import { useProjectChatUnread } from '@/app/providers/ProjectChatUnreadProvider'
 import {
   getReminderType,
   generateMailtoLink,

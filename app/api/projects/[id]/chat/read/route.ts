@@ -35,7 +35,6 @@ export async function GET(
       ok: true,
       lastReadAt: myReadState?.last_read_at ?? null,
       readStates,
-      participantCount: readStates.length,
     })
   } catch (err) {
     console.error('GET project chat read state unexpected error:', err)
@@ -113,7 +112,6 @@ export async function POST(
       ok: true,
       lastReadAt,
       readStates,
-      participantCount: readStates.length,
     })
   } catch (err) {
     console.error('POST project chat read unexpected error:', err)

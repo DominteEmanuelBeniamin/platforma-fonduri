@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {useAuth} from "@/app/providers/AuthProvider"
 import { usePrivateChatUnread } from "@/hooks/usePrivateChatUnread"
-import { useProjectChatUnread } from "@/hooks/useProjectChatUnread"
+import { useProjectChatUnread } from "@/app/providers/ProjectChatUnreadProvider"
 
 export default function Navbar() {
   const { loading: authLoading, user, profile, signOut } = useAuth()

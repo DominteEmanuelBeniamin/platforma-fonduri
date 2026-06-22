@@ -83,8 +83,6 @@ export async function getProjectChatUnreadSummary(
   request: Request
 ): Promise<
   Result<{
-    user: { id: string }
-    profile: { id: string; role: AppRole; email?: string | null }
     hasUnread: boolean
     unreadProjectCount: number
     unreadMessageCount: number
@@ -115,8 +113,6 @@ export async function getProjectChatUnreadSummary(
   if (candidateProjectIds.length === 0) {
     return {
       ok: true,
-      user: { id: ctx.user.id },
-      profile: ctx.profile,
       hasUnread: false,
       unreadProjectCount: 0,
       unreadMessageCount: 0,
@@ -146,8 +142,6 @@ export async function getProjectChatUnreadSummary(
   if (accessibleReads.length === 0) {
     return {
       ok: true,
-      user: { id: ctx.user.id },
-      profile: ctx.profile,
       hasUnread: false,
       unreadProjectCount: 0,
       unreadMessageCount: 0,
@@ -222,8 +216,6 @@ export async function getProjectChatUnreadSummary(
 
   return {
     ok: true,
-    user: { id: ctx.user.id },
-    profile: ctx.profile,
     hasUnread: unreadProjects.length > 0,
     unreadProjectCount: unreadProjects.length,
     unreadMessageCount,

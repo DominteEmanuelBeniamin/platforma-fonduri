@@ -47,7 +47,6 @@ export default function ProjectChatDrawer({
     markAsRead,
     lastReadAt,
     readStates,
-    participantCount,
   } = useProjectChat(projectId, { initialLimit: 50 });
 
   const [text, setText] = useState("");
@@ -68,7 +67,6 @@ export default function ProjectChatDrawer({
   const [initialReadBoundary, setInitialReadBoundary] = useState<string | null>(null);
 
   const prevScrollHeightRef = useRef<number | null>(null);
-  const markReadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openBoundaryCapturedRef = useRef(false);
   const userPinnedToBottomRef = useRef(true);
 
@@ -113,7 +111,7 @@ export default function ProjectChatDrawer({
   const projectReadReceipt = useMemo(() => {
     if (!userId) return null;
 
-    const otherParticipantCount = Math.max(participantCount - 1, 0);
+    const otherParticipantCount = Math.max(readStates.length - 1, 0);
     if (otherParticipantCount === 0) return null;
 
     let receipt: { messageId: string; label: string } | null = null;
@@ -141,7 +139,7 @@ export default function ProjectChatDrawer({
     }
 
     return receipt;
-  }, [messages, participantCount, readStates, userId]);
+  }, [messages, readStates, userId]);
 
   const startEdit = (id: string, currentBody?: string | null) => {
     if (!currentBody) return;
@@ -237,11 +235,8 @@ export default function ProjectChatDrawer({
 
     const t = setTimeout(() => scrollToBottom(false), 50);
     setInitialReadBoundary(lastReadAt);
-    if (latestUnreadIncomingCreatedAt) {
-      void markAsRead(latestUnreadIncomingCreatedAt);
-    }
     return () => clearTimeout(t);
-  }, [lastReadAt, latestUnreadIncomingCreatedAt, markAsRead, open]);
+  }, [lastReadAt, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -258,26 +253,10 @@ export default function ProjectChatDrawer({
     if (userPinnedToBottomRef.current) {
       scrollToBottom(false);
     }
-    if (markReadTimeoutRef.current) {
-      clearTimeout(markReadTimeoutRef.current);
-      markReadTimeoutRef.current = null;
-    }
     if (latestUnreadIncomingCreatedAt) {
-      markReadTimeoutRef.current = setTimeout(() => {
-        markReadTimeoutRef.current = null;
-        void markAsRead(latestUnreadIncomingCreatedAt);
-      }, 120);
+      void markAsRead(latestUnreadIncomingCreatedAt);
     }
   }, [latestUnreadIncomingCreatedAt, markAsRead, messages.length, open]);
-
-  useEffect(() => {
-    return () => {
-      if (markReadTimeoutRef.current) {
-        clearTimeout(markReadTimeoutRef.current);
-        markReadTimeoutRef.current = null;
-      }
-    };
-  }, []);
 
   const handleSend = async () => {
     if (!canSend) return;
