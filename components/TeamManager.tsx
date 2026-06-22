@@ -36,7 +36,7 @@ const getAvatarColor = (identifier: string) => {
   return avatarColors[Math.abs(hash) % avatarColors.length]
 }
 
-export default function TeamManager({ projectId }: { projectId: string }) {
+export default function TeamManager({ projectId, onTeamChange }: { projectId: string; onTeamChange?: () => void }) {
   const { loading: authLoading, token, apiFetch, profile } = useAuth()
 
   const [team, setTeam] = useState<any[]>([])
@@ -105,6 +105,7 @@ export default function TeamManager({ projectId }: { projectId: string }) {
       setTeam(prev => [json.member, ...prev])
       setConsultants(prev => prev.filter(c => c.id !== selectedId))
       setSelectedId('')
+      onTeamChange?.()
     } catch (e: any) {
       alert(e?.message || 'Eroare la adăugare')
     } finally {
@@ -132,6 +133,7 @@ export default function TeamManager({ projectId }: { projectId: string }) {
       if (profile?.id) {
         setConsultants(prev => [{ id: profile.id, full_name: profile.full_name, email: profile.email }, ...prev])
       }
+      onTeamChange?.()
     } catch (e: any) {
       alert(e?.message || 'Eroare la eliminare')
     }
@@ -157,7 +159,7 @@ export default function TeamManager({ projectId }: { projectId: string }) {
             value={selectedId}
             onChange={(e) => setSelectedId(e.target.value)}
             disabled={initialLoading}
-            className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-sm bg-white outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-400/10 transition-all disabled:opacity-60"
+            className="min-w-0 flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-sm bg-white outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-400/10 transition-all disabled:opacity-60"
           >
             <option value="">
               {initialLoading ? 'Se încarcă...' : 'Selectează consultant...'}
@@ -172,10 +174,10 @@ export default function TeamManager({ projectId }: { projectId: string }) {
           <button
             onClick={addMember}
             disabled={loading || !selectedId || initialLoading}
-            className="px-5 py-2.5 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+            aria-label={loading ? 'Se adaugă consultantul' : 'Adaugă consultant'}
+            className="w-11 flex-shrink-0 justify-center py-2.5 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center"
           >
             <UserPlus className="w-4 h-4" />
-            {loading ? 'Se adaugă...' : 'Adaugă'}
           </button>
         </div>
 

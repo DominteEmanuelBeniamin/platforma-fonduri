@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {useAuth} from "@/app/providers/AuthProvider"
 import { usePrivateChatUnread } from "@/hooks/usePrivateChatUnread"
+import { useProjectChatUnread } from "@/app/providers/ProjectChatUnreadProvider"
 
 export default function Navbar() {
   const { loading: authLoading, user, profile, signOut } = useAuth()
@@ -11,9 +12,16 @@ export default function Navbar() {
   const router = useRouter()
   const isLoggedIn = !authLoading && !!user
   const canUsePrivateChat = profile?.role === 'admin' || profile?.role === 'consultant'
-  const { hasUnread, unreadConversationCount } = usePrivateChatUnread(
+  const {
+    hasUnread: hasPrivateChatUnread,
+    unreadConversationCount,
+  } = usePrivateChatUnread(
     isLoggedIn && canUsePrivateChat
   )
+  const {
+    hasUnread: hasProjectChatUnread,
+    unreadProjectCount,
+  } = useProjectChatUnread(isLoggedIn)
 
   const handleLogout = async () => {
     await signOut()
@@ -43,9 +51,17 @@ export default function Navbar() {
           <div className="flex items-center gap-1 bg-slate-100/50 p-1 rounded-full border border-slate-200/50 overflow-hidden">
             <Link
               href="/"
-              className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/')}`}
+              className={`relative px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/')}`}
             >
               Proiecte
+              {hasProjectChatUnread && (
+                <span
+                  className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white"
+                  aria-label={`${unreadProjectCount} proiecte cu mesaje necitite`}
+                >
+                  {unreadProjectCount > 9 ? '9+' : unreadProjectCount}
+                </span>
+              )}
             </Link>
             {canUsePrivateChat && (
               <Link
@@ -53,7 +69,7 @@ export default function Navbar() {
                 className={`relative px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/chat')}`}
               >
                 Chat
-                {hasUnread && (
+                {hasPrivateChatUnread && (
                   <span
                     className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white"
                     aria-label={`${unreadConversationCount} conversații necitite`}

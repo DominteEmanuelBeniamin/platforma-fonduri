@@ -23,6 +23,12 @@ export type ChatMessage = {
   is_deleted?: boolean
 }
 
+export type ProjectChatReadState = {
+  project_id: string
+  user_id: string
+  last_read_at: string | null
+}
+
 type GetResponse = {
   items: ChatMessage[]
   nextCursor: string | null
@@ -39,14 +45,43 @@ type UseProjectChatOptions = {
 type DeleteResponse = {
   ok: true
 }
+
 type PatchResponse = {
   item: ChatMessage
 }
+
 type GetByIdResponse = {
   item: ChatMessage
 }
 
-const LAST_SEEN_KEY = (projectId: string) => `chat_last_seen_${projectId}`
+type ReadResponse = {
+  ok: true
+  lastReadAt: string | null
+  readStates: ProjectChatReadState[]
+}
+
+const maxIso = (a: string | null, b: string | null) => {
+  if (!a) return b
+  if (!b) return a
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b
+}
+
+const mergeReadState = (
+  rows: ProjectChatReadState[],
+  incoming: ProjectChatReadState
+) => {
+  const existing = rows.find((row) => row.user_id === incoming.user_id)
+  if (!existing) return rows.concat(incoming)
+
+  return rows.map((row) => {
+    if (row.user_id !== incoming.user_id) return row
+
+    return {
+      ...row,
+      last_read_at: maxIso(row.last_read_at, incoming.last_read_at),
+    }
+  })
+}
 
 export function useProjectChat(projectId: string, opts: UseProjectChatOptions = {}) {
   const { apiFetch, loading: authLoading, userId } = useAuth()
@@ -57,106 +92,9 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
-  const [lastSeenAt, setLastSeenAt] = useState<string | null>(() => {
-    if (typeof window === 'undefined') return null
-    return localStorage.getItem(LAST_SEEN_KEY(projectId))
-  })
+  const [lastReadAt, setLastReadAt] = useState<string | null>(null)
+  const [readStates, setReadStates] = useState<ProjectChatReadState[]>([])
 
-  const markAsRead = useCallback(() => {
-    const now = new Date().toISOString()
-    localStorage.setItem(LAST_SEEN_KEY(projectId), now)
-    setLastSeenAt(now)
-  }, [projectId])
-
-  const unreadCount = useMemo(() => {
-    if (!lastSeenAt) {
-      // dacă nu ai văzut niciodată, toate mesajele altora sunt "unread"
-      return messages.filter((m) => !m.deleted_at && m.created_by !== userId).length
-    }
-    return messages.filter(
-      (m) =>
-        !m.deleted_at &&
-        m.created_by !== userId &&
-        new Date(m.created_at).getTime() > new Date(lastSeenAt).getTime()
-    ).length
-  }, [messages, lastSeenAt, userId])
-
-
-  const upsertOne = useCallback((m: ChatMessage) => {
-    idsRef.current.add(m.id)
-  
-    setMessages((prev) => {
-      const existing = prev.find((x) => x.id === m.id)
-  
-      // dacă noul mesaj nu are profiles, păstrează-le pe cele vechi
-      const merged: ChatMessage = existing
-        ? { ...existing, ...m, profiles: m.profiles ?? existing.profiles }
-        : m
-  
-      const next = existing
-        ? prev.map((x) => (x.id === m.id ? merged : x))
-        : prev.concat(merged)
-  
-      next.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-      return next
-    })
-  }, [])
-  
-
-  const editMessage = useCallback(
-    async (messageId: string, body: string) => {
-      const trimmed = body.trim()
-      if (!trimmed) return
-  
-      setError(null)
-      try {
-        const res = await apiFetch(`/api/projects/${projectId}/chat/messages/${messageId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ body: trimmed }),
-        })
-        const json = (await res.json().catch(() => null)) as PatchResponse | null
-  
-        if (!res.ok) {
-          setError((json as any)?.error ?? 'Failed to edit message')
-          return
-        }
-  
-        if (json?.item) upsertOne(json.item)
-      } catch {
-        setError('Failed to edit message')
-      }
-    },
-    [apiFetch, projectId, upsertOne]
-  )
-  
-  
-  const deleteMessage = useCallback(
-    async (messageId: string) => {
-      setError(null)
-      try {
-        const res = await apiFetch(`/api/projects/${projectId}/chat/messages/${messageId}`, {
-          method: 'DELETE',
-        })
-        const json = (await res.json().catch(() => null)) as DeleteResponse | null
-  
-        if (!res.ok || !json?.ok) {
-          setError((json as any)?.error ?? 'Failed to delete message')
-          return
-        }
-  
-        // soft delete local (API nu returnează item)
-        const nowIso = new Date().toISOString()
-        setMessages((prev) =>
-          prev.map((m) => (m.id === messageId ? { ...m, deleted_at: nowIso } : m))
-        )
-      } catch {
-        setError('Failed to delete message')
-      }
-    },
-    [apiFetch, projectId]
-  )
-
-  // pentru dedupe rapid (evită dubluri din POST + realtime)
   const idsRef = useRef<Set<string>>(new Set())
 
   const resetState = useCallback(() => {
@@ -166,32 +104,41 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
     setError(null)
     setLoading(false)
     setSending(false)
+    setLastReadAt(null)
+    setReadStates([])
   }, [])
 
-  const pushManyOldestFirst = useCallback((incomingOldestFirst: ChatMessage[]) => {
-    if (incomingOldestFirst.length === 0) return
+  const unreadCount = useMemo(() => {
+    if (!lastReadAt) {
+      return messages.filter((m) => !m.deleted_at && m.created_by !== userId).length
+    }
+
+    const lastReadTime = new Date(lastReadAt).getTime()
+
+    return messages.filter(
+      (m) =>
+        !m.deleted_at &&
+        m.created_by !== userId &&
+        new Date(m.created_at).getTime() > lastReadTime
+    ).length
+  }, [lastReadAt, messages, userId])
+
+  const upsertOne = useCallback((m: ChatMessage) => {
+    idsRef.current.add(m.id)
 
     setMessages((prev) => {
-      let changed = false
-      const next = prev.slice()
+      const existing = prev.find((x) => x.id === m.id)
 
-      for (const m of incomingOldestFirst) {
-        if (idsRef.current.has(m.id)) continue
-        idsRef.current.add(m.id)
-        next.push(m)
-        changed = true
-      }
+      const merged: ChatMessage = existing
+        ? { ...existing, ...m, profiles: m.profiles ?? existing.profiles }
+        : m
 
-      // ne asigurăm că rămâne chronological (oldest -> newest)
-      if (changed) {
-        next.sort((a, b) => {
-          const ta = new Date(a.created_at).getTime()
-          const tb = new Date(b.created_at).getTime()
-          return ta - tb
-        })
-        return next
-      }
-      return prev
+      const next = existing
+        ? prev.map((x) => (x.id === m.id ? merged : x))
+        : prev.concat(merged)
+
+      next.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      return next
     })
   }, [])
 
@@ -205,6 +152,97 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
       return next
     })
   }, [])
+
+  const refreshReadState = useCallback(async () => {
+    if (!projectId) return
+    if (authLoading) return
+
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/chat/read`, { method: 'GET' })
+      const json = (await res.json().catch(() => null)) as ReadResponse | null
+
+      if (!res.ok || !json?.ok) return
+
+      setLastReadAt((prev) => maxIso(prev, json.lastReadAt))
+      setReadStates(json.readStates ?? [])
+    } catch {
+      // silent fail; the chat still works without read receipts.
+    }
+  }, [apiFetch, authLoading, projectId])
+
+  const markAsRead = useCallback(
+    async (readThroughAt?: string | null) => {
+      if (!projectId) return
+      if (authLoading) return
+
+      try {
+        const res = await apiFetch(`/api/projects/${projectId}/chat/read`, {
+          method: 'POST',
+          body: JSON.stringify({ readThroughAt: readThroughAt ?? undefined }),
+        })
+        const json = (await res.json().catch(() => null)) as ReadResponse | null
+
+        if (!res.ok || !json?.ok) return
+
+        setLastReadAt((prev) => maxIso(prev, json.lastReadAt))
+        setReadStates(json.readStates ?? [])
+      } catch {
+        // silent fail
+      }
+    },
+    [apiFetch, authLoading, projectId]
+  )
+
+  const editMessage = useCallback(
+    async (messageId: string, body: string) => {
+      const trimmed = body.trim()
+      if (!trimmed) return
+
+      setError(null)
+      try {
+        const res = await apiFetch(`/api/projects/${projectId}/chat/messages/${messageId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ body: trimmed }),
+        })
+        const json = (await res.json().catch(() => null)) as PatchResponse | null
+
+        if (!res.ok) {
+          setError((json as any)?.error ?? 'Failed to edit message')
+          return
+        }
+
+        if (json?.item) upsertOne(json.item)
+      } catch {
+        setError('Failed to edit message')
+      }
+    },
+    [apiFetch, projectId, upsertOne]
+  )
+
+  const deleteMessage = useCallback(
+    async (messageId: string) => {
+      setError(null)
+      try {
+        const res = await apiFetch(`/api/projects/${projectId}/chat/messages/${messageId}`, {
+          method: 'DELETE',
+        })
+        const json = (await res.json().catch(() => null)) as DeleteResponse | null
+
+        if (!res.ok || !json?.ok) {
+          setError((json as any)?.error ?? 'Failed to delete message')
+          return
+        }
+
+        const nowIso = new Date().toISOString()
+        setMessages((prev) =>
+          prev.map((m) => (m.id === messageId ? { ...m, deleted_at: nowIso } : m))
+        )
+      } catch {
+        setError('Failed to delete message')
+      }
+    },
+    [apiFetch, projectId]
+  )
 
   const fetchInitial = useCallback(async () => {
     if (!projectId) return
@@ -227,15 +265,12 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
 
       const apiItems = json?.items ?? []
       const cursor = json?.nextCursor ?? null
-
-      // API: newest first (desc). UI: oldest->newest.
       const oldestFirst = apiItems.slice().reverse()
 
-      // reset ids + set state
       idsRef.current = new Set(oldestFirst.map((m) => m.id))
       setMessages(oldestFirst)
       setNextCursor(cursor)
-    } catch (_e) {
+    } catch {
       setError('Failed to load messages')
     } finally {
       setLoading(false)
@@ -266,29 +301,26 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
 
       const apiItems = json?.items ?? []
       const cursor = json?.nextCursor ?? null
-
-      // API: desc. convert to oldestFirst.
       const oldestFirst = apiItems.slice().reverse()
 
-      // acestea sunt "older" mesaje, deci trebuie prepend,
-      // dar păstrăm sortarea finală și dedupe.
       setMessages((prev) => {
         const merged = [...oldestFirst, ...prev]
         const seen = new Set<string>()
         const out: ChatMessage[] = []
+
         for (const m of merged) {
           if (seen.has(m.id)) continue
           seen.add(m.id)
           out.push(m)
         }
-        // update idsRef
+
         idsRef.current = new Set(out.map((m) => m.id))
         out.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
         return out
       })
 
       setNextCursor(cursor)
-    } catch (_e) {
+    } catch {
       setError('Failed to load more messages')
     } finally {
       setLoading(false)
@@ -317,7 +349,7 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
 
         const item = json?.item
         if (item) pushOne(item)
-      } catch (_e) {
+      } catch {
         setError('Failed to send message')
       } finally {
         setSending(false)
@@ -326,20 +358,19 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
     [apiFetch, projectId, pushOne]
   )
 
-  // Realtime
   useEffect(() => {
     if (!projectId) return
     if (authLoading) return
-  
+
     let cancelled = false
-  
+
     const fetchFullById = async (id: string) => {
       const res = await apiFetch(`/api/projects/${projectId}/chat/messages/${id}`, { method: 'GET' })
       const json = (await res.json().catch(() => null)) as GetByIdResponse | null
       if (!res.ok) return null
       return json?.item ?? null
     }
-  
+
     const channel = supabase
       .channel(`project-chat-${projectId}`)
       .on(
@@ -356,10 +387,8 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
             const id = row?.id
             if (!id) return
             if (row?.deleted_at) return
-  
-            // dedupe: dacă l-ai pus deja (POST)
             if (idsRef.current.has(id)) return
-  
+
             const item = await fetchFullById(id)
             if (cancelled) return
             if (item && !item.deleted_at) upsertOne(item)
@@ -381,22 +410,22 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
             const row = payload.new as {
               id?: string
               deleted_at?: string | null
-              body?: string
-              edited_at?: string | null
             } | null
-  
+
             const id = row?.id
             if (!id) return
-  
-            // 1) dacă a devenit deleted -> NU fetch (GET by id dă 404), marchează local
+
             if (row?.deleted_at) {
               setMessages((prev) =>
-                prev.map((m) => (m.id === id ? { ...m, deleted_at: row.deleted_at ?? new Date().toISOString() } : m))
+                prev.map((m) =>
+                  m.id === id
+                    ? { ...m, deleted_at: row.deleted_at ?? new Date().toISOString() }
+                    : m
+                )
               )
               return
             }
-  
-            // 2) edit -> fetch full (cu profiles) și upsert
+
             const item = await fetchFullById(id)
             if (cancelled) return
             if (item && !item.deleted_at) upsertOne(item)
@@ -405,23 +434,46 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
           }
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'project_chat_reads',
+          filter: `project_id=eq.${projectId}`,
+        },
+        (payload) => {
+          const row = payload.new as ProjectChatReadState | null
+          if (!row?.user_id) return
+
+          setReadStates((prev) => mergeReadState(prev, row))
+
+          if (row.user_id === userId) {
+            setLastReadAt((prev) => maxIso(prev, row.last_read_at))
+          }
+        }
+      )
       .subscribe()
-  
+
     return () => {
       cancelled = true
       supabase.removeChannel(channel)
     }
-  }, [apiFetch, authLoading, projectId, upsertOne])
-  
+  }, [apiFetch, authLoading, projectId, upsertOne, userId])
 
-  // Re-fetch când se schimbă projectId
   useEffect(() => {
     if (!projectId) return
     if (authLoading) return
     resetState()
     fetchInitial()
   }, [projectId, authLoading, fetchInitial, resetState])
-  
+
+  useEffect(() => {
+    if (!projectId) return
+    if (authLoading) return
+    void refreshReadState()
+  }, [authLoading, projectId, refreshReadState])
+
   const hasMore = useMemo(() => !!nextCursor, [nextCursor])
 
   return {
@@ -437,5 +489,8 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
     setError,
     unreadCount,
     markAsRead,
+    lastReadAt,
+    readStates,
+    refreshReadState,
   }
 }

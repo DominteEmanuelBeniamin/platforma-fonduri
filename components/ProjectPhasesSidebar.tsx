@@ -129,6 +129,7 @@ interface ProjectPhasesSidebarProps {
   onSelectPhase: (phaseId: string) => void
   onToggleExpand: (phaseId: string) => void
   onRefresh: () => void
+  onTeamChange?: () => void
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>
 }
 
@@ -144,6 +145,7 @@ export default function ProjectPhasesSidebar({
   onSelectPhase,
   onToggleExpand,
   onRefresh,
+  onTeamChange,
   apiFetch,
 }: ProjectPhasesSidebarProps) {
   const [showAddPhase, setShowAddPhase] = useState(false)
@@ -475,7 +477,7 @@ export default function ProjectPhasesSidebar({
       {/* Team manager */}
       {isAdmin && (
         <div className="border-t border-slate-100 flex-shrink-0">
-          <TeamManager projectId={projectId} />
+          <TeamManager projectId={projectId} onTeamChange={onTeamChange} />
         </div>
       )}
     </aside>

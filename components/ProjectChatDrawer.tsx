@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowLeft,
@@ -20,7 +20,7 @@ type Props = {
   onClose: () => void;
   title?: string;
   projectId: string;
-  markAsRead?: () => void;
+  onUnreadCountChange?: (count: number) => void;
 };
 
 export default function ProjectChatDrawer({
@@ -28,7 +28,7 @@ export default function ProjectChatDrawer({
   onClose,
   title = "Chat proiect",
   projectId,
-  markAsRead,
+  onUnreadCountChange,
 }: Props) {
   const { loading: authLoading, userId, profile } = useAuth();
   const isAdmin = profile?.role === "admin";
@@ -43,6 +43,10 @@ export default function ProjectChatDrawer({
     sendMessage,
     editMessage,
     deleteMessage,
+    unreadCount,
+    markAsRead,
+    lastReadAt,
+    readStates,
   } = useProjectChat(projectId, { initialLimit: 50 });
 
   const [text, setText] = useState("");
@@ -60,11 +64,82 @@ export default function ProjectChatDrawer({
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [initialReadBoundary, setInitialReadBoundary] = useState<string | null>(null);
 
   const prevScrollHeightRef = useRef<number | null>(null);
+  const openBoundaryCapturedRef = useRef(false);
   const userPinnedToBottomRef = useRef(true);
 
   const canSend = !authLoading && !sending && text.trim().length > 0;
+
+  const latestUnreadIncomingCreatedAt = useMemo(() => {
+    if (!userId) return null;
+
+    const lastReadTime = lastReadAt ? new Date(lastReadAt).getTime() : null;
+    let latestCreatedAt: string | null = null;
+
+    for (const m of messages) {
+      if (m.deleted_at) continue;
+      if (m.created_by === userId) continue;
+
+      const createdTime = new Date(m.created_at).getTime();
+      if (lastReadTime !== null && createdTime <= lastReadTime) continue;
+
+      if (!latestCreatedAt || createdTime > new Date(latestCreatedAt).getTime()) {
+        latestCreatedAt = m.created_at;
+      }
+    }
+
+    return latestCreatedAt;
+  }, [lastReadAt, messages, userId]);
+
+  const firstUnreadMessageId = useMemo(() => {
+    if (!userId) return null;
+
+    const boundaryTime = initialReadBoundary ? new Date(initialReadBoundary).getTime() : null;
+
+    return (
+      messages.find((m) => {
+        if (m.deleted_at) return false;
+        if (m.created_by === userId) return false;
+        if (boundaryTime === null) return true;
+        return new Date(m.created_at).getTime() > boundaryTime;
+      })?.id ?? null
+    );
+  }, [initialReadBoundary, messages, userId]);
+
+  const projectReadReceipt = useMemo(() => {
+    if (!userId) return null;
+
+    const otherParticipantCount = Math.max(readStates.length - 1, 0);
+    if (otherParticipantCount === 0) return null;
+
+    let receipt: { messageId: string; label: string } | null = null;
+
+    for (const m of messages) {
+      if (m.deleted_at) continue;
+      if (m.created_by !== userId) continue;
+
+      const messageTime = new Date(m.created_at).getTime();
+      const readByCount = readStates.filter((row) => {
+        if (row.user_id === userId) return false;
+        if (!row.last_read_at) return false;
+        return new Date(row.last_read_at).getTime() >= messageTime;
+      }).length;
+
+      if (readByCount > 0) {
+        receipt = {
+          messageId: m.id,
+          label:
+            readByCount >= otherParticipantCount
+              ? "Citit de toți"
+              : `Citit de ${readByCount}`,
+        };
+      }
+    }
+
+    return receipt;
+  }, [messages, readStates, userId]);
 
   const startEdit = (id: string, currentBody?: string | null) => {
     if (!currentBody) return;
@@ -145,12 +220,23 @@ export default function ProjectChatDrawer({
   }, [open]);
 
   useEffect(() => {
-    if (open) {
-      const t = setTimeout(() => scrollToBottom(false), 50);
-      markAsRead?.();
-      return () => clearTimeout(t);
+    onUnreadCountChange?.(unreadCount);
+  }, [onUnreadCountChange, unreadCount]);
+
+  useEffect(() => {
+    if (!open) {
+      openBoundaryCapturedRef.current = false;
+      setInitialReadBoundary(null);
+      return;
     }
-  }, [open]);
+
+    if (openBoundaryCapturedRef.current) return;
+    openBoundaryCapturedRef.current = true;
+
+    const t = setTimeout(() => scrollToBottom(false), 50);
+    setInitialReadBoundary(lastReadAt);
+    return () => clearTimeout(t);
+  }, [lastReadAt, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -167,9 +253,10 @@ export default function ProjectChatDrawer({
     if (userPinnedToBottomRef.current) {
       scrollToBottom(false);
     }
-    // dacă drawer-ul e deschis și sosesc mesaje noi, marchează ca citite
-    markAsRead?.();
-  }, [messages.length, open]);
+    if (latestUnreadIncomingCreatedAt) {
+      void markAsRead(latestUnreadIncomingCreatedAt);
+    }
+  }, [latestUnreadIncomingCreatedAt, markAsRead, messages.length, open]);
 
   const handleSend = async () => {
     if (!canSend) return;
@@ -270,12 +357,20 @@ export default function ProjectChatDrawer({
             </div>
           )}
 
+          {error && (
+            <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {error}
+            </div>
+          )}
+
           {messages.map((m, idx) => {
             const prev = idx > 0 ? messages[idx - 1] : null;
             const next = idx < messages.length - 1 ? messages[idx + 1] : null;
             const isMe = userId && m.created_by === userId;
             const isEditing = editingId === m.id;
-            const isMenuOpen = openMenuId === m.id;
+            const showNewMessagesSeparator = firstUnreadMessageId === m.id;
+            const showReadReceipt = projectReadReceipt?.messageId === m.id;
+            const readReceiptLabel = showReadReceipt ? projectReadReceipt?.label : null;
 
             const prevSameDay = prev
               ? isSameDay(prev.created_at, m.created_at)
@@ -296,6 +391,8 @@ export default function ProjectChatDrawer({
 
             const showDaySeparator = !prev || !prevSameDay;
             const shouldShowHeader = !isMe && !isSameGroupAsPrev;
+            const isEdited = !!m.edited_at && m.edited_at !== m.created_at && !m.deleted_at;
+            const shouldShowMeta = !isSameGroupAsNext || isEdited || showReadReceipt;
 
             // Reducem spațiul dintre mesajele din același grup
             const marginTopClass = showDaySeparator
@@ -339,6 +436,16 @@ export default function ProjectChatDrawer({
                   </div>
                 )}
 
+                {showNewMessagesSeparator && (
+                  <div className="my-5 flex items-center gap-3">
+                    <div className="h-px flex-1 bg-emerald-200" />
+                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase text-emerald-700 ring-1 ring-emerald-100">
+                      Mesaje noi
+                    </span>
+                    <div className="h-px flex-1 bg-emerald-200" />
+                  </div>
+                )}
+
                 <div
                   className={`flex flex-col w-full ${
                     isMe ? "items-end" : "items-start"
@@ -353,13 +460,13 @@ export default function ProjectChatDrawer({
                     </span>
                   )}
 
-                  {/* 2. Rândul orizontal: conține DOAR Avatarul și Bula (aliniate la bază) */}
+                  {/* 2. Rândul orizontal: conține DOAR avatarul și bula (aliniate la bază) */}
                   <div
                     className={`flex items-end max-w-[85%] sm:max-w-[75%] ${
                       isMe ? "flex-row-reverse" : "flex-row"
                     }`}
                   >
-                    {/* Secțiune Avatar */}
+                    {/* Secțiune avatar */}
                     {!isMe && (
                       <div className="mr-2 w-8 flex-shrink-0 flex justify-center">
                         {!isSameGroupAsNext ? (
@@ -377,7 +484,7 @@ export default function ProjectChatDrawer({
                       </div>
                     )}
 
-                    {/* Conținut Mesaj (Bula sau Editorul) */}
+                    {/* Conținut mesaj (bula sau editorul) */}
                     <div
                       className={`relative group/bubble flex items-center gap-2 ${
                         isMe ? "flex-row-reverse" : "flex-row"
@@ -433,7 +540,7 @@ export default function ProjectChatDrawer({
                             </div>
                           </div>
 
-                          {/* Butonul de meniu (MoreHorizontal) - Poziționat dinamic */}
+                          {/* Butonul de meniu (MoreHorizontal) - poziționat dinamic */}
                           {!m.deleted_at && (isAdmin || isMe) && (
                             <div
                               className={`relative flex-shrink-0 transition-opacity ${
@@ -501,7 +608,7 @@ export default function ProjectChatDrawer({
                   </div>
 
                   {/* 3. Ora (apare sub rândul cu avatar și bulă) */}
-                  {!isSameGroupAsNext && (
+                  {shouldShowMeta && (
                     <div
                       className={`mt-1 text-[10px] font-medium text-slate-400 flex items-center gap-1.5 ${
                         isMe ? "justify-end mr-1" : "justify-start ml-10"
@@ -509,15 +616,19 @@ export default function ProjectChatDrawer({
                     >
                       <span>{formatTime(m.created_at)}</span>
 
-                      {m.edited_at &&
-                        m.edited_at !== m.created_at &&
-                        !m.deleted_at && (
+                      {isEdited && (
                           <span className="flex items-center gap-0.5 opacity-70">
                             <span className="w-0.5 h-0.5 rounded-full bg-slate-400" />{" "}
-                            {/* Un mic punct separator */}
                             Editat
                           </span>
                         )}
+
+                      {readReceiptLabel && (
+                        <span className="flex items-center gap-0.5 opacity-70">
+                          <span className="w-0.5 h-0.5 rounded-full bg-slate-400" />{" "}
+                          {readReceiptLabel}
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
