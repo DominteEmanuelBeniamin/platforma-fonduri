@@ -111,6 +111,21 @@ export default function ProjectDetailsPage() {
     } catch (e) { console.error(e) }
   }
 
+  const fetchProjectMembers = async () => {
+    if (!projectId) return
+    try {
+      const r = await apiFetch(`/api/projects/${projectId}/members`)
+      const d = await r.json()
+      setProjectMembers(
+        (d.members ?? []).map((m: any) => ({
+          id: m.profiles?.id ?? m.consultant_id,
+          full_name: m.profiles?.full_name ?? null,
+          email: m.profiles?.email ?? '',
+        }))
+      )
+    } catch (e) { console.error(e) }
+  }
+
   useEffect(() => {
     if (authLoading) return
     if (!token) { router.replace('/login'); return }
@@ -119,18 +134,7 @@ export default function ProjectDetailsPage() {
 
   useEffect(() => {
     if (authLoading || !token || !projectId) return
-    apiFetch(`/api/projects/${projectId}/members`)
-      .then(r => r.json())
-      .then(d => {
-        setProjectMembers(
-          (d.members ?? []).map((m: any) => ({
-            id: m.profiles?.id ?? m.consultant_id,
-            full_name: m.profiles?.full_name ?? null,
-            email: m.profiles?.email ?? '',
-          }))
-        )
-      })
-      .catch(console.error)
+    fetchProjectMembers()
   }, [authLoading, token, projectId])
 
   // ─── Actions ──────────────────────────────────────────────────────────────
@@ -311,6 +315,7 @@ export default function ProjectDetailsPage() {
             onSelectPhase={setActivePhaseId}
             onToggleExpand={handleToggleExpand}
             onRefresh={fetchAll}
+            onTeamChange={fetchProjectMembers}
             apiFetch={apiFetch}
             isAdmin={isAdmin}
           />
