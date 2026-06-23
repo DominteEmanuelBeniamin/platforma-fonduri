@@ -2,8 +2,8 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { Suspense, useEffect, useMemo, useState } from 'react'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft,
   AlertCircle,
@@ -15,6 +15,10 @@ import {
   Building2,
   MessageSquare,
   FolderOpen,
+  ListChecks,
+  Clock,
+  AlertTriangle,
+  FileText,
 } from 'lucide-react'
 
 import ProjectChatDrawer from '@/components/ProjectChatDrawer'
@@ -26,9 +30,12 @@ import { useAuth } from '@/app/providers/AuthProvider'
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function ProjectDetailsPage() {
+function ProjectDetailsContent() {
   const router = useRouter()
   const params = useParams()
+  const searchParams = useSearchParams()
+  const targetPhaseId = searchParams.get('phase')
+  const targetActivityId = searchParams.get('activity')
   const projectId = useMemo(() => {
     const id = (params as any)?.id
     return typeof id === 'string' && id.trim().length > 0 ? id : null
@@ -44,6 +51,7 @@ export default function ProjectDetailsPage() {
 
   const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set())
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
+  const [highlightActivityId, setHighlightActivityId] = useState<string | null>(null)
 
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState('')
@@ -68,6 +76,7 @@ export default function ProjectDetailsPage() {
 
   const isAdmin = profile?.role === 'admin'
   const isConsultant = profile?.role === 'consultant'
+  const isClient = profile?.role === 'client'
   const canEdit = isAdmin || isConsultant
 
   // ─── Fetch ────────────────────────────────────────────────────────────────
@@ -88,7 +97,8 @@ export default function ProjectDetailsPage() {
       if (phasesRes.ok) {
         const ph: ProjectPhase[] = (await phasesRes.json()).phases || []
         setPhases(ph)
-        const active = ph.find(p => p.status === 'in_progress') || ph[0]
+        const fromUrl = targetPhaseId ? ph.find(p => p.id === targetPhaseId) : null
+        const active = fromUrl || ph.find(p => p.status === 'in_progress') || ph[0]
         if (active) {
           setExpandedPhases(new Set([active.id]))
           setActivePhaseId(active.id)
@@ -192,9 +202,65 @@ export default function ProjectDetailsPage() {
     })
   }
 
+  // ─── Deep-link: scroll + highlight activitatea țintă din URL ────────────────
+  useEffect(() => {
+    if (loading || !targetActivityId || activePhaseId !== targetPhaseId) return
+    const timer = setTimeout(() => {
+      const el = document.getElementById(`activity-${targetActivityId}`)
+      if (!el) return
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setHighlightActivityId(targetActivityId)
+      setTimeout(() => setHighlightActivityId(null), 2500)
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [loading, targetActivityId, targetPhaseId, activePhaseId])
+
+  // Sari direct la o activitate (din panoul "Ce e de făcut"), fără reload
+  const jumpToActivity = (phaseId: string | null, activityId: string | null) => {
+    setActiveView('phases')
+    if (phaseId) {
+      setActivePhaseId(phaseId)
+      setExpandedPhases(prev => new Set(prev).add(phaseId))
+    }
+    setTimeout(() => {
+      const anchor = activityId ? `activity-${activityId}` : 'general-requests'
+      const el = document.getElementById(anchor)
+      if (!el) return
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      if (activityId) {
+        setHighlightActivityId(activityId)
+        setTimeout(() => setHighlightActivityId(null), 2500)
+      }
+    }, 120)
+  }
+
   // ─── Derived ──────────────────────────────────────────────────────────────
 
   const activePhase = phases.find(p => p.id === activePhaseId) || null
+
+  const phaseNameById = useMemo(
+    () => new Map(phases.map(p => [p.id, p.name])),
+    [phases]
+  )
+
+  // Documente pe care clientul trebuie să le încarce (de la nivel proiect)
+  const pendingUploads = useMemo(() => {
+    return allDocRequests
+      .filter((r: any) => !r.is_outgoing && (r.status === 'pending' || r.status === 'rejected') && !r.deleted_at)
+      .map((r: any) => {
+        const phaseId = r.activity?.phase_id ?? null
+        return {
+          id: r.id,
+          name: r.name,
+          status: r.status,
+          deadline_at: r.deadline_at ?? null,
+          activity_id: r.activity?.id ?? r.activity_id ?? null,
+          activity_name: r.activity?.name ?? null,
+          phase_id: phaseId,
+          phase_name: phaseId ? phaseNameById.get(phaseId) ?? null : null,
+        }
+      })
+  }, [allDocRequests, phaseNameById])
 
   // ─── Loading / error ──────────────────────────────────────────────────────
 
@@ -324,6 +390,87 @@ export default function ProjectDetailsPage() {
         {/* ══ MAIN ══ */}
         <main className="flex-1 overflow-y-auto min-w-0">
 
+          {/* ── Ce e de făcut: documente de încărcat în acest proiect ── */}
+          {pendingUploads.length > 0 && (() => {
+            const todayMidnight = new Date()
+            todayMidnight.setHours(0, 0, 0, 0)
+            const overdueCount = pendingUploads.filter(r => {
+              if (!r.deadline_at) return false
+              const d = new Date(r.deadline_at); d.setHours(0, 0, 0, 0)
+              return d < todayMidnight
+            }).length
+
+            return (
+              <div className="px-4 sm:px-6 pt-4">
+                <div className="border border-indigo-100 bg-indigo-50/40 rounded-2xl overflow-hidden">
+                  <div className="flex items-center gap-3 px-4 py-3 border-b border-indigo-100/70">
+                    <div className="w-8 h-8 rounded-lg bg-white border border-indigo-100 flex items-center justify-center flex-shrink-0">
+                      <ListChecks className="w-4 h-4 text-indigo-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold text-slate-800">
+                        {isClient ? 'Ce ai de încărcat' : 'În așteptare de la client'}
+                      </h3>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        {overdueCount > 0 && (
+                          <span className="text-red-500 font-semibold">{overdueCount} expirate · </span>
+                        )}
+                        {pendingUploads.length} document{pendingUploads.length === 1 ? '' : 'e'} · apasă pentru a sări la etapă
+                      </p>
+                    </div>
+                  </div>
+                  <div className="divide-y divide-indigo-100/60 max-h-72 overflow-y-auto">
+                    {pendingUploads.map(req => {
+                      const deadline = req.deadline_at ? new Date(req.deadline_at) : null
+                      deadline?.setHours(0, 0, 0, 0)
+                      const isOverdue = deadline && deadline < todayMidnight
+                      const isRejected = req.status === 'rejected'
+                      return (
+                        <button
+                          key={req.id}
+                          onClick={() => jumpToActivity(req.phase_id, req.activity_id)}
+                          className="group w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/70 transition-colors"
+                        >
+                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                            isOverdue || isRejected ? 'bg-red-100' : 'bg-amber-50'
+                          }`}>
+                            {isOverdue || isRejected
+                              ? <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                              : <FileText className="w-3.5 h-3.5 text-amber-500" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-semibold truncate leading-snug ${isOverdue ? 'text-red-700' : 'text-slate-800'}`}>
+                              {req.name}
+                            </p>
+                            <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                              {req.phase_name
+                                ? <>{req.phase_name}{req.activity_name && <span className="text-slate-300"> / {req.activity_name}</span>}</>
+                                : 'Cereri generale'}
+                            </p>
+                          </div>
+                          {deadline && (
+                            <div className={`hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md flex-shrink-0 ${
+                              isOverdue ? 'bg-red-100 text-red-600' : 'bg-white text-slate-500 border border-slate-200'
+                            }`}>
+                              <Clock className="w-2.5 h-2.5" />
+                              {deadline.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })}
+                            </div>
+                          )}
+                          <span className={`hidden md:inline-flex flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                            isRejected ? 'bg-red-50 text-red-500' : 'bg-amber-50 text-amber-600'
+                          }`}>
+                            {isRejected ? 'Respins' : 'De încărcat'}
+                          </span>
+                          <span className="flex-shrink-0 text-xs font-semibold text-indigo-400 group-hover:text-indigo-600 transition-colors" aria-hidden>→</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
           {/* ── Tab switcher ── */}
           <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6">
             <div className="flex gap-1 -mb-px">
@@ -390,24 +537,34 @@ export default function ProjectDetailsPage() {
 
               {/* Document requests per activitate */}
               {activePhase?.activities?.map(activity => (
-                <DocumentRequests
+                <div
                   key={activity.id}
-                  projectId={projectId!}
-                  activityId={activity.id}
-                  activityName={activity.name}
-                  externalRequests={allDocRequests}
-                  onRefresh={refreshDocs}
-                  activityAssignedTo={activity.assigned_to ?? null}
-                  activityAssignedUser={activity.assigned_user ?? null}
-                  projectMembers={projectMembers}
-                  onAssignActivity={isAdmin ? (assignedTo: string | null) => handleAssignActivity(activePhase!.id, activity.id, assignedTo) : undefined}
-                  clientEmail={project?.profiles?.email ?? null}
-                  clientName={project?.profiles?.full_name ?? null}
-                  projectTitle={project?.title}
-                />
+                  id={`activity-${activity.id}`}
+                  className={`scroll-mt-24 rounded-2xl transition-all duration-500 ${
+                    highlightActivityId === activity.id
+                      ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-slate-50'
+                      : ''
+                  }`}
+                >
+                  <DocumentRequests
+                    projectId={projectId!}
+                    activityId={activity.id}
+                    activityName={activity.name}
+                    externalRequests={allDocRequests}
+                    onRefresh={refreshDocs}
+                    activityAssignedTo={activity.assigned_to ?? null}
+                    activityAssignedUser={activity.assigned_user ?? null}
+                    projectMembers={projectMembers}
+                    onAssignActivity={isAdmin ? (assignedTo: string | null) => handleAssignActivity(activePhase!.id, activity.id, assignedTo) : undefined}
+                    clientEmail={project?.profiles?.email ?? null}
+                    clientName={project?.profiles?.full_name ?? null}
+                    projectTitle={project?.title}
+                  />
+                </div>
               ))}
 
               {/* Cereri generale (fără activitate) */}
+              <div id="general-requests" className="scroll-mt-24">
               <DocumentRequests
                 key="__general__"
                 projectId={projectId!}
@@ -423,6 +580,7 @@ export default function ProjectDetailsPage() {
                 clientName={project?.profiles?.full_name ?? null}
                 projectTitle={project?.title}
               />
+              </div>
             </div>
           )}
         </main>
@@ -439,5 +597,19 @@ export default function ProjectDetailsPage() {
       )}
 
     </div>
+  )
+}
+
+export default function ProjectDetailsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-screen items-center justify-center bg-slate-50">
+          <div className="w-10 h-10 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <ProjectDetailsContent />
+    </Suspense>
   )
 }

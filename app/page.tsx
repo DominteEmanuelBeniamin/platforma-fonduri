@@ -93,7 +93,8 @@ export default function Dashboard() {
   }, [authLoading, token, router])
 
   useEffect(() => {
-    if (authLoading || !token || currentUser?.role !== 'consultant') return
+    if (authLoading || !token) return
+    if (currentUser?.role !== 'consultant' && currentUser?.role !== 'client') return
     apiFetch('/api/my-document-requests')
       .then(r => r.json())
       .then(d => setMyDocRequests(d.requests ?? []))
@@ -127,6 +128,7 @@ export default function Dashboard() {
 
   const isAdmin = currentUser?.role === 'admin'
   const isConsultant = currentUser?.role === 'consultant'
+  const isClient = currentUser?.role === 'client'
   const firstName = currentUser?.full_name?.split(' ')[0] || 'Utilizator'
   const currentDate = new Date().toLocaleDateString('ro-RO', { weekday: 'long', day: 'numeric', month: 'long' })
   const today = new Date()
@@ -382,6 +384,120 @@ export default function Dashboard() {
                   </Link>
                 )}
               </>
+            )}
+          </div>
+        )
+      })()}
+
+      {/* 4. CE AI DE FĂCUT — doar pentru client */}
+      {isClient && (() => {
+        const overdueCount = myDocRequests.filter((r: any) => {
+          const d = r.deadline_at ? new Date(r.deadline_at) : null
+          d?.setHours(0, 0, 0, 0)
+          return d && d < today
+        }).length
+
+        const buildHref = (r: any) => {
+          const query = r.phase_id
+            ? `?phase=${r.phase_id}${r.activity_id ? `&activity=${r.activity_id}` : ''}`
+            : ''
+          const hash = r.activity_id ? `#activity-${r.activity_id}` : ''
+          return `/projects/${r.project_id}${query}${hash}`
+        }
+
+        return (
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            {/* Section header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
+                  <FileText className="w-4 h-4 text-indigo-500" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-slate-800">Ce ai de făcut</h2>
+                  {myDocRequests.length > 0 && (
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      {overdueCount > 0 && (
+                        <span className="text-red-500 font-semibold">{overdueCount} expirate · </span>
+                      )}
+                      {myDocRequests.length} document{myDocRequests.length === 1 ? '' : 'e'} de încărcat
+                    </p>
+                  )}
+                </div>
+              </div>
+              {myDocRequests.length > 0 && (
+                <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                  overdueCount > 0 ? 'bg-red-50 text-red-500' : 'bg-indigo-50 text-indigo-500'
+                }`}>
+                  {myDocRequests.length}
+                </span>
+              )}
+            </div>
+
+            {/* Empty state */}
+            {myDocRequests.length === 0 ? (
+              <div className="px-6 py-12 flex flex-col items-center justify-center text-center gap-2">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center mb-1">
+                  <Check className="w-5 h-5 text-emerald-400" />
+                </div>
+                <p className="text-sm font-semibold text-slate-500">Totul e la zi!</p>
+                <p className="text-xs text-slate-400">Nu ai documente de încărcat momentan.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-50">
+                {myDocRequests.map((req: any) => {
+                  const deadline = req.deadline_at ? new Date(req.deadline_at) : null
+                  deadline?.setHours(0, 0, 0, 0)
+                  const isOverdue = deadline && deadline < today
+                  const isRejected = req.status === 'rejected'
+                  const rowBg = isOverdue ? 'bg-red-50/40 hover:bg-red-50/60' : 'hover:bg-slate-50/60'
+                  const accentColor = isOverdue ? 'bg-red-400' : isRejected ? 'bg-red-300' : 'bg-amber-300'
+
+                  return (
+                    <Link key={req.id} href={buildHref(req)} className="block">
+                      <div className={`group relative flex items-center gap-3 pl-4 pr-5 py-3.5 transition-colors ${rowBg}`}>
+                        <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${accentColor}`} />
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                          isOverdue || isRejected ? 'bg-red-100' : 'bg-amber-50'
+                        }`}>
+                          {isOverdue || isRejected
+                            ? <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                            : <FileText className="w-3.5 h-3.5 text-amber-500" />
+                          }
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-semibold truncate leading-snug ${isOverdue ? 'text-red-700' : 'text-slate-800'}`}>
+                            {req.name}
+                          </p>
+                          <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                            {req.project_title}
+                            {req.phase_name && <span className="text-slate-300"> · {req.phase_name}</span>}
+                            {req.activity_name && <span className="text-slate-300"> / {req.activity_name}</span>}
+                          </p>
+                        </div>
+                        {deadline ? (
+                          <div className={`hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md flex-shrink-0 ${
+                            isOverdue ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            <Clock className="w-2.5 h-2.5" />
+                            {deadline.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })}
+                          </div>
+                        ) : (
+                          <span className="hidden sm:block text-[11px] text-slate-300 flex-shrink-0">—</span>
+                        )}
+                        <span className={`hidden md:inline-flex flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                          isRejected ? 'bg-red-50 text-red-500' : 'bg-amber-50 text-amber-600'
+                        }`}>
+                          {isRejected ? 'Respins' : 'De încărcat'}
+                        </span>
+                        <span className="flex-shrink-0 flex items-center gap-1 text-xs font-semibold text-indigo-500 group-hover:text-indigo-700 transition-colors">
+                          Încarcă <span aria-hidden>→</span>
+                        </span>
+                      </div>
+                    </Link>
+                  )
+                })}
+              </div>
             )}
           </div>
         )
