@@ -28,6 +28,9 @@ import DocumentRequests from '@/components/DocumentRequests'
 import ProjectDocumentsView from '@/components/ProjectDocumentsView'
 import { useAuth } from '@/app/providers/AuthProvider'
 
+// Secțiunea distinctă „Cereri generale" (documente fără fază/activitate)
+const GENERAL_ID = '__general__'
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 function ProjectDetailsContent() {
@@ -97,11 +100,15 @@ function ProjectDetailsContent() {
       if (phasesRes.ok) {
         const ph: ProjectPhase[] = (await phasesRes.json()).phases || []
         setPhases(ph)
-        const fromUrl = targetPhaseId ? ph.find(p => p.id === targetPhaseId) : null
-        const active = fromUrl || ph.find(p => p.status === 'in_progress') || ph[0]
-        if (active) {
-          setExpandedPhases(new Set([active.id]))
-          setActivePhaseId(active.id)
+        if (targetPhaseId === GENERAL_ID) {
+          setActivePhaseId(GENERAL_ID)
+        } else {
+          const fromUrl = targetPhaseId ? ph.find(p => p.id === targetPhaseId) : null
+          const active = fromUrl || ph.find(p => p.status === 'in_progress') || ph[0]
+          if (active) {
+            setExpandedPhases(new Set([active.id]))
+            setActivePhaseId(active.id)
+          }
         }
       }
 
@@ -218,9 +225,13 @@ function ProjectDetailsContent() {
   // Sari direct la o activitate (din panoul "Ce e de făcut"), fără reload
   const jumpToActivity = (phaseId: string | null, activityId: string | null) => {
     setActiveView('phases')
-    if (phaseId) {
+    if (activityId && phaseId) {
+      // Document legat de o activitate dintr-o fază
       setActivePhaseId(phaseId)
       setExpandedPhases(prev => new Set(prev).add(phaseId))
+    } else {
+      // Cerere generală → secțiunea distinctă
+      setActivePhaseId(GENERAL_ID)
     }
     setTimeout(() => {
       const anchor = activityId ? `activity-${activityId}` : 'general-requests'
@@ -378,7 +389,9 @@ function ProjectDetailsContent() {
             expandedPhases={expandedPhases}
             canEdit={canEdit}
             projectId={projectId!}
+            isGeneralActive={activePhaseId === GENERAL_ID}
             onSelectPhase={setActivePhaseId}
+            onSelectGeneral={() => setActivePhaseId(GENERAL_ID)}
             onToggleExpand={handleToggleExpand}
             onRefresh={fetchAll}
             onTeamChange={fetchProjectMembers}
@@ -521,6 +534,35 @@ function ProjectDetailsContent() {
                 Importați un template de proiect pentru a vedea fazele și cererile de documente organizate pe activități.
               </p>
             </div>
+          ) : activePhaseId === GENERAL_ID ? (
+            /* ── Secțiune distinctă: Cereri generale (fără fază/activitate) ── */
+            <div className="p-4 sm:p-6 space-y-4 max-w-4xl">
+              <div className="flex items-center gap-3 mb-2">
+                <FolderOpen className="w-5 h-5 text-indigo-500 flex-shrink-0" />
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Cereri generale</h2>
+                  <p className="text-sm text-slate-500">Documente care nu țin de o anumită fază a proiectului.</p>
+                </div>
+              </div>
+
+              <div id="general-requests" className="scroll-mt-24">
+                <DocumentRequests
+                  key="__general__"
+                  projectId={projectId!}
+                  activityId={null}
+                  activityName="Cereri generale"
+                  externalRequests={allDocRequests}
+                  onRefresh={refreshDocs}
+                  activityAssignedTo={project?.general_consultant_id ?? null}
+                  activityAssignedUser={project?.general_consultant ?? null}
+                  projectMembers={projectMembers}
+                  onAssignActivity={isAdmin ? (assignedTo: string | null) => handleAssignGeneralConsultant(assignedTo) : undefined}
+                  clientEmail={project?.profiles?.email ?? null}
+                  clientName={project?.profiles?.full_name ?? null}
+                  projectTitle={project?.title}
+                />
+              </div>
+            </div>
           ) : (
             <div className="p-4 sm:p-6 space-y-4 max-w-4xl">
 
@@ -562,25 +604,6 @@ function ProjectDetailsContent() {
                   />
                 </div>
               ))}
-
-              {/* Cereri generale (fără activitate) */}
-              <div id="general-requests" className="scroll-mt-24">
-              <DocumentRequests
-                key="__general__"
-                projectId={projectId!}
-                activityId={null}
-                activityName="Cereri generale"
-                externalRequests={allDocRequests}
-                onRefresh={refreshDocs}
-                activityAssignedTo={project?.general_consultant_id ?? null}
-                activityAssignedUser={project?.general_consultant ?? null}
-                projectMembers={projectMembers}
-                onAssignActivity={isAdmin ? (assignedTo: string | null) => handleAssignGeneralConsultant(assignedTo) : undefined}
-                clientEmail={project?.profiles?.email ?? null}
-                clientName={project?.profiles?.full_name ?? null}
-                projectTitle={project?.title}
-              />
-              </div>
             </div>
           )}
         </main>

@@ -398,11 +398,12 @@ export default function Dashboard() {
         }).length
 
         const buildHref = (r: any) => {
-          const query = r.phase_id
-            ? `?phase=${r.phase_id}${r.activity_id ? `&activity=${r.activity_id}` : ''}`
-            : ''
-          const hash = r.activity_id ? `#activity-${r.activity_id}` : ''
-          return `/projects/${r.project_id}${query}${hash}`
+          // Cerere legată de o activitate dintr-o fază
+          if (r.phase_id && r.activity_id) {
+            return `/projects/${r.project_id}?phase=${r.phase_id}&activity=${r.activity_id}#activity-${r.activity_id}`
+          }
+          // Cerere generală → secțiunea distinctă
+          return `/projects/${r.project_id}?phase=__general__#general-requests`
         }
 
         return (
