@@ -366,14 +366,6 @@ function ProjectDetailsContent() {
               <Building2 className="w-3.5 h-3.5" />
               {project.profiles?.full_name || 'Client'}
             </span>
-            <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-              project.status === 'implementare' ? 'bg-blue-100 text-blue-700' :
-              project.status === 'monitorizare' ? 'bg-emerald-100 text-emerald-700' :
-              'bg-amber-100 text-amber-700'
-            }`}>
-              {project.status === 'implementare' ? 'Implementare' :
-               project.status === 'monitorizare' ? 'Monitorizare' : 'Contractare'}
-            </span>
           </div>
         </div>
       </header>
