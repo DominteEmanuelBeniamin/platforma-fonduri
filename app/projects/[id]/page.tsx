@@ -111,6 +111,15 @@ export default function ProjectDetailsPage() {
     } catch (e) { console.error(e) }
   }
 
+  // Refresh silențios după reordonare — fără spinner și fără resetarea fazei active
+  const refreshPhases = async () => {
+    if (!projectId) return
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/phases`)
+      if (res.ok) setPhases((await res.json()).phases || [])
+    } catch (e) { console.error(e) }
+  }
+
   const fetchProjectMembers = async () => {
     if (!projectId) return
     try {
@@ -315,6 +324,7 @@ export default function ProjectDetailsPage() {
             onSelectPhase={setActivePhaseId}
             onToggleExpand={handleToggleExpand}
             onRefresh={fetchAll}
+            onReorderRefresh={refreshPhases}
             onTeamChange={fetchProjectMembers}
             apiFetch={apiFetch}
             isAdmin={isAdmin}

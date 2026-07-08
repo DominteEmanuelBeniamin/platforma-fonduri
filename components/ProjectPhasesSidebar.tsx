@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Layers,
   FolderOpen,
+  GripVertical,
   Plus,
   Loader2,
   X,
@@ -129,6 +130,7 @@ interface ProjectPhasesSidebarProps {
   onSelectPhase: (phaseId: string) => void
   onToggleExpand: (phaseId: string) => void
   onRefresh: () => void
+  onReorderRefresh?: () => Promise<void> | void
   onTeamChange?: () => void
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>
 }
@@ -145,6 +147,7 @@ export default function ProjectPhasesSidebar({
   onSelectPhase,
   onToggleExpand,
   onRefresh,
+  onReorderRefresh,
   onTeamChange,
   apiFetch,
 }: ProjectPhasesSidebarProps) {
@@ -162,6 +165,25 @@ export default function ProjectPhasesSidebar({
   // deadline edit state: activityId → true/false (popup deschis)
   const [editingDeadline, setEditingDeadline] = useState<string | null>(null)
   const [savingDeadline, setSavingDeadline] = useState<string | null>(null)
+
+  // drag & drop reorder state — override temporar peste ordinea din props până la refresh
+  const [draggedPhaseId, setDraggedPhaseId] = useState<string | null>(null)
+  const [phaseOrder, setPhaseOrder] = useState<string[] | null>(null)
+  const [draggedActivity, setDraggedActivity] = useState<{ phaseId: string; actId: string } | null>(null)
+  const [activityOrder, setActivityOrder] = useState<string[] | null>(null)
+
+  const displayPhases = phaseOrder
+    ? phaseOrder
+        .map(id => phases.find(p => p.id === id))
+        .filter((p): p is ProjectPhase => !!p)
+    : phases
+
+  const displayActivities = (phase: ProjectPhase) =>
+    draggedActivity?.phaseId === phase.id && activityOrder
+      ? activityOrder
+          .map(id => phase.activities?.find(a => a.id === id))
+          .filter((a): a is ProjectActivity => !!a)
+      : phase.activities
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
 
@@ -230,6 +252,83 @@ export default function ProjectPhasesSidebar({
     } finally { setSavingDeadline(null) }
   }
 
+  // ─── Drag & drop reorder ────────────────────────────────────────────────────
+
+  const handlePhaseDragStart = (e: React.DragEvent, phaseId: string) => {
+    setDraggedPhaseId(phaseId)
+    setPhaseOrder(phases.map(p => p.id))
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handlePhaseDragOver = (e: React.DragEvent, targetId: string) => {
+    if (!draggedPhaseId || !phaseOrder) return
+    e.preventDefault()
+    if (draggedPhaseId === targetId) return
+    const from = phaseOrder.indexOf(draggedPhaseId)
+    const to = phaseOrder.indexOf(targetId)
+    if (from === -1 || to === -1 || from === to) return
+    const next = [...phaseOrder]
+    next.splice(from, 1)
+    next.splice(to, 0, draggedPhaseId)
+    setPhaseOrder(next)
+  }
+
+  const handlePhaseDragEnd = async () => {
+    const order = phaseOrder
+    setDraggedPhaseId(null)
+    if (!order) return
+    const unchanged = order.length === phases.length && phases.every((p, i) => p.id === order[i])
+    if (unchanged) { setPhaseOrder(null); return }
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/phases/reorder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orders: order.map((id, i) => ({ id, order_index: i + 1 })) }),
+      })
+      if (res.ok) await onReorderRefresh?.()
+      else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare la salvarea ordinii') }
+    } finally { setPhaseOrder(null) }
+  }
+
+  const handleActivityDragStart = (e: React.DragEvent, phase: ProjectPhase, actId: string) => {
+    setDraggedActivity({ phaseId: phase.id, actId })
+    setActivityOrder((phase.activities || []).map(a => a.id))
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleActivityDragOver = (e: React.DragEvent, phaseId: string, targetActId: string) => {
+    // fără mutare între faze — doar în cadrul fazei de origine
+    if (!draggedActivity || draggedActivity.phaseId !== phaseId || !activityOrder) return
+    e.preventDefault()
+    if (draggedActivity.actId === targetActId) return
+    const from = activityOrder.indexOf(draggedActivity.actId)
+    const to = activityOrder.indexOf(targetActId)
+    if (from === -1 || to === -1 || from === to) return
+    const next = [...activityOrder]
+    next.splice(from, 1)
+    next.splice(to, 0, draggedActivity.actId)
+    setActivityOrder(next)
+  }
+
+  const handleActivityDragEnd = async () => {
+    const drag = draggedActivity
+    const order = activityOrder
+    setDraggedActivity(null)
+    if (!drag || !order) { setActivityOrder(null); return }
+    const original = (phases.find(p => p.id === drag.phaseId)?.activities || []).map(a => a.id)
+    const unchanged = order.length === original.length && original.every((id, i) => id === order[i])
+    if (unchanged) { setActivityOrder(null); return }
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/phases/${drag.phaseId}/activities/reorder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orders: order.map((id, i) => ({ id, order_index: i + 1 })) }),
+      })
+      if (res.ok) await onReorderRefresh?.()
+      else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare la salvarea ordinii') }
+    } finally { setActivityOrder(null) }
+  }
+
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -251,7 +350,7 @@ export default function ProjectPhasesSidebar({
           </div>
         )}
 
-        {phases.map(phase => {
+        {displayPhases.map(phase => {
           const isActive = phase.id === activePhaseId
           const isExpanded = expandedPhases.has(phase.id)
           const color = phase.project_status?.color || '#6B7280'
@@ -275,10 +374,23 @@ export default function ProjectPhasesSidebar({
                       onSelectPhase(phase.id)
                       onToggleExpand(phase.id)
                     }}
+                    onDragOver={e => handlePhaseDragOver(e, phase.id)}
                     className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-all ${
                       isActive ? 'bg-indigo-50' : 'hover:bg-slate-50'
-                    }`}
+                    } ${draggedPhaseId === phase.id ? 'opacity-50' : ''}`}
                   >
+                    {canEdit && (
+                      <span
+                        draggable
+                        onDragStart={e => handlePhaseDragStart(e, phase.id)}
+                        onDragEnd={handlePhaseDragEnd}
+                        onClick={e => e.stopPropagation()}
+                        title="Trage pentru a reordona"
+                        className="-ml-1.5 p-0.5 rounded text-slate-300 hover:text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing flex-shrink-0"
+                      >
+                        <GripVertical className="w-3.5 h-3.5" />
+                      </span>
+                    )}
                     <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
                     <span className={`flex-1 text-sm font-medium truncate ${isActive ? 'text-indigo-900' : 'text-slate-700'}`}>
                       {phase.name}
@@ -301,7 +413,7 @@ export default function ProjectPhasesSidebar({
               {/* Activities sub-list */}
               {isExpanded && (
                 <div className="ml-5 mt-0.5 mb-1 pl-3 border-l-2 border-slate-100 space-y-0.5">
-                  {phase.activities?.map(act => {
+                  {displayActivities(phase)?.map(act => {
                     const isConfirmingDeleteAct = confirmDeleteActivity === act.id
 
                     if (isConfirmingDeleteAct) {
@@ -332,9 +444,24 @@ export default function ProjectPhasesSidebar({
                     return (
                       <div
                         key={act.id}
-                        className="group/act flex flex-col gap-0.5 py-1.5 px-2 rounded-md hover:bg-slate-50"
+                        onDragOver={e => handleActivityDragOver(e, phase.id, act.id)}
+                        className={`group/act flex flex-col gap-0.5 py-1.5 px-2 rounded-md hover:bg-slate-50 ${
+                          draggedActivity?.actId === act.id ? 'opacity-50' : ''
+                        }`}
                       >
                         <div className="flex items-center gap-2">
+                          {canEdit && (
+                            <span
+                              draggable
+                              onDragStart={e => handleActivityDragStart(e, phase, act.id)}
+                              onDragEnd={handleActivityDragEnd}
+                              onClick={e => e.stopPropagation()}
+                              title="Trage pentru a reordona"
+                              className="-ml-1 p-0.5 rounded text-slate-300 hover:text-slate-500 opacity-0 group-hover/act:opacity-100 transition-opacity cursor-grab active:cursor-grabbing flex-shrink-0"
+                            >
+                              <GripVertical className="w-3 h-3" />
+                            </span>
+                          )}
                           <span className="text-xs text-slate-600 truncate flex-1">{act.name}</span>
 
                           {/* Buton calendar — pentru admin/consultant */}
