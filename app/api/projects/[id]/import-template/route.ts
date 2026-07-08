@@ -217,6 +217,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
               description: tDoc.description,
               is_mandatory: tDoc.is_mandatory,
               requirement_type: tDoc.requirement_type,
+              order_index: tDoc.order_index,
               attachment_path: attachmentAvailable ? attachmentPath : null,
               attachment_original_name: attachmentAvailable ? tDoc.attachment_original_name || null : null,
               attachment_missing_at: attachmentPath && !attachmentAvailable ? attachmentCheckedAt : null,

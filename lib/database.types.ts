@@ -523,6 +523,7 @@ export interface ActivityDocumentRequirement {
   name: string;
   description: string | null;
   is_mandatory: boolean;
+  order_index: number;
   template_path: string | null;
   template_name: string | null;
   deadline_at: string | null;
@@ -549,6 +550,7 @@ export interface ActivityDocumentRequirementCreate {
   name: string;
   description?: string;
   is_mandatory?: boolean;
+  order_index?: number;
   template_path?: string;
   template_name?: string;
   deadline_at?: string;
