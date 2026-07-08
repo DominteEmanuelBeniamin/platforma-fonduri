@@ -4,10 +4,10 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { 
+import {
   Layers, Activity, FileText, ArrowLeft, Plus, Trash2,
   ChevronDown, ChevronRight, Check, X, Paperclip, Upload,
-  Loader2, Edit2, AlertCircle
+  Loader2, Edit2, AlertCircle, GripVertical
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS, REQUIREMENT_BADGE, normalizeRequirementType } from '@/lib/requirement-type'
@@ -283,6 +283,48 @@ export default function AdminTemplatesPage() {
   const [propagationSelectedProjectIds, setPropagationSelectedProjectIds] = useState<string[]>([])
   const [propagationApplying, setPropagationApplying] = useState(false)
   const [propagationError, setPropagationError] = useState<string | null>(null)
+
+  // Drag & drop reorder — doar în array-urile locale; handleSave persistă order_index = index + 1
+  const [dragItem, setDragItem] = useState<{ kind: 'phase' | 'activity' | 'doc'; parentKey: string; id: string } | null>(null)
+
+  const reorderList = <T extends { id: string }>(list: T[], draggedId: string, targetId: string): T[] => {
+    const from = list.findIndex(item => item.id === draggedId)
+    const to = list.findIndex(item => item.id === targetId)
+    if (from === -1 || to === -1 || from === to) return list
+    const next = [...list]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    return next
+  }
+
+  const handleReorderDragOver = (
+    e: React.DragEvent,
+    kind: 'phase' | 'activity' | 'doc',
+    parentKey: string,
+    targetId: string
+  ) => {
+    // doar în cadrul aceleiași liste (același nivel + același părinte)
+    if (!dragItem || dragItem.kind !== kind || dragItem.parentKey !== parentKey) return
+    e.preventDefault()
+    if (dragItem.id === targetId) return
+    if (kind === 'phase') {
+      setPhases(prev => reorderList(prev, dragItem.id, targetId))
+    } else if (kind === 'activity') {
+      setPhases(prev => prev.map(p => p.id === parentKey
+        ? { ...p, activities: reorderList(p.activities, dragItem.id, targetId) }
+        : p))
+    } else {
+      const [phaseId, activityId] = parentKey.split(':')
+      setPhases(prev => prev.map(p => p.id === phaseId
+        ? {
+            ...p,
+            activities: p.activities.map(a => a.id === activityId
+              ? { ...a, document_requirements: reorderList(a.document_requirements, dragItem.id, targetId) }
+              : a),
+          }
+        : p))
+    }
+  }
 
   useEffect(() => {
     if (authLoading) return
@@ -1134,8 +1176,25 @@ export default function AdminTemplatesPage() {
                 <label className="block text-sm font-medium text-slate-700 mb-3">Faze și Activități</label>
                 <div className="space-y-4">
                   {phases.map((phase, phaseIdx) => (
-                    <div key={phase.id} className="border border-slate-200 rounded-xl overflow-hidden">
-                      <div className="px-4 py-3 bg-slate-50 flex items-center gap-3">
+                    <div
+                      key={phase.id}
+                      className={`border border-slate-200 rounded-xl overflow-hidden ${
+                        dragItem?.kind === 'phase' && dragItem.id === phase.id ? 'opacity-50' : ''
+                      }`}
+                    >
+                      <div
+                        className="px-4 py-3 bg-slate-50 flex items-center gap-3"
+                        onDragOver={e => handleReorderDragOver(e, 'phase', '', phase.id)}
+                      >
+                        <span
+                          draggable
+                          onDragStart={e => { setDragItem({ kind: 'phase', parentKey: '', id: phase.id }); e.dataTransfer.effectAllowed = 'move' }}
+                          onDragEnd={() => setDragItem(null)}
+                          title="Trage pentru a reordona"
+                          className="-ml-1 p-0.5 rounded text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing"
+                        >
+                          <GripVertical className="w-4 h-4" />
+                        </span>
                         <button onClick={() => updatePhase(phase.id, { expanded: !phase.expanded })} className="text-slate-400">
                           {phase.expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                         </button>
@@ -1185,8 +1244,25 @@ export default function AdminTemplatesPage() {
                           )}
 
                           {phase.activities.map((activity) => (
-                            <div key={activity.id} className="pl-4 border-l-2 border-slate-200">
-                              <div className="flex items-center gap-2 mb-2">
+                            <div
+                              key={activity.id}
+                              className={`pl-4 border-l-2 border-slate-200 ${
+                                dragItem?.kind === 'activity' && dragItem.id === activity.id ? 'opacity-50' : ''
+                              }`}
+                            >
+                              <div
+                                className="flex items-center gap-2 mb-2"
+                                onDragOver={e => handleReorderDragOver(e, 'activity', phase.id, activity.id)}
+                              >
+                                <span
+                                  draggable
+                                  onDragStart={e => { setDragItem({ kind: 'activity', parentKey: phase.id, id: activity.id }); e.dataTransfer.effectAllowed = 'move' }}
+                                  onDragEnd={() => setDragItem(null)}
+                                  title="Trage pentru a reordona"
+                                  className="-ml-1 p-0.5 rounded text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing"
+                                >
+                                  <GripVertical className="w-3.5 h-3.5" />
+                                </span>
                                 <Activity className="w-4 h-4 text-slate-400" />
                                 <input
                                   type="text"
@@ -1227,12 +1303,22 @@ export default function AdminTemplatesPage() {
                                   {activity.document_requirements.map(doc => (
                                     <div
                                       key={doc.id}
+                                      onDragOver={e => handleReorderDragOver(e, 'doc', `${phase.id}:${activity.id}`, doc.id)}
                                       className={`flex items-start gap-2 p-3 rounded-lg border ${
                                         hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:name`)
                                           ? 'bg-red-50 border-red-200'
                                           : 'bg-slate-50 border-slate-100'
-                                      }`}
+                                      } ${dragItem?.kind === 'doc' && dragItem.id === doc.id ? 'opacity-50' : ''}`}
                                     >
+                                      <span
+                                        draggable
+                                        onDragStart={e => { setDragItem({ kind: 'doc', parentKey: `${phase.id}:${activity.id}`, id: doc.id }); e.dataTransfer.effectAllowed = 'move' }}
+                                        onDragEnd={() => setDragItem(null)}
+                                        title="Trage pentru a reordona"
+                                        className="-ml-1 mt-0.5 p-0.5 rounded text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing"
+                                      >
+                                        <GripVertical className="w-3.5 h-3.5" />
+                                      </span>
                                       <FileText className="w-4 h-4 text-slate-400 mt-0.5" />
                                       <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 flex-wrap">
