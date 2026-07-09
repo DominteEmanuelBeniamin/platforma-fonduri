@@ -64,6 +64,20 @@ interface DocumentRequest {
 
 type ToastType = 'success' | 'error' | 'info'
 
+const MODEL_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx'])
+const MODEL_MAX_SIZE = 25 * 1024 * 1024
+
+function getFileExtension(filename: string) {
+  const dot = filename.lastIndexOf('.')
+  return dot >= 0 ? filename.slice(dot + 1).toLowerCase() : ''
+}
+
+function validateModelFile(file: File) {
+  if (file.size > MODEL_MAX_SIZE) return 'Fișierul depășește 25 MB'
+  if (!MODEL_EXTENSIONS.has(getFileExtension(file.name))) return 'Tip de fișier nepermis'
+  return null
+}
+
 export default function DocumentModal({
   request,
   projectId,
@@ -372,7 +386,17 @@ export default function DocumentModal({
   }
 
   const handleReplacementModel = async (file: File | null | undefined) => {
-    if (!file || !isAdminOrConsultant) return
+    if (!file || !isAdminOrConsultant) {
+      if (attachmentInputRef.current) attachmentInputRef.current.value = ''
+      return
+    }
+
+    const validationError = validateModelFile(file)
+    if (validationError) {
+      if (attachmentInputRef.current) attachmentInputRef.current.value = ''
+      showToast(validationError, 'error')
+      return
+    }
 
     setAttachmentActionLoading(true)
     try {
@@ -800,7 +824,7 @@ export default function DocumentModal({
                             ref={attachmentInputRef}
                             type="file"
                             className="hidden"
-                            accept=".pdf,.doc,.docx,.xls,.xlsx"
+                            onClick={(e) => { e.currentTarget.value = '' }}
                             onChange={(e) => handleReplacementModel(e.currentTarget.files?.[0])}
                           />
                           <button
@@ -839,7 +863,7 @@ export default function DocumentModal({
                       ref={attachmentInputRef}
                       type="file"
                       className="hidden"
-                      accept=".pdf,.doc,.docx,.xls,.xlsx"
+                      onClick={(e) => { e.currentTarget.value = '' }}
                       onChange={(e) => handleReplacementModel(e.currentTarget.files?.[0])}
                     />
                     <button
