@@ -96,7 +96,7 @@ export default function AdminOverviewPage() {
       <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-slate-900">Șabloane și statusuri</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Șabloane</h1>
           <p className="text-slate-500 mt-1">Vizualizare rapidă a statusurilor și template-urilor configurate</p>
         </div>
 
