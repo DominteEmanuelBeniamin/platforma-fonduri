@@ -124,7 +124,12 @@ function formatFileSize(bytes: number): string {
 }
 
 function getFileExtension(filename: string): string {
-  return filename.slice(((filename.lastIndexOf('.') - 1) >>> 0) + 1).toLowerCase()
+  const dot = filename.lastIndexOf('.')
+  return dot >= 0 ? filename.slice(dot + 1).toLowerCase() : ''
+}
+
+function normalizeFileName(filename: string | null | undefined): string {
+  return (filename || '').trim().toLowerCase()
 }
 
 function validateFile(file: File, existingFiles: PickedFile[]): ValidationError | null {
@@ -240,13 +245,13 @@ export default function DocumentRequests({
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState<RequirementType>('obligatoriu')
   const [templateFile, setTemplateFile] = useState<File | null>(null)
+  const [templateFileError, setTemplateFileError] = useState('')
   const [deadline, setDeadline] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  // Trimitere document către client (is_outgoing)
+  // Trimitere documente către client (is_outgoing)
   const [showSendDoc, setShowSendDoc] = useState(false)
-  const [sendName, setSendName] = useState('')
-  const [sendFile, setSendFile] = useState<File | null>(null)
+  const [sendFiles, setSendFiles] = useState<PickedFile[]>([])
   const [sendSubmitting, setSendSubmitting] = useState(false)
 
   // Client upload state - IMPROVED
@@ -297,11 +302,22 @@ export default function DocumentRequests({
     return { total, valid, invalid, totalSize, uploading, success, error }
   }, [clientFiles])
 
+  const sendFileStats = useMemo(() => {
+    const total = sendFiles.length
+    const valid = sendFiles.filter(f => !f.validationError && f.uploadStatus !== 'success').length
+    const invalid = sendFiles.filter(f => f.validationError).length
+    const totalSize = sendFiles.reduce((sum, f) => sum + f.size, 0)
+    const uploading = sendFiles.filter(f => f.uploadStatus === 'uploading').length
+
+    return { total, valid, invalid, totalSize, uploading }
+  }, [sendFiles])
+
   // Procesare fișiere cu validare
   const processFiles = (fileList: FileList | null, requestId: string) => {
-    if (!fileList || fileList.length === 0) return
+    const files = Array.from(fileList ?? [])
+    if (files.length === 0) return
 
-    const newFiles: PickedFile[] = Array.from(fileList).map((file) => {
+    const newFiles: PickedFile[] = files.map((file) => {
       const picked: PickedFile = {
         id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
         file,
@@ -337,6 +353,47 @@ export default function DocumentRequests({
     setClientFiles([])
     setUploadingFor(null)
     setShowFilePreview(false)
+  }
+
+  const closeSendDoc = () => {
+    if (sendSubmitting) return
+    setShowSendDoc(false)
+    setSendFiles([])
+  }
+
+  const processSendFiles = (fileList: FileList | null) => {
+    const files = Array.from(fileList ?? [])
+    if (files.length === 0) return
+
+    setSendFiles(prev => {
+      const next: PickedFile[] = []
+
+      for (const file of files) {
+        const picked: PickedFile = {
+          id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+          file,
+          name: file.name,
+          size: file.size,
+          type: file.type || 'application/octet-stream',
+          relativePath: null,
+          uploadStatus: 'pending',
+          uploadProgress: 0,
+        }
+        const error = validateFile(file, [...prev, ...next])
+        if (error) picked.validationError = error
+        next.push(picked)
+      }
+
+      return [...prev, ...next]
+    })
+  }
+
+  const removeSendFile = (fileId: string) => {
+    setSendFiles(prev => prev.filter(f => f.id !== fileId))
+  }
+
+  const updateSendFile = (fileId: string, patch: Partial<PickedFile>) => {
+    setSendFiles(prev => prev.map(f => f.id === fileId ? { ...f, ...patch } : f))
   }
 
   const forceDownload = (url: string) => {
@@ -380,7 +437,19 @@ export default function DocumentRequests({
 
 
   const handleTemplateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files?.[0]) setTemplateFile(e.target.files[0])
+    const file = e.currentTarget.files?.[0]
+    e.currentTarget.value = ''
+    if (!file) return
+
+    const error = validateFile(file, [])
+    if (error) {
+      setTemplateFile(null)
+      setTemplateFileError(error.message)
+      return
+    }
+
+    setTemplateFile(file)
+    setTemplateFileError('')
   }
 
   const resetRequestForm = () => {
@@ -388,6 +457,7 @@ export default function DocumentRequests({
     setDescription('')
     setCategory('obligatoriu')
     setTemplateFile(null)
+    setTemplateFileError('')
     setDeadline('')
     setEditingRequest(null)
   }
@@ -408,6 +478,7 @@ export default function DocumentRequests({
     setDescription(request.description ?? '')
     setCategory(request.requirement_type ?? 'obligatoriu')
     setTemplateFile(null)
+    setTemplateFileError('')
     setDeadline(request.deadline_at ? request.deadline_at.slice(0, 10) : '')
     setShowForm(true)
   }
@@ -677,52 +748,78 @@ export default function DocumentRequests({
     }
   }
 
-  // Trimite un document către client: încarcă fișierul și creează o cerere is_outgoing
+  // Trimite documente către client: fiecare fișier devine o intrare is_outgoing.
   const handleSendDocument = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!sendName.trim() || !sendFile) return
+    const filesToSend = sendFiles.filter(f => !f.validationError && f.uploadStatus !== 'success')
+    if (filesToSend.length === 0) return
+
     setSendSubmitting(true)
+    const failures: { id: string; name: string; error: string }[] = []
+    let successful = 0
+
     try {
-      const initRes = await apiFetch(`/api/projects/${projectId}/document-requests/attachment/init`, {
-        method: 'POST',
-        body: JSON.stringify({
-          name: sendFile.name,
-          size: sendFile.size,
-          type: sendFile.type || 'application/octet-stream',
-        }),
-      })
-      const init = await initRes.json().catch(() => ({}))
-      if (!initRes.ok) throw new Error(init?.error || 'Inițializarea încărcării a eșuat')
+      for (const pickedFile of filesToSend) {
+        updateSendFile(pickedFile.id, { uploadStatus: 'uploading', uploadProgress: 0, uploadError: undefined })
 
-      const putRes = await fetch(init.signedUploadUrl, {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${init.token}`,
-          'Content-Type': sendFile.type || 'application/octet-stream',
-        },
-        body: sendFile,
-      })
-      if (!putRes.ok) throw new Error('Încărcarea fișierului a eșuat')
+        try {
+          const initRes = await apiFetch(`/api/projects/${projectId}/document-requests/attachment/init`, {
+            method: 'POST',
+            body: JSON.stringify({
+              name: pickedFile.name,
+              size: pickedFile.size,
+              type: pickedFile.type,
+            }),
+          })
+          const init = await initRes.json().catch(() => ({}))
+          if (!initRes.ok) throw new Error(init?.error || 'Inițializarea încărcării a eșuat')
 
-      const res = await apiFetch(`/api/projects/${projectId}/document-requests`, {
-        method: 'POST',
-        body: JSON.stringify({
-          name: sendName.trim(),
-          is_outgoing: true,
-          attachment_path: init.storagePath,
-          attachment_original_name: sendFile.name,
-          activity_id: null,
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || 'Trimiterea documentului a eșuat')
+          const putRes = await fetch(init.signedUploadUrl, {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${init.token}`,
+              'Content-Type': pickedFile.type,
+            },
+            body: pickedFile.file,
+          })
+          if (!putRes.ok) throw new Error('Încărcarea fișierului a eșuat')
 
-      setSendName('')
-      setSendFile(null)
-      setShowSendDoc(false)
-      await fetchRequests()
-    } catch (e: any) {
-      alert('Eroare: ' + e.message)
+          const res = await apiFetch(`/api/projects/${projectId}/document-requests`, {
+            method: 'POST',
+            body: JSON.stringify({
+              name: pickedFile.name,
+              is_outgoing: true,
+              attachment_path: init.storagePath,
+              attachment_original_name: pickedFile.name,
+              activity_id: null,
+            }),
+          })
+          const data = await res.json().catch(() => ({}))
+          if (!res.ok) throw new Error(data?.error || 'Trimiterea documentului a eșuat')
+
+          successful += 1
+          updateSendFile(pickedFile.id, { uploadStatus: 'success', uploadProgress: 100 })
+        } catch (error: any) {
+          const message = error?.message || 'Trimiterea documentului a eșuat'
+          failures.push({ id: pickedFile.id, name: pickedFile.name, error: message })
+          updateSendFile(pickedFile.id, { uploadStatus: 'error', uploadError: message })
+        }
+      }
+
+      if (successful > 0) await fetchRequests()
+
+      if (failures.length === 0) {
+        setSendFiles([])
+        setShowSendDoc(false)
+      } else {
+        setSendFiles(prev => prev.filter(f => f.validationError || failures.some(fail => fail.id === f.id)))
+        alert(
+          `Parțial reușit:\n` +
+          `${successful} documente trimise\n` +
+          `${failures.length} documente eșuate\n\n` +
+          failures.map(f => `- ${f.name}: ${f.error}`).join('\n')
+        )
+      }
     } finally {
       setSendSubmitting(false)
     }
@@ -852,10 +949,11 @@ export default function DocumentRequests({
                 {!activityId && (
                   <button
                     type="button"
+                    title="Trimite documente"
                     onClick={() => setShowSendDoc(true)}
                     className="flex items-center gap-2 whitespace-nowrap px-3 sm:px-4 py-2.5 rounded-xl text-sm font-medium transition-all bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-600/10"
                   >
-                    <Upload className="w-4 h-4" /><span className="hidden sm:inline">Trimite document</span>
+                    <Upload className="w-4 h-4" /><span className="hidden sm:inline">Trimite documente</span>
                   </button>
                 )}
                 <button
@@ -958,7 +1056,12 @@ export default function DocumentRequests({
                       </span>
                     </div>
                   </div>
-                  <input type="file" onChange={handleTemplateFileChange} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" />
+                  <input
+                    type="file"
+                    onClick={(e) => { e.currentTarget.value = '' }}
+                    onChange={handleTemplateFileChange}
+                    className="hidden"
+                  />
                 </label>
 
                 <button
@@ -978,6 +1081,12 @@ export default function DocumentRequests({
                     Model existent: {editingRequest.attachment_original_name || 'fișier atașat'}
                     {templateFile ? ' · va fi înlocuit la salvare' : ''}
                   </span>
+                </div>
+              )}
+              {templateFileError && (
+                <div className="flex items-center gap-2 text-xs text-red-600">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  <span>{templateFileError}</span>
                 </div>
               )}
               {editingRequest?.attachment_missing_at && (
@@ -1000,7 +1109,7 @@ export default function DocumentRequests({
             {outgoingDocs.length === 0 ? (
               isAdminOrConsultant && (
                 <p className="px-4 sm:px-5 pb-4 text-xs text-slate-500">
-                  Trimite un document către client cu butonul „Trimite document”.
+                  Trimite documente către client cu butonul „Trimite documente”.
                 </p>
               )
             ) : (
@@ -1352,13 +1461,13 @@ export default function DocumentRequests({
                                 <input
                                   type="file"
                                   multiple
+                                  onClick={(e) => { e.currentTarget.value = '' }}
                                   onChange={(e) => {
                                     processFiles(e.currentTarget.files, req.id)
                                     e.currentTarget.value = ''
                                   }}
                                   disabled={submitting}
                                   className="hidden"
-                                  accept={ALLOWED_EXTENSIONS.join(',')}
                                 />
                               </label>
 
@@ -1435,9 +1544,12 @@ export default function DocumentRequests({
                             <input
                               type="file"
                               multiple
-                              onChange={(e) => processFiles(e.currentTarget.files, req.id)}
+                              onClick={(e) => { e.currentTarget.value = '' }}
+                              onChange={(e) => {
+                                processFiles(e.currentTarget.files, req.id)
+                                e.currentTarget.value = ''
+                              }}
                               className="hidden"
-                              accept={ALLOWED_EXTENSIONS.join(',')}
                             />
                           </label>
 
@@ -1455,7 +1567,11 @@ export default function DocumentRequests({
                                   el.setAttribute('webkitdirectory', '')
                                   el.setAttribute('directory', '')
                                 }}
-                                onChange={(e) => processFiles(e.currentTarget.files, req.id)}
+                                onClick={(e) => { e.currentTarget.value = '' }}
+                                onChange={(e) => {
+                                  processFiles(e.currentTarget.files, req.id)
+                                  e.currentTarget.value = ''
+                                }}
                                 className="hidden"
                               />
                             </label>
@@ -1569,48 +1685,194 @@ export default function DocumentRequests({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-semibold text-slate-900">Trimite document către client</h3>
-              <button type="button" onClick={() => { setShowSendDoc(false); setSendName(''); setSendFile(null) }} className="p-1 text-slate-400 hover:text-slate-600">
+              <h3 className="font-semibold text-slate-900">Trimite documente către client</h3>
+              <button type="button" onClick={closeSendDoc} className="p-1 text-slate-400 hover:text-slate-600" disabled={sendSubmitting}>
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleSendDocument}>
               <div className="p-6 space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Nume document *</label>
-                  <input type="text" value={sendName} onChange={(e) => setSendName(e.target.value)} placeholder="Ex: Contract semnat" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Fișier *</label>
-                  {sendFile ? (
-                    <div className="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
-                      <Paperclip className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-emerald-900 truncate">{sendFile.name}</p>
-                        <p className="text-xs text-emerald-600">{formatFileSize(sendFile.size)}</p>
-                      </div>
-                      <button type="button" onClick={() => setSendFile(null)} className="p-1 text-emerald-600 hover:text-emerald-800">
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ) : (
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Documente *</label>
+                  {sendFiles.length === 0 ? (
                     <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:border-emerald-300 hover:bg-emerald-50/50 transition-colors">
                       <Upload className="w-8 h-8 text-slate-400" />
-                      <span className="text-sm text-slate-600 font-medium">Click pentru a încărca</span>
+                      <span className="text-sm text-slate-600 font-medium">Click pentru a încărca documente</span>
                       <span className="text-xs text-slate-400">PDF, DOC, DOCX, XLS, XLSX, imagini</span>
-                      <input type="file" onChange={(e) => setSendFile(e.target.files?.[0] || null)} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp" />
+                      <input
+                        type="file"
+                        multiple
+                        onClick={(e) => { e.currentTarget.value = '' }}
+                        onChange={(e) => {
+                          processSendFiles(e.currentTarget.files)
+                          e.currentTarget.value = ''
+                        }}
+                        className="hidden"
+                      />
                     </label>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between p-3 bg-emerald-50 border border-emerald-100 rounded-xl">
+                        <div className="flex items-center gap-3">
+                          <Files className="w-5 h-5 text-emerald-600" />
+                          <div>
+                            <p className="text-sm font-bold text-emerald-900">
+                              {sendFileStats.total} {sendFileStats.total === 1 ? 'document selectat' : 'documente selectate'}
+                            </p>
+                            <p className="text-xs text-emerald-600">
+                              {sendFileStats.valid} {sendFileStats.valid === 1 ? 'document valid' : 'documente valide'} • {formatFileSize(sendFileStats.totalSize)}
+                              {sendFileStats.invalid > 0 && ` • ${sendFileStats.invalid} erori`}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSendFiles([])}
+                          disabled={sendSubmitting}
+                          className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-white transition-all disabled:opacity-50"
+                          title="Anulează tot"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+
+                      <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                        {sendFiles.map((pickedFile) => {
+                          const hasError = !!pickedFile.validationError
+                          const isUploading = pickedFile.uploadStatus === 'uploading'
+                          const isSuccess = pickedFile.uploadStatus === 'success'
+                          const isError = pickedFile.uploadStatus === 'error'
+                          const normalizedName = normalizeFileName(pickedFile.name)
+                          const hasSameNameInSelection = normalizedName !== '' && sendFiles.some(file => file.id !== pickedFile.id && normalizeFileName(file.name) === normalizedName)
+                          const hasSameNameInOutgoing = normalizedName !== '' && outgoingDocs.some((doc: any) => normalizeFileName(doc.attachment_original_name || doc.name) === normalizedName)
+                          const nameWarning = !hasError && !isError && !isSuccess
+                            ? hasSameNameInOutgoing
+                              ? 'Există deja un document trimis cu acest nume'
+                              : hasSameNameInSelection
+                              ? 'Ai selectat deja un document cu acest nume'
+                              : ''
+                            : ''
+
+                          return (
+                            <div
+                              key={pickedFile.id}
+                              className={`p-3 rounded-xl border transition-all ${
+                                hasError || isError
+                                  ? 'bg-red-50 border-red-200'
+                                  : isSuccess
+                                  ? 'bg-emerald-50 border-emerald-200'
+                                  : isUploading
+                                  ? 'bg-blue-50 border-blue-200'
+                                  : nameWarning
+                                  ? 'bg-amber-50 border-amber-200'
+                                  : 'bg-white border-slate-200'
+                              }`}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                                  hasError || isError
+                                    ? 'bg-red-100 text-red-600'
+                                    : isSuccess
+                                    ? 'bg-emerald-100 text-emerald-600'
+                                    : isUploading
+                                    ? 'bg-blue-100 text-blue-600'
+                                    : nameWarning
+                                    ? 'bg-amber-100 text-amber-600'
+                                    : 'bg-slate-100 text-slate-600'
+                                }`}>
+                                  {isUploading ? (
+                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                  ) : isSuccess ? (
+                                    <CheckCircle2 className="w-5 h-5" />
+                                  ) : (isError || hasError) ? (
+                                    <AlertCircle className="w-5 h-5" />
+                                  ) : nameWarning ? (
+                                    <AlertCircle className="w-5 h-5" />
+                                  ) : (
+                                    getFileIcon(pickedFile)
+                                  )}
+                                </div>
+
+                                <div className="flex-1 min-w-0">
+                                  <p className={`text-sm font-medium truncate ${
+                                    hasError || isError ? 'text-red-900' : isSuccess ? 'text-emerald-900' : nameWarning ? 'text-amber-900' : 'text-slate-900'
+                                  }`}>
+                                    {pickedFile.name}
+                                  </p>
+                                  <p className="text-xs text-slate-500 mt-0.5">{formatFileSize(pickedFile.size)}</p>
+                                  {hasError && (
+                                    <p className="text-xs text-red-600 font-medium mt-1 flex items-center gap-1">
+                                      <AlertCircle className="w-3 h-3" />
+                                      {pickedFile.validationError?.message}
+                                    </p>
+                                  )}
+                                  {isError && pickedFile.uploadError && (
+                                    <p className="text-xs text-red-600 font-medium mt-1 flex items-center gap-1">
+                                      <AlertCircle className="w-3 h-3" />
+                                      {pickedFile.uploadError}
+                                    </p>
+                                  )}
+                                  {nameWarning && (
+                                    <p className="text-xs text-amber-700 font-medium mt-1 flex items-center gap-1">
+                                      <AlertCircle className="w-3 h-3" />
+                                      {nameWarning}
+                                    </p>
+                                  )}
+                                  {isSuccess && (
+                                    <p className="text-xs text-emerald-600 font-medium mt-1 flex items-center gap-1">
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      Trimis
+                                    </p>
+                                  )}
+                                </div>
+
+                                {!sendSubmitting && !isUploading && !isSuccess && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeSendFile(pickedFile.id)}
+                                    className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-white transition-all flex-shrink-0"
+                                    title="Elimină"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      <label className="cursor-pointer block">
+                        <div className="flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-slate-600 hover:border-emerald-300 hover:bg-emerald-50/50 hover:text-emerald-600 transition-all">
+                          <Plus className="w-4 h-4" />
+                          <span className="text-sm font-medium">Adaugă mai multe</span>
+                        </div>
+                        <input
+                          type="file"
+                          multiple
+                          onClick={(e) => { e.currentTarget.value = '' }}
+                          onChange={(e) => {
+                            processSendFiles(e.currentTarget.files)
+                            e.currentTarget.value = ''
+                          }}
+                          disabled={sendSubmitting}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
                   )}
                 </div>
-                <p className="text-xs text-slate-500">Clientul va putea descărca acest document. Nu i se va cere să încarce nimic înapoi.</p>
+                <p className="text-xs text-slate-500">Clientul va putea descărca aceste documente. Nu i se va cere să încarce nimic înapoi.</p>
               </div>
               <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-3">
-                <button type="button" onClick={() => { setShowSendDoc(false); setSendName(''); setSendFile(null) }} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-white">
+                <button type="button" onClick={closeSendDoc} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-white" disabled={sendSubmitting}>
                   Anulează
                 </button>
-                <button type="submit" disabled={sendSubmitting || !sendName.trim() || !sendFile} className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                <button type="submit" disabled={sendSubmitting || sendFileStats.valid === 0 || sendFileStats.uploading > 0} className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center gap-2">
                   {sendSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                  {sendSubmitting ? 'Se trimite...' : 'Trimite'}
+                  {sendSubmitting
+                    ? sendFileStats.valid === 1 ? 'Se trimite...' : 'Se trimit...'
+                    : sendFileStats.valid === 1 ? 'Trimite document (1)' : `Trimite documente${sendFileStats.valid > 0 ? ` (${sendFileStats.valid})` : ''}`}
                 </button>
               </div>
             </form>
