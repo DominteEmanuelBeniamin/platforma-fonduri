@@ -11,12 +11,59 @@ export async function GET(request: Request) {
     const ctx = await requireProfile(request)
     if (!ctx.ok) return guardToResponse(ctx)
 
-    // Clienții nu au acces la această secțiune
-    if (ctx.profile.role === 'client') {
-      return NextResponse.json({ requests: [] })
-    }
-
     const admin = createSupabaseServiceClient()
+
+    // ─── Client: cererile pe care le are de încărcat (panoul "Ce ai de făcut") ───
+    if (ctx.profile.role === 'client') {
+      const { data: clientProjects } = await admin
+        .from('projects')
+        .select('id')
+        .eq('client_id', ctx.profile.id)
+      const clientProjectIds = (clientProjects ?? []).map((p: any) => p.id)
+
+      if (clientProjectIds.length === 0) {
+        return NextResponse.json({ requests: [] })
+      }
+
+      const { data: clientRows, error: clientError } = await admin
+        .from('document_requirements')
+        .select(`
+          id, project_id, activity_id, name, description, status, deadline_at, created_at,
+          project:project_id(id, title),
+          activity:activity_id(id, name, phase:phase_id(id, name))
+        `)
+        .in('project_id', clientProjectIds)
+        .in('status', ['pending', 'rejected'])
+        .eq('is_outgoing', false)
+        .is('deleted_at', null)
+        .order('deadline_at', { ascending: true, nullsFirst: false })
+
+      if (clientError) {
+        console.error('GET my-document-requests (client) error:', clientError)
+        return NextResponse.json({ error: clientError.message }, { status: 500 })
+      }
+
+      const requests = (clientRows ?? []).map((req: any) => {
+        const activity = req.activity ?? null
+        const phase = activity?.phase ?? null
+        return {
+          id: req.id,
+          name: req.name,
+          description: req.description ?? null,
+          status: req.status,
+          deadline_at: req.deadline_at ?? null,
+          created_at: req.created_at,
+          project_id: req.project_id,
+          project_title: (req.project as any)?.title ?? null,
+          activity_id: req.activity_id ?? null,
+          activity_name: activity?.name ?? null,
+          phase_id: phase?.id ?? null,
+          phase_name: phase?.name ?? null,
+        }
+      })
+
+      return NextResponse.json({ requests })
+    }
 
     // Obținem project_ids accesibile
     let projectIds: string[] = []

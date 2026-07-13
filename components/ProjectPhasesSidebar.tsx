@@ -127,7 +127,9 @@ interface ProjectPhasesSidebarProps {
   canEdit: boolean
   isAdmin: boolean
   projectId: string
+  isGeneralActive: boolean
   onSelectPhase: (phaseId: string) => void
+  onSelectGeneral: () => void
   onToggleExpand: (phaseId: string) => void
   onRefresh: () => void
   onReorderRefresh?: () => Promise<void> | void
@@ -144,7 +146,9 @@ export default function ProjectPhasesSidebar({
   canEdit,
   isAdmin,
   projectId,
+  isGeneralActive,
   onSelectPhase,
+  onSelectGeneral,
   onToggleExpand,
   onRefresh,
   onReorderRefresh,
@@ -599,6 +603,21 @@ export default function ProjectPhasesSidebar({
             )}
           </div>
         )}
+
+        {/* Cereri generale — secțiune distinctă, separată de faze */}
+        <div className="pt-2 mt-2 border-t border-slate-100">
+          <div
+            onClick={onSelectGeneral}
+            className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-all ${
+              isGeneralActive ? 'bg-indigo-50' : 'hover:bg-slate-50'
+            }`}
+          >
+            <FolderOpen className={`w-4 h-4 flex-shrink-0 ${isGeneralActive ? 'text-indigo-500' : 'text-slate-400'}`} />
+            <span className={`flex-1 text-sm font-medium truncate ${isGeneralActive ? 'text-indigo-900' : 'text-slate-700'}`}>
+              Cereri generale
+            </span>
+          </div>
+        </div>
       </nav>
 
       {/* Team manager */}
