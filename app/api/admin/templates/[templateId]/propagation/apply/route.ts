@@ -23,6 +23,9 @@ type RollbackTracker = {
   documentRequirementUpdates: Array<{
     id: string
     activity_id: string | null
+    is_outgoing: boolean | null
+    is_mandatory: boolean | null
+    requirement_type: string | null
     attachment_path: string | null
     attachment_original_name: string | null
     attachment_missing_at: string | null
@@ -33,6 +36,7 @@ type RollbackTracker = {
     activity_id: string | null
     name: string
     description: string | null
+    is_outgoing: boolean | null
     is_mandatory: boolean | null
     requirement_type: string | null
     status: string
@@ -126,6 +130,7 @@ async function loadProjectLineage(projectId: string) {
       activity_id,
       name,
       description,
+      is_outgoing,
       is_mandatory,
       requirement_type,
       status,
@@ -175,7 +180,7 @@ async function insertDocs(
   deletedDocBySource: Map<string, any>
 ) {
   let applied = 0
-  const skipped = 0
+  let skipped = 0
   const warnings: any[] = []
 
   if (!activityId) {
@@ -188,6 +193,7 @@ async function insertDocs(
       ? await storagePathExists(attachmentPath)
       : false
     const attachmentCheckedAt = attachmentPath ? new Date().toISOString() : null
+    const isOutgoing = tDoc.is_outgoing === true
 
     if (attachmentPath && !attachmentAvailable) {
       warnings.push({
@@ -204,6 +210,18 @@ async function insertDocs(
         .eq('id', tDoc.id)
     }
 
+    if (isOutgoing && (!attachmentPath || !attachmentAvailable)) {
+      if (!attachmentPath) {
+        warnings.push({
+          type: 'missing_template_attachment',
+          template_document_requirement_id: tDoc.id,
+          name: tDoc.name,
+        })
+      }
+      skipped += 1
+      continue
+    }
+
     const deletedDoc = deletedDocBySource.get(tDoc.id)
     if (deletedDoc) {
       rollback.restoredDocumentRequirements.push({
@@ -211,6 +229,7 @@ async function insertDocs(
         activity_id: deletedDoc.activity_id ?? null,
         name: deletedDoc.name,
         description: deletedDoc.description ?? null,
+        is_outgoing: deletedDoc.is_outgoing ?? null,
         is_mandatory: deletedDoc.is_mandatory ?? null,
         requirement_type: deletedDoc.requirement_type ?? null,
         status: deletedDoc.status,
@@ -229,8 +248,9 @@ async function insertDocs(
           activity_id: activityId,
           name: tDoc.name,
           description: tDoc.description,
-          is_mandatory: tDoc.is_mandatory,
-          requirement_type: tDoc.requirement_type,
+          is_outgoing: isOutgoing,
+          is_mandatory: isOutgoing ? false : tDoc.is_mandatory,
+          requirement_type: isOutgoing ? 'optional' : tDoc.requirement_type,
           attachment_path: attachmentAvailable ? attachmentPath : null,
           attachment_original_name: attachmentAvailable ? tDoc.attachment_original_name || null : null,
           attachment_missing_at: attachmentPath && !attachmentAvailable ? attachmentCheckedAt : null,
@@ -255,8 +275,9 @@ async function insertDocs(
         activity_id: activityId,
         name: tDoc.name,
         description: tDoc.description,
-        is_mandatory: tDoc.is_mandatory,
-        requirement_type: tDoc.requirement_type,
+        is_outgoing: isOutgoing,
+        is_mandatory: isOutgoing ? false : tDoc.is_mandatory,
+        requirement_type: isOutgoing ? 'optional' : tDoc.requirement_type,
         attachment_path: attachmentAvailable ? attachmentPath : null,
         attachment_original_name: attachmentAvailable ? tDoc.attachment_original_name || null : null,
         attachment_missing_at: attachmentPath && !attachmentAvailable ? attachmentCheckedAt : null,
@@ -290,6 +311,7 @@ async function rollbackCreated(rollback: RollbackTracker) {
         activity_id: doc.activity_id,
         name: doc.name,
         description: doc.description,
+        is_outgoing: doc.is_outgoing,
         is_mandatory: doc.is_mandatory,
         requirement_type: doc.requirement_type,
         status: doc.status,
@@ -309,6 +331,9 @@ async function rollbackCreated(rollback: RollbackTracker) {
       .from('document_requirements')
       .update({
         activity_id: doc.activity_id,
+        is_outgoing: doc.is_outgoing,
+        is_mandatory: doc.is_mandatory,
+        requirement_type: doc.requirement_type,
         attachment_path: doc.attachment_path,
         attachment_original_name: doc.attachment_original_name,
         attachment_missing_at: doc.attachment_missing_at,
@@ -484,7 +509,9 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
           const docRow = docBySource.get(tDoc.id)
           const attachmentPath = tDoc.attachment_path || null
           const originalName = tDoc.attachment_original_name || null
+          const isOutgoing = tDoc.is_outgoing === true
           const shouldMoveToActivity = Boolean(docRow && docRow.activity_id !== activityId)
+          const shouldUpdateOutgoing = Boolean(docRow && Boolean(docRow.is_outgoing) !== isOutgoing)
           const shouldUpdateAttachment = Boolean(
             docRow &&
             attachmentPath &&
@@ -494,7 +521,17 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
             )
           )
 
-          if (!docRow || (!shouldMoveToActivity && !shouldUpdateAttachment)) {
+          if (!docRow || (!shouldMoveToActivity && !shouldUpdateAttachment && !shouldUpdateOutgoing)) {
+            continue
+          }
+
+          if (isOutgoing && (!attachmentPath || tDoc.attachment_missing_at)) {
+            warnings.push({
+              type: 'missing_template_attachment',
+              template_document_requirement_id: tDoc.id,
+              name: tDoc.name,
+            })
+            totals.skipped += 1
             continue
           }
 
@@ -517,7 +554,7 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
               })
               .eq('id', tDoc.id)
 
-            if (!shouldMoveToActivity) {
+            if (isOutgoing || (!shouldMoveToActivity && !shouldUpdateOutgoing)) {
               totals.skipped += 1
               continue
             }
@@ -526,6 +563,9 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
           rollback.documentRequirementUpdates.push({
             id: docRow.id,
             activity_id: docRow.activity_id ?? null,
+            is_outgoing: docRow.is_outgoing ?? null,
+            is_mandatory: docRow.is_mandatory ?? null,
+            requirement_type: docRow.requirement_type ?? null,
             attachment_path: docRow.attachment_path ?? null,
             attachment_original_name: docRow.attachment_original_name ?? null,
             attachment_missing_at: docRow.attachment_missing_at ?? null,
@@ -535,6 +575,11 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
           const updatePayload: Record<string, any> = {}
           if (shouldMoveToActivity) {
             updatePayload.activity_id = activityId
+          }
+          if (shouldUpdateOutgoing) {
+            updatePayload.is_outgoing = isOutgoing
+            updatePayload.is_mandatory = isOutgoing ? false : tDoc.is_mandatory
+            updatePayload.requirement_type = isOutgoing ? 'optional' : tDoc.requirement_type
           }
 
           if (shouldUpdateAttachment && attachmentAvailable) {
@@ -555,6 +600,11 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
           const updatedDocRow = {
             ...docRow,
             ...(shouldMoveToActivity ? { activity_id: activityId } : {}),
+            ...(shouldUpdateOutgoing ? {
+              is_outgoing: isOutgoing,
+              is_mandatory: isOutgoing ? false : tDoc.is_mandatory,
+              requirement_type: isOutgoing ? 'optional' : tDoc.requirement_type,
+            } : {}),
             ...(shouldUpdateAttachment && attachmentAvailable ? {
               attachment_path: attachmentPath,
               attachment_original_name: originalName,

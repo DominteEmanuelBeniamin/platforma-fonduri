@@ -111,7 +111,7 @@ async function buildProjectPreview(project: any, template: any) {
 
   const { data: docs, error: docsError } = await supabaseAdmin
     .from('document_requirements')
-    .select('id, activity_id, name, source_template_document_requirement_id, attachment_path, attachment_original_name')
+    .select('id, activity_id, name, source_template_document_requirement_id, attachment_path, attachment_original_name, is_outgoing')
     .eq('project_id', project.id)
     .is('deleted_at', null)
 
@@ -204,6 +204,7 @@ async function buildProjectPreview(project: any, template: any) {
         } else if (
           activity &&
           (doc.activity_id !== activity.id ||
+          Boolean(doc.is_outgoing) !== Boolean(tDoc.is_outgoing) ||
           tDoc.attachment_path &&
           !tDoc.attachment_missing_at &&
           (

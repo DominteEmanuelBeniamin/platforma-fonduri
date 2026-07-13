@@ -24,6 +24,7 @@ interface DocumentRequirement {
   id: string
   name: string
   description: string
+  is_outgoing: boolean
   requirement_type: RequirementType
   templateFile: File | null
   templateFileName: string | null
@@ -71,7 +72,9 @@ interface Template {
           name: string
           description: string | null
           is_mandatory: boolean
+          is_outgoing?: boolean | null
           requirement_type?: RequirementType | null
+          attachment_original_name?: string | null
           attachment_path: string | null
           attachment_missing_at?: string | null
         }[]
@@ -276,6 +279,7 @@ export default function AdminTemplatesPage() {
   const [editingDocId, setEditingDocId] = useState<string | null>(null)
   const [newDocName, setNewDocName] = useState('')
   const [newDocDescription, setNewDocDescription] = useState('')
+  const [newDocOutgoing, setNewDocOutgoing] = useState(false)
   const [newDocCategory, setNewDocCategory] = useState<RequirementType>('obligatoriu')
   const [newDocTemplate, setNewDocTemplate] = useState<File | null>(null)
   const [propagationTemplateId, setPropagationTemplateId] = useState<string | null>(null)
@@ -364,6 +368,7 @@ export default function AdminTemplatesPage() {
     setEditingDocId(null)
     setNewDocName('')
     setNewDocDescription('')
+    setNewDocOutgoing(false)
     setNewDocCategory('obligatoriu')
     setNewDocTemplate(null)
   }
@@ -373,6 +378,7 @@ export default function AdminTemplatesPage() {
     setEditingDocId(doc.id)
     setNewDocName(doc.name)
     setNewDocDescription(doc.description)
+    setNewDocOutgoing(doc.is_outgoing)
     setNewDocCategory(doc.requirement_type)
     setNewDocTemplate(doc.templateFile)
   }
@@ -382,6 +388,7 @@ export default function AdminTemplatesPage() {
     setEditingDocId(null)
     setNewDocName('')
     setNewDocDescription('')
+    setNewDocOutgoing(false)
     setNewDocCategory('obligatoriu')
     setNewDocTemplate(null)
   }
@@ -389,12 +396,18 @@ export default function AdminTemplatesPage() {
   const confirmAddDoc = () => {
     if (!addingDocTo || !newDocName.trim()) return
     const { phaseId, activityId } = addingDocTo
+    const currentDoc = editingDocId
+      ? phases.find(p => p.id === phaseId)?.activities.find(a => a.id === activityId)?.document_requirements.find(d => d.id === editingDocId)
+      : null
+    if (newDocOutgoing && !newDocTemplate && !currentDoc?.templateFileName) return
+    const docRequirementType: RequirementType = newDocOutgoing ? 'optional' : newDocCategory
 
     if (editingDocId) {
       const updates: Partial<DocumentRequirement> = {
         name: newDocName.trim(),
         description: newDocDescription.trim(),
-        requirement_type: newDocCategory,
+        is_outgoing: newDocOutgoing,
+        requirement_type: docRequirementType,
       }
       // Modelul se actualizează doar dacă s-a ales un fișier nou în modal,
       // ca să nu pierdem modelul existent când editezi doar numele/descrierea.
@@ -413,7 +426,8 @@ export default function AdminTemplatesPage() {
       id: generateId(),
       name: newDocName.trim(),
       description: newDocDescription.trim(),
-      requirement_type: newDocCategory,
+      is_outgoing: newDocOutgoing,
+      requirement_type: docRequirementType,
       templateFile: newDocTemplate,
       templateFileName: newDocTemplate?.name || null,
       templateFileMissingAt: null,
@@ -557,6 +571,10 @@ export default function AdminTemplatesPage() {
             errors.add(`doc:${phase.id}:${activity.id}:${doc.id}:name`)
             messages.push(`Cererea de document ${docIdx + 1} din activitatea "${activityLabel}" nu are nume.`)
           }
+          if (doc.is_outgoing && !doc.templateFileName && !doc.templateFile) {
+            errors.add(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`)
+            messages.push(`Documentul de trimis "${doc.name.trim() || `#${docIdx + 1}`}" din activitatea "${activityLabel}" nu are fișier atașat.`)
+          }
         })
       })
     })
@@ -570,7 +588,8 @@ export default function AdminTemplatesPage() {
             phase.activities.some(activity =>
               errors.has(`activity:${phase.id}:${activity.id}:name`) ||
               activity.document_requirements.some(doc =>
-                errors.has(`doc:${phase.id}:${activity.id}:${doc.id}:name`)
+                errors.has(`doc:${phase.id}:${activity.id}:${doc.id}:name`) ||
+                errors.has(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`)
               )
             )
 
@@ -581,7 +600,8 @@ export default function AdminTemplatesPage() {
               const activityHasErrors =
                 errors.has(`activity:${phase.id}:${activity.id}:name`) ||
                 activity.document_requirements.some(doc =>
-                  errors.has(`doc:${phase.id}:${activity.id}:${doc.id}:name`)
+                  errors.has(`doc:${phase.id}:${activity.id}:${doc.id}:name`) ||
+                  errors.has(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`)
                 )
 
               return {
@@ -892,18 +912,20 @@ export default function AdminTemplatesPage() {
               const patchBody: any = {
                 name: doc.name,
                 description: doc.description || null,
-                requirement_type: doc.requirement_type,
+                is_outgoing: doc.is_outgoing,
+                requirement_type: doc.is_outgoing ? 'optional' : doc.requirement_type,
                 order_index: dIdx + 1,
               }
               if (attachmentPath !== undefined) {
                 patchBody.attachment_path = attachmentPath
                 patchBody.attachment_original_name = attachmentPath ? doc.templateFileName : null
               }
-              await apiFetch(`/api/admin/templates/documents/${doc.id}`, {
+              const docRes = await apiFetch(`/api/admin/templates/documents/${doc.id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(patchBody)
               })
+              if (!docRes.ok) throw new Error(await safeParseError(docRes, `Eroare la actualizare document "${doc.name}"`))
             } else {
               // POST document nou
               let attachmentPath = null
@@ -917,7 +939,8 @@ export default function AdminTemplatesPage() {
                   template_activity_id: activityId,
                   name: doc.name,
                   description: doc.description || null,
-                  requirement_type: doc.requirement_type,
+                  is_outgoing: doc.is_outgoing,
+                  requirement_type: doc.is_outgoing ? 'optional' : doc.requirement_type,
                   order_index: dIdx + 1,
                   attachment_path: attachmentPath,
                   attachment_original_name: attachmentPath ? doc.templateFileName : null,
@@ -1024,6 +1047,7 @@ export default function AdminTemplatesPage() {
           id: d.id,
           name: d.name,
           description: d.description || '',
+          is_outgoing: d.is_outgoing === true,
           requirement_type: normalizeRequirementType(d.requirement_type, d.is_mandatory),
           templateFile: null,
           templateFileName: d.attachment_original_name || (d.attachment_path ? d.attachment_path.split('/').pop() || null : null),
@@ -1045,6 +1069,12 @@ export default function AdminTemplatesPage() {
     affectedPropagationProjects.length > 0 &&
     affectedPropagationProjects.every(project => propagationSelectedProjectIds.includes(project.project_id))
   const deleteModalText = getDeleteModalText(deleteTarget)
+  const editingDocInModal = addingDocTo && editingDocId
+    ? phases.find(p => p.id === addingDocTo.phaseId)
+      ?.activities.find(a => a.id === addingDocTo.activityId)
+      ?.document_requirements.find(d => d.id === editingDocId) ?? null
+    : null
+  const docModalHasTemplate = Boolean(newDocTemplate || editingDocInModal?.templateFileName)
 
   if (authLoading || loading) {
     return (
@@ -1228,16 +1258,23 @@ export default function AdminTemplatesPage() {
                                     <div
                                       key={doc.id}
                                       className={`flex items-start gap-2 p-3 rounded-lg border ${
-                                        hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:name`)
+                                        hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:name`) ||
+                                        hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`)
                                           ? 'bg-red-50 border-red-200'
+                                          : doc.is_outgoing
+                                          ? 'bg-sky-50 border-sky-100'
                                           : 'bg-slate-50 border-slate-100'
                                       }`}
                                     >
-                                      <FileText className="w-4 h-4 text-slate-400 mt-0.5" />
+                                      <FileText className={`w-4 h-4 mt-0.5 ${doc.is_outgoing ? 'text-sky-500' : 'text-slate-400'}`} />
                                       <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 flex-wrap">
                                           <span className="font-medium text-sm text-slate-900">{doc.name || 'Document fără nume'}</span>
-                                          {REQUIREMENT_BADGE[doc.requirement_type] && (
+                                          {doc.is_outgoing ? (
+                                            <span className="text-xs px-1.5 py-0.5 rounded border bg-sky-100 text-sky-700 border-sky-200">
+                                              Document de trimis
+                                            </span>
+                                          ) : REQUIREMENT_BADGE[doc.requirement_type] && (
                                             <span className={`text-xs px-1.5 py-0.5 rounded border ${REQUIREMENT_BADGE[doc.requirement_type].bg} ${REQUIREMENT_BADGE[doc.requirement_type].text} ${REQUIREMENT_BADGE[doc.requirement_type].border}`}>
                                               {REQUIREMENT_LABELS[doc.requirement_type]}
                                             </span>
@@ -1246,11 +1283,14 @@ export default function AdminTemplatesPage() {
                                         {hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:name`) && (
                                           <p className="text-xs text-red-600 mt-0.5">Numele documentului este obligatoriu.</p>
                                         )}
+                                        {hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`) && (
+                                          <p className="text-xs text-red-600 mt-0.5">Documentul de trimis are nevoie de fișier atașat.</p>
+                                        )}
                                         {doc.description && (
                                           <p className="text-xs text-slate-500 mt-0.5">{doc.description}</p>
                                         )}
                                         {doc.templateFileName && (
-                                          <div className={`flex items-center gap-1 mt-1 text-xs ${doc.templateFileMissingAt ? 'text-amber-700' : 'text-indigo-600'}`}>
+                                          <div className={`flex items-center gap-1 mt-1 text-xs ${doc.templateFileMissingAt ? 'text-amber-700' : doc.is_outgoing ? 'text-sky-700' : 'text-indigo-600'}`}>
                                             {doc.templateFileMissingAt ? <AlertCircle className="w-3 h-3" /> : <Paperclip className="w-3 h-3" />}
                                             <span>{doc.templateFileName}</span>
                                             {doc.templateFileMissingAt && <span className="font-semibold">(indisponibil)</span>}
@@ -1259,7 +1299,9 @@ export default function AdminTemplatesPage() {
                                         <div className="flex items-center gap-2 mt-2">
                                           <label className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 bg-white text-xs text-slate-600 hover:text-indigo-700 hover:border-indigo-200 cursor-pointer">
                                             <Upload className="w-3 h-3" />
-                                            {doc.templateFileName ? 'Înlocuiește model' : 'Atașează model'}
+                                            {doc.templateFileName
+                                              ? doc.is_outgoing ? 'Înlocuiește document' : 'Înlocuiește model'
+                                              : doc.is_outgoing ? 'Atașează document' : 'Atașează model'}
                                             <input
                                               type="file"
                                               className="hidden"
@@ -1273,6 +1315,7 @@ export default function AdminTemplatesPage() {
                                                   templateFileMissingAt: null,
                                                   templateFileRemoved: false,
                                                 })
+                                                clearValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`)
                                                 e.currentTarget.value = ''
                                               }}
                                             />
@@ -1686,8 +1729,25 @@ export default function AdminTemplatesPage() {
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg resize-none"
                 />
               </div>
+              <label className="flex items-start gap-2 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={newDocOutgoing}
+                  onChange={(e) => {
+                    setNewDocOutgoing(e.target.checked)
+                    if (e.target.checked) setNewDocCategory('optional')
+                  }}
+                  className="w-4 h-4 mt-0.5 border-slate-300 text-sky-600"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-slate-800">Document de trimis (fără răspuns)</span>
+                  <span className="block text-xs text-slate-500">Clientul îl poate descărca, fără upload înapoi.</span>
+                </span>
+              </label>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Model / Template (opțional)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  {newDocOutgoing ? 'Document atașat *' : 'Model / Template (opțional)'}
+                </label>
                 {newDocTemplate ? (
                   <div className="flex items-center gap-3 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
                     <Paperclip className="w-5 h-5 text-indigo-600 flex-shrink-0" />
@@ -1712,7 +1772,11 @@ export default function AdminTemplatesPage() {
                     />
                   </label>
                 )}
+                {newDocOutgoing && !docModalHasTemplate && (
+                  <p className="mt-1 text-xs text-red-600">Documentul de trimis are nevoie de fișier atașat.</p>
+                )}
               </div>
+              {!newDocOutgoing && (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Tip cerință</label>
                 <div className="space-y-2">
@@ -1731,6 +1795,7 @@ export default function AdminTemplatesPage() {
                   ))}
                 </div>
               </div>
+              )}
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-3">
               <button
@@ -1741,7 +1806,7 @@ export default function AdminTemplatesPage() {
               </button>
               <button
                 onClick={confirmAddDoc}
-                disabled={!newDocName.trim()}
+                disabled={!newDocName.trim() || (newDocOutgoing && !docModalHasTemplate)}
                 className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 <Check className="w-4 h-4" /> {editingDocId ? 'Salvează' : 'Adaugă'}

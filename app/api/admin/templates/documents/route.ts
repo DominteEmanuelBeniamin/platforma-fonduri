@@ -28,10 +28,16 @@ export async function POST(req: NextRequest) {
       attachment_path,
       attachment_original_name,
     } = body
-    const requirement_type = normalizeRequirementType(body?.requirement_type, is_mandatory)
+    const is_outgoing = body?.is_outgoing === true
+    const attachmentPath = attachment_path || null
+    const requirement_type = is_outgoing ? 'optional' : normalizeRequirementType(body?.requirement_type, is_mandatory)
 
     if (!template_activity_id || !name) {
       return NextResponse.json({ error: 'Activitatea și numele sunt obligatorii' }, { status: 400 })
+    }
+
+    if (is_outgoing && !attachmentPath) {
+      return NextResponse.json({ error: 'Trebuie atașat un fișier pentru documentul trimis clientului.' }, { status: 400 })
     }
 
     // Calculează order_index dacă nu e furnizat
@@ -57,8 +63,9 @@ export async function POST(req: NextRequest) {
         requirement_type,
         is_mandatory: requirementTypeToMandatory(requirement_type),
         order_index: finalOrderIndex,
-        attachment_path: attachment_path || null,
-        attachment_original_name: attachment_path ? attachment_original_name || null : null,
+        attachment_path: attachmentPath,
+        attachment_original_name: attachmentPath ? attachment_original_name || null : null,
+        is_outgoing,
         is_active: true,
       })
       .select()

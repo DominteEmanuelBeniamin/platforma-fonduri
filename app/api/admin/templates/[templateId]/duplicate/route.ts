@@ -128,6 +128,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
               order_index: doc.order_index,
               attachment_path: doc.attachment_path,
               attachment_original_name: doc.attachment_original_name,
+              is_outgoing: Boolean(doc.is_outgoing),
               is_active: true,
             })
         }

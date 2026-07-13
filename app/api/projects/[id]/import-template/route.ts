@@ -89,7 +89,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Template-ul nu are faze' }, { status: 400 })
     }
 
-    const warnings: Array<{ type: string; template_document_requirement_id: string; name: string; attachment_path: string }> = []
+    const warnings: Array<{ type: string; template_document_requirement_id: string; name: string; attachment_path: string | null }> = []
 
     for (const tPhase of templatePhases) {
       const { data: newPhase, error: phaseError } = await supabaseAdmin
@@ -160,6 +160,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           const attachmentPath = tDoc.attachment_path || null
           const attachmentAvailable = attachmentPath ? await storagePathExists(attachmentPath) : true
           const attachmentCheckedAt = attachmentPath ? new Date().toISOString() : null
+          const isOutgoing = tDoc.is_outgoing === true
 
           if (attachmentPath && !attachmentAvailable) {
             await Promise.all([
@@ -208,6 +209,18 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             })
           }
 
+          if (isOutgoing && (!attachmentPath || !attachmentAvailable)) {
+            if (!attachmentPath) {
+              warnings.push({
+                type: 'missing_template_attachment',
+                template_document_requirement_id: tDoc.id,
+                name: tDoc.name,
+                attachment_path: null,
+              })
+            }
+            continue
+          }
+
           const { error: docInsertError } = await supabaseAdmin
             .from('document_requirements')
             .insert({
@@ -215,8 +228,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
               activity_id: newActivity.id,
               name: tDoc.name,
               description: tDoc.description,
-              is_mandatory: tDoc.is_mandatory,
-              requirement_type: tDoc.requirement_type,
+              is_mandatory: isOutgoing ? false : tDoc.is_mandatory,
+              requirement_type: isOutgoing ? 'optional' : tDoc.requirement_type,
+              is_outgoing: isOutgoing,
               attachment_path: attachmentAvailable ? attachmentPath : null,
               attachment_original_name: attachmentAvailable ? tDoc.attachment_original_name || null : null,
               attachment_missing_at: attachmentPath && !attachmentAvailable ? attachmentCheckedAt : null,

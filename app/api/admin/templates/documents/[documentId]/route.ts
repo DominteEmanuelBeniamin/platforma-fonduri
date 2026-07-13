@@ -37,6 +37,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const { documentId } = await params
     const body = await req.json()
     const { name, description, is_mandatory, requirement_type, order_index, attachment_path, attachment_original_name } = body
+    const incomingIsOutgoing = body?.is_outgoing === undefined ? undefined : body?.is_outgoing === true
 
     const updateData: Record<string, any> = {}
     if (name !== undefined) updateData.name = name
@@ -63,6 +64,24 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       .maybeSingle()
 
     if (previousError) throw previousError
+    if (!previousDoc) {
+      return NextResponse.json({ error: 'Documentul nu a fost găsit' }, { status: 404 })
+    }
+
+    const finalIsOutgoing = incomingIsOutgoing ?? Boolean(previousDoc.is_outgoing)
+    const finalAttachmentPath = attachment_path !== undefined
+      ? attachment_path || null
+      : previousDoc.attachment_path || null
+
+    if (finalIsOutgoing && !finalAttachmentPath) {
+      return NextResponse.json({ error: 'Trebuie atașat un fișier pentru documentul trimis clientului.' }, { status: 400 })
+    }
+
+    if (incomingIsOutgoing !== undefined) updateData.is_outgoing = incomingIsOutgoing
+    if (finalIsOutgoing) {
+      updateData.requirement_type = 'optional'
+      updateData.is_mandatory = false
+    }
 
     const { data: doc, error } = await supabaseAdmin
       .from('template_document_requirements')
