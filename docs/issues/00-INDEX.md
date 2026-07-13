@@ -1,7 +1,12 @@
 # Issue-uri GitHub — Cerințe funcționale (draft local)
 
 Draft-uri pentru issue-urile GitHub generate din documentul „Platforma Fonduri — Cerințe funcționale".
-**Nimic nu a fost publicat încă pe GitHub.** Publicarea se face cu `./create-issues.sh` (vezi jos).
+Publicarea restului se face cu `./create-issues.sh` (vezi jos).
+
+**Publicate deja pe GitHub** (Etapa 1 — remedieri rapide):
+[#44](https://github.com/DominteEmanuelBeniamin/platforma-fonduri/issues/44) bug cereri client ·
+[#45](https://github.com/DominteEmanuelBeniamin/platforma-fonduri/issues/45) preview în browser ·
+[#46](https://github.com/DominteEmanuelBeniamin/platforma-fonduri/issues/46) mesaje clare
 
 ## Cerințe deja acoperite de issue-uri existente (nu se recreează)
 
