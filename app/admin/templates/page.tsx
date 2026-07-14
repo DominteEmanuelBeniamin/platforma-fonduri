@@ -221,6 +221,10 @@ function countPhaseDocuments(phase: TemplatePhase) {
   )
 }
 
+function hasMissingTemplateAttachment(doc: DocumentRequirement) {
+  return Boolean(doc.templateFileMissingAt || doc.templateAttachments.some(attachment => attachment.missing_at))
+}
+
 function getDeleteModalText(target: TemplateDeleteTarget | null) {
   if (!target) {
     return {
@@ -435,7 +439,7 @@ export default function AdminTemplatesPage() {
       updates.templateFiles = newDocTemplates
       updates.templateAttachments = newDocAttachments
       updates.templateFileName = firstAttachmentName || newDocTemplates[0]?.name || null
-      updates.templateFileMissingAt = null
+      updates.templateFileMissingAt = newDocAttachments.find(attachment => attachment.missing_at)?.missing_at || null
       updates.templateFileRemoved = newDocAttachments.length === 0 && newDocTemplates.length === 0
       updateDocRequirement(phaseId, activityId, editingDocId, updates)
       closeDocModal()
@@ -1087,7 +1091,7 @@ export default function AdminTemplatesPage() {
               }]
             : [],
           templateFileName: d.attachment_original_name || (d.attachment_path ? d.attachment_path.split('/').pop() || null : null),
-          templateFileMissingAt: d.attachment_missing_at || null,
+          templateFileMissingAt: d.attachment_missing_at || d.attachments?.find((attachment: TemplateAttachment) => attachment.missing_at)?.missing_at || null,
           templateFileRemoved: false,
         })) || []
       })) || []
@@ -1321,10 +1325,12 @@ export default function AdminTemplatesPage() {
                                           <p className="text-xs text-slate-500 mt-0.5">{doc.description}</p>
                                         )}
                                         {(doc.templateAttachments.length > 0 || doc.templateFiles.length > 0) && (
-                                          <div className={`flex items-center gap-1 mt-1 text-xs ${doc.templateFileMissingAt ? 'text-amber-700' : doc.is_outgoing ? 'text-sky-700' : 'text-indigo-600'}`}>
-                                            {doc.templateFileMissingAt ? <AlertCircle className="w-3 h-3" /> : <Paperclip className="w-3 h-3" />}
-                                            <span>{[...doc.templateAttachments.map(a => a.original_name || a.storage_path.split('/').pop()), ...doc.templateFiles.map(file => file.name)].filter(Boolean).join(', ')}</span>
-                                            {doc.templateFileMissingAt && <span className="font-semibold">(indisponibil)</span>}
+                                          <div className={`flex items-center gap-1 mt-1 text-xs ${hasMissingTemplateAttachment(doc) ? 'text-amber-700' : doc.is_outgoing ? 'text-sky-700' : 'text-indigo-600'}`}>
+                                            {hasMissingTemplateAttachment(doc) ? <AlertCircle className="w-3 h-3" /> : <Paperclip className="w-3 h-3" />}
+                                            <span>{[
+                                              ...doc.templateAttachments.map(a => `${a.original_name || a.storage_path.split('/').pop() || 'fișier atașat'}${a.missing_at ? ' (indisponibil)' : ''}`),
+                                              ...doc.templateFiles.map(file => file.name),
+                                            ].filter(Boolean).join(', ')}</span>
                                           </div>
                                         )}
                                         <div className="flex items-center gap-2 mt-2">
@@ -1345,7 +1351,7 @@ export default function AdminTemplatesPage() {
                                                   templateFiles: [...doc.templateFiles, ...files],
                                                   templateAttachments: doc.templateAttachments,
                                                   templateFileName: files[0].name,
-                                                  templateFileMissingAt: null,
+                                                  templateFileMissingAt: doc.templateAttachments.find(attachment => attachment.missing_at)?.missing_at || null,
                                                   templateFileRemoved: false,
                                                 })
                                                 clearValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`)
@@ -1781,8 +1787,15 @@ export default function AdminTemplatesPage() {
                   <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg space-y-2">
                     {newDocAttachments.map(attachment => (
                       <div key={attachment.id} className="flex items-center gap-3">
-                        <Paperclip className="w-4 h-4 text-indigo-600 flex-shrink-0" />
-                        <p className="text-sm font-medium text-indigo-900 truncate flex-1">{attachment.original_name || attachment.storage_path.split('/').pop() || 'fișier atașat'}</p>
+                        {attachment.missing_at ? (
+                          <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                        ) : (
+                          <Paperclip className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                        )}
+                        <p className={`text-sm font-medium truncate flex-1 ${attachment.missing_at ? 'text-amber-800' : 'text-indigo-900'}`}>
+                          {attachment.original_name || attachment.storage_path.split('/').pop() || 'fișier atașat'}
+                          {attachment.missing_at && <span className="ml-1 text-xs">(indisponibil)</span>}
+                        </p>
                         <button
                           type="button"
                           onClick={() => setNewDocAttachments(current => current.filter(item => item.id !== attachment.id))}

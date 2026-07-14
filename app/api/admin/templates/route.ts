@@ -31,9 +31,17 @@ async function verifyTemplateDocumentAttachment(doc: any) {
     const checkedAt = new Date().toISOString()
     const attachments = await Promise.all(doc.attachments.map(async (attachment: any) => {
       const available = await storagePathExists(attachment.storage_path)
+      const missingAt = available ? null : attachment.missing_at || checkedAt
+      await supabaseAdmin
+        .from('document_requirement_attachments')
+        .update({
+          missing_at: missingAt,
+          missing_checked_at: checkedAt,
+        })
+        .eq('storage_path', attachment.storage_path)
       return {
         ...attachment,
-        missing_at: available ? null : attachment.missing_at || checkedAt,
+        missing_at: missingAt,
         missing_checked_at: checkedAt,
       }
     }))
