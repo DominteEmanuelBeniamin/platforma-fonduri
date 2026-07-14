@@ -27,6 +27,19 @@ async function storagePathExists(path: string) {
 }
 
 async function verifyTemplateDocumentAttachment(doc: any) {
+  if (Array.isArray(doc.attachments) && doc.attachments.length > 0) {
+    const checkedAt = new Date().toISOString()
+    const attachments = await Promise.all(doc.attachments.map(async (attachment: any) => {
+      const available = await storagePathExists(attachment.storage_path)
+      return {
+        ...attachment,
+        missing_at: available ? null : attachment.missing_at || checkedAt,
+        missing_checked_at: checkedAt,
+      }
+    }))
+    return { ...doc, attachments }
+  }
+
   if (!doc.attachment_path) return doc
 
   const attachmentAvailable = await storagePathExists(doc.attachment_path)
@@ -132,7 +145,7 @@ export async function GET(req: NextRequest) {
               (activities || []).map(async (activity) => {
                 const { data: docs } = await supabaseAdmin
                   .from('template_document_requirements')
-                  .select('*')
+                  .select('*, attachments:document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at, created_at)')
                   .eq('template_activity_id', activity.id)
                   .eq('is_active', true)
                   .order('order_index', { ascending: true })

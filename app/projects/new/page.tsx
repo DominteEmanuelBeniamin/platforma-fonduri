@@ -48,7 +48,7 @@ interface ManualDocumentRequest {
   name: string
   description: string
   requirement_type: RequirementType
-  templateFile: File | null
+  templateFiles: File[]
   templateFileName: string | null
 }
 
@@ -106,7 +106,7 @@ export default function NewProjectPage() {
   const [newDocName, setNewDocName] = useState('')
   const [newDocDescription, setNewDocDescription] = useState('')
   const [newDocCategory, setNewDocCategory] = useState<RequirementType>('obligatoriu')
-  const [newDocTemplate, setNewDocTemplate] = useState<File | null>(null)
+  const [newDocTemplates, setNewDocTemplates] = useState<File[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -198,7 +198,7 @@ export default function NewProjectPage() {
     setNewDocName('')
     setNewDocDescription('')
     setNewDocCategory('obligatoriu')
-    setNewDocTemplate(null)
+    setNewDocTemplates([])
   }
 
   const openEditDocModal = (phaseId: string, activityId: string, doc: ManualDocumentRequest) => {
@@ -207,7 +207,7 @@ export default function NewProjectPage() {
     setNewDocName(doc.name)
     setNewDocDescription(doc.description)
     setNewDocCategory(doc.requirement_type)
-    setNewDocTemplate(doc.templateFile)
+    setNewDocTemplates(doc.templateFiles)
   }
 
   const closeAddDocModal = () => {
@@ -216,7 +216,7 @@ export default function NewProjectPage() {
     setNewDocName('')
     setNewDocDescription('')
     setNewDocCategory('obligatoriu')
-    setNewDocTemplate(null)
+    setNewDocTemplates([])
   }
 
   const confirmAddDoc = () => {
@@ -227,8 +227,8 @@ export default function NewProjectPage() {
       name: newDocName.trim(),
       description: newDocDescription.trim(),
       requirement_type: newDocCategory,
-      templateFile: newDocTemplate,
-      templateFileName: newDocTemplate?.name || null,
+      templateFiles: newDocTemplates,
+      templateFileName: newDocTemplates[0]?.name || null,
     }
 
     setManualPhases(manualPhases.map(p =>
@@ -414,9 +414,11 @@ export default function NewProjectPage() {
             // Crează document requests pentru fiecare document
             for (const docReq of activity.documentRequests) {
               // Uploadează template dacă există
-              let attachmentPath: string | null = null
-              if (docReq.templateFile) {
-                attachmentPath = await uploadTemplate(projectId, docReq.templateFile)
+              const attachments = []
+              for (const file of docReq.templateFiles) {
+                const attachmentPath = await uploadTemplate(projectId, file)
+                if (!attachmentPath) throw new Error(`Nu s-a putut încărca fișierul "${file.name}"`)
+                attachments.push({ storage_path: attachmentPath, original_name: file.name, mime_type: file.type || 'application/octet-stream', file_size: file.size })
               }
 
               // Creează cererea de document folosind API-ul existent
@@ -428,8 +430,9 @@ export default function NewProjectPage() {
                   description: docReq.description || null,
                   requirement_type: docReq.requirement_type,
                   activity_id: newActivityId,
-                  attachment_path: attachmentPath,
-                  attachment_original_name: attachmentPath ? docReq.templateFileName : null,
+                  attachments,
+                  attachment_path: attachments[0]?.storage_path || null,
+                  attachment_original_name: attachments[0]?.original_name || null,
                 })
               })
             }
@@ -686,10 +689,10 @@ export default function NewProjectPage() {
                                           )}
                                         </div>
                                         {doc.description && <p className="text-xs text-slate-500 mt-0.5">{doc.description}</p>}
-                                        {doc.templateFileName && (
+                                        {doc.templateFiles.length > 0 && (
                                           <div className="flex items-center gap-1 mt-1 text-xs text-indigo-600">
                                             <Paperclip className="w-3 h-3" />
-                                            <span>{doc.templateFileName}</span>
+                                            <span>{doc.templateFiles.map(file => file.name).join(', ')}</span>
                                           </div>
                                         )}
                                       </div>
@@ -774,23 +777,17 @@ export default function NewProjectPage() {
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Model / Template (opțional)</label>
-                {newDocTemplate ? (
-                  <div className="flex items-center gap-3 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
-                    <Paperclip className="w-5 h-5 text-indigo-600 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-indigo-900 truncate">{newDocTemplate.name}</p>
-                      <p className="text-xs text-indigo-600">{(newDocTemplate.size / 1024).toFixed(1)} KB</p>
-                    </div>
-                    <button type="button" onClick={() => setNewDocTemplate(null)} className="p-1 text-indigo-600 hover:text-indigo-800">
-                      <X className="w-4 h-4" />
-                    </button>
+                {newDocTemplates.length > 0 ? (
+                  <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg space-y-1">
+                    {newDocTemplates.map(file => <p key={`${file.name}-${file.size}`} className="text-sm font-medium text-indigo-900 truncate">{file.name}</p>)}
+                    <button type="button" onClick={() => setNewDocTemplates([])} className="text-xs text-indigo-700">Elimină selecția</button>
                   </div>
                 ) : (
                   <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors">
                     <Upload className="w-8 h-8 text-slate-400" />
                     <span className="text-sm text-slate-600 font-medium">Click pentru a încărca</span>
                     <span className="text-xs text-slate-400">PDF, DOC, DOCX, XLS, XLSX</span>
-                    <input ref={fileInputRef} type="file" onChange={(e) => setNewDocTemplate(e.target.files?.[0] || null)} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx" />
+                    <input ref={fileInputRef} type="file" multiple onChange={(e) => setNewDocTemplates(Array.from(e.target.files ?? []))} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx" />
                   </label>
                 )}
               </div>

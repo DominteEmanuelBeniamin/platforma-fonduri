@@ -60,7 +60,7 @@ async function loadTemplate(templateId: string) {
     const activitiesWithDocs = await Promise.all((activities ?? []).map(async (activity: any) => {
       const { data: docs, error: docsError } = await supabaseAdmin
         .from('template_document_requirements')
-        .select('*')
+        .select('*, attachments:document_requirement_attachments(id, storage_path, original_name, order_index)')
         .eq('template_activity_id', activity.id)
         .eq('is_active', true)
         .order('order_index')
@@ -84,10 +84,13 @@ async function buildProjectPreview(project: any, template: any) {
   if (phasesError) throw phasesError
 
   const phaseRows = phases ?? []
-  const phaseBySource = new Map(phaseRows.map((phase: any) => [phase.source_template_phase_id, phase]))
+  const phaseBySource = new Map(
+    phaseRows
+      .filter((phase: any) => phase.source_template_phase_id)
+      .map((phase: any) => [phase.source_template_phase_id, phase])
+  )
   const phaseByName = new Map(phaseRows.map((phase: any) => [normalizeLabel(phase.name), phase]))
   const phaseBySlug = new Map(phaseRows.map((phase: any) => [normalizeSlug(phase.slug || phase.name), phase]))
-  const hasUnsafeLineage = phaseRows.length === 0 || phaseRows.some((phase: any) => !phase.source_template_phase_id)
 
   const phaseIds = phaseRows.map((phase: any) => phase.id)
   const { data: activities, error: activitiesError } = phaseIds.length
@@ -100,8 +103,11 @@ async function buildProjectPreview(project: any, template: any) {
   if (activitiesError) throw activitiesError
 
   const activityRows = activities ?? []
-  const hasUnsafeActivityLineage = activityRows.some((activity: any) => !activity.source_template_activity_id)
-  const activityBySource = new Map(activityRows.map((activity: any) => [activity.source_template_activity_id, activity]))
+  const activityBySource = new Map(
+    activityRows
+      .filter((activity: any) => activity.source_template_activity_id)
+      .map((activity: any) => [activity.source_template_activity_id, activity])
+  )
   const activitiesByPhase = new Map<string, any[]>()
   for (const activity of activityRows) {
     const phaseActivities = activitiesByPhase.get(activity.phase_id) ?? []
@@ -111,14 +117,13 @@ async function buildProjectPreview(project: any, template: any) {
 
   const { data: docs, error: docsError } = await supabaseAdmin
     .from('document_requirements')
-    .select('id, activity_id, name, source_template_document_requirement_id, attachment_path, attachment_original_name, is_outgoing')
+    .select('id, activity_id, name, source_template_document_requirement_id, attachment_path, attachment_original_name, is_outgoing, attachments:document_requirement_attachments(id, storage_path, original_name, order_index)')
     .eq('project_id', project.id)
     .is('deleted_at', null)
 
   if (docsError) throw docsError
 
   const docRows = docs ?? []
-  const hasUnsafeDocumentLineage = docRows.some((doc: any) => !doc.source_template_document_requirement_id)
   const docBySource = new Map(
     docRows
       .filter((doc: any) => doc.source_template_document_requirement_id)
@@ -205,11 +210,11 @@ async function buildProjectPreview(project: any, template: any) {
           activity &&
           (doc.activity_id !== activity.id ||
           Boolean(doc.is_outgoing) !== Boolean(tDoc.is_outgoing) ||
-          tDoc.attachment_path &&
-          !tDoc.attachment_missing_at &&
           (
             doc.attachment_path !== tDoc.attachment_path ||
-            doc.attachment_original_name !== (tDoc.attachment_original_name || null)
+            doc.attachment_original_name !== (tDoc.attachment_original_name || null) ||
+            JSON.stringify((doc.attachments ?? []).map((a: any) => [a.storage_path, a.original_name])) !==
+              JSON.stringify((tDoc.attachments ?? []).map((a: any) => [a.storage_path, a.original_name]))
           )
           )
         ) {
@@ -221,16 +226,6 @@ async function buildProjectPreview(project: any, template: any) {
         }
       }
     }
-  }
-
-  if (hasUnsafeLineage) {
-    addBlockedReason(blocked, 'Proiectul are faze locale care nu sunt legate de template, deci propagarea automată este blocată până se clarifică mapping-ul.')
-  }
-  if (hasUnsafeActivityLineage) {
-    addBlockedReason(blocked, 'Proiectul are activități locale care nu sunt legate de template, deci propagarea automată este blocată până se clarifică mapping-ul.')
-  }
-  if (hasUnsafeDocumentLineage) {
-    addBlockedReason(blocked, 'Proiectul are cereri de documente locale care nu sunt legate de template, deci propagarea automată este blocată până se clarifică mapping-ul.')
   }
 
   return {

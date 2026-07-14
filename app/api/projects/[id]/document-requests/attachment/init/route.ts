@@ -27,7 +27,7 @@ export async function POST(
     const admin = createSupabaseServiceClient()
 
     const safeName = name.replace(/[^\w.\- ()[\]]+/g, '_')
-    const storagePath = `${projectId}/cereri/${Date.now()}_${safeName}`
+    const storagePath = `${projectId}/cereri/${crypto.randomUUID()}_${safeName}`
 
     const { data, error } = await admin.storage.from(BUCKET).createSignedUploadUrl(storagePath)
 

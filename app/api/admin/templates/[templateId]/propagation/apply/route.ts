@@ -62,6 +62,30 @@ async function storagePathExists(path: string) {
   }
 }
 
+async function syncProjectAttachments(documentId: string, attachments: any[], actorId: string) {
+  const { error: deleteError } = await supabaseAdmin
+    .from('document_requirement_attachments')
+    .delete()
+    .eq('document_requirement_id', documentId)
+  if (deleteError) throw deleteError
+  if (attachments.length === 0) return
+  const { error } = await supabaseAdmin.from('document_requirement_attachments').insert(
+    attachments.map((attachment: any, index: number) => ({
+      document_requirement_id: documentId,
+      source_template_attachment_id: attachment.id || null,
+      storage_path: attachment.storage_path,
+      original_name: attachment.original_name || null,
+      mime_type: attachment.mime_type || null,
+      file_size: typeof attachment.file_size === 'number' ? attachment.file_size : null,
+      order_index: index,
+      missing_at: attachment.missing_at || null,
+      missing_checked_at: attachment.missing_checked_at || null,
+      created_by: actorId,
+    }))
+  )
+  if (error) throw error
+}
+
 async function loadTemplate(templateId: string) {
   const { data: phases, error: phasesError } = await supabaseAdmin
     .from('template_phases')
@@ -85,7 +109,7 @@ async function loadTemplate(templateId: string) {
     const activitiesWithDocs = await Promise.all((activities ?? []).map(async (activity: any) => {
       const { data: docs, error: docsError } = await supabaseAdmin
         .from('template_document_requirements')
-        .select('*')
+        .select('*, attachments:document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at)')
         .eq('template_activity_id', activity.id)
         .eq('is_active', true)
         .order('order_index')
@@ -107,10 +131,6 @@ async function loadProjectLineage(projectId: string) {
   if (phasesError) throw phasesError
 
   const phaseRows = phases ?? []
-  if (phaseRows.length === 0 || phaseRows.some((phase: any) => !phase.source_template_phase_id)) {
-    return { eligible: false, reason: 'Proiectul nu are lineage complet pentru faze.' }
-  }
-
   const phaseIds = phaseRows.map((phase: any) => phase.id)
   const { data: activities, error: activitiesError } = await supabaseAdmin
     .from('project_activities')
@@ -119,9 +139,6 @@ async function loadProjectLineage(projectId: string) {
 
   if (activitiesError) throw activitiesError
   const activityRows = activities ?? []
-  if (activityRows.some((activity: any) => !activity.source_template_activity_id)) {
-    return { eligible: false, reason: 'Proiectul nu are lineage complet pentru activități.' }
-  }
 
   const { data: docs, error: docsError } = await supabaseAdmin
     .from('document_requirements')
@@ -141,7 +158,8 @@ async function loadProjectLineage(projectId: string) {
       attachment_missing_checked_at,
       deleted_at,
       deleted_by,
-      delete_reason
+      delete_reason,
+      attachments:document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at, source_template_attachment_id)
     `)
     .eq('project_id', projectId)
 
@@ -150,14 +168,19 @@ async function loadProjectLineage(projectId: string) {
   const activeDocRows = docRows.filter((doc: any) => !doc.deleted_at)
   const deletedDocRows = docRows.filter((doc: any) => doc.deleted_at)
 
-  if (activeDocRows.some((doc: any) => !doc.source_template_document_requirement_id)) {
-    return { eligible: false, reason: 'Proiectul nu are lineage complet pentru cereri de documente.' }
-  }
-
   return {
     eligible: true,
-    phaseBySource: new Map(phaseRows.map((phase: any) => [phase.source_template_phase_id, phase])),
-    activityBySource: new Map(activityRows.map((activity: any) => [activity.source_template_activity_id, activity])),
+    reason: null as string | null,
+    phaseBySource: new Map(
+      phaseRows
+        .filter((phase: any) => phase.source_template_phase_id)
+        .map((phase: any) => [phase.source_template_phase_id, phase])
+    ),
+    activityBySource: new Map(
+      activityRows
+        .filter((activity: any) => activity.source_template_activity_id)
+        .map((activity: any) => [activity.source_template_activity_id, activity])
+    ),
     docBySource: new Map(
       activeDocRows
         .filter((doc: any) => doc.source_template_document_requirement_id)
@@ -188,7 +211,12 @@ async function insertDocs(
   }
 
   for (const tDoc of templateDocs) {
-    const attachmentPath = tDoc.attachment_path || null
+    const templateAttachments = tDoc.attachments?.length
+      ? [...tDoc.attachments].sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0))
+      : tDoc.attachment_path
+      ? [{ id: null, storage_path: tDoc.attachment_path, original_name: tDoc.attachment_original_name, missing_at: tDoc.attachment_missing_at }]
+      : []
+    const attachmentPath = templateAttachments[0]?.storage_path || null
     const attachmentAvailable = attachmentPath && !tDoc.attachment_missing_at
       ? await storagePathExists(attachmentPath)
       : false
@@ -296,6 +324,7 @@ async function insertDocs(
       throw error
     } else {
       if (insertedDoc?.id) rollback.documentRequirementIds.push(insertedDoc.id)
+      if (insertedDoc?.id) await syncProjectAttachments(insertedDoc.id, templateAttachments, actorId)
       applied += 1
     }
   }
@@ -507,17 +536,22 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
 
         for (const tDoc of tActivity.document_requirements ?? []) {
           const docRow = docBySource.get(tDoc.id)
-          const attachmentPath = tDoc.attachment_path || null
-          const originalName = tDoc.attachment_original_name || null
+          const templateAttachments = tDoc.attachments?.length
+            ? [...tDoc.attachments].sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0))
+            : tDoc.attachment_path
+            ? [{ id: null, storage_path: tDoc.attachment_path, original_name: tDoc.attachment_original_name, missing_at: tDoc.attachment_missing_at }]
+            : []
+          const attachmentPath = templateAttachments[0]?.storage_path || null
+          const originalName = templateAttachments[0]?.original_name || null
           const isOutgoing = tDoc.is_outgoing === true
           const shouldMoveToActivity = Boolean(docRow && docRow.activity_id !== activityId)
           const shouldUpdateOutgoing = Boolean(docRow && Boolean(docRow.is_outgoing) !== isOutgoing)
           const shouldUpdateAttachment = Boolean(
-            docRow &&
-            attachmentPath &&
-            (
+            docRow && (
               docRow.attachment_path !== attachmentPath ||
-              docRow.attachment_original_name !== originalName
+              docRow.attachment_original_name !== originalName ||
+              JSON.stringify((docRow.attachments ?? []).map((a: any) => [a.storage_path, a.original_name])) !==
+                JSON.stringify(templateAttachments.map((a: any) => [a.storage_path, a.original_name]))
             )
           )
 
@@ -536,7 +570,9 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
           }
 
           const checkedAt = attachmentPath ? new Date().toISOString() : null
-          const attachmentAvailable = shouldUpdateAttachment && !tDoc.attachment_missing_at
+          const attachmentAvailable = templateAttachments.length === 0
+            ? true
+            : shouldUpdateAttachment && !tDoc.attachment_missing_at
             ? await storagePathExists(attachmentPath)
             : false
 
@@ -596,6 +632,9 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
             .is('deleted_at', null)
 
           if (error) throw error
+          if (shouldUpdateAttachment && attachmentAvailable) {
+            await syncProjectAttachments(docRow.id, templateAttachments, actorId)
+          }
 
           const updatedDocRow = {
             ...docRow,

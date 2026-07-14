@@ -36,7 +36,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     const { documentId } = await params
     const body = await req.json()
-    const { name, description, is_mandatory, requirement_type, order_index, attachment_path, attachment_original_name } = body
+    const { name, description, is_mandatory, requirement_type, order_index, attachment_path, attachment_original_name, attachments } = body
+    const attachmentItems = Array.isArray(attachments)
+      ? attachments.filter((item: any) => item && typeof item.storage_path === 'string' && item.storage_path.trim())
+      : undefined
     const incomingIsOutgoing = body?.is_outgoing === undefined ? undefined : body?.is_outgoing === true
 
     const updateData: Record<string, any> = {}
@@ -69,9 +72,18 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
 
     const finalIsOutgoing = incomingIsOutgoing ?? Boolean(previousDoc.is_outgoing)
-    const finalAttachmentPath = attachment_path !== undefined
+    const finalAttachmentPath = attachmentItems !== undefined
+      ? attachmentItems[0]?.storage_path || null
+      : attachment_path !== undefined
       ? attachment_path || null
       : previousDoc.attachment_path || null
+
+    if (attachmentItems !== undefined) {
+      updateData.attachment_path = finalAttachmentPath
+      updateData.attachment_original_name = finalAttachmentPath ? attachmentItems[0]?.original_name || null : null
+      updateData.attachment_missing_at = null
+      updateData.attachment_missing_checked_at = null
+    }
 
     if (finalIsOutgoing && !finalAttachmentPath) {
       return NextResponse.json({ error: 'Trebuie atașat un fișier pentru documentul trimis clientului.' }, { status: 400 })
@@ -91,6 +103,29 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       .single()
 
     if (error) throw error
+
+    if (attachmentItems !== undefined) {
+      const { error: deleteAttachmentsError } = await supabaseAdmin
+        .from('document_requirement_attachments')
+        .delete()
+        .eq('template_document_requirement_id', documentId)
+      if (deleteAttachmentsError) throw deleteAttachmentsError
+
+      if (attachmentItems.length > 0) {
+        const { error: insertAttachmentsError } = await supabaseAdmin
+          .from('document_requirement_attachments')
+          .insert(attachmentItems.map((attachment: any, index: number) => ({
+            template_document_requirement_id: documentId,
+            storage_path: attachment.storage_path.trim(),
+            original_name: typeof attachment.original_name === 'string' ? attachment.original_name : null,
+            mime_type: typeof attachment.mime_type === 'string' ? attachment.mime_type : null,
+            file_size: typeof attachment.file_size === 'number' ? attachment.file_size : null,
+            order_index: index,
+            created_by: auth.profile.id,
+          })))
+        if (insertAttachmentsError) throw insertAttachmentsError
+      }
+    }
 
     const diff = computeDiff(previousDoc, updateData)
     if (!diff.isEmpty) {

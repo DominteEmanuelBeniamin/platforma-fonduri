@@ -26,6 +26,13 @@ interface DocRequest {
   attachment_path: string | null
   attachment_original_name?: string | null
   attachment_missing_at?: string | null
+  attachments?: {
+    id: string
+    storage_path: string
+    original_name: string | null
+    missing_at?: string | null
+    order_index?: number
+  }[]
   deadline_at: string | null
   created_at: string
   creator?: { full_name: string | null; email: string | null }
@@ -73,14 +80,19 @@ export default function ProjectDocumentsView({
         : undefined
       const activityName = req.activity?.name ?? undefined
 
-      if (req.attachment_path && !req.attachment_missing_at) {
+      const attachments = req.attachments?.length
+        ? req.attachments
+        : req.attachment_path
+        ? [{ id: `${req.id}_legacy`, storage_path: req.attachment_path, original_name: req.attachment_original_name || null, missing_at: req.attachment_missing_at }]
+        : []
+      attachments.filter(attachment => !attachment.missing_at).forEach((attachment, index) => {
         const isOutgoing = req.is_outgoing === true
         result.push({
-          id: `${req.id}_attachment`,
+          id: `${req.id}_attachment_${attachment.id || index}`,
           requestId: req.id,
           downloadKind: 'requestAttachment',
-          storagePath: req.attachment_path,
-          displayName: req.attachment_original_name || getStorageDisplayName(req.attachment_path) || (isOutgoing ? 'Document trimis clientului' : 'Model document'),
+          storagePath: attachment.storage_path,
+          displayName: attachment.original_name || getStorageDisplayName(attachment.storage_path) || (isOutgoing ? 'Document trimis clientului' : 'Model document'),
           uploadedAt: req.created_at,
           docName: req.name,
           entryType: isOutgoing ? 'outgoing_document' : 'request_attachment',
@@ -90,7 +102,7 @@ export default function ProjectDocumentsView({
           secondarySub: activityName,
           onRowClick: !isOutgoing && onOpenRequest ? () => onOpenRequest(req) : undefined,
         })
-      }
+      })
 
       ;(req.files ?? []).filter(file => !file.deleted_at).forEach(file => {
         result.push({

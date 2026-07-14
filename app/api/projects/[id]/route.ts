@@ -263,7 +263,7 @@ export async function DELETE(
 
     const { data: attachments, error: attErr } = await admin
       .from('document_requirements')
-      .select('attachment_path')
+      .select('attachment_path, document_requirement_attachments(id, storage_path)')
       .eq('project_id', projectId)
       .not('attachment_path', 'is', null)
 
@@ -275,12 +275,13 @@ export async function DELETE(
     const candidatePaths = Array.from(new Set([
       ...(fileRows ?? []).map(r => r.storage_path).filter((p): p is string => typeof p === 'string' && p.length > 0),
       ...(attachments ?? []).map(r => r.attachment_path).filter((p): p is string => typeof p === 'string' && p.length > 0),
+      ...(attachments ?? []).flatMap(r => (r.document_requirement_attachments ?? []).map((a: any) => a.storage_path)).filter((p): p is string => typeof p === 'string' && p.length > 0),
     ]))
 
     const retainedAttachmentPaths = new Set<string>()
 
     if (candidatePaths.length > 0) {
-      const [{ data: templateRefs, error: templateRefsErr }, { data: projectRefs, error: projectRefsErr }] = await Promise.all([
+      const [{ data: templateRefs, error: templateRefsErr }, { data: projectRefs, error: projectRefsErr }, { data: childRefs, error: childRefsErr }] = await Promise.all([
         admin
           .from('template_document_requirements')
           .select('attachment_path')
@@ -292,16 +293,26 @@ export async function DELETE(
           .in('attachment_path', candidatePaths)
           .neq('project_id', projectId)
           .is('deleted_at', null),
+        admin
+          .from('document_requirement_attachments')
+          .select('id, storage_path, document_requirement_id, template_document_requirement_id')
+          .in('storage_path', candidatePaths),
       ])
 
-      if (templateRefsErr || projectRefsErr) {
-        console.error('Fetch attachment references error:', { templateRefsErr, projectRefsErr })
+      if (templateRefsErr || projectRefsErr || childRefsErr) {
+        console.error('Fetch attachment references error:', { templateRefsErr, projectRefsErr, childRefsErr })
         return NextResponse.json({ error: 'Failed to check shared attachment references' }, { status: 500 })
       }
 
-      ;[...(templateRefs ?? []), ...(projectRefs ?? [])].forEach((row) => {
+      const ownAttachmentIds = new Set((attachments ?? []).flatMap(r => (r.document_requirement_attachments ?? []).map((a: any) => a.id)))
+      ;[...(templateRefs ?? []), ...(projectRefs ?? []), ...(childRefs ?? []).filter((row: any) =>
+        row.template_document_requirement_id ||
+        (row.document_requirement_id && !ownAttachmentIds.has(row.id))
+      )].forEach((row: any) => {
         if (typeof row.attachment_path === 'string' && row.attachment_path.length > 0) {
           retainedAttachmentPaths.add(row.attachment_path)
+        } else if (typeof row.storage_path === 'string' && row.storage_path.length > 0) {
+          retainedAttachmentPaths.add(row.storage_path)
         }
       })
     }

@@ -85,13 +85,16 @@ export async function PATCH(
         : typeof rawAttachmentOriginalName === 'string'
         ? rawAttachmentOriginalName
         : undefined
+    const attachments = Array.isArray((body as any).attachments)
+      ? (body as any).attachments.filter((item: any) => item && typeof item.storage_path === 'string' && item.storage_path.trim())
+      : undefined
 
     const admin = createSupabaseServiceClient()
 
     // Obține cererea pentru a afla project_id și detalii email
     const { data: req, error: reqError } = await admin
       .from('document_requirements')
-      .select('id, project_id, name, description, deadline_at, requirement_type, is_mandatory, is_outgoing, assigned_to, attachment_path, attachment_original_name, attachment_missing_at, attachment_missing_checked_at, deleted_at')
+      .select('id, project_id, name, description, deadline_at, requirement_type, is_mandatory, is_outgoing, assigned_to, attachment_path, attachment_original_name, attachment_missing_at, attachment_missing_checked_at, deleted_at, document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at, source_template_attachment_id, created_at)')
       .eq('id', requestId)
       .is('deleted_at', null)
       .maybeSingle()
@@ -156,6 +159,13 @@ export async function PATCH(
       updatePayload.attachment_missing_at = null
       updatePayload.attachment_missing_checked_at = null
     }
+    if (attachments !== undefined) {
+      const firstAttachment = attachments[0]
+      updatePayload.attachment_path = firstAttachment?.storage_path || null
+      updatePayload.attachment_original_name = firstAttachment?.original_name || null
+      updatePayload.attachment_missing_at = null
+      updatePayload.attachment_missing_checked_at = null
+    }
 
     if (Object.keys(updatePayload).length === 0) {
       return NextResponse.json({ error: 'Nu există câmpuri de actualizat' }, { status: 400 })
@@ -175,6 +185,32 @@ export async function PATCH(
     if (updateError) {
       console.error('PATCH document-requests update error:', updateError)
       return NextResponse.json({ error: 'Eroare la actualizarea cererii' }, { status: 500 })
+    }
+
+    if (attachments !== undefined) {
+      const { error: deleteAttachmentsError } = await admin
+        .from('document_requirement_attachments')
+        .delete()
+        .eq('document_requirement_id', requestId)
+      if (deleteAttachmentsError) throw deleteAttachmentsError
+
+      if (attachments.length > 0) {
+        const { error: insertAttachmentsError } = await admin
+          .from('document_requirement_attachments')
+          .insert(attachments.map((attachment: any, index: number) => ({
+            document_requirement_id: requestId,
+            storage_path: attachment.storage_path.trim(),
+            original_name: typeof attachment.original_name === 'string' ? attachment.original_name : null,
+            mime_type: typeof attachment.mime_type === 'string' ? attachment.mime_type : null,
+            file_size: typeof attachment.file_size === 'number' ? attachment.file_size : null,
+            order_index: index,
+            source_template_attachment_id: typeof attachment.source_template_attachment_id === 'string'
+              ? attachment.source_template_attachment_id
+              : null,
+            created_by: access.profile.id,
+          })))
+        if (insertAttachmentsError) throw insertAttachmentsError
+      }
     }
 
     await logAction({

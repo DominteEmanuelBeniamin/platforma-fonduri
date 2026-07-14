@@ -53,6 +53,16 @@ interface DocumentRequest {
   attachment_original_name?: string | null
   attachment_missing_at?: string | null
   attachment_missing_checked_at?: string | null
+  attachments?: {
+    id: string
+    storage_path: string
+    original_name: string | null
+    mime_type?: string | null
+    file_size?: number | null
+    order_index?: number
+    missing_at?: string | null
+    missing_checked_at?: string | null
+  }[]
   deadline_at: string | null
   created_by: string | null
   created_at: string
@@ -244,7 +254,9 @@ export default function DocumentRequests({
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState<RequirementType>('obligatoriu')
-  const [templateFile, setTemplateFile] = useState<File | null>(null)
+  const [templateFiles, setTemplateFiles] = useState<File[]>([])
+  const [templateAttachments, setTemplateAttachments] = useState<NonNullable<DocumentRequest['attachments']>>([])
+  const [templateAttachmentsTouched, setTemplateAttachmentsTouched] = useState(false)
   const [templateFileError, setTemplateFileError] = useState('')
   const [deadline, setDeadline] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -437,26 +449,43 @@ export default function DocumentRequests({
 
 
   const handleTemplateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.currentTarget.files?.[0]
+    const files = Array.from(e.currentTarget.files ?? [])
     e.currentTarget.value = ''
-    if (!file) return
+    if (files.length === 0) return
 
-    const error = validateFile(file, [])
-    if (error) {
-      setTemplateFile(null)
-      setTemplateFileError(error.message)
-      return
+    const accepted: File[] = []
+    const errors: string[] = []
+    for (const file of files) {
+      const existing = [...templateFiles, ...accepted].map(candidate => ({
+        id: candidate.name,
+        file: candidate,
+        name: candidate.name,
+        size: candidate.size,
+        type: candidate.type,
+        relativePath: null,
+      }))
+      const error = validateFile(file, existing)
+      if (error) {
+        errors.push(`${file.name}: ${error.message}`)
+      } else {
+        accepted.push(file)
+      }
     }
 
-    setTemplateFile(file)
-    setTemplateFileError('')
+    if (accepted.length > 0) {
+      setTemplateFiles(current => [...current, ...accepted])
+      setTemplateAttachmentsTouched(true)
+    }
+    setTemplateFileError(errors.join('\n'))
   }
 
   const resetRequestForm = () => {
     setName('')
     setDescription('')
     setCategory('obligatoriu')
-    setTemplateFile(null)
+    setTemplateFiles([])
+    setTemplateAttachments([])
+    setTemplateAttachmentsTouched(false)
     setTemplateFileError('')
     setDeadline('')
     setEditingRequest(null)
@@ -477,7 +506,19 @@ export default function DocumentRequests({
     setName(request.name)
     setDescription(request.description ?? '')
     setCategory(request.requirement_type ?? 'obligatoriu')
-    setTemplateFile(null)
+    setTemplateFiles([])
+    setTemplateAttachments(request.attachments?.length
+      ? request.attachments
+      : request.attachment_path
+      ? [{
+          id: `legacy-${request.id}`,
+          storage_path: request.attachment_path,
+          original_name: request.attachment_original_name || null,
+          missing_at: request.attachment_missing_at || null,
+          missing_checked_at: request.attachment_missing_checked_at || null,
+        }]
+      : [])
+    setTemplateAttachmentsTouched(false)
     setTemplateFileError('')
     setDeadline(request.deadline_at ? request.deadline_at.slice(0, 10) : '')
     setShowForm(true)
@@ -639,10 +680,10 @@ export default function DocumentRequests({
   }
 
 
-  const downloadAttachmentModel = async (requestId: string) => {
+  const downloadAttachmentModel = async (requestId: string, attachmentId?: string) => {
     const res = await apiFetch(`/api/document-requests/${requestId}/attachment/signed-download`, {
       method: 'POST',
-      body: JSON.stringify({ expiresIn: 60 * 5 }),
+      body: JSON.stringify({ expiresIn: 60 * 5, attachment_id: attachmentId }),
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -683,32 +724,51 @@ export default function DocumentRequests({
     setSubmitting(true)
 
     try {
-      let attachment_path: string | null | undefined = editingRequest ? undefined : null
+      let uploadedAttachments: { storage_path: string; original_name: string | null; mime_type?: string | null; file_size?: number | null }[] | undefined =
+        editingRequest
+          ? templateAttachmentsTouched ? templateAttachments.map(attachment => ({
+              storage_path: attachment.storage_path,
+              original_name: attachment.original_name,
+              mime_type: attachment.mime_type ?? null,
+              file_size: attachment.file_size ?? null,
+            })) : undefined
+          : []
 
-      if (templateFile) {
-        // 1) init template upload
-        const initRes = await apiFetch(`/api/projects/${projectId}/document-requests/attachment/init`, {
-          method: 'POST',
-          body: JSON.stringify({
-            name: templateFile.name,
-            size: templateFile.size,
-            type: templateFile.type || 'application/octet-stream',
-          }),
-        })
-        const init = await initRes.json().catch(() => ({}))
-        if (!initRes.ok) throw new Error(init?.error || 'Init attachment upload failed')
+      if (templateFiles.length > 0) {
+        uploadedAttachments = uploadedAttachments ?? templateAttachments.map(attachment => ({
+          storage_path: attachment.storage_path,
+          original_name: attachment.original_name,
+          mime_type: attachment.mime_type ?? null,
+          file_size: attachment.file_size ?? null,
+        }))
+        for (const templateFile of templateFiles) {
+          const initRes = await apiFetch(`/api/projects/${projectId}/document-requests/attachment/init`, {
+            method: 'POST',
+            body: JSON.stringify({
+              name: templateFile.name,
+              size: templateFile.size,
+              type: templateFile.type || 'application/octet-stream',
+            }),
+          })
+          const init = await initRes.json().catch(() => ({}))
+          if (!initRes.ok) throw new Error(init?.error || 'Init attachment upload failed')
 
-        // 2) PUT to storage
-        const putRes = await fetch(init.signedUploadUrl, {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${init.token}`,
-            'Content-Type': templateFile.type || 'application/octet-stream',
-          },
-          body: templateFile,
-        })
-        if (!putRes.ok) throw new Error('Attachment upload failed')
-        attachment_path = init.storagePath
+          const putRes = await fetch(init.signedUploadUrl, {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${init.token}`,
+              'Content-Type': templateFile.type || 'application/octet-stream',
+            },
+            body: templateFile,
+          })
+          if (!putRes.ok) throw new Error('Attachment upload failed')
+          uploadedAttachments.push({
+            storage_path: init.storagePath,
+            original_name: templateFile.name,
+            mime_type: templateFile.type || 'application/octet-stream',
+            file_size: templateFile.size,
+          })
+        }
       }
 
       const requestBody: Record<string, unknown> = {
@@ -718,9 +778,10 @@ export default function DocumentRequests({
         deadline_at: deadline || null,
       }
 
-      if (attachment_path !== undefined) {
-        requestBody.attachment_path = attachment_path
-        requestBody.attachment_original_name = attachment_path ? templateFile?.name || null : null
+      if (uploadedAttachments !== undefined) {
+        requestBody.attachments = uploadedAttachments
+        requestBody.attachment_path = uploadedAttachments[0]?.storage_path || null
+        requestBody.attachment_original_name = uploadedAttachments[0]?.original_name || null
       }
 
       if (!editingRequest) {
@@ -1043,21 +1104,22 @@ export default function DocumentRequests({
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                 <label className="flex-1 cursor-pointer">
                   <div className={`px-4 py-3 border-2 border-dashed rounded-xl text-center transition-all ${
-                    templateFile ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                    templateFiles.length > 0 ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                   }`}>
                     <div className="flex items-center justify-center gap-2 text-sm">
-                      <Paperclip className={`w-4 h-4 ${templateFile ? 'text-indigo-600' : 'text-slate-400'}`} />
-                      <span className={templateFile ? 'text-indigo-700 font-medium' : 'text-slate-500'}>
-                        {templateFile
-                          ? templateFile.name
+                      <Paperclip className={`w-4 h-4 ${templateFiles.length > 0 ? 'text-indigo-600' : 'text-slate-400'}`} />
+                      <span className={templateFiles.length > 0 ? 'text-indigo-700 font-medium' : 'text-slate-500'}>
+                        {templateFiles.length > 0
+                          ? templateFiles.map(file => file.name).join(', ')
                           : editingRequest
-                          ? 'Înlocuiește model (opțional)'
-                          : 'Atașează model (opțional)'}
+                          ? 'Adaugă modele (opțional)'
+                          : 'Atașează modele (opțional)'}
                       </span>
                     </div>
                   </div>
                   <input
                     type="file"
+                    multiple
                     onClick={(e) => { e.currentTarget.value = '' }}
                     onChange={handleTemplateFileChange}
                     className="hidden"
@@ -1074,19 +1136,47 @@ export default function DocumentRequests({
                     : editingRequest ? 'Salvează modificările' : 'Trimite cerere'}
                 </button>
               </div>
-              {editingRequest?.attachment_path && !editingRequest.attachment_missing_at && (
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <Paperclip className="w-3.5 h-3.5 text-slate-400" />
-                  <span>
-                    Model existent: {editingRequest.attachment_original_name || 'fișier atașat'}
-                    {templateFile ? ' · va fi înlocuit la salvare' : ''}
-                  </span>
+              {(templateAttachments.length > 0 || templateFiles.length > 0) && (
+                <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  {templateAttachments.map(attachment => (
+                    <div key={attachment.id} className="flex items-center gap-2 text-xs text-slate-600">
+                      <Paperclip className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">{attachment.original_name || attachment.storage_path.split('/').pop() || 'model atașat'}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTemplateAttachments(current => current.filter(item => item.id !== attachment.id))
+                          setTemplateAttachmentsTouched(true)
+                        }}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        Elimină
+                      </button>
+                    </div>
+                  ))}
+                  {templateFiles.map((file, index) => (
+                    <div key={`${file.name}-${file.size}-${index}`} className="flex items-center gap-2 text-xs text-indigo-700">
+                      <Paperclip className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                      <span className="text-indigo-500">{formatFileSize(file.size)}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTemplateFiles(current => current.filter((_, fileIndex) => fileIndex !== index))
+                          setTemplateAttachmentsTouched(true)
+                        }}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        Elimină
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
               {templateFileError && (
-                <div className="flex items-center gap-2 text-xs text-red-600">
+                <div className="flex items-start gap-2 text-xs text-red-600">
                   <AlertCircle className="w-3.5 h-3.5" />
-                  <span>{templateFileError}</span>
+                  <span className="whitespace-pre-line">{templateFileError}</span>
                 </div>
               )}
               {editingRequest?.attachment_missing_at && (
@@ -1122,16 +1212,19 @@ export default function DocumentRequests({
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-900 break-words">{doc.name}</p>
                       <p className="text-xs text-slate-500 truncate">
-                        {doc.attachment_original_name || 'document'} · {new Date(doc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {(doc.attachments?.length ? doc.attachments : [{ original_name: doc.attachment_original_name || 'document' }]).map((attachment: any) => attachment.original_name).join(', ')} · {new Date(doc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => downloadAttachmentModel(doc.id)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-white text-emerald-700 text-xs font-semibold hover:bg-emerald-50 flex-shrink-0"
-                    >
-                      <Download className="w-3.5 h-3.5" /> Descarcă
-                    </button>
+                    {(doc.attachments?.length ? doc.attachments : [{ id: undefined }]).map((attachment: any, index: number) => (
+                      <button
+                        key={`${doc.id}-attachment-${index}`}
+                        type="button"
+                        onClick={() => downloadAttachmentModel(doc.id, attachment.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-white text-emerald-700 text-xs font-semibold hover:bg-emerald-50 flex-shrink-0"
+                      >
+                        <Download className="w-3.5 h-3.5" /> {doc.attachments?.length ? attachment.original_name || `Descarcă ${index + 1}` : 'Descarcă'}
+                      </button>
+                    ))}
                     {isAdminOrConsultant && (
                       <button
                         type="button"
@@ -1218,15 +1311,25 @@ export default function DocumentRequests({
                         ) : null}
 
 
-                        {req.attachment_path && !req.attachment_missing_at && !missingAttachments.has(req.id) && (
+                        {(req.attachments?.length ? req.attachments : req.attachment_path ? [{
+                          id: undefined,
+                          storage_path: req.attachment_path,
+                          original_name: req.attachment_original_name || null,
+                          missing_at: req.attachment_missing_at,
+                        }] : []).map((attachment: any, index: number) => attachment.missing_at || missingAttachments.has(req.id) ? (
+                          <span key={`${req.id}-${index}`} className="flex items-center gap-1.5 text-amber-700">
+                            <AlertCircle className="w-3.5 h-3.5" /> Model indisponibil
+                          </span>
+                        ) : (
                           <button
-                            onClick={(e) => { e.stopPropagation(); downloadAttachmentModel(req.id) }}
+                            key={`${req.id}-${index}`}
+                            onClick={(e) => { e.stopPropagation(); downloadAttachmentModel(req.id, attachment.id) }}
                             className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 transition-colors"
                           >
                             <Download className="w-3.5 h-3.5" />
-                            Model
+                            {attachment.original_name || `Model ${index + 1}`}
                           </button>
-                        )}
+                        ))}
                         {(req.attachment_missing_at || missingAttachments.has(req.id)) && (
                           <span className={`flex items-center gap-1.5 ${isAdminOrConsultant ? 'text-amber-700' : 'text-slate-500'}`}>
                             <AlertCircle className="w-3.5 h-3.5" />
