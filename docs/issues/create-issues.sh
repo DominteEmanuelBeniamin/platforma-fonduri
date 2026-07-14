@@ -15,12 +15,10 @@ gh label create "audit"    --repo "$REPO" --color "0E8A16" --description "Jurnal
 
 echo
 echo "== Creez issue-urile =="
-# Deja publicate manual (a nu se recrea — ar rezulta duplicate)
-PUBLISHED="09-bug-deschidere-cereri-client.md 17-preview-documente-in-browser.md 05-mesaje-clare-in-aplicatie.md"
-
+# Convenție: după publicare, draft-ul se ȘTERGE din acest director
+# (issue-urile #44, #45, #46 au fost publicate așa). Ce e aici = nepublicat.
 for f in [0-9][0-9]-*.md; do
   [ "$f" = "00-INDEX.md" ] && continue
-  case " $PUBLISHED " in *" $f "*) echo "SAR (publicat deja): $f"; continue;; esac
   labels=$(sed -n '1s/^<!-- labels: \(.*\) -->$/\1/p' "$f")
   title=$(sed -n '2s/^# //p' "$f")
 

@@ -3,10 +3,10 @@
 Draft-uri pentru issue-urile GitHub generate din documentul „Platforma Fonduri — Cerințe funcționale".
 Publicarea restului se face cu `./create-issues.sh` (vezi jos).
 
-**Publicate deja pe GitHub** (Etapa 1 — remedieri rapide):
-[#44](https://github.com/DominteEmanuelBeniamin/platforma-fonduri/issues/44) bug cereri client ·
-[#45](https://github.com/DominteEmanuelBeniamin/platforma-fonduri/issues/45) preview în browser ·
-[#46](https://github.com/DominteEmanuelBeniamin/platforma-fonduri/issues/46) mesaje clare
+**Publicate deja pe GitHub** (Etapa 1 — remedieri rapide; draft-urile au fost șterse de aici, conținutul e în issue):
+[#44](https://github.com/DominteEmanuelBeniamin/platforma-fonduri/issues/44) bug cereri client (cerința 9) ·
+[#45](https://github.com/DominteEmanuelBeniamin/platforma-fonduri/issues/45) preview în browser (cerința 17) ·
+[#46](https://github.com/DominteEmanuelBeniamin/platforma-fonduri/issues/46) mesaje clare (cerința 5)
 
 ## Cerințe deja acoperite de issue-uri existente (nu se recreează)
 
@@ -15,13 +15,10 @@ Publicarea restului se face cu `./create-issues.sh` (vezi jos).
 | 1. Reordonarea fazelor/activităților/cererilor — *în testare* | [#21](https://github.com/DominteEmanuelBeniamin/platforma-fonduri/issues/21) |
 | 2. Trimiterea mai multor documente informative deodată — *în testare* | [#23](https://github.com/DominteEmanuelBeniamin/platforma-fonduri/issues/23) |
 
-## Issue-uri noi (22)
+## Issue-uri de publicat (19)
 
 | Cerință | Fișier | Etichete | Etapă propusă |
 |---|---|---|---|
-| 9 | `09-bug-deschidere-cereri-client.md` | bug | **1 — Remedieri rapide** |
-| 5 | `05-mesaje-clare-in-aplicatie.md` | enhancement, ux | 1 — Remedieri rapide |
-| 17 | `17-preview-documente-in-browser.md` | enhancement, ux | 1 — Remedieri rapide |
 | 10 | `10-drepturi-noi-consultanti.md` | enhancement, security | **2 — Fundații** |
 | 6 | `06-sabloane-ciorna-publicat.md` | enhancement | 2 — Fundații |
 | 8 | `08-faze-activitati-in-pregatire-public.md` | enhancement, security | 2 — Fundații |
