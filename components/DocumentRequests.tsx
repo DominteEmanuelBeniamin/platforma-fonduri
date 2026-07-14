@@ -42,6 +42,7 @@ import {
   REMINDER_BADGE,
 } from '@/lib/document-reminder'
 import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS, REQUIREMENT_BADGE } from '@/lib/requirement-type'
+import { isPreviewableFileName, openInNewTab } from '@/lib/file-preview'
 
 interface DocumentRequest {
   id: string
@@ -688,10 +689,10 @@ export default function DocumentRequests({
   }
 
 
-  const downloadAttachmentModel = async (requestId: string) => {
+  const fetchAttachmentSignedUrl = async (requestId: string, disposition?: 'inline') => {
     const res = await apiFetch(`/api/document-requests/${requestId}/attachment/signed-download`, {
       method: 'POST',
-      body: JSON.stringify({ expiresIn: 60 * 5 }),
+      body: JSON.stringify({ expiresIn: 60 * 5, ...(disposition ? { disposition } : {}) }),
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -699,9 +700,20 @@ export default function DocumentRequests({
         setMissingAttachments(prev => new Set(prev).add(requestId))
         await fetchRequests()
       }
-      return alert('Eroare la descărcare: ' + (data?.error || res.statusText))
+      alert('Eroare la descărcare: ' + (data?.error || res.statusText))
+      return null
     }
-    forceDownload(data.url)
+    return data.url as string
+  }
+
+  const downloadAttachmentModel = async (requestId: string) => {
+    const url = await fetchAttachmentSignedUrl(requestId)
+    if (url) forceDownload(url)
+  }
+
+  const openAttachmentModel = async (requestId: string) => {
+    const url = await fetchAttachmentSignedUrl(requestId, 'inline')
+    if (url) openInNewTab(url)
   }
 
   const handleDeleteRequest = async () => {
@@ -1174,6 +1186,16 @@ export default function DocumentRequests({
                         {doc.attachment_original_name || 'document'} · {new Date(doc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </p>
                     </div>
+                    {isPreviewableFileName(doc.attachment_original_name || doc.attachment_path) && (
+                      <button
+                        type="button"
+                        onClick={() => openAttachmentModel(doc.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-white text-emerald-700 text-xs font-semibold hover:bg-emerald-50 flex-shrink-0"
+                        title="Deschide în tab nou"
+                      >
+                        <Eye className="w-3.5 h-3.5" /> Deschide
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => downloadAttachmentModel(doc.id)}
@@ -1283,13 +1305,25 @@ export default function DocumentRequests({
 
 
                         {req.attachment_path && !req.attachment_missing_at && !missingAttachments.has(req.id) && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); downloadAttachmentModel(req.id) }}
-                            className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 transition-colors"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            Model
-                          </button>
+                          <>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); downloadAttachmentModel(req.id) }}
+                              className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 transition-colors"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              Model
+                            </button>
+                            {isPreviewableFileName(req.attachment_original_name || req.attachment_path) && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); openAttachmentModel(req.id) }}
+                                className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 transition-colors"
+                                title="Deschide modelul în tab nou"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                Deschide
+                              </button>
+                            )}
+                          </>
                         )}
                         {(req.attachment_missing_at || missingAttachments.has(req.id)) && (
                           <span className={`flex items-center gap-1.5 ${isAdminOrConsultant ? 'text-amber-700' : 'text-slate-500'}`}>

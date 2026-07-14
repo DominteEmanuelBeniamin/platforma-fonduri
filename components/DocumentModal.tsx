@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { downloadFilesArchive } from '@/app/api/_utils/download-files-archive'
+import { isPreviewableFileName, openInNewTab } from '@/lib/file-preview'
 import { Mail } from 'lucide-react'
 import {
   getReminderType,
@@ -372,6 +373,31 @@ export default function DocumentModal({
     }
   }
 
+  const openAttachmentModel = async () => {
+    if (!localAttachmentPath || attachmentMissing) return
+    setDownloadingId('open-attachment')
+    try {
+      const res = await apiFetch(`/api/document-requests/${request.id}/attachment/signed-download`, {
+        method: 'POST',
+        body: JSON.stringify({ expiresIn: 60 * 5, disposition: 'inline' })
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (res.status === 404) {
+          setAttachmentMissing(true)
+          onUpdate()
+        }
+        throw new Error(data?.error || res.statusText)
+      }
+
+      openInNewTab(data.url)
+    } catch (error: any) {
+      showToast('Eroare la deschidere: ' + error.message, 'error')
+    } finally {
+      setDownloadingId(null)
+    }
+  }
+
   const patchAttachmentPath = async (attachmentPath: string | null, attachmentOriginalName?: string | null) => {
     const res = await apiFetch(`/api/document-requests/${request.id}`, {
       method: 'PATCH',
@@ -465,6 +491,24 @@ export default function DocumentModal({
       showToast('Descărcare începută', 'success')
     } catch (error: any) {
       showToast('Eroare la descărcare: ' + error.message, 'error')
+    } finally {
+      setDownloadingId(null)
+    }
+  }
+
+  const openUploadedFileById = async (fileId: string) => {
+    setDownloadingId(`open-${fileId}`)
+    try {
+      const res = await apiFetch(`/api/files/${fileId}/signed-download`, {
+        method: 'POST',
+        body: JSON.stringify({ expiresIn: 60 * 5, disposition: 'inline' })
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || res.statusText)
+
+      openInNewTab(data.url)
+    } catch (error: any) {
+      showToast('Eroare la deschidere: ' + error.message, 'error')
     } finally {
       setDownloadingId(null)
     }
@@ -778,13 +822,12 @@ export default function DocumentModal({
                     <span className="w-1 h-1 rounded-full bg-slate-400" />
                     Model
                   </p>
-                  <button
-                    onClick={downloadAttachmentModel}
-                    disabled={downloadingId === 'attachment'}
-                    className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-indigo-50/30 hover:from-indigo-100 hover:to-indigo-50 transition-all group text-left disabled:opacity-60 shadow-sm hover:shadow-md"
+                  <div
+                    onClick={() => { if (!downloadingId) downloadAttachmentModel() }}
+                    className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-indigo-50/30 hover:from-indigo-100 hover:to-indigo-50 transition-all group text-left shadow-sm hover:shadow-md cursor-pointer"
                   >
                     <div className="w-12 h-12 rounded-xl bg-white shadow-sm border border-indigo-100 flex items-center justify-center text-indigo-600 flex-shrink-0">
-                      {downloadingId === 'attachment' ? (
+                      {downloadingId === 'attachment' || downloadingId === 'open-attachment' ? (
                         <Loader2 className="w-6 h-6 animate-spin" />
                       ) : (
                         <FileText className="w-6 h-6" />
@@ -795,13 +838,28 @@ export default function DocumentModal({
                       <p className="text-xs text-indigo-600">Model de completat pentru client</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-white rounded-lg border border-indigo-200">
+                      {isPreviewableFileName(localAttachmentPath) && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openAttachmentModel() }}
+                          disabled={downloadingId === 'open-attachment'}
+                          className="flex items-center gap-1.5 px-2.5 py-1 bg-white rounded-lg border border-indigo-200 hover:bg-indigo-50 transition-colors disabled:opacity-60"
+                          title="Deschide în tab nou"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-indigo-500" />
+                          <span className="hidden sm:inline text-xs font-semibold text-indigo-700">Deschide</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); downloadAttachmentModel() }}
+                        disabled={downloadingId === 'attachment'}
+                        className="flex items-center gap-1.5 px-2.5 py-1 bg-white rounded-lg border border-indigo-200 hover:bg-indigo-50 transition-colors disabled:opacity-60"
+                        title="Descarcă"
+                      >
                         <Download className="w-3.5 h-3.5 text-indigo-500" />
-                        <span className="text-xs font-semibold text-indigo-700">Download</span>
-                      </div>
-                      <Download className="w-5 h-5 text-indigo-400 sm:hidden" />
+                        <span className="hidden sm:inline text-xs font-semibold text-indigo-700">Download</span>
+                      </button>
                     </div>
-                  </button>
+                  </div>
                 </div>
               )}
 
@@ -1060,18 +1118,36 @@ export default function DocumentModal({
                                         </p>
                                       </div>
 
-                                      <button
-                                        onClick={() => downloadUploadedFileById(file.id)}
-                                        disabled={downloadingId === file.id}
-                                        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-colors disabled:opacity-60 flex-shrink-0"
-                                      >
-                                        {downloadingId === file.id ? (
-                                          <Loader2 className="w-4 h-4 animate-spin text-slate-500" />
-                                        ) : (
-                                          <Download className="w-4 h-4 text-slate-500" />
+                                      <div className="flex items-center gap-2 flex-shrink-0">
+                                        {isPreviewableFileName(fileName) && (
+                                          <button
+                                            onClick={() => openUploadedFileById(file.id)}
+                                            disabled={downloadingId === `open-${file.id}`}
+                                            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-colors disabled:opacity-60"
+                                            title="Deschide în tab nou"
+                                          >
+                                            {downloadingId === `open-${file.id}` ? (
+                                              <Loader2 className="w-4 h-4 animate-spin text-slate-500" />
+                                            ) : (
+                                              <Eye className="w-4 h-4 text-slate-500" />
+                                            )}
+                                            <span className="text-sm font-semibold">Deschide</span>
+                                          </button>
                                         )}
-                                        <span className="text-sm font-semibold">Download</span>
-                                      </button>
+                                        <button
+                                          onClick={() => downloadUploadedFileById(file.id)}
+                                          disabled={downloadingId === file.id}
+                                          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-colors disabled:opacity-60"
+                                          title="Descarcă"
+                                        >
+                                          {downloadingId === file.id ? (
+                                            <Loader2 className="w-4 h-4 animate-spin text-slate-500" />
+                                          ) : (
+                                            <Download className="w-4 h-4 text-slate-500" />
+                                          )}
+                                          <span className="text-sm font-semibold">Download</span>
+                                        </button>
+                                      </div>
                                     </div>
                                   )
                                 })}

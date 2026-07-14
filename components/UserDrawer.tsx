@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useRouter } from 'next/navigation'
+import { isPreviewableFileName, openInNewTab } from '@/lib/file-preview'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -215,8 +216,20 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
       })
       if (!res.ok) { alert('Eroare la descărcare'); return }
       const { url } = await res.json()
-      const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'
+      const a = document.createElement('a'); a.href = url; a.rel = 'noopener'
       document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    } finally { setDownloading(null) }
+  }
+
+  async function handleOpen(fileId: string) {
+    setDownloading(`open-${fileId}`)
+    try {
+      const res = await apiFetch(`/api/files/${fileId}/signed-download`, {
+        method: 'POST', body: JSON.stringify({ expiresIn: 300, disposition: 'inline' }),
+      })
+      if (!res.ok) { alert('Eroare la deschidere'); return }
+      const { url } = await res.json()
+      openInNewTab(url)
     } finally { setDownloading(null) }
   }
 
@@ -512,8 +525,24 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                       <p style={{ fontSize: '11px', color: '#9aa0a6' }}>{dateStr}</p>
                     </div>
 
-                    {/* Download */}
-                    <div className="flex-shrink-0">
+                    {/* Actions */}
+                    <div className="flex-shrink-0 flex items-center">
+                      {latest && isPreviewableFileName(latest.original_name || latest.storage_path) && (
+                        <button
+                          onClick={() => handleOpen(latest.id)}
+                          disabled={downloading === `open-${latest.id}`}
+                          className="p-2 rounded-full transition-colors disabled:opacity-40 opacity-0 group-hover:opacity-100"
+                          style={{ color: '#5f6368' }}
+                          onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
+                          onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                          title="Deschide în tab nou"
+                        >
+                          {downloading === `open-${latest.id}`
+                            ? <Loader2 className="w-4 h-4 animate-spin" />
+                            : <Eye className="w-4 h-4" />
+                          }
+                        </button>
+                      )}
                       {latest && (
                         <button
                           onClick={() => handleDownload(latest.id)}

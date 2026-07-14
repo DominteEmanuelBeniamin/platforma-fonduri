@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { logAction } from '@/app/api/_utils/audit'
+import { isPreviewableFileName } from '@/lib/file-preview'
 
 const BUCKET = 'project-files'
 
@@ -82,9 +83,10 @@ export async function POST(
   { params }: { params: Promise<{ requestId: string }> }
 ) {
   try {
-    const { requestId } = await params 
+    const { requestId } = await params
     const body = await request.json().catch(() => ({}))
     const expiresIn = typeof body?.expiresIn === 'number' ? body.expiresIn : 60 * 5
+    const inlineRequested = body?.disposition === 'inline'
 
     const admin = createSupabaseServiceClient()
 
@@ -114,10 +116,14 @@ export async function POST(
       return NextResponse.json({ error: 'No attachment on this request' }, { status: 404 })
     }
 
+    // atașamentele nu au mime type stocat, decidem după extensia numelui
+    const inline = inlineRequested &&
+      isPreviewableFileName(reqRow.attachment_original_name || reqRow.attachment_path)
+
     const { data, error: signErr } = await admin.storage
       .from(BUCKET)
       .createSignedUrl(reqRow.attachment_path, expiresIn, {
-        download: reqRow.attachment_original_name || true,
+        download: inline ? false : (reqRow.attachment_original_name || true),
       })
 
     if (signErr || !data?.signedUrl) {
@@ -159,10 +165,11 @@ export async function POST(
         attachment_original_name: reqRow.attachment_original_name ?? null,
         expires_in: expiresIn,
         is_outgoing: Boolean(reqRow.is_outgoing),
+        disposition: inline ? 'inline' : 'attachment',
       },
       description: reqRow.is_outgoing
-        ? `Descarcare document trimis clientului "${requestName}" din proiectul "${projectTitle}"`
-        : `Descarcare model atasat cererii "${requestName}" din proiectul "${projectTitle}"`,
+        ? `${inline ? 'Vizualizare' : 'Descarcare'} document trimis clientului "${requestName}" din proiectul "${projectTitle}"`
+        : `${inline ? 'Vizualizare' : 'Descarcare'} model atasat cererii "${requestName}" din proiectul "${projectTitle}"`,
       request,
     })
 

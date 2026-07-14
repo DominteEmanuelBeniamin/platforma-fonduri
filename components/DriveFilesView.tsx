@@ -3,9 +3,10 @@
 import { useMemo, useState, useRef, useEffect } from 'react'
 import {
   FileText, FileSpreadsheet, Image as ImageIcon,
-  Download,
+  Download, Eye,
   Search, FolderOpen, ChevronDown, Grid3X3, List,
 } from 'lucide-react'
+import { isPreviewableFileName, openInNewTab } from '@/lib/file-preview'
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -185,31 +186,54 @@ export default function DriveFilesView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows])
 
+  function rowActionId(row: DriveRow) {
+    return row.downloadKind === 'requestAttachment' ? `attachment-${row.requestId}` : row.fileId!
+  }
+
+  function isRowPreviewable(row: DriveRow) {
+    return isPreviewableFileName(row.displayName) || isPreviewableFileName(row.storagePath)
+  }
+
+  async function fetchSignedUrl(row: DriveRow, disposition?: 'inline') {
+    const endpoint = row.downloadKind === 'requestAttachment'
+      ? `/api/document-requests/${row.requestId}/attachment/signed-download`
+      : `/api/files/${row.fileId!}/signed-download`
+
+    const res = await apiFetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ expiresIn: 300, ...(disposition ? { disposition } : {}) }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) { alert(data?.error || 'Eroare la descărcare'); return null }
+    return data.url as string
+  }
+
   async function handleDownload(e: React.MouseEvent, row: DriveRow) {
     e.stopPropagation()
     if (row.downloadKind === 'requestAttachment' && !row.requestId) return
     if (row.downloadKind !== 'requestAttachment' && !row.fileId) return
 
-    const downloadId = row.downloadKind === 'requestAttachment'
-      ? `attachment-${row.requestId}`
-      : row.fileId!
-
-    setDownloading(downloadId)
+    setDownloading(rowActionId(row))
     try {
-      const endpoint = row.downloadKind === 'requestAttachment'
-        ? `/api/document-requests/${row.requestId}/attachment/signed-download`
-        : `/api/files/${row.fileId!}/signed-download`
-
-      const res = await apiFetch(endpoint, {
-        method: 'POST', body: JSON.stringify({ expiresIn: 300 }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) { alert(data?.error || 'Eroare la descărcare'); return }
-      const { url } = data
+      const url = await fetchSignedUrl(row)
+      if (!url) return
       const a = document.createElement('a')
       a.href = url
       a.rel = 'noopener'
       document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    } finally { setDownloading(null) }
+  }
+
+  async function handleOpen(e: React.MouseEvent, row: DriveRow) {
+    e.stopPropagation()
+    if (row.downloadKind === 'requestAttachment' && !row.requestId) return
+    if (row.downloadKind !== 'requestAttachment' && !row.fileId) return
+
+    setDownloading(`open-${rowActionId(row)}`)
+    try {
+      const url = await fetchSignedUrl(row, 'inline')
+      if (!url) return
+      openInNewTab(url)
     } finally { setDownloading(null) }
   }
 
@@ -373,7 +397,7 @@ export default function DriveFilesView({
           /* ══ LIST VIEW ══ */
           <div>
             <div className="grid px-4 py-2 border-b" style={{
-              gridTemplateColumns: '3fr 1.5fr 1fr 1fr 40px',
+              gridTemplateColumns: '3fr 1.5fr 1fr 1fr 72px',
               gap: '8px', borderColor: '#e0e0e0', backgroundColor: '#fafafa',
             }}>
               {([
@@ -404,7 +428,7 @@ export default function DriveFilesView({
                 onClick={() => row.onRowClick?.()}
                 className="grid items-center px-4 py-1.5 transition-colors"
                 style={{
-                  gridTemplateColumns: '3fr 1.5fr 1fr 1fr 40px',
+                  gridTemplateColumns: '3fr 1.5fr 1fr 1fr 72px',
                   gap: '8px',
                   backgroundColor: hoveredId === row.id ? '#f8f9fa' : 'transparent',
                   borderBottom: '1px solid #f1f3f4',
@@ -458,18 +482,33 @@ export default function DriveFilesView({
                 {/* Date */}
                 <p style={{ fontSize: '12px', color: '#5f6368' }}>{formatDate(row.uploadedAt)}</p>
 
-                {/* Download */}
-                <div className="flex items-center justify-end" onClick={e => e.stopPropagation()}>
+                {/* Actions */}
+                <div className="flex items-center justify-end gap-0.5" onClick={e => e.stopPropagation()}>
+                  {hoveredId === row.id && isRowPreviewable(row) && (
+                    <button
+                      onClick={e => handleOpen(e, row)}
+                      disabled={downloading === `open-${rowActionId(row)}`}
+                      className="p-1.5 rounded-full transition-colors"
+                      style={{ color: '#5f6368' }}
+                      onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
+                      onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                      title="Deschide în tab nou">
+                      {downloading === `open-${rowActionId(row)}`
+                        ? <span className="w-4 h-4 border-2 rounded-full animate-spin block" style={{ borderColor: '#dadce0', borderTopColor: '#1a73e8' }} />
+                        : <Eye className="w-4 h-4" />
+                      }
+                    </button>
+                  )}
                   {hoveredId === row.id && (
                     <button
                       onClick={e => handleDownload(e, row)}
-                      disabled={downloading === (row.downloadKind === 'requestAttachment' ? `attachment-${row.requestId}` : row.fileId)}
+                      disabled={downloading === rowActionId(row)}
                       className="p-1.5 rounded-full transition-colors"
                       style={{ color: '#5f6368' }}
                       onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
                       onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
                       title="Descarcă">
-                      {downloading === (row.downloadKind === 'requestAttachment' ? `attachment-${row.requestId}` : row.fileId)
+                      {downloading === rowActionId(row)
                         ? <span className="w-4 h-4 border-2 rounded-full animate-spin block" style={{ borderColor: '#dadce0', borderTopColor: '#1a73e8' }} />
                         : <Download className="w-4 h-4" />
                       }
@@ -524,15 +563,28 @@ export default function DriveFilesView({
                       {row.entryLabel ? `${row.entryLabel} · ` : ''}{formatDate(row.uploadedAt)}
                     </p>
                   </div>
-                  <div onClick={e => e.stopPropagation()} className="flex-shrink-0">
-                    {hoveredId === row.id && (
+                  <div onClick={e => e.stopPropagation()} className="flex-shrink-0 flex items-center">
+                    {hoveredId === row.id && isRowPreviewable(row) && (
                       <button
-                        onClick={e => handleDownload(e, row)}
-                        disabled={downloading === (row.downloadKind === 'requestAttachment' ? `attachment-${row.requestId}` : row.fileId)}
+                        onClick={e => handleOpen(e, row)}
+                        disabled={downloading === `open-${rowActionId(row)}`}
                         className="p-1 rounded-full"
                         style={{ color: '#5f6368' }}
                         onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
-                        onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                        onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                        title="Deschide în tab nou">
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {hoveredId === row.id && (
+                      <button
+                        onClick={e => handleDownload(e, row)}
+                        disabled={downloading === rowActionId(row)}
+                        className="p-1 rounded-full"
+                        style={{ color: '#5f6368' }}
+                        onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
+                        onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                        title="Descarcă">
                         <Download className="w-3.5 h-3.5" />
                       </button>
                     )}
