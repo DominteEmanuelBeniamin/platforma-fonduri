@@ -1218,10 +1218,10 @@ export default function DocumentRequests({
                 <div
                   key={req.id}
                   onDragOver={e => handleReqDragOver(e, req.id)}
-                  className={`group p-4 sm:p-5 transition-all ${isAdminOrConsultant ? 'cursor-pointer hover:bg-slate-50/80' : ''} ${
+                  className={`group p-4 sm:p-5 transition-all cursor-pointer hover:bg-slate-50/80 ${
                     draggedReqId === req.id ? 'opacity-50' : ''
                   }`}
-                  onClick={() => isAdminOrConsultant && setSelectedRequest(req)}
+                  onClick={() => setSelectedRequest(req)}
                 >
                   <div className="flex items-start gap-3 sm:gap-4">
                     {isAdminOrConsultant && (
@@ -1334,7 +1334,7 @@ export default function DocumentRequests({
 
                     </div>
 
-                    {isAdminOrConsultant && (
+                    {isAdminOrConsultant ? (
                       <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
@@ -1356,6 +1356,8 @@ export default function DocumentRequests({
                         </button>
                         <ChevronRight className="w-5 h-5 text-slate-300 hidden sm:block" />
                       </div>
+                    ) : (
+                      <ChevronRight className="w-5 h-5 text-slate-300 hidden sm:block flex-shrink-0" />
                     )}
                   </div>
 

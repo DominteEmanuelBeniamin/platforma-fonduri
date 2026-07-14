@@ -204,18 +204,18 @@ export default function DocumentModal({
     // Keyboard shortcuts
     const handleKeyboard = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
-      if (e.key === 'Enter' && e.ctrlKey && request.status === 'review') {
+      if (e.key === 'Enter' && e.ctrlKey && isAdminOrConsultant && request.status === 'review') {
         handleApprove()
       }
     }
-    
+
     window.addEventListener('keydown', handleKeyboard)
-    
+
     return () => {
       document.body.style.overflow = 'unset'
       window.removeEventListener('keydown', handleKeyboard)
     }
-  }, [request.status])
+  }, [request.status, isAdminOrConsultant])
 
   const forceDownload = (url: string) => {
     const a = document.createElement('a')
@@ -1136,7 +1136,7 @@ export default function DocumentModal({
 
         {/* Footer - Actions */}
         <div className="p-6 border-t border-slate-200 bg-slate-50/50">
-          {request.status === 'review' ? (
+          {isAdminOrConsultant && request.status === 'review' ? (
             <div className="flex flex-col sm:flex-row gap-3">
               <button
                 onClick={() => setShowRejectConfirm(true)}
@@ -1176,8 +1176,8 @@ export default function DocumentModal({
             </div>
           ) : (
             <div className="flex flex-col gap-3">
-              {/* Buton reminder client — mereu vizibil pentru pending */}
-              {request.status === 'pending' && (() => {
+              {/* Buton reminder client — vizibil pentru admin/consultant la pending */}
+              {isAdminOrConsultant && request.status === 'pending' && (() => {
                 if (!clientEmail) {
                   return (
                     <div className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-slate-200 bg-slate-50 text-sm text-slate-400 cursor-not-allowed">
