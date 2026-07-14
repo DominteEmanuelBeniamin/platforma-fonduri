@@ -1382,31 +1382,20 @@ export default function DocumentRequests({
                         ) : null}
 
 
-                        {(req.attachments?.length ? req.attachments : req.attachment_path ? [{
-                          id: undefined,
-                          storage_path: req.attachment_path,
-                          original_name: req.attachment_original_name || null,
-                          missing_at: req.attachment_missing_at,
-                        }] : []).map((attachment: any, index: number) => attachment.missing_at || missingAttachments.has(req.id) ? (
-                          <span key={`${req.id}-${index}`} className="flex items-center gap-1.5 text-amber-700">
-                            <AlertCircle className="w-3.5 h-3.5" /> Model indisponibil
-                          </span>
-                        ) : (
-                          <button
-                            key={`${req.id}-${index}`}
-                            onClick={(e) => { e.stopPropagation(); downloadAttachmentModel(req.id, attachment.id) }}
-                            className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 transition-colors"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            {attachment.original_name || `Model ${index + 1}`}
-                          </button>
-                        ))}
-                        {(req.attachment_missing_at || missingAttachments.has(req.id)) && (
-                          <span className={`flex items-center gap-1.5 ${isAdminOrConsultant ? 'text-amber-700' : 'text-slate-500'}`}>
-                            <AlertCircle className="w-3.5 h-3.5" />
-                            {isAdminOrConsultant ? 'Model indisponibil' : 'Model indisponibil momentan'}
-                          </span>
-                        )}
+                        {(() => {
+                          const attachments = getRequestAttachments(req)
+                          if (attachments.length === 0) return null
+                          const missingCount = attachments.filter(attachment => attachment.missing_at || missingAttachments.has(req.id)).length
+
+                          return (
+                            <span className={`flex items-center gap-1.5 ${missingCount > 0 ? 'text-amber-700' : 'text-indigo-600'}`}>
+                              {missingCount > 0 ? <AlertCircle className="w-3.5 h-3.5" /> : <Paperclip className="w-3.5 h-3.5" />}
+                              {missingCount === attachments.length
+                                ? attachments.length === 1 ? 'Model indisponibil' : `${attachments.length} modele indisponibile`
+                                : attachments.length === 1 ? '1 model de descărcat' : `${attachments.length} modele de descărcat`}
+                            </span>
+                          )
+                        })()}
                       </div>
 
                       {/* ── Buton reminder client ── */}
