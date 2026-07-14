@@ -85,7 +85,7 @@ export default function Navbar() {
                   href="/admin"
                   className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/admin')}`}
                 >
-                  Overview
+                  Șabloane
                 </Link>
                 <Link
                   href="/admin/users"

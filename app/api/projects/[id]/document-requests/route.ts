@@ -67,6 +67,7 @@ export async function GET(
         is_mandatory,
         is_outgoing,
         requirement_type,
+        order_index,
         attachment_path,
         attachment_original_name,
         attachment_missing_at,
@@ -97,7 +98,8 @@ export async function GET(
       `)
       .eq('project_id', projectId)
       .is('deleted_at', null)
-      .order('created_at', { ascending: false })
+      .order('order_index', { ascending: true })
+      .order('created_at', { ascending: true })
 
     if (error) {
       console.error('GET document-requests error:', error)
@@ -171,6 +173,19 @@ export async function POST(
     const projectTitle = projectRow?.title ?? projectId
     const activityName = activityRow?.name ?? null
 
+    // Ordinea manuală: documentul nou intră la finalul grupului său (activitate sau „Cereri generale")
+    let maxOrderQuery = admin
+      .from('document_requirements')
+      .select('order_index')
+      .eq('project_id', projectId)
+    maxOrderQuery = activity_id
+      ? maxOrderQuery.eq('activity_id', activity_id)
+      : maxOrderQuery.is('activity_id', null)
+    const { data: maxOrderRow } = await maxOrderQuery
+      .order('order_index', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
     const insertPayload = {
       project_id: projectId,
       activity_id,
@@ -184,6 +199,7 @@ export async function POST(
       requirement_type,
       is_mandatory: requirementTypeToMandatory(requirement_type),
       is_outgoing,
+      order_index: (maxOrderRow?.order_index || 0) + 1,
       created_by: access.profile.id,
       status: 'pending',
     }
@@ -201,6 +217,7 @@ export async function POST(
         is_mandatory,
         is_outgoing,
         requirement_type,
+        order_index,
         attachment_path,
         attachment_original_name,
         deadline_at,

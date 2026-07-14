@@ -40,6 +40,7 @@ type RollbackTracker = {
     is_mandatory: boolean | null
     requirement_type: string | null
     status: string
+    order_index: number
     attachment_path: string | null
     attachment_original_name: string | null
     attachment_missing_at: string | null
@@ -151,6 +152,7 @@ async function loadProjectLineage(projectId: string) {
       is_mandatory,
       requirement_type,
       status,
+      order_index,
       source_template_document_requirement_id,
       attachment_path,
       attachment_original_name,
@@ -261,6 +263,7 @@ async function insertDocs(
         is_mandatory: deletedDoc.is_mandatory ?? null,
         requirement_type: deletedDoc.requirement_type ?? null,
         status: deletedDoc.status,
+        order_index: deletedDoc.order_index ?? 0,
         attachment_path: deletedDoc.attachment_path ?? null,
         attachment_original_name: deletedDoc.attachment_original_name ?? null,
         attachment_missing_at: deletedDoc.attachment_missing_at ?? null,
@@ -279,6 +282,7 @@ async function insertDocs(
           is_outgoing: isOutgoing,
           is_mandatory: isOutgoing ? false : tDoc.is_mandatory,
           requirement_type: isOutgoing ? 'optional' : tDoc.requirement_type,
+          order_index: tDoc.order_index,
           attachment_path: attachmentAvailable ? attachmentPath : null,
           attachment_original_name: attachmentAvailable ? tDoc.attachment_original_name || null : null,
           attachment_missing_at: attachmentPath && !attachmentAvailable ? attachmentCheckedAt : null,
@@ -306,6 +310,7 @@ async function insertDocs(
         is_outgoing: isOutgoing,
         is_mandatory: isOutgoing ? false : tDoc.is_mandatory,
         requirement_type: isOutgoing ? 'optional' : tDoc.requirement_type,
+        order_index: tDoc.order_index,
         attachment_path: attachmentAvailable ? attachmentPath : null,
         attachment_original_name: attachmentAvailable ? tDoc.attachment_original_name || null : null,
         attachment_missing_at: attachmentPath && !attachmentAvailable ? attachmentCheckedAt : null,
@@ -344,6 +349,7 @@ async function rollbackCreated(rollback: RollbackTracker) {
         is_mandatory: doc.is_mandatory,
         requirement_type: doc.requirement_type,
         status: doc.status,
+        order_index: doc.order_index,
         attachment_path: doc.attachment_path,
         attachment_original_name: doc.attachment_original_name,
         attachment_missing_at: doc.attachment_missing_at,
