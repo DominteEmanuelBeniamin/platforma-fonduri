@@ -23,7 +23,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { downloadFilesArchive } from '@/app/api/_utils/download-files-archive'
-import { isPreviewableFileName, openInNewTab } from '@/lib/file-preview'
+import { getPreviewKind, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
 import { Mail } from 'lucide-react'
 import {
   getReminderType,
@@ -373,8 +373,15 @@ export default function DocumentModal({
     }
   }
 
+  const attachmentFileName = localAttachmentPath?.split('/').filter(Boolean).pop() || null
+  const attachmentPreviewKind = getPreviewKind({ fileName: localAttachmentPath })
+
   const openAttachmentModel = async () => {
     if (!localAttachmentPath || attachmentMissing) return
+    if (attachmentPreviewKind === 'office') {
+      openInNewTab(buildPreviewPageUrl({ type: 'attachment', id: request.id, name: attachmentFileName }))
+      return
+    }
     setDownloadingId('open-attachment')
     try {
       const res = await apiFetch(`/api/document-requests/${request.id}/attachment/signed-download`, {
@@ -496,7 +503,11 @@ export default function DocumentModal({
     }
   }
 
-  const openUploadedFileById = async (fileId: string) => {
+  const openUploadedFileById = async (fileId: string, fileName?: string) => {
+    if (getPreviewKind({ fileName }) === 'office') {
+      openInNewTab(buildPreviewPageUrl({ type: 'file', id: fileId, name: fileName }))
+      return
+    }
     setDownloadingId(`open-${fileId}`)
     try {
       const res = await apiFetch(`/api/files/${fileId}/signed-download`, {
@@ -838,7 +849,7 @@ export default function DocumentModal({
                       <p className="text-xs text-indigo-600">Model de completat pentru client</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      {isPreviewableFileName(localAttachmentPath) && (
+                      {attachmentPreviewKind !== null && (
                         <button
                           onClick={(e) => { e.stopPropagation(); openAttachmentModel() }}
                           disabled={downloadingId === 'open-attachment'}
@@ -1119,9 +1130,9 @@ export default function DocumentModal({
                                       </div>
 
                                       <div className="flex items-center gap-2 flex-shrink-0">
-                                        {isPreviewableFileName(fileName) && (
+                                        {getPreviewKind({ fileName }) !== null && (
                                           <button
-                                            onClick={() => openUploadedFileById(file.id)}
+                                            onClick={() => openUploadedFileById(file.id, fileName)}
                                             disabled={downloadingId === `open-${file.id}`}
                                             className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-colors disabled:opacity-60"
                                             title="Deschide în tab nou"

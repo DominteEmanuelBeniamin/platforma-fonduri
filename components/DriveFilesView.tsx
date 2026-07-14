@@ -6,7 +6,7 @@ import {
   Download, Eye,
   Search, FolderOpen, ChevronDown, Grid3X3, List,
 } from 'lucide-react'
-import { isPreviewableFileName, openInNewTab } from '@/lib/file-preview'
+import { getPreviewKind, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -190,8 +190,13 @@ export default function DriveFilesView({
     return row.downloadKind === 'requestAttachment' ? `attachment-${row.requestId}` : row.fileId!
   }
 
+  function rowPreviewKind(row: DriveRow) {
+    return getPreviewKind({ fileName: row.displayName })
+      ?? getPreviewKind({ fileName: row.storagePath })
+  }
+
   function isRowPreviewable(row: DriveRow) {
-    return isPreviewableFileName(row.displayName) || isPreviewableFileName(row.storagePath)
+    return rowPreviewKind(row) !== null
   }
 
   async function fetchSignedUrl(row: DriveRow, disposition?: 'inline') {
@@ -228,6 +233,16 @@ export default function DriveFilesView({
     e.stopPropagation()
     if (row.downloadKind === 'requestAttachment' && !row.requestId) return
     if (row.downloadKind !== 'requestAttachment' && !row.fileId) return
+
+    // Office (docx/xlsx/…) se randează în pagina internă /preview
+    if (rowPreviewKind(row) === 'office') {
+      openInNewTab(buildPreviewPageUrl({
+        type: row.downloadKind === 'requestAttachment' ? 'attachment' : 'file',
+        id: row.downloadKind === 'requestAttachment' ? row.requestId! : row.fileId!,
+        name: getDisplayName(row),
+      }))
+      return
+    }
 
     setDownloading(`open-${rowActionId(row)}`)
     try {

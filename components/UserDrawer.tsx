@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useRouter } from 'next/navigation'
-import { isPreviewableFileName, openInNewTab } from '@/lib/file-preview'
+import { getPreviewKind, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -221,7 +221,11 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
     } finally { setDownloading(null) }
   }
 
-  async function handleOpen(fileId: string) {
+  async function handleOpen(fileId: string, fileName?: string | null) {
+    if (getPreviewKind({ fileName }) === 'office') {
+      openInNewTab(buildPreviewPageUrl({ type: 'file', id: fileId, name: fileName }))
+      return
+    }
     setDownloading(`open-${fileId}`)
     try {
       const res = await apiFetch(`/api/files/${fileId}/signed-download`, {
@@ -527,9 +531,9 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
 
                     {/* Actions */}
                     <div className="flex-shrink-0 flex items-center">
-                      {latest && isPreviewableFileName(latest.original_name || latest.storage_path) && (
+                      {latest && getPreviewKind({ fileName: latest.original_name || latest.storage_path }) !== null && (
                         <button
-                          onClick={() => handleOpen(latest.id)}
+                          onClick={() => handleOpen(latest.id, latest.original_name || latest.storage_path)}
                           disabled={downloading === `open-${latest.id}`}
                           className="p-2 rounded-full transition-colors disabled:opacity-40 opacity-0 group-hover:opacity-100"
                           style={{ color: '#5f6368' }}
