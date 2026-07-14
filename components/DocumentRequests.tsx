@@ -24,6 +24,7 @@ import {
   FolderUp,
   Files,
   AlertCircle,
+  GripVertical,
   Loader2,
   Image as ImageIcon,
   File,
@@ -49,6 +50,7 @@ interface DocumentRequest {
   requirement_type?: RequirementType
   status: 'pending' | 'review' | 'approved' | 'rejected'
   is_outgoing?: boolean
+  order_index?: number
   attachment_path: string | null
   attachment_original_name?: string | null
   attachment_missing_at?: string | null
@@ -288,6 +290,53 @@ export default function DocumentRequests({
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
   const isAdmin = profile?.role === 'admin'
   const isClient = profile?.role === 'client'
+
+  // Drag & drop reorder — override temporar peste ordinea din API până la refresh
+  const [draggedReqId, setDraggedReqId] = useState<string | null>(null)
+  const [reqOrder, setReqOrder] = useState<string[] | null>(null)
+
+  const displayRequests = reqOrder
+    ? reqOrder
+        .map(id => requests.find((r: any) => r.id === id))
+        .filter((r): r is DocumentRequest => !!r)
+    : requests
+
+  const handleReqDragStart = (e: React.DragEvent, reqId: string) => {
+    setDraggedReqId(reqId)
+    setReqOrder(requests.map((r: any) => r.id))
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleReqDragOver = (e: React.DragEvent, targetId: string) => {
+    if (!draggedReqId || !reqOrder) return
+    e.preventDefault()
+    if (draggedReqId === targetId) return
+    const from = reqOrder.indexOf(draggedReqId)
+    const to = reqOrder.indexOf(targetId)
+    if (from === -1 || to === -1 || from === to) return
+    const next = [...reqOrder]
+    next.splice(from, 1)
+    next.splice(to, 0, draggedReqId)
+    setReqOrder(next)
+  }
+
+  const handleReqDragEnd = async () => {
+    const order = reqOrder
+    setDraggedReqId(null)
+    if (!order) return
+    const original = requests.map((r: any) => r.id)
+    const unchanged = order.length === original.length && original.every((id, i) => id === order[i])
+    if (unchanged) { setReqOrder(null); return }
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/document-requests/reorder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orders: order.map((id, i) => ({ id, order_index: i + 1 })) }),
+      })
+      if (res.ok) await Promise.resolve(onRefresh ? onRefresh() : fetchRequests())
+      else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare la salvarea ordinii') }
+    } finally { setReqOrder(null) }
+  }
 
   // Computed stats pentru fișiere selectate
   const fileStats = useMemo(() => {
@@ -1161,17 +1210,32 @@ export default function DocumentRequests({
               </p>
             </div>
           ) : (
-            requests.map((req) => {
+            displayRequests.map((req) => {
               const status = statusConfig[req.status] || statusConfig.pending
               const isOverdue = req.deadline_at && new Date(req.deadline_at) < new Date() && req.status === 'pending'
 
               return (
                 <div
                   key={req.id}
-                  className={`p-4 sm:p-5 transition-all ${isAdminOrConsultant ? 'cursor-pointer hover:bg-slate-50/80' : ''}`}
+                  onDragOver={e => handleReqDragOver(e, req.id)}
+                  className={`group p-4 sm:p-5 transition-all ${isAdminOrConsultant ? 'cursor-pointer hover:bg-slate-50/80' : ''} ${
+                    draggedReqId === req.id ? 'opacity-50' : ''
+                  }`}
                   onClick={() => isAdminOrConsultant && setSelectedRequest(req)}
                 >
                   <div className="flex items-start gap-3 sm:gap-4">
+                    {isAdminOrConsultant && (
+                      <span
+                        draggable
+                        onDragStart={e => handleReqDragStart(e, req.id)}
+                        onDragEnd={handleReqDragEnd}
+                        onClick={e => e.stopPropagation()}
+                        title="Trage pentru a reordona"
+                        className="mt-2.5 -ml-1.5 p-0.5 rounded text-slate-300 hover:text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing flex-shrink-0"
+                      >
+                        <GripVertical className="w-4 h-4" />
+                      </span>
+                    )}
                     <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl ${status.iconBg} flex items-center justify-center flex-shrink-0 ${status.text}`}>
                       {status.docIcon}
                     </div>

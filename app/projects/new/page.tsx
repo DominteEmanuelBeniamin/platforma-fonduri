@@ -538,7 +538,7 @@ export default function NewProjectPage() {
             </div>
             <div className="p-6">
               {/* Selectare mod */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <button type="button" onClick={() => { setCreationMode(null); setSelectedTemplateId(null); setManualPhases([]) }}
                   className={`p-4 rounded-xl border-2 text-left transition-all ${creationMode === null ? 'border-slate-400 bg-slate-50' : 'border-slate-200 hover:border-slate-300'}`}>
                   <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center mb-3">
@@ -557,14 +557,7 @@ export default function NewProjectPage() {
                   <p className="text-xs text-slate-500 mt-1">Importă faze predefinite</p>
                 </button>
 
-                <button type="button" onClick={() => { setCreationMode('manual'); setSelectedTemplateId(null) }}
-                  className={`p-4 rounded-xl border-2 text-left transition-all ${creationMode === 'manual' ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                  <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center mb-3">
-                    <Plus className="w-5 h-5 text-emerald-600" />
-                  </div>
-                  <p className="font-medium text-slate-900">Creare manuală</p>
-                  <p className="text-xs text-slate-500 mt-1">Definește fazele acum</p>
-                </button>
+                {/* „Creare manuală" ascunsă la cerere — fazele se definesc din template sau ulterior, din sidebar-ul proiectului */}
               </div>
 
               {/* Template selection */}

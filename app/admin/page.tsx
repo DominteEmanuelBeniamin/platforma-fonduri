@@ -3,10 +3,9 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { 
+import {
   Layers, Activity, FileText, FolderOpen,
-  ChevronRight, Settings, Plus, Eye,
-  CheckCircle, AlertCircle
+  ChevronRight, Settings, Plus, Eye
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 
@@ -96,24 +95,12 @@ export default function AdminOverviewPage() {
       <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-slate-900">Admin Overview</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Șabloane</h1>
           <p className="text-slate-500 mt-1">Vizualizare rapidă a statusurilor și template-urilor configurate</p>
         </div>
 
         {/* Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
-                <CheckCircle className="w-5 h-5 text-indigo-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-slate-900">{statuses.length}</p>
-                <p className="text-sm text-slate-500">Statusuri</p>
-              </div>
-            </div>
-          </div>
-          
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <div className="bg-white rounded-xl border border-slate-200 p-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
@@ -155,47 +142,7 @@ export default function AdminOverviewPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Statusuri */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-              <h2 className="font-semibold text-slate-900 flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-indigo-600" />
-                Statusuri Proiect
-              </h2>
-              <Link href="/admin/statuses" className="text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
-                <Settings className="w-3 h-3" /> Gestionează
-              </Link>
-            </div>
-            
-            <div className="p-4">
-              {statuses.length === 0 ? (
-                <div className="text-center py-8">
-                  <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                  <p className="text-sm text-slate-500">Niciun status configurat</p>
-                  <Link href="/admin/statuses" className="text-sm text-indigo-600 hover:underline mt-2 inline-block">
-                    Adaugă primul status →
-                  </Link>
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {statuses.map((status, index) => (
-                    <div
-                      key={status.id}
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-white"
-                      style={{ backgroundColor: status.color }}
-                    >
-                      <span className="w-5 h-5 bg-white/20 rounded-full flex items-center justify-center text-xs">
-                        {index + 1}
-                      </span>
-                      {status.name}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
+        <div className="grid grid-cols-1 gap-6">
           {/* Link-uri rapide */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
@@ -206,17 +153,6 @@ export default function AdminOverviewPage() {
             </div>
             
             <div className="p-4 space-y-2">
-              <Link href="/admin/statuses" className="flex items-center gap-3 p-3 rounded-lg border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50 transition-colors">
-                <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
-                  <Plus className="w-5 h-5 text-indigo-600" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-slate-900">Adaugă Status</p>
-                  <p className="text-xs text-slate-500">Configurează etapele mari ale proiectelor</p>
-                </div>
-                <ChevronRight className="w-4 h-4 text-slate-400" />
-              </Link>
-              
               <Link href="/admin/templates" className="flex items-center gap-3 p-3 rounded-lg border border-slate-100 hover:border-purple-200 hover:bg-purple-50 transition-colors">
                 <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
                   <Plus className="w-5 h-5 text-purple-600" />

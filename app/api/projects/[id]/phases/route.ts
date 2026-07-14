@@ -44,20 +44,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           .eq('phase_id', phase.id)
           .order('order_index', { ascending: true })
 
-        // Fetch documents for each activity
-        const activitiesWithDocs = await Promise.all(
-          (activities || []).map(async (activity) => {
-            const { data: docs } = await supabaseAdmin
-              .from('activity_document_requirements')
-              .select('*')
-              .eq('activity_id', activity.id)
-              .order('created_at', { ascending: true })
-
-            return { ...activity, document_requirements: docs || [] }
-          })
-        )
-
-        return { ...phase, activities: activitiesWithDocs }
+        return { ...phase, activities: activities || [] }
       })
     )
 
