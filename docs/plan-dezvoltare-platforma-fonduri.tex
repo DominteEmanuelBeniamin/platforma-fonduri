@@ -1,0 +1,203 @@
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[a4paper,top=14mm,bottom=14mm,left=16mm,right=16mm,headheight=22pt,headsep=3mm]{geometry}
+\usepackage{fontspec}
+\usepackage[romanian]{babel}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usepackage{tcolorbox}
+\usepackage{lastpage}
+
+\tcbuselibrary{breakable,skins}
+
+\setmainfont{Inter}
+\setsansfont{Inter}
+\emergencystretch=2em
+
+\definecolor{Navy}{HTML}{17223B}
+\definecolor{Blue}{HTML}{2456C4}
+\definecolor{BlueSoft}{HTML}{EDF2FC}
+\definecolor{Green}{HTML}{147A4B}
+\definecolor{GreenSoft}{HTML}{E7F5ED}
+\definecolor{Ink}{HTML}{202938}
+\definecolor{Muted}{HTML}{626D7C}
+\definecolor{Line}{HTML}{DDE3EB}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=Blue,
+  urlcolor=Blue,
+  pdfauthor={Platforma Fonduri},
+  pdftitle={Platforma Fonduri — Cerințe funcționale}
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize\color{Muted}Platforma Fonduri · Cerințe funcționale}
+\fancyhead[R]{}
+\fancyfoot[R]{\footnotesize\color{Muted}\thepage/\pageref*{LastPage}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{Line}\leaders\hrule height \headrulewidth\hfill}}
+
+\setlist[itemize]{leftmargin=5mm,itemsep=1.2mm,topsep=1.5mm}
+
+\newtcolorbox{requirementbox}[1][]{
+  enhanced,
+  colback=white,
+  colframe=Line,
+  boxrule=0.6pt,
+  arc=1.7mm,
+  left=3.5mm,right=3.5mm,top=2.2mm,bottom=2.2mm,
+  borderline west={2.4pt}{0pt}{Blue},
+  before skip=1.8mm,
+  after skip=1.8mm,
+  #1
+}
+
+\newcommand{\req}[2]{%
+  \begin{requirementbox}
+  \textbf{\color{Navy}#1}\par
+  \vspace{1mm}
+  #2
+  \end{requirementbox}
+}
+
+\begin{document}
+
+{\color{Blue}\rule{20mm}{2mm}}\par
+\vspace{3mm}
+{\fontsize{25}{30}\selectfont\bfseries\color{Navy}Platforma Fonduri}\par
+\vspace{2mm}
+{\fontsize{17}{21}\selectfont\bfseries\color{Ink}Cerințe funcționale}\par
+\vspace{2mm}
+\vspace{5mm}
+
+\req{1. Reordonarea fazelor, activităților și cererilor de documente — în testare}{
+În proiecte și în șabloane trebuie să poată fi schimbată manual ordinea fazelor, activităților și cererilor de documente. Elementele se mută direct din interfață, iar ordinea stabilită rămâne salvată și nu se modifică automat după dată sau nume.
+}
+
+\req{2. Trimiterea mai multor documente informative deodată — în testare}{
+În fluxul de trimitere a documentelor către client trebuie să poată fi selectate și trimise mai multe fișiere într-o singură acțiune. Aceste documente sunt informative și nu așteaptă răspuns sau încărcare din partea clientului.
+}
+
+\req{3. Refacerea paginii principale (Home) pentru client și consultant}{
+Pagina principală (Home), care afișează lista proiectelor, trebuie refăcută pentru a fi mai compactă și mai ușor de folosit. Fiecare proiect trebuie să aibă titlul bine vizibil și să afișeze doar informațiile importante pentru rolul utilizatorului.
+
+Pentru client se afișează proiectele, acțiunile cerute, documentele noi, termenele apropiate și elementele necitite. Pentru consultant se afișează proiectele de care răspunde, urgențele, cererile care așteaptă verificare și acces rapid la activitatea necesară.
+}
+
+\req{4. Refacerea paginii unui proiect}{
+Pagina proiectului trebuie reorganizată astfel încât informațiile și acțiunile importante să fie poziționate eficient și să încapă, pe cât posibil, într-o singură pagină. Titlul, clientul, starea proiectului, echipa și acțiunile principale trebuie să fie vizibile imediat.
+
+Fazele, activitățile, documentele, calendarul, Drive-ul și chatul trebuie să fie accesibile clar, fără navigare inutilă și fără aglomerarea paginii.
+}
+
+\req{5. Mesaje clare în aplicație}{
+Unele mesaje informative erau prezentate vizual ca și cum ar fi fost erori, ceea ce crea incertitudine pentru utilizator. Aspectul fiecărui mesaj trebuie să indice clar dacă este o confirmare, o informare, un avertisment sau o eroare.
+}
+
+\req{6. Șabloane cu stările Ciornă și Publicat}{
+Un șablon în starea \textbf{Ciornă} poate fi creat și editat de consultant și administrator. După verificare, administratorul îl publică.
+
+După publicare, consultantul poate vedea șablonul, dar nu îl mai poate edita. Numai administratorul îl mai poate modifica.
+}
+
+\req{7. Email trimis direct din platformă către clienți}{
+Platforma trebuie să trimită emailuri direct către client, în numele firmei, fără folosirea inboxului personal al consultantului. Emailul trebuie să includă un mesaj clar și un link direct către proiect, activitate sau cererea de document relevantă.
+}
+
+\req{8. Faze, activități și cereri de documente În pregătire/Public}{
+O fază, o activitate sau o cerere de document poate fi păstrată în starea \textbf{În pregătire}, vizibilă numai administratorului și consultantului. Clientul nu trebuie să o vadă în proiect, căutare, calendar sau notificări.
+
+Când este gata, faza, activitatea sau cererea de document se publică și devine vizibilă clientului. La publicare, clientul primește o notificare prin email.
+}
+
+\req{9. Repararea erorii la deschiderea cererilor de documente}{
+Bugul identificat la deschiderea unei cereri de document din rolul de client trebuie reparat. Clientul trebuie să poată deschide cererea din pagina principală și din pagina proiectului și să vadă descrierea, termenul, modelele atașate, ultima versiune și starea cererii.
+}
+
+\req{10. Drepturi noi pentru consultanți}{
+Consultantul poate crea proiecte și poate adăuga, edita, reordona sau șterge faze și activități în proiectele în care lucrează.
+
+\textbf{Consultantul nu poate șterge proiecte.} Ștergerea unui proiect rămâne disponibilă numai administratorului.
+
+Consultantul nu poate, în continuare, să acceseze paginile de Audit sau Utilizatori.
+}
+
+\req{11. Căutare în întregul proiect și faze pliabile}{
+În pagina proiectului trebuie să existe o căutare care găsește faze, activități și cereri de documente. Selectarea unui rezultat trebuie să deschidă direct zona în care se află.
+
+Fazele trebuie să poată fi pliate și depliate individual, pentru ca pagina să nu afișeze permanent toate detaliile.
+}
+
+\req{12. Calendar în pagina proiectului}{
+Pagina proiectului trebuie să includă un calendar cu termenele fazelor, activităților și cererilor de documente. Calendarul trebuie să permită filtrarea după fază sau tip de element, iar selectarea unui termen trebuie să deschidă elementul corespunzător.
+}
+
+\req{13. Drive organizat pe dosare pentru fiecare fază}{
+În Drive trebuie să existe câte un dosar pentru fiecare fază a proiectului. Dosarele trebuie să fie afișate în aceeași ordine ca fazele proiectului, iar documentele fiecărei faze trebuie să fie păstrate în dosarul corespunzător.
+}
+
+\req{14. Clientul vede numai ultima versiune a documentului}{
+La o cerere de document, clientul vede numai ultima versiune încărcată. Versiunile mai vechi nu se pierd, ci rămân în Drive ca istoric și sunt disponibile administratorului și consultanților.
+}
+
+\req{15. Duplicarea fazelor și activităților}{
+În șabloane și în proiecte trebuie să poată fi duplicată o fază sau o activitate, cu structura și cererile de documente din interior. Copierea nu trebuie să includă documentele încărcate anterior de client.
+
+Copia poate fi redenumită și reordonată, fără reconstruirea manuală a conținutului de la zero.
+}
+
+\req{16. Fișiere atașate în chat}{
+În chat trebuie să poată fi trimise imagini, PDF-uri, documente Word, Excel și alte formate aprobate. Imaginile trebuie să aibă preview în conversație, iar celelalte fișiere trebuie să afișeze numele, dimensiunea și acțiunea de deschidere sau descărcare.
+}
+
+\req{17. Preview al documentelor direct în browser}{
+PDF-urile și imaginile trebuie să se deschidă într-un tab nou al browserului, fără descărcare obligatorie. Butonul de descărcare rămâne disponibil, iar formatele care nu pot fi afișate în browser se descarcă în continuare.
+}
+
+\req{18. Mai multe fișiere-model atașate aceleiași cereri}{
+O singură cerere de document trebuie să poată avea mai multe fișiere-model sau exemple atașate. Clientul poate deschide sau descărca fiecare model separat.
+
+Această cerință trebuie să funcționeze atât pentru cererile create direct într-un proiect, cât și pentru cererile definite într-un șablon.
+}
+
+\req{19. Centru unic de notificări}{
+Platforma trebuie să aibă un singur centru de notificări în care utilizatorul vede toate notificările primite, grupate pe proiect și ordonate cronologic. Notificările necitite trebuie evidențiate, iar selectarea unei notificări trebuie să deschidă direct proiectul, activitatea, cererea de document sau conversația relevantă.
+}
+
+\req{20. Calendar general pentru consultant}{
+Consultantul trebuie să aibă un calendar general cu termenele din toate proiectele în care lucrează. Calendarul trebuie să includă fazele, activitățile și cererile de documente și să permită filtrarea după proiect, client și tipul termenului.
+
+Selectarea unui eveniment trebuie să deschidă direct elementul corespunzător din proiect.
+}
+
+\req{21. Remindere automate}{
+Platforma trebuie să trimită automat remindere înaintea termenelor pentru faze, activități și cereri de documente. Reminderele trebuie să ajungă utilizatorilor responsabili și, atunci când este necesar, clientului care trebuie să încarce un document.
+
+Mesajul trebuie să indice proiectul, acțiunea necesară, termenul și linkul direct către elementul respectiv.
+}
+
+\req{22. Istoricul tuturor acțiunilor în audit}{
+Pentru toate funcționalitățile descrise mai sus, acțiunile realizate trebuie înregistrate în jurnalul de audit. Pentru fiecare acțiune trebuie să se vadă utilizatorul, data și ora, proiectul sau elementul afectat și modificarea efectuată.
+
+În audit se adaugă acțiunile relevante pentru fiecare cerință: crearea, editarea, ștergerea, publicarea, reordonarea, asignarea, încărcarea și verificarea documentelor, trimiterea notificărilor și modificarea drepturilor.
+}
+
+\req{23. Tablou de bord general pentru administrator}{
+Administratorul trebuie să aibă un Tablou de bord în care apar toate lucrările și proiectele. Pentru fiecare lucrare trebuie să poată vedea nivelul de implementare, stadiul curent, consultantul responsabil și termenele apropiate.
+
+Tabloul de bord trebuie să includă un calendar general cu toate evenimentele și termenele, indiferent de lucrarea sau proiectul din care fac parte.
+}
+
+\req{24. Ecran centralizat cu toate taskurile}{
+Administratorul trebuie să aibă un ecran în care toate taskurile din toate lucrările sunt afișate unele sub altele. Pentru fiecare task trebuie să se vadă lucrarea, consultantul alocat, stadiul și data termenului.
+
+Taskurile trebuie afișate în ordinea crescătoare a datelor, începând cu termenul cel mai apropiat.
+}
+
+\end{document}
