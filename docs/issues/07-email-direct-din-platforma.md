@@ -13,6 +13,7 @@ Platforma trebuie să trimită emailuri direct către client, **în numele firme
 - [ ] Emailul conține mesajul, contextul (proiect/activitate/cerere) și un link direct către elementul respectiv.
 - [ ] Trimiterea emailului este înregistrată în audit (cine, când, către cine, ce entitate).
 - [ ] Eșecurile de trimitere sunt vizibile utilizatorului (mesaj de eroare clar).
+- [ ] **Folosirea Resend este documentată** în repo (configurare domeniu, SPF/DKIM, variabile de mediu, fluxul de trimitere, limitări) *(feedback Gabriel, 15 iul 2026)*.
 
 ## Note tehnice
 - Trimitere prin Resend (`RESEND_API_KEY`, `RESEND_FROM_EMAIL` există deja în env). Necesită domeniu verificat în Resend (SPF/DKIM) pentru livrare în numele firmei.

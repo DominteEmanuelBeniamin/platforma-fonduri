@@ -24,6 +24,8 @@ Pagina proiectului trebuie să includă un **calendar** cu termenele fazelor, ac
 
 Recomandare: varianta 1 (termen explicit, editabil), cu varianta 2 ca fallback de afișare.
 
+**Machetă UX înainte de implementare** *(feedback Gabriel, 15 iul 2026)*: de decis forma — **tabel/listă cu termenele pe faze** sau **Gantt chart**. Recomandare: listă/agendă + vedere lunară simplă în prima versiune; Gantt doar dacă aduce valoare reală (efort de implementare vizibil mai mare).
+
 ## Note tehnice
 - Componenta de calendar trebuie construită reutilizabil — va fi refolosită de *Calendarul general pentru consultant*.
 - Datele există deja în răspunsul paginii de proiect; nu ar trebui să fie nevoie de endpoint nou pentru varianta per-proiect.

@@ -31,6 +31,7 @@ Fiecare card de proiect preia modelul badge-ului de mesaje necitite existent și
 - **Consultant**: lista proiectelor de care răspunde, cu aceleași badge-uri; cererile care așteaptă verificare și urgențele sunt vizibile ca badge-uri pe cardul proiectului respectiv, cu acces rapid (click pe badge) la activitatea necesară — nu ca listă separată care ocupă pagina.
 
 ## Criterii de acceptare
+- [ ] Înainte de implementare există **2 variante de machetă** și o **listă a conținutului afișat per rol** (o propune Emanuel), aprobate în echipă *(feedback Gabriel, 15 iul 2026)*.
 - [ ] Cardurile de proiect sunt compacte: titlu clar vizibil, status și badge-uri; fără alte informații.
 - [ ] Pentru un număr uzual de proiecte, pagina încape într-un singur ecran, fără scroll.
 - [ ] Fiecare card afișează badge-uri numerice color-coded pentru: mesaje necitite, documente (în verificare / noi, după rol), termene apropiate, urgențe (depășite/respinse).

@@ -22,5 +22,8 @@
 - De verificat fiecare rută de mutație pe faze/activități (`app/api/projects/[id]/phases/**`) — unele pot avea restricții doar-admin implicite.
 - Navbar-ul și paginile trebuie să reflecte noile drepturi (butoane vizibile pentru consultant).
 
+## De clarificat cu echipa
+- **Cine reordonează fazele?** *(feedback Gabriel, 15 iul 2026, la cerința 1)*: s-a propus ca reordonarea fazelor să fie doar la admin, în timp ce cerința de față dă consultantului drept de reordonare în proiectele lui. **De confirmat** înainte de implementare (recomandare: consultantul poate reordona în proiectele lui — consecvent cu restul drepturilor; dacă se decide altfel, se ajustează și issue-ul #21).
+
 ## Dependențe
 - Legat de: *Șabloane cu stările Ciornă și Publicat* (același refactor de permisiuni — de făcut împreună).

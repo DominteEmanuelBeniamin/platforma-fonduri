@@ -18,6 +18,7 @@ Chatul de proiect și chatul privat suportă în prezent doar mesaje text.
 - [ ] Trimiterea de fișiere este înregistrată în audit.
 
 ## De clarificat cu echipa
+- **Alternativă propusă** *(Gabriel, 15 iul 2026)*: pentru a NU crea un flux paralel de documente pe lângă fazele proiectului, fișierele să nu circule liber prin chat, ci printr-o **zonă/fază de schimb de documente**, iar în chat se trimite doar **link** către fișier. **De decis înainte de implementare — schimbă fundamental scopul acestui issue.**
 - Se aplică și chatului **privat**, sau doar chatului de **proiect**? (Recomandare: ambele, cu aceeași implementare.)
 - Lista exactă de formate aprobate și dimensiunea maximă per fișier.
 

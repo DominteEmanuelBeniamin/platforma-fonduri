@@ -48,6 +48,11 @@ Publicarea restului se face cu `./create-issues.sh` (vezi jos).
 5. **„Consultantul responsabil"** (cerința 23): proiectele au echipă, nu un responsabil unic — se adaugă rol de responsabil pe proiect? — recomandare: da (ex. `is_lead` pe membru).
 6. **„Task"** (cerința 24): doar activitățile, sau și cererile de documente cu termen? — recomandare: activitățile, cu filtru opțional pentru cereri.
 7. **Starea implicită la creare** (cerința 8): elementele noi pornesc „În pregătire" sau „Public"? — recomandare: opțiune la creare, default „Public".
+8. **Cine reordonează fazele** (cerințele 1 și 10) — propunere Gabriel: doar admin; cerința 10 dă dreptul și consultantului. De confirmat.
+9. **Fișiere în chat vs zonă de schimb de documente** (cerința 16) — propunere Gabriel: fișierele merg într-o fază de schimb de documente, chatul primește doar link. De decis — schimbă scopul issue-ului.
+10. **Forma calendarului** (cerința 12): tabel/listă vs Gantt — se decide pe macheta UX.
+
+*Feedback-ul lui Gabriel Manole (15 iul 2026) a fost integrat în draft-urile: 03, 04, 07, 10, 11, 12, 16, 18, 19.*
 
 *Rezolvate de versiunea actualizată (14 iul 2026) a documentului de cerințe:* În pregătire/Public se aplică și cererilor de documente (cerința 8); adminul are calendar general prin Tabloul de bord (cerința 23).
 

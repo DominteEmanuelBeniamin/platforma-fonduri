@@ -9,7 +9,8 @@ Pagina proiectului afișează permanent toate detaliile; nu există căutare, ia
 - **Fazele trebuie să poată fi pliate și depliate individual**, pentru ca pagina să nu afișeze permanent toate detaliile.
 
 ## Criterii de acceptare
-- [ ] Câmp de căutare vizibil în pagina proiectului; caută în numele/descrierea fazelor, activităților și cererilor de documente.
+- [ ] Câmp de căutare vizibil în pagina proiectului; **căutare după cuvânt cheie** în numele/descrierea fazelor, activităților și cererilor de documente.
+- [ ] Cuvântul cheie găsit este **evidențiat (highlight)** în rezultate și în elementul deschis *(feedback Gabriel, 15 iul 2026)*.
 - [ ] Selectarea unui rezultat depliază faza corespunzătoare, derulează la element și îl evidențiază.
 - [ ] Fiecare fază poate fi pliată/depliată individual; starea se păstrează pe durata sesiunii.
 - [ ] Pentru rolul de client, căutarea NU returnează elemente „În pregătire".

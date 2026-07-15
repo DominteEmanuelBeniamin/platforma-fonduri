@@ -14,6 +14,9 @@ Pagina proiectului trebuie reorganizată astfel încât informațiile și acțiu
 - [ ] Header-ul paginii afișează: titlu, client, stare proiect, echipă și acțiunile principale, fără derulare.
 - [ ] Fazele, activitățile, documentele, calendarul, Drive-ul și chatul sunt accesibile din pagină fără navigare inutilă.
 - [ ] Conținutul principal încape, pe cât posibil, într-un singur ecran (fără aglomerare).
+- [ ] Layout-ul este gândit și pentru **mobil** — macheta include explicit varianta mobilă *(feedback Gabriel, 15 iul 2026)*.
+- [ ] Fazele sunt **pliabile/depliabile** — detaliile se văd doar la nevoie.
+- [ ] **Chatul este afișat/accesibil direct în pagină**, nu ascuns după navigare.
 - [ ] Comportamentul existent (schimbare status, asignare, cereri de documente) rămâne funcțional după refacere.
 
 ## Note tehnice

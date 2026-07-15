@@ -16,6 +16,7 @@ O cerere de document poate avea în prezent **un singur** fișier-model: coloane
 - [ ] Importul de șablon în proiect copiază toate modelele.
 - [ ] Propagarea modificărilor de șablon către proiecte funcționează cu mai multe atașamente.
 - [ ] Mecanismul de detectare a atașamentelor lipsă (`attachment_missing_at`) funcționează per-atașament.
+- [ ] **Clientul poate trimite mai multe documente completate în cadrul aceleiași cereri** (nu doar un singur fișier versionat) *(clarificare Gabriel, 15 iul 2026)*.
 
 ## Note tehnice
 - **Cea mai invazivă schimbare de schemă din tot setul de cerințe** — de tratat cu atenție:
@@ -23,6 +24,7 @@ O cerere de document poate avea în prezent **un singur** fișier-model: coloane
   - migrare de date din coloanele actuale + păstrarea coloanelor vechi până la finalizarea tranziției (sau view de compatibilitate);
   - actualizarea logicii de propagare șablon → proiect și a PRD-ului de „stale attachment handling" (`docs/prd/`).
 - Rutele afectate: `templates/attachment/init`, `templates/documents/attachment/init`, `projects/[id]/document-requests/attachment/init`, `document-requests/[requestId]/attachment/signed-download`, plus UI (`DocumentModal`, `DocumentRequests`, pagina de șabloane).
+- **Atenție la clarificarea „mai multe documente trimise per cerere"**: schimbă semantica versionării — azi fișierele unei cereri sunt versiuni ale unui singur livrabil (`version_number`). Pentru mai multe livrabile per cerere, fișierele clientului trebuie legate de modelul pe care îl completează (sau de sub-elemente ale cererii) — de proiectat împreună cu tabelul de atașamente.
 
 ## Dependențe
 - Migrarea SQL se grupează cu etapa de fundații (aplicare manuală — Sandu).
