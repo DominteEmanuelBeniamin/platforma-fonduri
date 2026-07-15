@@ -616,30 +616,32 @@ export default function DocumentModal({
             <X className="w-5 h-5" />
           </button>
 
-          {/* Status Badge - TOP RIGHT sub close button */}
-          <div className="absolute top-16 right-4">
-            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border ${statusConfig.bg} ${statusConfig.border} ${statusConfig.text}`}>
-              <span className={`w-2 h-2 rounded-full ${statusConfig.dotColor} animate-pulse`} />
-              <StatusIcon className="w-3.5 h-3.5" />
-              <span className="text-xs font-bold uppercase tracking-wide">{statusConfig.label}</span>
+          {/* Title și Status */}
+          <div className="pr-12">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <h2 className="min-w-0 text-2xl font-bold text-slate-900 leading-tight">
+                {request.name}
+              </h2>
+              <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border flex-shrink-0 self-start ${statusConfig.bg} ${statusConfig.border} ${statusConfig.text}`}>
+                <span className={`w-2 h-2 rounded-full ${statusConfig.dotColor} animate-pulse`} />
+                <StatusIcon className="w-3.5 h-3.5" />
+                <span className="text-xs font-bold uppercase tracking-wide">{statusConfig.label}</span>
+              </div>
             </div>
-          </div>
-
-          {/* Title și Description */}
-          <div className="pr-32">
-            <h2 className="text-2xl font-bold text-slate-900 mb-2 leading-tight">
-              {request.name}
-            </h2>
-            {request.description && (
-              <p className="text-slate-600 text-sm leading-relaxed">
-                {request.description}
-              </p>
-            )}
           </div>
         </div>
 
         {/* Body - Scrollable */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white">
+          {request.description && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-2">Descriere</p>
+              <div className="max-h-36 sm:max-h-44 overflow-y-auto pr-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">
+                {request.description}
+              </div>
+            </div>
+          )}
+
           {/* Info Cards Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="flex items-center gap-3 p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition-colors">
