@@ -221,20 +221,8 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
     } finally { setDownloading(null) }
   }
 
-  async function handleOpen(fileId: string, fileName?: string | null) {
-    if (getPreviewKind({ fileName }) === 'office') {
-      openInNewTab(buildPreviewPageUrl({ type: 'file', id: fileId, name: fileName }))
-      return
-    }
-    setDownloading(`open-${fileId}`)
-    try {
-      const res = await apiFetch(`/api/files/${fileId}/signed-download`, {
-        method: 'POST', body: JSON.stringify({ expiresIn: 300, disposition: 'inline' }),
-      })
-      if (!res.ok) { alert('Eroare la deschidere'); return }
-      const { url } = await res.json()
-      openInNewTab(url)
-    } finally { setDownloading(null) }
+  function handleOpen(fileId: string, fileName?: string | null) {
+    openInNewTab(buildPreviewPageUrl({ type: 'file', id: fileId, name: fileName }))
   }
 
   const uniqueProjects = useMemo(() => {

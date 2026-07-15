@@ -108,6 +108,7 @@ const ALLOWED_TYPES = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/csv',
   'image/jpeg',
   'image/jpg',
   'image/png',
@@ -115,7 +116,7 @@ const ALLOWED_TYPES = [
   'image/webp'
 ]
 
-const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.jpg', '.jpeg', '.png', '.gif', '.webp']
+const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.jpg', '.jpeg', '.png', '.gif', '.webp']
 
 // Helper functions
 function formatFileSize(bytes: number): string {
@@ -711,13 +712,8 @@ export default function DocumentRequests({
     if (url) forceDownload(url)
   }
 
-  const openAttachmentModel = async (requestId: string, fileName?: string | null) => {
-    if (getPreviewKind({ fileName }) === 'office') {
-      openInNewTab(buildPreviewPageUrl({ type: 'attachment', id: requestId, name: fileName }))
-      return
-    }
-    const url = await fetchAttachmentSignedUrl(requestId, 'inline')
-    if (url) openInNewTab(url)
+  const openAttachmentModel = (requestId: string, fileName?: string | null) => {
+    openInNewTab(buildPreviewPageUrl({ type: 'attachment', id: requestId, name: fileName }))
   }
 
   const handleDeleteRequest = async () => {
@@ -1802,7 +1798,7 @@ export default function DocumentRequests({
                     <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:border-emerald-300 hover:bg-emerald-50/50 transition-colors">
                       <Upload className="w-8 h-8 text-slate-400" />
                       <span className="text-sm text-slate-600 font-medium">Click pentru a încărca documente</span>
-                      <span className="text-xs text-slate-400">PDF, DOC, DOCX, XLS, XLSX, imagini</span>
+                      <span className="text-xs text-slate-400">PDF, DOC, DOCX, XLS, XLSX, CSV, imagini</span>
                       <input
                         type="file"
                         multiple

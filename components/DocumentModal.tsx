@@ -65,7 +65,7 @@ interface DocumentRequest {
 
 type ToastType = 'success' | 'error' | 'info'
 
-const MODEL_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx'])
+const MODEL_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png', 'gif', 'webp'])
 const MODEL_MAX_SIZE = 25 * 1024 * 1024
 
 function getFileExtension(filename: string) {
@@ -342,11 +342,6 @@ export default function DocumentModal({
   }
 
 
-  // State pentru expandare răspunsuri
-  const [showAllVersions, setShowAllVersions] = useState(false)
-  const [hoveredImageUrl, setHoveredImageUrl] = useState<string | null>(null)
-  const [imagePreviewLoading, setImagePreviewLoading] = useState(false)
-
   const downloadAttachmentModel = async () => {
     if (!localAttachmentPath || attachmentMissing) return
     setDownloadingId('attachment')
@@ -376,33 +371,9 @@ export default function DocumentModal({
   const attachmentFileName = localAttachmentPath?.split('/').filter(Boolean).pop() || null
   const attachmentPreviewKind = getPreviewKind({ fileName: localAttachmentPath })
 
-  const openAttachmentModel = async () => {
+  const openAttachmentModel = () => {
     if (!localAttachmentPath || attachmentMissing) return
-    if (attachmentPreviewKind === 'office') {
-      openInNewTab(buildPreviewPageUrl({ type: 'attachment', id: request.id, name: attachmentFileName }))
-      return
-    }
-    setDownloadingId('open-attachment')
-    try {
-      const res = await apiFetch(`/api/document-requests/${request.id}/attachment/signed-download`, {
-        method: 'POST',
-        body: JSON.stringify({ expiresIn: 60 * 5, disposition: 'inline' })
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (res.status === 404) {
-          setAttachmentMissing(true)
-          onUpdate()
-        }
-        throw new Error(data?.error || res.statusText)
-      }
-
-      openInNewTab(data.url)
-    } catch (error: any) {
-      showToast('Eroare la deschidere: ' + error.message, 'error')
-    } finally {
-      setDownloadingId(null)
-    }
+    openInNewTab(buildPreviewPageUrl({ type: 'attachment', id: request.id, name: attachmentFileName }))
   }
 
   const patchAttachmentPath = async (attachmentPath: string | null, attachmentOriginalName?: string | null) => {
@@ -503,55 +474,10 @@ export default function DocumentModal({
     }
   }
 
-  const openUploadedFileById = async (fileId: string, fileName?: string) => {
-    if (getPreviewKind({ fileName }) === 'office') {
-      openInNewTab(buildPreviewPageUrl({ type: 'file', id: fileId, name: fileName }))
-      return
-    }
-    setDownloadingId(`open-${fileId}`)
-    try {
-      const res = await apiFetch(`/api/files/${fileId}/signed-download`, {
-        method: 'POST',
-        body: JSON.stringify({ expiresIn: 60 * 5, disposition: 'inline' })
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || res.statusText)
-
-      openInNewTab(data.url)
-    } catch (error: any) {
-      showToast('Eroare la deschidere: ' + error.message, 'error')
-    } finally {
-      setDownloadingId(null)
-    }
+  const openUploadedFileById = (fileId: string, fileName?: string) => {
+    openInNewTab(buildPreviewPageUrl({ type: 'file', id: fileId, name: fileName }))
   }
 
-
-  // Get image preview URL for hover
-  const handleImagePreview = async (fileId: string, fileName: string) => {
-    // Check if it's an image file
-    const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName)
-    if (!isImage) return
-
-    setImagePreviewLoading(true)
-    try {
-      const res = await apiFetch(`/api/files/${fileId}/signed-download`, {
-        method: 'POST',
-        body: JSON.stringify({ expiresIn: 60 * 5 })
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) return
-      
-      setHoveredImageUrl(data.url)
-    } catch (error) {
-      // Silently fail for preview
-    } finally {
-      setImagePreviewLoading(false)
-    }
-  }
-
-  const clearImagePreview = () => {
-    setHoveredImageUrl(null)
-  }
 
   const reviewRequest = async (action: 'approved' | 'rejected') => {
     const res = await apiFetch(`/api/document-requests/${request.id}/review`, {
@@ -893,6 +819,7 @@ export default function DocumentModal({
                             ref={attachmentInputRef}
                             type="file"
                             className="hidden"
+                            accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp"
                             onClick={(e) => { e.currentTarget.value = '' }}
                             onChange={(e) => handleReplacementModel(e.currentTarget.files?.[0])}
                           />
@@ -932,6 +859,7 @@ export default function DocumentModal({
                       ref={attachmentInputRef}
                       type="file"
                       className="hidden"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp"
                       onClick={(e) => { e.currentTarget.value = '' }}
                       onChange={(e) => handleReplacementModel(e.currentTarget.files?.[0])}
                     />

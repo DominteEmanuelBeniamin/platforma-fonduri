@@ -782,8 +782,8 @@ export default function NewProjectPage() {
                   <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors">
                     <Upload className="w-8 h-8 text-slate-400" />
                     <span className="text-sm text-slate-600 font-medium">Click pentru a încărca</span>
-                    <span className="text-xs text-slate-400">PDF, DOC, DOCX, XLS, XLSX</span>
-                    <input ref={fileInputRef} type="file" onChange={(e) => setNewDocTemplate(e.target.files?.[0] || null)} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx" />
+                    <span className="text-xs text-slate-400">PDF, DOC, DOCX, XLS, XLSX, imagini</span>
+                    <input ref={fileInputRef} type="file" onChange={(e) => setNewDocTemplate(e.target.files?.[0] || null)} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp" />
                   </label>
                 )}
               </div>

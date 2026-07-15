@@ -29,7 +29,9 @@ export async function POST(
   try {
     const { fileId } = await params
     const body = await request.json().catch(() => ({}))
-    const expiresIn = typeof body?.expiresIn === 'number' ? body.expiresIn : 60 * 5
+    // plafonat server-side: clientul nu poate cere un URL semnat cu viață mai lungă
+    const requested = typeof body?.expiresIn === 'number' ? body.expiresIn : 60 * 5
+    const expiresIn = Math.min(Math.max(Math.trunc(requested), 60), 600)
     const inlineRequested = body?.disposition === 'inline'
 
     const admin = createSupabaseServiceClient()

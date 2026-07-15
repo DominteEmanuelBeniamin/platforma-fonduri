@@ -36,31 +36,10 @@ export function isPreviewableFile({
   return isPreviewableFileName(fileName)
 }
 
-// Formate Office randate client-side în pagina /preview (docx-preview + SheetJS).
-// .doc (binar, pre-2007) nu e suportat de docx-preview — rămâne doar descărcabil.
-const OFFICE_PREVIEWABLE_EXTENSIONS = new Set(['docx', 'xlsx', 'xls', 'csv'])
-
-const OFFICE_PREVIEWABLE_MIME_TYPES = new Set([
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.ms-excel',
-  'text/csv',
-])
-
-function getExtension(name: string | null | undefined): string {
-  if (!name) return ''
-  const dot = name.lastIndexOf('.')
-  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : ''
-}
-
-export function isOfficePreviewableFileName(name: string | null | undefined): boolean {
-  return OFFICE_PREVIEWABLE_EXTENSIONS.has(getExtension(name))
-}
-
-export type PreviewKind = 'inline' | 'office'
+export type PreviewKind = 'inline'
 
 // 'inline' → browserul afișează nativ (PDF/imagini, URL semnat direct);
-// 'office' → pagina internă /preview randează fișierul; null → doar descărcare.
+// null → doar descărcare. Word/Excel/CSV nu se previzualizează.
 export function getPreviewKind({
   mimeType,
   fileName,
@@ -68,14 +47,11 @@ export function getPreviewKind({
   mimeType?: string | null
   fileName?: string | null
 }): PreviewKind | null {
-  if (isPreviewableFile({ mimeType, fileName })) return 'inline'
-  if (isOfficePreviewableFileName(fileName)) return 'office'
-  if (mimeType && OFFICE_PREVIEWABLE_MIME_TYPES.has(mimeType.split(';')[0].trim().toLowerCase())) {
-    return 'office'
-  }
-  return null
+  return isPreviewableFile({ mimeType, fileName }) ? 'inline' : null
 }
 
+// Pagina internă /preview afișează fișierul fără să expună URL-ul semnat
+// în bara de adrese; linkul nu funcționează fără autentificare.
 export function buildPreviewPageUrl(target: {
   type: 'file' | 'attachment'
   id: string
