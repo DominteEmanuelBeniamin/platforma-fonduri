@@ -39,6 +39,13 @@ interface DocumentRequest {
   attachment_path: string | null
   attachment_missing_at?: string | null
   attachment_missing_checked_at?: string | null
+  attachments?: {
+    id: string
+    storage_path: string
+    original_name: string | null
+    missing_at?: string | null
+    order_index?: number
+  }[]
   deadline_at: string | null
   created_by: string | null
   created_at: string
@@ -116,6 +123,11 @@ export default function DocumentModal({
   const [localDeadline, setLocalDeadline] = useState<string | null>(request.deadline_at)
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
+  const requestAttachments = request.attachments?.length
+    ? request.attachments
+    : localAttachmentPath
+    ? [{ id: '', storage_path: localAttachmentPath, original_name: null, missing_at: request.attachment_missing_at }]
+    : []
 
   useEffect(() => {
     setLocalAttachmentPath(request.attachment_path)
@@ -346,13 +358,13 @@ export default function DocumentModal({
   const [hoveredImageUrl, setHoveredImageUrl] = useState<string | null>(null)
   const [imagePreviewLoading, setImagePreviewLoading] = useState(false)
 
-  const downloadAttachmentModel = async () => {
+  const downloadAttachmentModel = async (attachmentId?: string) => {
     if (!localAttachmentPath || attachmentMissing) return
     setDownloadingId('attachment')
     try {
       const res = await apiFetch(`/api/document-requests/${request.id}/attachment/signed-download`, {
         method: 'POST',
-        body: JSON.stringify({ expiresIn: 60 * 5 })
+        body: JSON.stringify({ expiresIn: 60 * 5, attachment_id: attachmentId || undefined })
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -379,6 +391,9 @@ export default function DocumentModal({
       body: JSON.stringify({
         attachment_path: attachmentPath,
         attachment_original_name: attachmentOriginalName ?? null,
+        attachments: attachmentPath
+          ? [{ storage_path: attachmentPath, original_name: attachmentOriginalName ?? null }]
+          : [],
       }),
     })
     const data = await res.json().catch(() => ({}))
@@ -601,30 +616,32 @@ export default function DocumentModal({
             <X className="w-5 h-5" />
           </button>
 
-          {/* Status Badge - TOP RIGHT sub close button */}
-          <div className="absolute top-16 right-4">
-            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border ${statusConfig.bg} ${statusConfig.border} ${statusConfig.text}`}>
-              <span className={`w-2 h-2 rounded-full ${statusConfig.dotColor} animate-pulse`} />
-              <StatusIcon className="w-3.5 h-3.5" />
-              <span className="text-xs font-bold uppercase tracking-wide">{statusConfig.label}</span>
+          {/* Title și Status */}
+          <div className="pr-12">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <h2 className="min-w-0 text-2xl font-bold text-slate-900 leading-tight">
+                {request.name}
+              </h2>
+              <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border flex-shrink-0 self-start ${statusConfig.bg} ${statusConfig.border} ${statusConfig.text}`}>
+                <span className={`w-2 h-2 rounded-full ${statusConfig.dotColor} animate-pulse`} />
+                <StatusIcon className="w-3.5 h-3.5" />
+                <span className="text-xs font-bold uppercase tracking-wide">{statusConfig.label}</span>
+              </div>
             </div>
-          </div>
-
-          {/* Title și Description */}
-          <div className="pr-32">
-            <h2 className="text-2xl font-bold text-slate-900 mb-2 leading-tight">
-              {request.name}
-            </h2>
-            {request.description && (
-              <p className="text-slate-600 text-sm leading-relaxed">
-                {request.description}
-              </p>
-            )}
           </div>
         </div>
 
         {/* Body - Scrollable */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white">
+          {request.description && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-2">Descriere</p>
+              <div className="max-h-36 sm:max-h-44 overflow-y-auto pr-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">
+                {request.description}
+              </div>
+            </div>
+          )}
+
           {/* Info Cards Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="flex items-center gap-3 p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition-colors">
@@ -772,36 +789,31 @@ export default function DocumentModal({
 
             <div className="space-y-3">
               {/* Model/Template - Dacă există */}
-              {localAttachmentPath && !attachmentMissing && (
+              {requestAttachments.length > 0 && !attachmentMissing && (
                 <div>
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
                     <span className="w-1 h-1 rounded-full bg-slate-400" />
-                    Model
+                    Modele ({requestAttachments.length})
                   </p>
-                  <button
-                    onClick={downloadAttachmentModel}
-                    disabled={downloadingId === 'attachment'}
-                    className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-indigo-50/30 hover:from-indigo-100 hover:to-indigo-50 transition-all group text-left disabled:opacity-60 shadow-sm hover:shadow-md"
-                  >
-                    <div className="w-12 h-12 rounded-xl bg-white shadow-sm border border-indigo-100 flex items-center justify-center text-indigo-600 flex-shrink-0">
-                      {downloadingId === 'attachment' ? (
-                        <Loader2 className="w-6 h-6 animate-spin" />
-                      ) : (
-                        <FileText className="w-6 h-6" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-indigo-900 mb-0.5">Document template</p>
-                      <p className="text-xs text-indigo-600">Model de completat pentru client</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-white rounded-lg border border-indigo-200">
-                        <Download className="w-3.5 h-3.5 text-indigo-500" />
-                        <span className="text-xs font-semibold text-indigo-700">Download</span>
-                      </div>
-                      <Download className="w-5 h-5 text-indigo-400 sm:hidden" />
-                    </div>
-                  </button>
+                  <div className="space-y-2">
+                    {requestAttachments.map((attachment, index) => (
+                      <button
+                        key={attachment.id || `${attachment.storage_path}-${index}`}
+                        onClick={() => downloadAttachmentModel(attachment.id || undefined)}
+                        disabled={downloadingId === 'attachment'}
+                        className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-indigo-50/30 hover:from-indigo-100 hover:to-indigo-50 transition-all group text-left disabled:opacity-60 shadow-sm hover:shadow-md"
+                      >
+                        <div className="w-12 h-12 rounded-xl bg-white shadow-sm border border-indigo-100 flex items-center justify-center text-indigo-600 flex-shrink-0">
+                          {downloadingId === 'attachment' ? <Loader2 className="w-6 h-6 animate-spin" /> : <FileText className="w-6 h-6" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-indigo-900 mb-0.5 truncate">{attachment.original_name || `Document template ${index + 1}`}</p>
+                          <p className="text-xs text-indigo-600">Model de completat pentru client</p>
+                        </div>
+                        <Download className="w-5 h-5 text-indigo-400" />
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
 

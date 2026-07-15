@@ -72,6 +72,7 @@ export async function GET(
         attachment_original_name,
         attachment_missing_at,
         attachment_missing_checked_at,
+        attachments:document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at, source_template_attachment_id, created_at),
         deadline_at,
         created_by,
         created_at,
@@ -143,6 +144,9 @@ export async function POST(
       typeof body?.attachment_original_name === 'string' && body.attachment_original_name
         ? body.attachment_original_name
         : null
+    const attachments = Array.isArray(body?.attachments)
+      ? body.attachments.filter((item: any) => item && typeof item.storage_path === 'string' && item.storage_path.trim())
+      : null
     const activity_id = typeof body?.activity_id === 'string' && body.activity_id ? body.activity_id : null
     const is_outgoing = body?.is_outgoing === true
     const requirement_type = normalizeRequirementType(body?.requirement_type, body?.is_mandatory === true)
@@ -151,7 +155,10 @@ export async function POST(
       return NextResponse.json({ error: 'Name is required' }, { status: 400 })
     }
 
-    if (is_outgoing && !attachment_path) {
+    const firstAttachment = attachments?.[0]
+    const firstAttachmentPath = firstAttachment?.storage_path || attachment_path
+
+    if (is_outgoing && !firstAttachmentPath) {
       return NextResponse.json({ error: 'Trebuie atașat un fișier pentru documentul trimis clientului.' }, { status: 400 })
     }
 
@@ -185,8 +192,8 @@ export async function POST(
       name,
       description: description || null,
       deadline_at,
-      attachment_path,
-      attachment_original_name: attachment_path ? attachment_original_name : null,
+      attachment_path: firstAttachmentPath,
+      attachment_original_name: firstAttachmentPath ? firstAttachment?.original_name || attachment_original_name : null,
       attachment_missing_at: null,
       attachment_missing_checked_at: null,
       requirement_type,
@@ -222,6 +229,24 @@ export async function POST(
     if (error) {
       console.error('POST document-requests error:', error)
       return NextResponse.json({ error: 'Failed to create document request' }, { status: 500 })
+    }
+
+    if (data && attachments) {
+      const { error: attachmentsError } = await admin.from('document_requirement_attachments').insert(
+        attachments.map((attachment: any, index: number) => ({
+          document_requirement_id: data.id,
+          storage_path: attachment.storage_path.trim(),
+          original_name: typeof attachment.original_name === 'string' ? attachment.original_name : null,
+          mime_type: typeof attachment.mime_type === 'string' ? attachment.mime_type : null,
+          file_size: typeof attachment.file_size === 'number' ? attachment.file_size : null,
+          order_index: index,
+          created_by: access.profile.id,
+        }))
+      )
+      if (attachmentsError) {
+        console.error('POST document-requests attachments error:', attachmentsError)
+        return NextResponse.json({ error: 'Failed to save document attachments' }, { status: 500 })
+      }
     }
 
     if (data) {

@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 import { useEffect, useMemo, useState, JSX, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import {
   FileText,
   Plus,
@@ -55,6 +56,16 @@ interface DocumentRequest {
   attachment_original_name?: string | null
   attachment_missing_at?: string | null
   attachment_missing_checked_at?: string | null
+  attachments?: {
+    id: string
+    storage_path: string
+    original_name: string | null
+    mime_type?: string | null
+    file_size?: number | null
+    order_index?: number
+    missing_at?: string | null
+    missing_checked_at?: string | null
+  }[]
   deadline_at: string | null
   created_by: string | null
   created_at: string
@@ -132,6 +143,19 @@ function getFileExtension(filename: string): string {
 
 function normalizeFileName(filename: string | null | undefined): string {
   return (filename || '').trim().toLowerCase()
+}
+
+function getRequestAttachments(request: DocumentRequest) {
+  return request.attachments?.length
+    ? request.attachments
+    : request.attachment_path
+    ? [{
+        id: undefined,
+        storage_path: request.attachment_path,
+        original_name: request.attachment_original_name || null,
+        missing_at: request.attachment_missing_at || null,
+      }]
+    : []
 }
 
 function validateFile(file: File, existingFiles: PickedFile[]): ValidationError | null {
@@ -246,13 +270,16 @@ export default function DocumentRequests({
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState<RequirementType>('obligatoriu')
-  const [templateFile, setTemplateFile] = useState<File | null>(null)
+  const [templateFiles, setTemplateFiles] = useState<File[]>([])
+  const [templateAttachments, setTemplateAttachments] = useState<NonNullable<DocumentRequest['attachments']>>([])
+  const [templateAttachmentsTouched, setTemplateAttachmentsTouched] = useState(false)
   const [templateFileError, setTemplateFileError] = useState('')
   const [deadline, setDeadline] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   // Trimitere documente către client (is_outgoing)
   const [showSendDoc, setShowSendDoc] = useState(false)
+  const [selectedOutgoingDoc, setSelectedOutgoingDoc] = useState<DocumentRequest | null>(null)
   const [sendFiles, setSendFiles] = useState<PickedFile[]>([])
   const [sendSubmitting, setSendSubmitting] = useState(false)
 
@@ -486,26 +513,43 @@ export default function DocumentRequests({
 
 
   const handleTemplateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.currentTarget.files?.[0]
+    const files = Array.from(e.currentTarget.files ?? [])
     e.currentTarget.value = ''
-    if (!file) return
+    if (files.length === 0) return
 
-    const error = validateFile(file, [])
-    if (error) {
-      setTemplateFile(null)
-      setTemplateFileError(error.message)
-      return
+    const accepted: File[] = []
+    const errors: string[] = []
+    for (const file of files) {
+      const existing = [...templateFiles, ...accepted].map(candidate => ({
+        id: candidate.name,
+        file: candidate,
+        name: candidate.name,
+        size: candidate.size,
+        type: candidate.type,
+        relativePath: null,
+      }))
+      const error = validateFile(file, existing)
+      if (error) {
+        errors.push(`${file.name}: ${error.message}`)
+      } else {
+        accepted.push(file)
+      }
     }
 
-    setTemplateFile(file)
-    setTemplateFileError('')
+    if (accepted.length > 0) {
+      setTemplateFiles(current => [...current, ...accepted])
+      setTemplateAttachmentsTouched(true)
+    }
+    setTemplateFileError(errors.join('\n'))
   }
 
   const resetRequestForm = () => {
     setName('')
     setDescription('')
     setCategory('obligatoriu')
-    setTemplateFile(null)
+    setTemplateFiles([])
+    setTemplateAttachments([])
+    setTemplateAttachmentsTouched(false)
     setTemplateFileError('')
     setDeadline('')
     setEditingRequest(null)
@@ -526,7 +570,19 @@ export default function DocumentRequests({
     setName(request.name)
     setDescription(request.description ?? '')
     setCategory(request.requirement_type ?? 'obligatoriu')
-    setTemplateFile(null)
+    setTemplateFiles([])
+    setTemplateAttachments(request.attachments?.length
+      ? request.attachments
+      : request.attachment_path
+      ? [{
+          id: `legacy-${request.id}`,
+          storage_path: request.attachment_path,
+          original_name: request.attachment_original_name || null,
+          missing_at: request.attachment_missing_at || null,
+          missing_checked_at: request.attachment_missing_checked_at || null,
+        }]
+      : [])
+    setTemplateAttachmentsTouched(false)
     setTemplateFileError('')
     setDeadline(request.deadline_at ? request.deadline_at.slice(0, 10) : '')
     setShowForm(true)
@@ -688,10 +744,10 @@ export default function DocumentRequests({
   }
 
 
-  const downloadAttachmentModel = async (requestId: string) => {
+  const downloadAttachmentModel = async (requestId: string, attachmentId?: string) => {
     const res = await apiFetch(`/api/document-requests/${requestId}/attachment/signed-download`, {
       method: 'POST',
-      body: JSON.stringify({ expiresIn: 60 * 5 }),
+      body: JSON.stringify({ expiresIn: 60 * 5, attachment_id: attachmentId }),
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -732,32 +788,51 @@ export default function DocumentRequests({
     setSubmitting(true)
 
     try {
-      let attachment_path: string | null | undefined = editingRequest ? undefined : null
+      let uploadedAttachments: { storage_path: string; original_name: string | null; mime_type?: string | null; file_size?: number | null }[] | undefined =
+        editingRequest
+          ? templateAttachmentsTouched ? templateAttachments.map(attachment => ({
+              storage_path: attachment.storage_path,
+              original_name: attachment.original_name,
+              mime_type: attachment.mime_type ?? null,
+              file_size: attachment.file_size ?? null,
+            })) : undefined
+          : []
 
-      if (templateFile) {
-        // 1) init template upload
-        const initRes = await apiFetch(`/api/projects/${projectId}/document-requests/attachment/init`, {
-          method: 'POST',
-          body: JSON.stringify({
-            name: templateFile.name,
-            size: templateFile.size,
-            type: templateFile.type || 'application/octet-stream',
-          }),
-        })
-        const init = await initRes.json().catch(() => ({}))
-        if (!initRes.ok) throw new Error(init?.error || 'Init attachment upload failed')
+      if (templateFiles.length > 0) {
+        uploadedAttachments = uploadedAttachments ?? templateAttachments.map(attachment => ({
+          storage_path: attachment.storage_path,
+          original_name: attachment.original_name,
+          mime_type: attachment.mime_type ?? null,
+          file_size: attachment.file_size ?? null,
+        }))
+        for (const templateFile of templateFiles) {
+          const initRes = await apiFetch(`/api/projects/${projectId}/document-requests/attachment/init`, {
+            method: 'POST',
+            body: JSON.stringify({
+              name: templateFile.name,
+              size: templateFile.size,
+              type: templateFile.type || 'application/octet-stream',
+            }),
+          })
+          const init = await initRes.json().catch(() => ({}))
+          if (!initRes.ok) throw new Error(init?.error || 'Init attachment upload failed')
 
-        // 2) PUT to storage
-        const putRes = await fetch(init.signedUploadUrl, {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${init.token}`,
-            'Content-Type': templateFile.type || 'application/octet-stream',
-          },
-          body: templateFile,
-        })
-        if (!putRes.ok) throw new Error('Attachment upload failed')
-        attachment_path = init.storagePath
+          const putRes = await fetch(init.signedUploadUrl, {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${init.token}`,
+              'Content-Type': templateFile.type || 'application/octet-stream',
+            },
+            body: templateFile,
+          })
+          if (!putRes.ok) throw new Error('Attachment upload failed')
+          uploadedAttachments.push({
+            storage_path: init.storagePath,
+            original_name: templateFile.name,
+            mime_type: templateFile.type || 'application/octet-stream',
+            file_size: templateFile.size,
+          })
+        }
       }
 
       const requestBody: Record<string, unknown> = {
@@ -767,9 +842,10 @@ export default function DocumentRequests({
         deadline_at: deadline || null,
       }
 
-      if (attachment_path !== undefined) {
-        requestBody.attachment_path = attachment_path
-        requestBody.attachment_original_name = attachment_path ? templateFile?.name || null : null
+      if (uploadedAttachments !== undefined) {
+        requestBody.attachments = uploadedAttachments
+        requestBody.attachment_path = uploadedAttachments[0]?.storage_path || null
+        requestBody.attachment_original_name = uploadedAttachments[0]?.original_name || null
       }
 
       if (!editingRequest) {
@@ -1092,21 +1168,22 @@ export default function DocumentRequests({
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                 <label className="flex-1 cursor-pointer">
                   <div className={`px-4 py-3 border-2 border-dashed rounded-xl text-center transition-all ${
-                    templateFile ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                    templateFiles.length > 0 ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                   }`}>
                     <div className="flex items-center justify-center gap-2 text-sm">
-                      <Paperclip className={`w-4 h-4 ${templateFile ? 'text-indigo-600' : 'text-slate-400'}`} />
-                      <span className={templateFile ? 'text-indigo-700 font-medium' : 'text-slate-500'}>
-                        {templateFile
-                          ? templateFile.name
+                      <Paperclip className={`w-4 h-4 ${templateFiles.length > 0 ? 'text-indigo-600' : 'text-slate-400'}`} />
+                      <span className={templateFiles.length > 0 ? 'text-indigo-700 font-medium' : 'text-slate-500'}>
+                        {templateFiles.length > 0
+                          ? templateFiles.map(file => file.name).join(', ')
                           : editingRequest
-                          ? 'Înlocuiește model (opțional)'
-                          : 'Atașează model (opțional)'}
+                          ? 'Adaugă modele (opțional)'
+                          : 'Atașează modele (opțional)'}
                       </span>
                     </div>
                   </div>
                   <input
                     type="file"
+                    multiple
                     onClick={(e) => { e.currentTarget.value = '' }}
                     onChange={handleTemplateFileChange}
                     className="hidden"
@@ -1123,13 +1200,47 @@ export default function DocumentRequests({
                     : editingRequest ? 'Salvează modificările' : 'Trimite cerere'}
                 </button>
               </div>
-              {editingRequest?.attachment_path && !editingRequest.attachment_missing_at && (
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <Paperclip className="w-3.5 h-3.5 text-slate-400" />
-                  <span>
-                    Model existent: {editingRequest.attachment_original_name || 'fișier atașat'}
-                    {templateFile ? ' · va fi înlocuit la salvare' : ''}
-                  </span>
+              {(templateAttachments.length > 0 || templateFiles.length > 0) && (
+                <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  {templateAttachments.map(attachment => (
+                    <div key={attachment.id} className="flex items-center gap-2 text-xs text-slate-600">
+                      <Paperclip className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">{attachment.original_name || attachment.storage_path.split('/').pop() || 'model atașat'}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTemplateAttachments(current => current.filter(item => item.id !== attachment.id))
+                          setTemplateAttachmentsTouched(true)
+                        }}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        Elimină
+                      </button>
+                    </div>
+                  ))}
+                  {templateFiles.map((file, index) => (
+                    <div key={`${file.name}-${file.size}-${index}`} className="flex items-center gap-2 text-xs text-indigo-700">
+                      <Paperclip className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                      <span className="text-indigo-500">{formatFileSize(file.size)}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTemplateFiles(current => current.filter((_, fileIndex) => fileIndex !== index))
+                          setTemplateAttachmentsTouched(true)
+                        }}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        Elimină
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {templateFileError && (
+                <div className="flex items-start gap-2 text-xs text-red-600">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  <span className="whitespace-pre-line">{templateFileError}</span>
                 </div>
               )}
               {templateFileError && (
@@ -1163,35 +1274,24 @@ export default function DocumentRequests({
               )
             ) : (
               <div className="divide-y divide-emerald-100/70">
-                {outgoingDocs.map((doc: any) => (
-                  <div key={doc.id} className="px-4 sm:px-5 py-3 flex items-center gap-3">
+                {outgoingDocs.map((doc: DocumentRequest) => (
+                  <button
+                    key={doc.id}
+                    type="button"
+                    onClick={() => setSelectedOutgoingDoc(doc)}
+                    className="w-full px-4 sm:px-5 py-3 flex items-center gap-3 text-left hover:bg-emerald-50/70 transition-colors"
+                  >
                     <div className="w-9 h-9 rounded-lg bg-white border border-emerald-200 flex items-center justify-center text-emerald-600 flex-shrink-0">
                       <FileText className="w-4 h-4" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-900 break-words">{doc.name}</p>
                       <p className="text-xs text-slate-500 truncate">
-                        {doc.attachment_original_name || 'document'} · {new Date(doc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {getRequestAttachments(doc).map(attachment => attachment.original_name || attachment.storage_path.split('/').pop() || 'document').join(', ')} · {new Date(doc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => downloadAttachmentModel(doc.id)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-white text-emerald-700 text-xs font-semibold hover:bg-emerald-50 flex-shrink-0"
-                    >
-                      <Download className="w-3.5 h-3.5" /> Descarcă
-                    </button>
-                    {isAdminOrConsultant && (
-                      <button
-                        type="button"
-                        onClick={() => setRequestToDelete(doc)}
-                        className="p-1.5 text-slate-400 hover:text-red-500 flex-shrink-0"
-                        title="Șterge documentul trimis"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
+                    <ChevronRight className="w-4 h-4 text-emerald-300 flex-shrink-0" />
+                  </button>
                 ))}
               </div>
             )}
@@ -1282,21 +1382,20 @@ export default function DocumentRequests({
                         ) : null}
 
 
-                        {req.attachment_path && !req.attachment_missing_at && !missingAttachments.has(req.id) && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); downloadAttachmentModel(req.id) }}
-                            className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 transition-colors"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            Model
-                          </button>
-                        )}
-                        {(req.attachment_missing_at || missingAttachments.has(req.id)) && (
-                          <span className={`flex items-center gap-1.5 ${isAdminOrConsultant ? 'text-amber-700' : 'text-slate-500'}`}>
-                            <AlertCircle className="w-3.5 h-3.5" />
-                            {isAdminOrConsultant ? 'Model indisponibil' : 'Model indisponibil momentan'}
-                          </span>
-                        )}
+                        {(() => {
+                          const attachments = getRequestAttachments(req)
+                          if (attachments.length === 0) return null
+                          const missingCount = attachments.filter(attachment => attachment.missing_at || missingAttachments.has(req.id)).length
+
+                          return (
+                            <span className={`flex items-center gap-1.5 ${missingCount > 0 ? 'text-amber-700' : 'text-indigo-600'}`}>
+                              {missingCount > 0 ? <AlertCircle className="w-3.5 h-3.5" /> : <Paperclip className="w-3.5 h-3.5" />}
+                              {missingCount === attachments.length
+                                ? attachments.length === 1 ? 'Model indisponibil' : `${attachments.length} modele indisponibile`
+                                : attachments.length === 1 ? '1 model de descărcat' : `${attachments.length} modele de descărcat`}
+                            </span>
+                          )
+                        })()}
                       </div>
 
                       {/* ── Buton reminder client ── */}
@@ -1713,6 +1812,89 @@ export default function DocumentRequests({
           projectTitle={projectTitle}
         />
       )}
+
+      {selectedOutgoingDoc && createPortal((
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-4">
+              <div className="min-w-0">
+                <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                  <FolderUp className="w-3 h-3" />
+                  Document trimis clientului
+                </div>
+                <h3 className="text-lg font-semibold text-slate-900 break-words">{selectedOutgoingDoc.name}</h3>
+                <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+                  <Calendar className="w-3.5 h-3.5" />
+                  {new Date(selectedOutgoingDoc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedOutgoingDoc(null)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                aria-label="Închide"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] space-y-5 overflow-y-auto px-6 py-5">
+              {selectedOutgoingDoc.description && (
+                <div>
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Descriere</p>
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{selectedOutgoingDoc.description}</p>
+                </div>
+              )}
+
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Atașamente ({getRequestAttachments(selectedOutgoingDoc).length})
+                </p>
+                <div className="space-y-2">
+                  {getRequestAttachments(selectedOutgoingDoc).map((attachment, index) => {
+                    const isMissing = Boolean(attachment.missing_at || missingAttachments.has(selectedOutgoingDoc.id))
+                    const label = attachment.original_name || attachment.storage_path.split('/').pop() || `Document ${index + 1}`
+
+                    return (
+                      <button
+                        key={attachment.id || `${attachment.storage_path}-${index}`}
+                        type="button"
+                        onClick={() => downloadAttachmentModel(selectedOutgoingDoc.id, attachment.id)}
+                        disabled={isMissing}
+                        className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed ${
+                          isMissing
+                            ? 'border-amber-200 bg-amber-50 text-amber-800'
+                            : 'border-emerald-200 bg-emerald-50/50 text-emerald-800 hover:bg-emerald-50'
+                        }`}
+                      >
+                        {isMissing ? <AlertCircle className="w-5 h-5 flex-shrink-0" /> : <Download className="w-5 h-5 flex-shrink-0" />}
+                        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{label}</span>
+                        <span className="text-xs font-medium">{isMissing ? 'Indisponibil' : 'Descarcă'}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {isAdminOrConsultant && (
+              <div className="border-t border-slate-100 bg-slate-50 px-6 py-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRequestToDelete(selectedOutgoingDoc)
+                    setSelectedOutgoingDoc(null)
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-100 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Șterge documentul
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      ), document.body)}
 
       <ConfirmDeleteModal
         isOpen={!!requestToDelete}

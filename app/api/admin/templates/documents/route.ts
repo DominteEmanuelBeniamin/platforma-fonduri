@@ -27,11 +27,21 @@ export async function POST(req: NextRequest) {
       order_index,
       attachment_path,
       attachment_original_name,
+      attachments,
     } = body
-    const requirement_type = normalizeRequirementType(body?.requirement_type, is_mandatory)
+    const is_outgoing = body?.is_outgoing === true
+    const attachmentItems = Array.isArray(attachments)
+      ? attachments.filter((item: any) => item && typeof item.storage_path === 'string' && item.storage_path.trim())
+      : null
+    const attachmentPath = attachmentItems?.[0]?.storage_path || attachment_path || null
+    const requirement_type = is_outgoing ? 'optional' : normalizeRequirementType(body?.requirement_type, is_mandatory)
 
     if (!template_activity_id || !name) {
       return NextResponse.json({ error: 'Activitatea și numele sunt obligatorii' }, { status: 400 })
+    }
+
+    if (is_outgoing && !attachmentPath) {
+      return NextResponse.json({ error: 'Trebuie atașat un fișier pentru documentul trimis clientului.' }, { status: 400 })
     }
 
     // Calculează order_index dacă nu e furnizat
@@ -57,14 +67,30 @@ export async function POST(req: NextRequest) {
         requirement_type,
         is_mandatory: requirementTypeToMandatory(requirement_type),
         order_index: finalOrderIndex,
-        attachment_path: attachment_path || null,
-        attachment_original_name: attachment_path ? attachment_original_name || null : null,
+        attachment_path: attachmentPath,
+        attachment_original_name: attachmentPath ? attachmentItems?.[0]?.original_name || attachment_original_name || null : null,
+        is_outgoing,
         is_active: true,
       })
       .select()
       .single()
 
     if (error) throw error
+
+    if (doc && attachmentItems) {
+      const { error: attachmentsError } = await supabaseAdmin
+        .from('document_requirement_attachments')
+        .insert(attachmentItems.map((attachment: any, index: number) => ({
+          template_document_requirement_id: doc.id,
+          storage_path: attachment.storage_path.trim(),
+          original_name: typeof attachment.original_name === 'string' ? attachment.original_name : null,
+          mime_type: typeof attachment.mime_type === 'string' ? attachment.mime_type : null,
+          file_size: typeof attachment.file_size === 'number' ? attachment.file_size : null,
+          order_index: index,
+          created_by: auth.profile.id,
+        })))
+      if (attachmentsError) throw attachmentsError
+    }
 
     const { data: actRow } = await supabaseAdmin
       .from('template_activities')

@@ -111,13 +111,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
         const { data: docs } = await supabaseAdmin
           .from('template_document_requirements')
-          .select('*')
+          .select('*, attachments:document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at)')
           .eq('template_activity_id', activity.id)
           .eq('is_active', true)
           .order('order_index')
 
         for (const doc of docs || []) {
-          await supabaseAdmin
+          const { data: newDoc } = await supabaseAdmin
             .from('template_document_requirements')
             .insert({
               template_activity_id: newActivity.id,
@@ -128,8 +128,27 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
               order_index: doc.order_index,
               attachment_path: doc.attachment_path,
               attachment_original_name: doc.attachment_original_name,
+              is_outgoing: Boolean(doc.is_outgoing),
               is_active: true,
             })
+            .select('id')
+            .single()
+
+          if (newDoc && doc.attachments?.length) {
+            await supabaseAdmin
+              .from('document_requirement_attachments')
+              .insert(doc.attachments.map((attachment: any, index: number) => ({
+                template_document_requirement_id: newDoc.id,
+                storage_path: attachment.storage_path,
+                original_name: attachment.original_name,
+                mime_type: attachment.mime_type,
+                file_size: attachment.file_size,
+                order_index: index,
+                missing_at: attachment.missing_at,
+                missing_checked_at: attachment.missing_checked_at,
+                created_by: auth.profile.id,
+              })))
+          }
         }
       }
     }

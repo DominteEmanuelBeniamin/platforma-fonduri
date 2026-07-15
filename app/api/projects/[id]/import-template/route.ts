@@ -89,7 +89,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Template-ul nu are faze' }, { status: 400 })
     }
 
-    const warnings: Array<{ type: string; template_document_requirement_id: string; name: string; attachment_path: string }> = []
+    const warnings: Array<{ type: string; template_document_requirement_id: string; name: string; attachment_path: string | null }> = []
 
     for (const tPhase of templatePhases) {
       const { data: newPhase, error: phaseError } = await supabaseAdmin
@@ -151,17 +151,29 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
         const { data: templateDocs } = await supabaseAdmin
           .from('template_document_requirements')
-          .select('*')
+          .select('*, attachments:document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at)')
           .eq('template_activity_id', tActivity.id)
           .eq('is_active', true)
           .order('order_index')
 
         for (const tDoc of templateDocs || []) {
-          const attachmentPath = tDoc.attachment_path || null
-          const attachmentAvailable = attachmentPath ? await storagePathExists(attachmentPath) : true
-          const attachmentCheckedAt = attachmentPath ? new Date().toISOString() : null
+          const templateAttachments = tDoc.attachments?.length
+            ? [...tDoc.attachments].sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0))
+            : tDoc.attachment_path
+            ? [{ id: null, storage_path: tDoc.attachment_path, original_name: tDoc.attachment_original_name, missing_at: tDoc.attachment_missing_at }]
+            : []
+          const checkedAttachments = await Promise.all(templateAttachments.map(async (attachment: any) => ({
+            ...attachment,
+            available: await storagePathExists(attachment.storage_path),
+          })))
+          const availableAttachments = checkedAttachments.filter((attachment: any) => attachment.available)
+          const firstAttachment = availableAttachments[0] || null
+          const attachmentPath = firstAttachment?.storage_path || null
+          const attachmentAvailable = availableAttachments.length > 0
+          const attachmentCheckedAt = templateAttachments.length > 0 ? new Date().toISOString() : null
+          const isOutgoing = tDoc.is_outgoing === true
 
-          if (attachmentPath && !attachmentAvailable) {
+          if (templateAttachments.length > 0 && !attachmentAvailable) {
             await Promise.all([
               supabaseAdmin
                 .from('template_document_requirements')
@@ -179,7 +191,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
                 .eq('attachment_path', attachmentPath)
                 .is('deleted_at', null),
             ])
-          } else if (attachmentPath && tDoc.attachment_missing_at) {
+          } else if (templateAttachments.length > 0 && tDoc.attachment_missing_at) {
             await Promise.all([
               supabaseAdmin
                 .from('template_document_requirements')
@@ -199,33 +211,46 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             ])
           }
 
-          if (attachmentPath && !attachmentAvailable) {
-            warnings.push({
-              type: 'missing_template_attachment',
-              template_document_requirement_id: tDoc.id,
-              name: tDoc.name,
-              attachment_path: attachmentPath,
-            })
+          checkedAttachments.filter((attachment: any) => !attachment.available).forEach((attachment: any) => warnings.push({
+            type: 'missing_template_attachment',
+            template_document_requirement_id: tDoc.id,
+            name: tDoc.name,
+            attachment_path: attachment.storage_path,
+          }))
+
+          if (isOutgoing && (!templateAttachments.length || !attachmentAvailable)) {
+            if (!templateAttachments.length) {
+              warnings.push({
+                type: 'missing_template_attachment',
+                template_document_requirement_id: tDoc.id,
+                name: tDoc.name,
+                attachment_path: null,
+              })
+            }
+            continue
           }
 
-          const { error: docInsertError } = await supabaseAdmin
+          const { data: createdDocument, error: docInsertError } = await supabaseAdmin
             .from('document_requirements')
             .insert({
               project_id: projectId,
               activity_id: newActivity.id,
               name: tDoc.name,
               description: tDoc.description,
-              is_mandatory: tDoc.is_mandatory,
-              requirement_type: tDoc.requirement_type,
+              is_mandatory: isOutgoing ? false : tDoc.is_mandatory,
+              requirement_type: isOutgoing ? 'optional' : tDoc.requirement_type,
+              is_outgoing: isOutgoing,
               order_index: tDoc.order_index,
               attachment_path: attachmentAvailable ? attachmentPath : null,
-              attachment_original_name: attachmentAvailable ? tDoc.attachment_original_name || null : null,
-              attachment_missing_at: attachmentPath && !attachmentAvailable ? attachmentCheckedAt : null,
-              attachment_missing_checked_at: attachmentPath ? attachmentCheckedAt : null,
+              attachment_original_name: firstAttachment?.original_name || null,
+              attachment_missing_at: null,
+              attachment_missing_checked_at: attachmentCheckedAt,
               status: 'pending',
               created_by: auth.profile.id,
               source_template_document_requirement_id: tDoc.id,
             })
+            .select('id')
+            .single()
 
           if (docInsertError) {
             console.error('import-template document requirement insert error:', {
@@ -235,6 +260,24 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
               error: docInsertError,
             })
             throw new Error(`Nu s-a putut crea cererea de document "${tDoc.name}".`)
+          }
+
+          if (createdDocument && checkedAttachments.length > 0) {
+            const { error: attachmentInsertError } = await supabaseAdmin
+              .from('document_requirement_attachments')
+              .insert(checkedAttachments.map((attachment: any, index: number) => ({
+                document_requirement_id: createdDocument.id,
+                source_template_attachment_id: attachment.id || null,
+                storage_path: attachment.storage_path,
+                original_name: attachment.original_name || null,
+                mime_type: attachment.mime_type || null,
+                file_size: typeof attachment.file_size === 'number' ? attachment.file_size : null,
+                order_index: index,
+                missing_at: attachment.available ? null : attachment.missing_at || attachmentCheckedAt,
+                missing_checked_at: attachmentCheckedAt,
+                created_by: auth.profile.id,
+              })))
+            if (attachmentInsertError) throw attachmentInsertError
           }
         }
       }
