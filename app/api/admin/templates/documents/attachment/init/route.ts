@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     }
 
     const safeName = name.replace(/[^\w.\- ()[\]]+/g, '_')
-    const storagePath = `templates/attachments/${Date.now()}_${safeName}`
+    const storagePath = `templates/attachments/${crypto.randomUUID()}_${safeName}`
 
     const { data, error } = await supabaseAdmin.storage
       .from(BUCKET)

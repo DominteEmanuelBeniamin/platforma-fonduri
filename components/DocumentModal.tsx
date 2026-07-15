@@ -35,6 +35,13 @@ interface DocumentRequest {
   attachment_path: string | null
   attachment_missing_at?: string | null
   attachment_missing_checked_at?: string | null
+  attachments?: {
+    id: string
+    storage_path: string
+    original_name: string | null
+    missing_at?: string | null
+    order_index?: number
+  }[]
   deadline_at: string | null
   created_by: string | null
   created_at: string
@@ -112,6 +119,11 @@ export default function DocumentModal({
   const [localDeadline, setLocalDeadline] = useState<string | null>(request.deadline_at)
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
+  const requestAttachments = request.attachments?.length
+    ? request.attachments
+    : localAttachmentPath
+    ? [{ id: '', storage_path: localAttachmentPath, original_name: null, missing_at: request.attachment_missing_at }]
+    : []
 
   useEffect(() => {
     setLocalAttachmentPath(request.attachment_path)
@@ -299,13 +311,13 @@ export default function DocumentModal({
   }
 
 
-  const downloadAttachmentModel = async () => {
+  const downloadAttachmentModel = async (attachmentId?: string) => {
     if (!localAttachmentPath || attachmentMissing) return
     setDownloadingId('attachment')
     try {
       const res = await apiFetch(`/api/document-requests/${request.id}/attachment/signed-download`, {
         method: 'POST',
-        body: JSON.stringify({ expiresIn: 60 * 5 })
+        body: JSON.stringify({ expiresIn: 60 * 5, attachment_id: attachmentId || undefined })
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -325,17 +337,14 @@ export default function DocumentModal({
     }
   }
 
-  const attachmentFileName = localAttachmentPath?.split('/').filter(Boolean).pop() || null
-  const attachmentIsPreviewable = isPreviewableFile({ fileName: localAttachmentPath })
-
-  const openAttachmentModel = () => {
+  const openAttachmentModel = (attachmentId?: string, fileName?: string | null) => {
     if (!localAttachmentPath || attachmentMissing) return
-    openInNewTab(buildPreviewPageUrl({ type: 'attachment', id: request.id, name: attachmentFileName }))
+    openInNewTab(buildPreviewPageUrl({ type: 'attachment', id: request.id, name: fileName, attachmentId }))
     // verificare în fundal: dacă fișierul a dispărut din storage între timp,
     // cererea rămâne marcată corect chiar dacă utilizatorul nu apasă Descarcă
     apiFetch(`/api/document-requests/${request.id}/attachment/signed-download`, {
       method: 'POST',
-      body: JSON.stringify({ expiresIn: 60 }),
+      body: JSON.stringify({ expiresIn: 60, attachment_id: attachmentId || undefined }),
     }).then(res => {
       if (res.status === 404) {
         setAttachmentMissing(true)
@@ -351,6 +360,9 @@ export default function DocumentModal({
       body: JSON.stringify({
         attachment_path: attachmentPath,
         attachment_original_name: attachmentOriginalName ?? null,
+        attachments: attachmentPath
+          ? [{ storage_path: attachmentPath, original_name: attachmentOriginalName ?? null }]
+          : [],
       }),
     })
     const data = await res.json().catch(() => ({}))
@@ -655,45 +667,58 @@ export default function DocumentModal({
           {/* Documente: model + răspunsuri client */}
           <div>
             <div className="space-y-5">
-              {/* Modelul de completat - dacă există */}
-              {localAttachmentPath && !attachmentMissing && (
+              {/* Modelele de completat - dacă există */}
+              {requestAttachments.length > 0 && !attachmentMissing && (
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-900 mb-2">Modelul de completat</h3>
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-slate-200 px-4 py-3">
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="w-10 h-10 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
-                        {downloadingId === 'attachment' ? (
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                        ) : (
-                          <FileText className="w-5 h-5" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-slate-900 truncate">
-                          {attachmentFileName || 'Model atașat'}
-                        </p>
-                        <p className="text-xs text-slate-500">Se descarcă, se completează și se trimite înapoi</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      {attachmentIsPreviewable && (
-                        <button
-                          onClick={openAttachmentModel}
-                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                  <h3 className="text-sm font-semibold text-slate-900 mb-2">
+                    {requestAttachments.length > 1 ? `Modele de completat (${requestAttachments.length})` : 'Modelul de completat'}
+                  </h3>
+                  <div className="space-y-2">
+                    {requestAttachments.map((attachment, index) => {
+                      const fileName = attachment.original_name?.trim()
+                        || attachment.storage_path.split('/').filter(Boolean).pop()
+                        || `Model ${index + 1}`
+                      const isDownloading = downloadingId === 'attachment'
+                      return (
+                        <div
+                          key={attachment.id || `${attachment.storage_path}-${index}`}
+                          className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-slate-200 px-4 py-3"
                         >
-                          <Eye className="w-3.5 h-3.5" />
-                          Deschide
-                        </button>
-                      )}
-                      <button
-                        onClick={downloadAttachmentModel}
-                        disabled={downloadingId === 'attachment'}
-                        className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        Descarcă
-                      </button>
-                    </div>
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <div className="w-10 h-10 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
+                              {isDownloading ? (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                              ) : (
+                                <FileText className="w-5 h-5" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-slate-900 truncate">{fileName}</p>
+                              <p className="text-xs text-slate-500">Se descarcă, se completează și se trimite înapoi</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {isPreviewableFile({ fileName }) && (
+                              <button
+                                onClick={() => openAttachmentModel(attachment.id || undefined, fileName)}
+                                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                Deschide
+                              </button>
+                            )}
+                            <button
+                              onClick={() => downloadAttachmentModel(attachment.id || undefined)}
+                              disabled={isDownloading}
+                              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              Descarcă
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}

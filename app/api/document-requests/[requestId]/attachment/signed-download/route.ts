@@ -6,6 +6,14 @@ import { isPreviewableFileName, clampExpiresIn } from '@/lib/file-preview'
 
 const BUCKET = 'project-files'
 
+type AttachmentRow = {
+  id: string
+  storage_path: string
+  original_name: string | null
+  missing_at: string | null
+  order_index: number | null
+}
+
 async function signedObjectExists(url: string) {
   try {
     const res = await fetch(url, { method: 'HEAD' })
@@ -20,7 +28,8 @@ async function markAttachmentMissing(
   reqRow: {
     attachment_path: string
     attachment_missing_at: string | null
-  }
+  },
+  attachmentId?: string | null,
 ) {
   const checkedAt = new Date().toISOString()
   const missingAt = reqRow.attachment_missing_at ?? checkedAt
@@ -41,6 +50,9 @@ async function markAttachmentMissing(
         attachment_missing_checked_at: checkedAt,
       })
       .eq('attachment_path', reqRow.attachment_path),
+    attachmentId
+      ? admin.from('document_requirement_attachments').update({ missing_at: missingAt, missing_checked_at: checkedAt }).eq('id', attachmentId)
+      : Promise.resolve({ error: null }),
   ])
 }
 
@@ -48,7 +60,8 @@ async function clearAttachmentMissing(
   admin: ReturnType<typeof createSupabaseServiceClient>,
   reqRow: {
     attachment_path: string
-  }
+  },
+  attachmentId?: string | null,
 ) {
   const checkedAt = new Date().toISOString()
 
@@ -68,6 +81,9 @@ async function clearAttachmentMissing(
         attachment_missing_checked_at: checkedAt,
       })
       .eq('attachment_path', reqRow.attachment_path),
+    attachmentId
+      ? admin.from('document_requirement_attachments').update({ missing_at: null, missing_checked_at: checkedAt }).eq('id', attachmentId)
+      : Promise.resolve({ error: null }),
   ])
 }
 
@@ -87,12 +103,13 @@ export async function POST(
     const body = await request.json().catch(() => ({}))
     const expiresIn = clampExpiresIn(body?.expiresIn)
     const inlineRequested = body?.disposition === 'inline'
+    const attachmentId = typeof body?.attachment_id === 'string' ? body.attachment_id : null
 
     const admin = createSupabaseServiceClient()
 
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('project_id, name, is_outgoing, attachment_path, attachment_original_name, attachment_missing_at, deleted_at')
+      .select('project_id, name, is_outgoing, attachment_path, attachment_original_name, attachment_missing_at, deleted_at, document_requirement_attachments(id, storage_path, original_name, missing_at, missing_checked_at, order_index)')
       .eq('id', requestId)
       .is('deleted_at', null)
       .single()
@@ -112,42 +129,48 @@ export async function POST(
     const projectTitle = projectRow?.title ?? reqRow.project_id
     const requestName = reqRow.name || requestId
 
-    if (!reqRow.attachment_path) {
+    const attachment = ((reqRow as { document_requirement_attachments?: AttachmentRow[] }).document_requirement_attachments ?? [])
+      .filter(item => !attachmentId || item.id === attachmentId)
+      .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))[0]
+    const attachmentPath = attachment?.storage_path || reqRow.attachment_path
+    const attachmentName = attachment?.original_name || reqRow.attachment_original_name
+    const attachmentMissingAt = attachment?.missing_at || reqRow.attachment_missing_at
+
+    if (!attachmentPath) {
       return NextResponse.json({ error: 'No attachment on this request' }, { status: 404 })
     }
 
     // atașamentele nu au mime type stocat, decidem după extensia numelui
-    const inline = inlineRequested &&
-      isPreviewableFileName(reqRow.attachment_original_name || reqRow.attachment_path)
+    const inline = inlineRequested && isPreviewableFileName(attachmentName || attachmentPath)
 
     const { data, error: signErr } = await admin.storage
       .from(BUCKET)
-      .createSignedUrl(reqRow.attachment_path, expiresIn, {
-        download: inline ? false : (reqRow.attachment_original_name || true),
+      .createSignedUrl(attachmentPath, expiresIn, {
+        download: inline ? false : (attachmentName || true),
       })
 
     if (signErr || !data?.signedUrl) {
       console.error('signed url error:', signErr)
       await markAttachmentMissing(admin, {
-        attachment_path: reqRow.attachment_path,
-        attachment_missing_at: reqRow.attachment_missing_at,
-      })
+        attachment_path: attachmentPath,
+        attachment_missing_at: attachmentMissingAt,
+      }, attachment?.id)
       return missingAttachmentResponse()
     }
 
     const exists = await signedObjectExists(data.signedUrl)
     if (!exists) {
       await markAttachmentMissing(admin, {
-        attachment_path: reqRow.attachment_path,
-        attachment_missing_at: reqRow.attachment_missing_at,
-      })
+        attachment_path: attachmentPath,
+        attachment_missing_at: attachmentMissingAt,
+      }, attachment?.id)
       return missingAttachmentResponse()
     }
 
-    if (reqRow.attachment_missing_at) {
+    if (attachmentMissingAt) {
       await clearAttachmentMissing(admin, {
-        attachment_path: reqRow.attachment_path,
-      })
+        attachment_path: attachmentPath,
+      }, attachment?.id)
     }
 
     await logAction({
@@ -155,14 +178,14 @@ export async function POST(
       actionType: 'download',
       entityType: 'file_access',
       entityId: requestId,
-      entityName: reqRow.attachment_original_name || reqRow.attachment_path,
+      entityName: attachmentName || attachmentPath,
       newValues: {
         document_request_id: requestId,
         document_request_name: requestName,
         project_id: reqRow.project_id,
         project_title: projectTitle,
-        attachment_path: reqRow.attachment_path,
-        attachment_original_name: reqRow.attachment_original_name ?? null,
+        attachment_path: attachmentPath,
+        attachment_original_name: attachmentName ?? null,
         expires_in: expiresIn,
         is_outgoing: Boolean(reqRow.is_outgoing),
         disposition: inline ? 'inline' : 'attachment',
