@@ -783,7 +783,7 @@ export default function NewProjectPage() {
                     <Upload className="w-8 h-8 text-slate-400" />
                     <span className="text-sm text-slate-600 font-medium">Click pentru a încărca</span>
                     <span className="text-xs text-slate-400">PDF, DOC, DOCX, XLS, XLSX, imagini</span>
-                    <input ref={fileInputRef} type="file" onChange={(e) => setNewDocTemplate(e.target.files?.[0] || null)} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp" />
+                    <input ref={fileInputRef} type="file" onChange={(e) => setNewDocTemplate(e.target.files?.[0] || null)} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp" />
                   </label>
                 )}
               </div>

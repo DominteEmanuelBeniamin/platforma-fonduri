@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { logAction } from '@/app/api/_utils/audit'
-import { isPreviewableFileName } from '@/lib/file-preview'
+import { isPreviewableFileName, clampExpiresIn } from '@/lib/file-preview'
 
 const BUCKET = 'project-files'
 
@@ -85,9 +85,7 @@ export async function POST(
   try {
     const { requestId } = await params
     const body = await request.json().catch(() => ({}))
-    // plafonat server-side: clientul nu poate cere un URL semnat cu viață mai lungă
-    const requested = typeof body?.expiresIn === 'number' ? body.expiresIn : 60 * 5
-    const expiresIn = Math.min(Math.max(Math.trunc(requested), 60), 600)
+    const expiresIn = clampExpiresIn(body?.expiresIn)
     const inlineRequested = body?.disposition === 'inline'
 
     const admin = createSupabaseServiceClient()

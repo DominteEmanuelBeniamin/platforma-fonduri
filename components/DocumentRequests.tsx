@@ -42,7 +42,7 @@ import {
   REMINDER_BADGE,
 } from '@/lib/document-reminder'
 import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS, REQUIREMENT_BADGE } from '@/lib/requirement-type'
-import { getPreviewKind, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
+import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
 
 interface DocumentRequest {
   id: string
@@ -714,6 +714,17 @@ export default function DocumentRequests({
 
   const openAttachmentModel = (requestId: string, fileName?: string | null) => {
     openInNewTab(buildPreviewPageUrl({ type: 'attachment', id: requestId, name: fileName }))
+    // verificare în fundal: dacă fișierul a dispărut din storage, cererea
+    // rămâne marcată corect chiar dacă utilizatorul nu apasă Descarcă
+    apiFetch(`/api/document-requests/${requestId}/attachment/signed-download`, {
+      method: 'POST',
+      body: JSON.stringify({ expiresIn: 60 }),
+    }).then(res => {
+      if (res.status === 404) {
+        setMissingAttachments(prev => new Set(prev).add(requestId))
+        fetchRequests()
+      }
+    }).catch(() => {})
   }
 
   const handleDeleteRequest = async () => {
@@ -1186,7 +1197,7 @@ export default function DocumentRequests({
                         {doc.attachment_original_name || 'document'} · {new Date(doc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </p>
                     </div>
-                    {getPreviewKind({ fileName: doc.attachment_original_name || doc.attachment_path }) !== null && (
+                    {isPreviewableFile({ fileName: doc.attachment_original_name || doc.attachment_path }) && (
                       <button
                         type="button"
                         onClick={() => openAttachmentModel(doc.id, doc.attachment_original_name || doc.attachment_path)}
@@ -1313,7 +1324,7 @@ export default function DocumentRequests({
                               <Download className="w-3.5 h-3.5" />
                               Model
                             </button>
-                            {getPreviewKind({ fileName: req.attachment_original_name || req.attachment_path }) !== null && (
+                            {isPreviewableFile({ fileName: req.attachment_original_name || req.attachment_path }) && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); openAttachmentModel(req.id, req.attachment_original_name || req.attachment_path) }}
                                 className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 transition-colors"

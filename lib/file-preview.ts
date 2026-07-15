@@ -1,7 +1,8 @@
 // Deschiderea inline în browser este permisă doar pentru PDF și imagini raster.
 // SVG este exclus intenționat: poate conține script-uri executate la afișare.
 
-const PREVIEWABLE_EXTENSIONS = new Set(['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp'])
+const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp'])
+const PREVIEWABLE_EXTENSIONS = new Set(['pdf', ...IMAGE_EXTENSIONS])
 
 const PREVIEWABLE_MIME_TYPES = new Set([
   'application/pdf',
@@ -11,11 +12,19 @@ const PREVIEWABLE_MIME_TYPES = new Set([
   'image/webp',
 ])
 
-export function isPreviewableFileName(name: string | null | undefined): boolean {
-  if (!name) return false
+export function getExtension(name: string | null | undefined): string {
+  if (!name) return ''
   const dot = name.lastIndexOf('.')
-  if (dot < 0) return false
-  return PREVIEWABLE_EXTENSIONS.has(name.slice(dot + 1).toLowerCase())
+  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : ''
+}
+
+export function isImageFileName(name: string | null | undefined): boolean {
+  return IMAGE_EXTENSIONS.has(getExtension(name))
+}
+
+export function isPreviewableFileName(name: string | null | undefined): boolean {
+  const ext = getExtension(name)
+  return ext !== '' && PREVIEWABLE_EXTENSIONS.has(ext)
 }
 
 export function isPreviewableMimeType(mime: string | null | undefined): boolean {
@@ -34,20 +43,6 @@ export function isPreviewableFile({
 }): boolean {
   if (mimeType) return isPreviewableMimeType(mimeType)
   return isPreviewableFileName(fileName)
-}
-
-export type PreviewKind = 'inline'
-
-// 'inline' → browserul afișează nativ (PDF/imagini, URL semnat direct);
-// null → doar descărcare. Word/Excel/CSV nu se previzualizează.
-export function getPreviewKind({
-  mimeType,
-  fileName,
-}: {
-  mimeType?: string | null
-  fileName?: string | null
-}): PreviewKind | null {
-  return isPreviewableFile({ mimeType, fileName }) ? 'inline' : null
 }
 
 // Pagina internă /preview afișează fișierul fără să expună URL-ul semnat
@@ -71,4 +66,15 @@ export function openInNewTab(url: string) {
   document.body.appendChild(a)
   a.click()
   a.remove()
+}
+
+const EXPIRES_IN_MIN = 60
+const EXPIRES_IN_MAX = 600
+const EXPIRES_IN_DEFAULT = 300
+
+// Plafon server-side pentru durata URL-urilor semnate: clientul poate cere
+// orice valoare, dar nu poate obține un link valabil mai mult de 10 minute.
+export function clampExpiresIn(requested: unknown): number {
+  const value = typeof requested === 'number' ? requested : EXPIRES_IN_DEFAULT
+  return Math.min(Math.max(Math.trunc(value), EXPIRES_IN_MIN), EXPIRES_IN_MAX)
 }

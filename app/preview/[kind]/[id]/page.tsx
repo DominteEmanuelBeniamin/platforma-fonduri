@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, use } from 'react'
 import { Download, Loader2, AlertCircle, FileText } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { getExtension, isImageFileName } from '@/lib/file-preview'
 
 // Vizualizare într-o pagină proprie: fișierul e descărcat din Supabase Storage
 // (URL semnat, obținut în culise) și afișat printr-un blob URL. Adresa din bară
@@ -10,13 +11,6 @@ import { useAuth } from '@/app/providers/AuthProvider'
 // pentru cineva neautentificat sau fără acces la proiect.
 
 type Status = 'loading' | 'ready' | 'error'
-
-const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp'])
-
-function getExtension(name: string): string {
-  const dot = name.lastIndexOf('.')
-  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : ''
-}
 
 // Numele fișierului, când nu vine prin query: din parametrul `download` al
 // URL-ului semnat sau, în lipsă, din calea de storage.
@@ -80,7 +74,7 @@ export default function PreviewPage({
         const blob = await fileRes.blob()
 
         const ext = getExtension(name)
-        const image = IMAGE_EXTENSIONS.has(ext)
+        const image = isImageFileName(name) || blob.type.startsWith('image/')
         const pdf = ext === 'pdf' || blob.type === 'application/pdf'
         if (!image && !pdf) {
           throw new Error(`Formatul .${ext || '?'} nu poate fi vizualizat. Folosește descărcarea.`)

@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { downloadFilesArchive } from '@/app/api/_utils/download-files-archive'
-import { getPreviewKind, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
+import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
 import { Mail } from 'lucide-react'
 import {
   getReminderType,
@@ -60,7 +60,7 @@ interface DocumentRequest {
 
 type ToastType = 'success' | 'error' | 'info'
 
-const MODEL_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png', 'gif', 'webp'])
+const MODEL_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'jpg', 'jpeg', 'png', 'gif', 'webp'])
 const MODEL_MAX_SIZE = 25 * 1024 * 1024
 
 function getFileExtension(filename: string) {
@@ -148,34 +148,26 @@ export default function DocumentModal({
       pending: {
         bg: 'bg-amber-50',
         text: 'text-amber-700',
-        border: 'border-amber-200',
         icon: Clock,
         label: 'Așteaptă răspuns',
-        dotColor: 'bg-amber-500'
       },
       review: {
         bg: 'bg-blue-50',
         text: 'text-blue-700',
-        border: 'border-blue-200',
         icon: Eye,
         label: 'În verificare',
-        dotColor: 'bg-blue-500'
       },
       approved: {
         bg: 'bg-emerald-50',
         text: 'text-emerald-700',
-        border: 'border-emerald-200',
         icon: CheckCircle2,
         label: 'Aprobat',
-        dotColor: 'bg-emerald-500'
       },
       rejected: {
         bg: 'bg-red-50',
         text: 'text-red-700',
-        border: 'border-red-200',
         icon: XCircle,
         label: 'Respins',
-        dotColor: 'bg-red-500'
       }
     }
     return configs[request.status] || configs.pending
@@ -334,11 +326,22 @@ export default function DocumentModal({
   }
 
   const attachmentFileName = localAttachmentPath?.split('/').filter(Boolean).pop() || null
-  const attachmentPreviewKind = getPreviewKind({ fileName: localAttachmentPath })
+  const attachmentIsPreviewable = isPreviewableFile({ fileName: localAttachmentPath })
 
   const openAttachmentModel = () => {
     if (!localAttachmentPath || attachmentMissing) return
     openInNewTab(buildPreviewPageUrl({ type: 'attachment', id: request.id, name: attachmentFileName }))
+    // verificare în fundal: dacă fișierul a dispărut din storage între timp,
+    // cererea rămâne marcată corect chiar dacă utilizatorul nu apasă Descarcă
+    apiFetch(`/api/document-requests/${request.id}/attachment/signed-download`, {
+      method: 'POST',
+      body: JSON.stringify({ expiresIn: 60 }),
+    }).then(res => {
+      if (res.status === 404) {
+        setAttachmentMissing(true)
+        onUpdate()
+      }
+    }).catch(() => {})
   }
 
   const patchAttachmentPath = async (attachmentPath: string | null, attachmentOriginalName?: string | null) => {
@@ -673,7 +676,7 @@ export default function DocumentModal({
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
-                      {attachmentPreviewKind !== null && (
+                      {attachmentIsPreviewable && (
                         <button
                           onClick={openAttachmentModel}
                           className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
@@ -714,7 +717,7 @@ export default function DocumentModal({
                             ref={attachmentInputRef}
                             type="file"
                             className="hidden"
-                            accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp"
+                            accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp"
                             onClick={(e) => { e.currentTarget.value = '' }}
                             onChange={(e) => handleReplacementModel(e.currentTarget.files?.[0])}
                           />
@@ -754,7 +757,7 @@ export default function DocumentModal({
                       ref={attachmentInputRef}
                       type="file"
                       className="hidden"
-                      accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp"
                       onClick={(e) => { e.currentTarget.value = '' }}
                       onChange={(e) => handleReplacementModel(e.currentTarget.files?.[0])}
                     />
@@ -830,7 +833,7 @@ export default function DocumentModal({
                                 </p>
                               </div>
                               <div className="flex items-center gap-1.5 flex-shrink-0">
-                                {getPreviewKind({ fileName }) !== null && (
+                                {isPreviewableFile({ fileName }) && (
                                   <button
                                     onClick={() => openUploadedFileById(file.id, fileName)}
                                     className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"

@@ -1349,7 +1349,7 @@ export default function AdminTemplatesPage() {
                                             <input
                                               type="file"
                                               className="hidden"
-                                              accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp"
+                                              accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp"
                                               onChange={(e) => {
                                                 const file = e.currentTarget.files?.[0] || null
                                                 if (!file) return
@@ -1794,7 +1794,7 @@ export default function AdminTemplatesPage() {
                       type="file"
                       onChange={(e) => setNewDocTemplate(e.target.files?.[0] || null)}
                       className="hidden"
-                      accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp"
                     />
                   </label>
                 )}

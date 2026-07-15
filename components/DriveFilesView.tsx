@@ -6,7 +6,7 @@ import {
   Download, Eye,
   Search, FolderOpen, ChevronDown, Grid3X3, List,
 } from 'lucide-react'
-import { getPreviewKind, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
+import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -174,7 +174,7 @@ export default function DriveFilesView({
       ;(async () => {
         try {
           const res = await apiFetch(`/api/files/${fileId}/signed-download`, {
-            method: 'POST', body: JSON.stringify({ expiresIn: 3600 }),
+            method: 'POST', body: JSON.stringify({ expiresIn: 600 }), // plafon server-side
           })
           if (res.ok) {
             const { url } = await res.json()
@@ -190,13 +190,8 @@ export default function DriveFilesView({
     return row.downloadKind === 'requestAttachment' ? `attachment-${row.requestId}` : row.fileId!
   }
 
-  function rowPreviewKind(row: DriveRow) {
-    return getPreviewKind({ fileName: row.displayName })
-      ?? getPreviewKind({ fileName: row.storagePath })
-  }
-
   function isRowPreviewable(row: DriveRow) {
-    return rowPreviewKind(row) !== null
+    return isPreviewableFile({ fileName: row.displayName }) || isPreviewableFile({ fileName: row.storagePath })
   }
 
   async function fetchSignedUrl(row: DriveRow, disposition?: 'inline') {
@@ -491,16 +486,12 @@ export default function DriveFilesView({
                   {hoveredId === row.id && isRowPreviewable(row) && (
                     <button
                       onClick={e => handleOpen(e, row)}
-                      disabled={downloading === `open-${rowActionId(row)}`}
                       className="p-1.5 rounded-full transition-colors"
                       style={{ color: '#5f6368' }}
                       onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
                       onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
                       title="Deschide în tab nou">
-                      {downloading === `open-${rowActionId(row)}`
-                        ? <span className="w-4 h-4 border-2 rounded-full animate-spin block" style={{ borderColor: '#dadce0', borderTopColor: '#1a73e8' }} />
-                        : <Eye className="w-4 h-4" />
-                      }
+                      <Eye className="w-4 h-4" />
                     </button>
                   )}
                   {hoveredId === row.id && (
@@ -571,7 +562,6 @@ export default function DriveFilesView({
                     {hoveredId === row.id && isRowPreviewable(row) && (
                       <button
                         onClick={e => handleOpen(e, row)}
-                        disabled={downloading === `open-${rowActionId(row)}`}
                         className="p-1 rounded-full"
                         style={{ color: '#5f6368' }}
                         onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}

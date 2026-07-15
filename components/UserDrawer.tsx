@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useRouter } from 'next/navigation'
-import { getPreviewKind, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
+import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -196,7 +196,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
       ;(async () => {
         try {
           const res = await apiFetch(`/api/files/${latest.id}/signed-download`, {
-            method: 'POST', body: JSON.stringify({ expiresIn: 3600 }),
+            method: 'POST', body: JSON.stringify({ expiresIn: 600 }), // plafon server-side
           })
           if (res.ok) {
             const { url } = await res.json()
@@ -519,20 +519,16 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
 
                     {/* Actions */}
                     <div className="flex-shrink-0 flex items-center">
-                      {latest && getPreviewKind({ fileName: latest.original_name || latest.storage_path }) !== null && (
+                      {latest && isPreviewableFile({ fileName: latest.original_name || latest.storage_path }) && (
                         <button
                           onClick={() => handleOpen(latest.id, latest.original_name || latest.storage_path)}
-                          disabled={downloading === `open-${latest.id}`}
-                          className="p-2 rounded-full transition-colors disabled:opacity-40 opacity-0 group-hover:opacity-100"
+                          className="p-2 rounded-full transition-colors opacity-0 group-hover:opacity-100"
                           style={{ color: '#5f6368' }}
                           onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
                           onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
                           title="Deschide în tab nou"
                         >
-                          {downloading === `open-${latest.id}`
-                            ? <Loader2 className="w-4 h-4 animate-spin" />
-                            : <Eye className="w-4 h-4" />
-                          }
+                          <Eye className="w-4 h-4" />
                         </button>
                       )}
                       {latest && (
