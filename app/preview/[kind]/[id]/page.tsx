@@ -45,12 +45,6 @@ export default function PreviewPage({
     ? `/api/document-requests/${id}/attachment/signed-download`
     : `/api/files/${id}/signed-download`
 
-  // pentru cereri cu mai multe modele: care atașament anume se previzualizează
-  // (randare doar client-side, deci window există mereu la momentul citirii)
-  const attachmentId = kind === 'attachment' && typeof window !== 'undefined'
-    ? new URLSearchParams(window.location.search).get('attachmentId')
-    : null
-
   useEffect(() => {
     if (authLoading || !token) return
     if (kind !== 'file' && kind !== 'attachment') {
@@ -65,11 +59,7 @@ export default function PreviewPage({
       try {
         const res = await apiFetch(endpoint, {
           method: 'POST',
-          body: JSON.stringify({
-            expiresIn: 300,
-            disposition: 'inline',
-            ...(attachmentId ? { attachment_id: attachmentId } : {}),
-          }),
+          body: JSON.stringify({ expiresIn: 300, disposition: 'inline' }),
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data?.error || 'Nu s-a putut obține fișierul')
@@ -116,10 +106,7 @@ export default function PreviewPage({
     try {
       const res = await apiFetch(endpoint, {
         method: 'POST',
-        body: JSON.stringify({
-          expiresIn: 300,
-          ...(attachmentId ? { attachment_id: attachmentId } : {}),
-        }),
+        body: JSON.stringify({ expiresIn: 300 }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error || 'Eroare la descărcare')
