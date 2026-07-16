@@ -5,15 +5,11 @@ import { createPortal } from 'react-dom'
 import {
   FileText,
   Download,
-  // FolderDown,
   CheckCircle2,
   XCircle,
   Clock,
-  Calendar,
-  User,
   X,
   FileCheck,
-  MessageSquare,
   AlertCircle,
   Loader2,
   Eye,
@@ -23,12 +19,12 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { downloadFilesArchive } from '@/app/api/_utils/download-files-archive'
+import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
 import { Mail } from 'lucide-react'
 import {
   getReminderType,
   generateMailtoLink,
   REMINDER_LABELS,
-  REMINDER_BADGE,
 } from '@/lib/document-reminder'
 
 interface DocumentRequest {
@@ -71,7 +67,7 @@ interface DocumentRequest {
 
 type ToastType = 'success' | 'error' | 'info'
 
-const MODEL_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx'])
+const MODEL_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'jpg', 'jpeg', 'png', 'gif', 'webp'])
 const MODEL_MAX_SIZE = 25 * 1024 * 1024
 
 function getFileExtension(filename: string) {
@@ -164,34 +160,26 @@ export default function DocumentModal({
       pending: {
         bg: 'bg-amber-50',
         text: 'text-amber-700',
-        border: 'border-amber-200',
         icon: Clock,
         label: 'Așteaptă răspuns',
-        dotColor: 'bg-amber-500'
       },
       review: {
         bg: 'bg-blue-50',
         text: 'text-blue-700',
-        border: 'border-blue-200',
         icon: Eye,
         label: 'În verificare',
-        dotColor: 'bg-blue-500'
       },
       approved: {
         bg: 'bg-emerald-50',
         text: 'text-emerald-700',
-        border: 'border-emerald-200',
         icon: CheckCircle2,
         label: 'Aprobat',
-        dotColor: 'bg-emerald-500'
       },
       rejected: {
         bg: 'bg-red-50',
         text: 'text-red-700',
-        border: 'border-red-200',
         icon: XCircle,
         label: 'Respins',
-        dotColor: 'bg-red-500'
       }
     }
     return configs[request.status] || configs.pending
@@ -294,49 +282,19 @@ export default function DocumentModal({
 
 
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
-  const [versionDropdownOpen, setVersionDropdownOpen] = useState(false)
-  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
-  const versionWrapRef = useRef<HTMLDivElement | null>(null)
-  const downloadWrapRef = useRef<HTMLDivElement | null>(null)
-
 
   useEffect(() => {
     // reset when request changes / files refresh
-    const next = groupedVersions[0]?.version ?? null
-    setSelectedVersion(next)
-    setVersionDropdownOpen(false)
-    setDownloadMenuOpen(false)
+    setSelectedVersion(groupedVersions[0]?.version ?? null)
   }, [request.id, groupedVersions])
 
-  useEffect(() => {
-    if (!versionDropdownOpen && !downloadMenuOpen) return
-  
-    const onPointerDown = (e: PointerEvent) => {
-      const target = e.target as Node | null
-  
-      const inVersion = !!(target && versionWrapRef.current?.contains(target))
-      const inDownload = !!(target && downloadWrapRef.current?.contains(target))
-  
-      // click în interior => NU închide
-      if (inVersion || inDownload) return
-  
-      // click în afară => închide
-      setVersionDropdownOpen(false)
-      setDownloadMenuOpen(false)
-    }
-  
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [versionDropdownOpen, downloadMenuOpen])
-  
   const downloadAllFilesForVersion = async (version: number) => {
     const group = groupedVersions.find(v => v.version === version)
     if (!group || group.files.length === 0) return
   
     const opId = `all-v${version}`
     setDownloadingId(opId)
-    setDownloadMenuOpen(false)
-  
+
     try {
       await downloadFilesArchive({
         fileIds: group.files.map(file => file.id),
@@ -352,11 +310,6 @@ export default function DocumentModal({
     }
   }
 
-
-  // State pentru expandare răspunsuri
-  const [showAllVersions, setShowAllVersions] = useState(false)
-  const [hoveredImageUrl, setHoveredImageUrl] = useState<string | null>(null)
-  const [imagePreviewLoading, setImagePreviewLoading] = useState(false)
 
   const downloadAttachmentModel = async (attachmentId?: string) => {
     if (!localAttachmentPath || attachmentMissing) return
@@ -382,6 +335,22 @@ export default function DocumentModal({
     } finally {
       setDownloadingId(null)
     }
+  }
+
+  const openAttachmentModel = (attachmentId?: string, fileName?: string | null) => {
+    if (!localAttachmentPath || attachmentMissing) return
+    openInNewTab(buildPreviewPageUrl({ type: 'attachment', id: request.id, name: fileName }))
+    // verificare în fundal: dacă fișierul a dispărut din storage între timp,
+    // cererea rămâne marcată corect chiar dacă utilizatorul nu apasă Descarcă
+    apiFetch(`/api/document-requests/${request.id}/attachment/signed-download`, {
+      method: 'POST',
+      body: JSON.stringify({ expiresIn: 60, attachment_id: attachmentId || undefined }),
+    }).then(res => {
+      if (res.status === 404) {
+        setAttachmentMissing(true)
+        onUpdate()
+      }
+    }).catch(() => {})
   }
 
   const patchAttachmentPath = async (attachmentPath: string | null, attachmentOriginalName?: string | null) => {
@@ -485,33 +454,10 @@ export default function DocumentModal({
     }
   }
 
-
-  // Get image preview URL for hover
-  const handleImagePreview = async (fileId: string, fileName: string) => {
-    // Check if it's an image file
-    const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName)
-    if (!isImage) return
-
-    setImagePreviewLoading(true)
-    try {
-      const res = await apiFetch(`/api/files/${fileId}/signed-download`, {
-        method: 'POST',
-        body: JSON.stringify({ expiresIn: 60 * 5 })
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) return
-      
-      setHoveredImageUrl(data.url)
-    } catch (error) {
-      // Silently fail for preview
-    } finally {
-      setImagePreviewLoading(false)
-    }
+  const openUploadedFileById = (fileId: string, fileName?: string) => {
+    openInNewTab(buildPreviewPageUrl({ type: 'file', id: fileId, name: fileName }))
   }
 
-  const clearImagePreview = () => {
-    setHoveredImageUrl(null)
-  }
 
   const reviewRequest = async (action: 'approved' | 'rejected') => {
     const res = await apiFetch(`/api/document-requests/${request.id}/review`, {
@@ -605,214 +551,174 @@ export default function DocumentModal({
       <div className="absolute inset-0" onClick={onClose} />
 
       <div className="relative bg-white w-full max-w-2xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-        {/* Header cu Status Badge */}
-        <div className="relative bg-gradient-to-r from-slate-50 to-white px-6 py-5 border-b border-slate-200">
-          {/* Close button */}
-          <button 
-            onClick={onClose} 
-            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors z-10"
-            aria-label="Închide"
-          >
-            <X className="w-5 h-5" />
-          </button>
-
-          {/* Title și Status */}
-          <div className="pr-12">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <h2 className="min-w-0 text-2xl font-bold text-slate-900 leading-tight">
-                {request.name}
-              </h2>
-              <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border flex-shrink-0 self-start ${statusConfig.bg} ${statusConfig.border} ${statusConfig.text}`}>
-                <span className={`w-2 h-2 rounded-full ${statusConfig.dotColor} animate-pulse`} />
-                <StatusIcon className="w-3.5 h-3.5" />
-                <span className="text-xs font-bold uppercase tracking-wide">{statusConfig.label}</span>
+        {/* Header: titlu + status + descriere */}
+        <div className="px-5 sm:px-6 pt-5 pb-4 border-b border-slate-100">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h2 className="text-xl font-bold text-slate-900 leading-tight">
+                  {request.name}
+                </h2>
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${statusConfig.bg} ${statusConfig.text}`}>
+                  <StatusIcon className="w-3.5 h-3.5" />
+                  {statusConfig.label}
+                </span>
               </div>
+              {request.description && (
+                <p className="text-sm text-slate-500 leading-relaxed mt-1.5 whitespace-pre-line break-words max-h-28 overflow-y-auto">
+                  {request.description}
+                </p>
+              )}
+              <p className="text-xs text-slate-400 mt-2">
+                Cerut de {request.creator?.full_name || request.creator?.email || 'echipă'} · {new Date(request.created_at).toLocaleDateString('ro-RO', {
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric'
+                })}
+              </p>
             </div>
+            <button
+              onClick={onClose}
+              className="p-2 -m-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex-shrink-0"
+              aria-label="Închide"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
         </div>
 
         {/* Body - Scrollable */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white">
-          {request.description && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-2">Descriere</p>
-              <div className="max-h-36 sm:max-h-44 overflow-y-auto pr-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">
-                {request.description}
-              </div>
-            </div>
-          )}
-
-          {/* Info Cards Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="flex items-center gap-3 p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition-colors">
-              <div className="w-10 h-10 rounded-lg bg-white border border-slate-200 flex items-center justify-center flex-shrink-0">
-                <User className="w-5 h-5 text-slate-600" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-0.5">Creat de</p>
-                <p className="text-sm font-semibold text-slate-900 truncate">
-                  {request.creator?.full_name || request.creator?.email || 'Necunoscut'}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition-colors">
-              <div className="w-10 h-10 rounded-lg bg-white border border-slate-200 flex items-center justify-center flex-shrink-0">
-                <Calendar className="w-5 h-5 text-slate-600" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-0.5">Data creării</p>
-                <p className="text-sm font-semibold text-slate-900">
-                  {new Date(request.created_at).toLocaleDateString('ro-RO', {
-                    day: 'numeric',
-                    month: 'short',
-                    year: 'numeric'
-                  })}
-                </p>
-              </div>
-            </div>
-
-            {/* Card termen limită — mereu vizibil, editabil pentru admin/consultant */}
-            <div className={`flex items-center gap-3 p-4 rounded-xl border sm:col-span-2 ${
+        <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-5 space-y-5 bg-white">
+          {/* Termen limită — un singur rând, editabil pentru admin/consultant */}
+          <div className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm ${
+            localDeadline
+              ? isOverdue ? 'bg-red-50 text-red-800' : 'bg-amber-50 text-amber-900'
+              : 'bg-slate-50 text-slate-500'
+          }`}>
+            <Clock className={`w-4 h-4 flex-shrink-0 ${
               localDeadline
-                ? isOverdue
-                  ? 'border-red-200 bg-red-50'
-                  : 'border-amber-200 bg-amber-50/50'
-                : 'border-dashed border-slate-300 bg-slate-50/50'
-            }`}>
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                localDeadline
-                  ? isOverdue ? 'bg-red-100' : 'bg-amber-100'
-                  : 'bg-white border border-slate-200'
-              }`}>
-                <Clock className={`w-5 h-5 ${
-                  localDeadline
-                    ? isOverdue ? 'text-red-600' : 'text-amber-600'
-                    : 'text-slate-400'
-                }`} />
+                ? isOverdue ? 'text-red-500' : 'text-amber-500'
+                : 'text-slate-400'
+            }`} />
+            {editingDeadline ? (
+              <div className="flex items-center gap-2 flex-1">
+                <input
+                  type="date"
+                  value={deadlineValue}
+                  onChange={e => setDeadlineValue(e.target.value)}
+                  autoFocus
+                  disabled={savingDeadline}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleSaveDeadline()
+                    if (e.key === 'Escape') setEditingDeadline(false)
+                  }}
+                  className="text-sm px-2 py-1 border border-indigo-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-slate-800 disabled:opacity-50"
+                />
+                <button
+                  onClick={handleSaveDeadline}
+                  disabled={savingDeadline}
+                  className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 disabled:opacity-50 flex-shrink-0"
+                >
+                  {savingDeadline
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <CheckCircle2 className="w-3.5 h-3.5" />
+                  }
+                </button>
+                <button
+                  onClick={() => setEditingDeadline(false)}
+                  className="p-1.5 rounded-lg bg-slate-200 text-slate-500 hover:bg-slate-300 flex-shrink-0"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
               </div>
-
-              <div className="flex-1 min-w-0">
-                <p className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${
-                  localDeadline
-                    ? isOverdue ? 'text-red-600' : 'text-amber-600'
-                    : 'text-slate-500'
-                }`}>
-                  {localDeadline
-                    ? isOverdue ? '⚠️ Termen depășit' : 'Termen limită'
-                    : 'Termen limită'}
-                </p>
-
-                {editingDeadline ? (
-                  <div className="flex items-center gap-2 mt-1">
-                    <input
-                      type="date"
-                      value={deadlineValue}
-                      onChange={e => setDeadlineValue(e.target.value)}
-                      autoFocus
-                      disabled={savingDeadline}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') handleSaveDeadline()
-                        if (e.key === 'Escape') setEditingDeadline(false)
-                      }}
-                      className="text-sm px-2 py-1 border border-indigo-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-slate-800 disabled:opacity-50"
-                    />
-                    <button
-                      onClick={handleSaveDeadline}
-                      disabled={savingDeadline}
-                      className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 disabled:opacity-50 flex-shrink-0"
-                    >
-                      {savingDeadline
-                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        : <CheckCircle2 className="w-3.5 h-3.5" />
-                      }
-                    </button>
-                    <button
-                      onClick={() => setEditingDeadline(false)}
-                      className="p-1.5 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 flex-shrink-0"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <p className={`text-sm font-bold ${
-                      localDeadline
-                        ? isOverdue ? 'text-red-900' : 'text-amber-900'
-                        : 'text-slate-400 italic font-normal'
-                    }`}>
-                      {localDeadline
-                        ? new Date(localDeadline).toLocaleDateString('ro-RO', {
-                            day: 'numeric',
-                            month: 'long',
-                            year: 'numeric',
-                          })
-                        : 'Niciun termen setat'}
-                    </p>
-                    {isAdminOrConsultant && (
-                      <button
-                        onClick={() => {
-                          setDeadlineValue(localDeadline ? localDeadline.slice(0, 10) : '')
-                          setEditingDeadline(true)
-                        }}
-                        className="text-[11px] text-indigo-500 hover:text-indigo-700 hover:underline flex-shrink-0"
-                      >
-                        {localDeadline ? 'Modifică' : '+ Adaugă termen'}
-                      </button>
-                    )}
-                  </div>
+            ) : (
+              <>
+                <span className="flex-1">
+                  {localDeadline ? (
+                    <>
+                      {isOverdue ? 'Termen depășit: ' : 'Termen limită: '}
+                      <strong>
+                        {new Date(localDeadline).toLocaleDateString('ro-RO', {
+                          day: 'numeric',
+                          month: 'long',
+                          year: 'numeric',
+                        })}
+                      </strong>
+                    </>
+                  ) : (
+                    'Fără termen limită'
+                  )}
+                </span>
+                {isAdminOrConsultant && (
+                  <button
+                    onClick={() => {
+                      setDeadlineValue(localDeadline ? localDeadline.slice(0, 10) : '')
+                      setEditingDeadline(true)
+                    }}
+                    className="text-xs font-semibold text-indigo-600 hover:underline flex-shrink-0"
+                  >
+                    {localDeadline ? 'Modifică' : 'Adaugă termen'}
+                  </button>
                 )}
-              </div>
-            </div>
+              </>
+            )}
           </div>
 
-          {/* Files Section - REDESIGNED */}
+          {/* Documente: model + răspunsuri client */}
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Package className="w-4 h-4 text-slate-400" />
-                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
-                  Documente
-                </h3>
-              </div>
-
-              {/* {request.files && request.files.length > 1 && (
-                <button
-                  onClick={downloadAllFiles}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  Descarcă tot
-                </button>
-              )} */}
-            </div>
-
-            <div className="space-y-3">
-              {/* Model/Template - Dacă există */}
+            <div className="space-y-5">
+              {/* Modelele de completat - dacă există */}
               {requestAttachments.length > 0 && !attachmentMissing && (
                 <div>
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                    <span className="w-1 h-1 rounded-full bg-slate-400" />
-                    Modele ({requestAttachments.length})
-                  </p>
+                  <h3 className="text-sm font-semibold text-slate-900 mb-2">
+                    {requestAttachments.length > 1 ? `Modele de completat (${requestAttachments.length})` : 'Modelul de completat'}
+                  </h3>
                   <div className="space-y-2">
-                    {requestAttachments.map((attachment, index) => (
-                      <button
-                        key={attachment.id || `${attachment.storage_path}-${index}`}
-                        onClick={() => downloadAttachmentModel(attachment.id || undefined)}
-                        disabled={downloadingId === 'attachment'}
-                        className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-indigo-50/30 hover:from-indigo-100 hover:to-indigo-50 transition-all group text-left disabled:opacity-60 shadow-sm hover:shadow-md"
-                      >
-                        <div className="w-12 h-12 rounded-xl bg-white shadow-sm border border-indigo-100 flex items-center justify-center text-indigo-600 flex-shrink-0">
-                          {downloadingId === 'attachment' ? <Loader2 className="w-6 h-6 animate-spin" /> : <FileText className="w-6 h-6" />}
+                    {requestAttachments.map((attachment, index) => {
+                      const fileName = attachment.original_name?.trim()
+                        || attachment.storage_path.split('/').filter(Boolean).pop()
+                        || `Model ${index + 1}`
+                      const isDownloading = downloadingId === 'attachment'
+                      return (
+                        <div
+                          key={attachment.id || `${attachment.storage_path}-${index}`}
+                          className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-slate-200 px-4 py-3"
+                        >
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <div className="w-10 h-10 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
+                              {isDownloading ? (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                              ) : (
+                                <FileText className="w-5 h-5" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-slate-900 truncate">{fileName}</p>
+                              <p className="text-xs text-slate-500">Se descarcă, se completează și se trimite înapoi</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {requestAttachments.length === 1 && isPreviewableFile({ fileName }) && (
+                              <button
+                                onClick={() => openAttachmentModel(attachment.id || undefined, fileName)}
+                                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                Deschide
+                              </button>
+                            )}
+                            <button
+                              onClick={() => downloadAttachmentModel(attachment.id || undefined)}
+                              disabled={isDownloading}
+                              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              Descarcă
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold text-indigo-900 mb-0.5 truncate">{attachment.original_name || `Document template ${index + 1}`}</p>
-                          <p className="text-xs text-indigo-600">Model de completat pentru client</p>
-                        </div>
-                        <Download className="w-5 h-5 text-indigo-400" />
-                      </button>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -836,6 +742,7 @@ export default function DocumentModal({
                             ref={attachmentInputRef}
                             type="file"
                             className="hidden"
+                            accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp"
                             onClick={(e) => { e.currentTarget.value = '' }}
                             onChange={(e) => handleReplacementModel(e.currentTarget.files?.[0])}
                           />
@@ -875,6 +782,7 @@ export default function DocumentModal({
                       ref={attachmentInputRef}
                       type="file"
                       className="hidden"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp"
                       onClick={(e) => { e.currentTarget.value = '' }}
                       onChange={(e) => handleReplacementModel(e.currentTarget.files?.[0])}
                     />
@@ -891,351 +799,207 @@ export default function DocumentModal({
                 </div>
               )}
 
-              {/* Răspunsuri - Elegant grouping */}
-              {request.files && request.files.length > 0 && groupedVersions.length > 0 && (
-                <div onClick={e => e.stopPropagation()}>
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                    <span className="w-1 h-1 rounded-full bg-slate-400" />
-                    Răspunsuri client ({groupedVersions.length})
-                  </p>
+              {/* Fișierele trimise de client */}
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900 mb-2">Fișierele trimise de client</h3>
 
-                  {(() => {
-                    const group = groupedVersions.find(v => v.version === selectedVersion) || groupedVersions[0]
-                    if (!group) return null
-                    const opAllId = `all-v${group.version}`
-
-                    return (
-                      <div className="space-y-3">
-                        {/* Version selector */}
-                        <div className="relative" ref={versionWrapRef}>
-                          <button
-                            onClick={() => {
-                              setVersionDropdownOpen(v => !v)
-                              setDownloadMenuOpen(false)
-                            }}
-                            className="w-full flex items-center justify-between gap-3 p-4 rounded-xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-emerald-50/30 hover:from-emerald-100 hover:to-emerald-50 transition-all text-left shadow-sm hover:shadow-md"
-                          >
-                            <div className="flex items-center gap-4 min-w-0">
-                              <div className="w-12 h-12 rounded-xl bg-white shadow-sm border border-emerald-100 flex items-center justify-center text-emerald-600 flex-shrink-0">
-                                <FileCheck className="w-6 h-6" />
-                              </div>
-
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <p className="text-sm font-bold text-emerald-900">Răspuns v{group.version}</p>
-                                  {group === groupedVersions[0] && (
-                                    <span className="px-2 py-0.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-[10px] font-bold rounded-full uppercase tracking-wider shadow-sm">
-                                      Latest
-                                    </span>
-                                  )}
-                                  <span className="px-2 py-0.5 bg-white text-[10px] font-bold rounded-full uppercase tracking-wider border border-emerald-200 text-emerald-700">
-                                    {group.files.length} fiș.
-                                  </span>
-                                </div>
-
-                                {group.createdAt && (
-                                  <p className="text-xs text-emerald-600 flex items-center gap-1.5">
-                                    <Calendar className="w-3 h-3" />
-                                    {new Date(group.createdAt).toLocaleDateString('ro-RO', {
-                                      day: 'numeric',
-                                      month: 'short',
-                                      year: 'numeric',
-                                      hour: '2-digit',
-                                      minute: '2-digit'
-                                    })}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className={`transition-transform duration-200 ${versionDropdownOpen ? 'rotate-180' : ''}`}>
-                              <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                              </svg>
-                            </div>
-                          </button>
-
-                          {versionDropdownOpen && (
-                            <div className="absolute z-50 mt-2 w-full rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden">
-                              {groupedVersions.map(v => (
-                                <button
-                                  key={v.version}
-                                  onClick={() => {
-                                    setSelectedVersion(v.version)
-                                    setVersionDropdownOpen(false)
-                                    setDownloadMenuOpen(false)
-                                  }}
-                                  className={`w-full px-4 py-3 text-left hover:bg-slate-50 transition-colors flex items-center justify-between gap-3 ${
-                                    v.version === group.version ? 'bg-slate-50' : ''
-                                  }`}
-                                >
-                                  <div className="min-w-0">
-                                  <p className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                                    Răspuns v{v.version}
-
-                                    {v === groupedVersions[0] && (
-                                      <span className="px-2 py-0.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-[10px] font-bold rounded-full uppercase tracking-wider">
-                                        Latest
-                                      </span>
-                                    )}
-                                  </p>
-
-                                    {v.createdAt && (
-                                      <p className="text-xs text-slate-500">
-                                        {new Date(v.createdAt).toLocaleDateString('ro-RO', {
-                                          day: 'numeric',
-                                          month: 'short',
-                                          year: 'numeric',
-                                          hour: '2-digit',
-                                          minute: '2-digit'
-                                        })}
-                                      </p>
-                                    )}
-                                  </div>
-
-                                  <div className="flex items-center gap-2 flex-shrink-0">
-                                    <span className="text-xs font-bold text-slate-600">{v.files.length} fiș.</span>
-                                    {v.version === group.version && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
-                                  </div>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex gap-2">
-                          {/* Split Download Button */}
-                          <div className="relative flex-1" ref={downloadWrapRef} >
-                            <div className="flex w-full rounded-xl overflow-hidden border border-slate-200 bg-white shadow-sm hover:shadow transition-shadow">
-                              {/* Primary action: Download all */}
-                              <button
-                                onClick={() => downloadAllFilesForVersion(group.version)}
-                                disabled={downloadingId === opAllId}
-                                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 hover:bg-slate-50 transition-colors disabled:opacity-60"
-                              >
-                                {downloadingId === opAllId ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <Package  className="w-4 h-4" />
-                                )}
-                                <span className="text-sm font-semibold">Descarcă arhivă</span>
-                                <span className="text-xs text-slate-500">({group.files.length})</span>
-                              </button>
-
-                              {/* Divider */}
-                              <div className="w-px bg-slate-200" />
-
-                              {/* Dropdown toggle */}
-                              <button
-                                onClick={() => {
-                                  setDownloadMenuOpen(v => !v)
-                                  setVersionDropdownOpen(false)
-                                }}
-                                className="px-3 py-3 hover:bg-slate-50 transition-colors flex items-center justify-center"
-                                aria-label="Alege fișier"
-                              >
-                                <div className={`transition-transform duration-200 ${downloadMenuOpen ? 'rotate-180' : ''}`}>
-                                  <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                  </svg>
-                                </div>
-                              </button>
-                            </div>
-
-                            {/* Wide dropdown menu */}
-                            {downloadMenuOpen && (
-                              <div className="absolute z-50 mt-2 w-full rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden max-h-80 overflow-y-auto">
-                                <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                                  <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">
-                                    Fișiere ({group.files.length})
-                                  </p>
-                                </div>
-
-                                {group.files.map(file => {
-                                  const fileName = file.original_name?.trim() || file.storage_path.split('/').filter(Boolean).pop() || 'fisier'
-                                  return (
-                                    <div
-                                      key={file.id}
-                                      className="px-4 py-3 hover:bg-slate-50 transition-colors flex items-center justify-between gap-3"
-                                    >
-                                      <div className="min-w-0">
-                                        <p className="text-sm font-semibold text-slate-900 truncate">{fileName}</p>
-                                        <p className="text-xs text-slate-500">
-                                          {new Date(file.created_at).toLocaleDateString('ro-RO', {
-                                            day: 'numeric',
-                                            month: 'short',
-                                            year: 'numeric',
-                                            hour: '2-digit',
-                                            minute: '2-digit'
-                                          })}
-                                        </p>
-                                      </div>
-
-                                      <button
-                                        onClick={() => downloadUploadedFileById(file.id)}
-                                        disabled={downloadingId === file.id}
-                                        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-colors disabled:opacity-60 flex-shrink-0"
-                                      >
-                                        {downloadingId === file.id ? (
-                                          <Loader2 className="w-4 h-4 animate-spin text-slate-500" />
-                                        ) : (
-                                          <Download className="w-4 h-4 text-slate-500" />
-                                        )}
-                                        <span className="text-sm font-semibold">Download</span>
-                                      </button>
-                                    </div>
-                                  )
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                      </div>
-                    )
-                  })()}
-                </div>
-              )}
-
-              {/* Empty state */}
-              {(!localAttachmentPath || attachmentMissing) && (!request.files || request.files.length === 0) && (
-                <div className="text-center py-12 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">
-                  <div className="w-16 h-16 bg-white rounded-2xl shadow-sm border border-slate-200 flex items-center justify-center mx-auto mb-3">
-                    <Package className="w-8 h-8 text-slate-300" />
+                {groupedVersions.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center">
+                    <p className="text-sm text-slate-500">Clientul nu a trimis încă niciun fișier.</p>
                   </div>
-                  <p className="text-sm text-slate-900 font-semibold mb-1">Niciun document încărcat</p>
-                  <p className="text-xs text-slate-500">Clientul nu a încărcat încă fișiere</p>
-                </div>
-              )}
+                ) : (() => {
+                  const group = groupedVersions.find(v => v.version === selectedVersion) || groupedVersions[0]
+                  const opAllId = `all-v${group.version}`
+
+                  return (
+                    <div className="space-y-2">
+                      {/* Variante (doar când există mai multe) */}
+                      {groupedVersions.length > 1 && (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {groupedVersions.map(v => (
+                            <button
+                              key={v.version}
+                              onClick={() => setSelectedVersion(v.version)}
+                              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                                v.version === group.version
+                                  ? 'bg-slate-900 text-white'
+                                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                              }`}
+                            >
+                              {v === groupedVersions[0] ? `Varianta ${v.version} (recentă)` : `Varianta ${v.version}`}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {group.createdAt && (
+                        <p className="text-xs text-slate-400">
+                          Trimis pe {new Date(group.createdAt).toLocaleDateString('ro-RO', {
+                            day: 'numeric',
+                            month: 'long',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </p>
+                      )}
+
+                      <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
+                        {group.files.map(file => {
+                          const fileName = file.original_name?.trim() || file.storage_path.split('/').filter(Boolean).pop() || 'fisier'
+                          return (
+                            <div key={file.id} className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3">
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0">
+                                  <FileCheck className="w-5 h-5" />
+                                </div>
+                                <p className="flex-1 min-w-0 text-sm font-semibold text-slate-900 truncate">
+                                  {fileName}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                {isPreviewableFile({ fileName }) && (
+                                  <button
+                                    onClick={() => openUploadedFileById(file.id, fileName)}
+                                    className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                    Deschide
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => downloadUploadedFileById(file.id)}
+                                  disabled={downloadingId === file.id}
+                                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                                >
+                                  {downloadingId === file.id ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Download className="w-3.5 h-3.5" />
+                                  )}
+                                  Descarcă
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      {group.files.length > 1 && (
+                        <button
+                          onClick={() => downloadAllFilesForVersion(group.version)}
+                          disabled={downloadingId === opAllId}
+                          className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:underline disabled:opacity-50"
+                        >
+                          {downloadingId === opAllId ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Package className="w-3.5 h-3.5" />
+                          )}
+                          Descarcă toate cele {group.files.length} fișiere într-o arhivă
+                        </button>
+                      )}
+                    </div>
+                  )
+                })()}
+              </div>
+
             </div>
           </div>
 
-          {/* Comments from previous rejection */}
+          {/* Motivul respingerii anterioare */}
           {request.status === 'rejected' && (
-            <div className="p-4 bg-red-50 border-2 border-red-200 rounded-xl">
-              <div className="flex items-start gap-3">
-                <MessageSquare className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-xs font-bold text-red-800 uppercase tracking-wide mb-1">Motiv respingere anterioară</p>
-                  <p className="text-sm text-red-700 leading-relaxed">
-                    {latestRejectionReason || 'Motivul respingerii nu este disponibil pentru acest istoric.'}
-                  </p>
-                </div>
-              </div>
+            <div className="rounded-xl bg-red-50 px-4 py-3">
+              <p className="text-xs font-semibold text-red-800 mb-1">Motivul respingerii</p>
+              <p className="text-sm text-red-700 leading-relaxed">
+                {latestRejectionReason || 'Motivul respingerii nu este disponibil pentru acest istoric.'}
+              </p>
             </div>
           )}
 
-          {/* Feedback textarea - doar pentru review */}
-          {request.status === 'review' && (
+          {/* Mesaj pentru client - doar la verificare, doar pentru echipă */}
+          {isAdminOrConsultant && request.status === 'review' && (
             <div>
-              <label className="block text-sm font-bold text-slate-900 mb-2 uppercase tracking-wide">
-                Feedback pentru client
+              <label className="block text-sm font-semibold text-slate-900 mb-2">
+                Mesaj pentru client
               </label>
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Scrie notițe sau observații (opțional pentru aprobare, obligatoriu pentru respingere)..."
-                rows={4}
-                className="w-full p-4 rounded-xl border-2 border-slate-200 bg-slate-50 text-sm focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none resize-none transition-all"
+                placeholder="Opțional la aprobare, obligatoriu la respingere"
+                rows={3}
+                className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none resize-none transition-colors"
               />
-              <p className="text-xs text-slate-500 mt-2">
-                💡 <strong>Tip:</strong> Ctrl + Enter pentru aprobare rapidă
-              </p>
             </div>
           )}
         </div>
 
-        {/* Footer - Actions */}
-        <div className="p-6 border-t border-slate-200 bg-slate-50/50">
-          {isAdminOrConsultant && request.status === 'review' ? (
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button
-                onClick={() => setShowRejectConfirm(true)}
-                disabled={actionLoading}
-                className="flex-1 py-3 rounded-xl text-sm font-bold border-2 border-red-200 text-red-700 hover:bg-red-50 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {actionLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Se procesează...
-                  </>
-                ) : (
-                  <>
-                    <XCircle className="w-4 h-4" />
-                    Respinge
-                  </>
-                )}
-              </button>
+        {/* Footer - doar când există acțiuni de făcut */}
+        {isAdminOrConsultant && request.status === 'review' && (
+          <div className="px-5 sm:px-6 py-4 border-t border-slate-100 flex flex-col sm:flex-row gap-2.5">
+            <button
+              onClick={() => setShowRejectConfirm(true)}
+              disabled={actionLoading}
+              className="flex-1 py-3 rounded-xl text-sm font-bold border border-red-200 text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              <XCircle className="w-4 h-4" />
+              Respinge
+            </button>
 
-              <button
-                onClick={handleApprove}
-                disabled={actionLoading}
-                className="flex-1 py-3 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-600/20 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {actionLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Se procesează...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-4 h-4" />
-                    Aprobă document
-                  </>
-                )}
-              </button>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {/* Buton reminder client — vizibil pentru admin/consultant la pending */}
-              {isAdminOrConsultant && request.status === 'pending' && (() => {
-                if (!clientEmail) {
-                  return (
-                    <div className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-slate-200 bg-slate-50 text-sm text-slate-400 cursor-not-allowed">
-                      <Mail className="w-4 h-4" />
-                      Reminder indisponibil — fără email client
-                    </div>
-                  )
-                }
-                const reminderType = getReminderType(localDeadline) ?? '1_week'
-                const badge = REMINDER_BADGE[reminderType]
-                const mailtoLink = generateMailtoLink(
-                  {
-                    requestName: request.name,
-                    requestDescription: request.description,
-                    deadlineAt: localDeadline,
-                    clientEmail,
-                    clientName: clientName ?? null,
-                    projectTitle: projectTitle ?? '',
-                    projectId,
-                  },
-                  reminderType
-                )
-                return (
-                  <a
-                    href={mailtoLink}
-                    className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 text-sm font-bold transition-opacity hover:opacity-80 ${badge.bg} ${badge.text} ${badge.border}`}
-                  >
-                    <Mail className="w-4 h-4" />
-                    Trimite reminder clientului
-                    <span className="opacity-60 font-normal">·</span>
-                    {REMINDER_LABELS[reminderType]}
-                  </a>
-                )
-              })()}
+            <button
+              onClick={handleApprove}
+              disabled={actionLoading}
+              className="flex-[2] py-3 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {actionLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Se procesează...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  Aprobă documentul
+                </>
+              )}
+            </button>
+          </div>
+        )}
 
-              <div className="flex items-center justify-center py-1">
-                <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl ${statusConfig.bg} ${statusConfig.border} border-2`}>
-                  <StatusIcon className={`w-5 h-5 ${statusConfig.text}`} />
-                  <span className={`font-bold text-sm ${statusConfig.text}`}>
-                    {statusConfig.label}
-                  </span>
-                </div>
+        {isAdminOrConsultant && request.status === 'pending' && (
+          <div className="px-5 sm:px-6 py-4 border-t border-slate-100">
+            {clientEmail ? (() => {
+              const reminderType = getReminderType(localDeadline) ?? '1_week'
+              const mailtoLink = generateMailtoLink(
+                {
+                  requestName: request.name,
+                  requestDescription: request.description,
+                  deadlineAt: localDeadline,
+                  clientEmail,
+                  clientName: clientName ?? null,
+                  projectTitle: projectTitle ?? '',
+                  projectId,
+                },
+                reminderType
+              )
+              return (
+                <a
+                  href={mailtoLink}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  <Mail className="w-4 h-4" />
+                  Trimite reminder clientului
+                  <span className="text-slate-400 font-normal">· {REMINDER_LABELS[reminderType]}</span>
+                </a>
+              )
+            })() : (
+              <div className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-slate-50 text-sm text-slate-400">
+                <Mail className="w-4 h-4" />
+                Reminder indisponibil — fără email client
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Reject Confirmation Dialog */}

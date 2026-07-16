@@ -118,6 +118,7 @@ const ALLOWED_TYPES = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/csv',
   'image/jpeg',
   'image/jpg',
   'image/png',
@@ -125,7 +126,7 @@ const ALLOWED_TYPES = [
   'image/webp'
 ]
 
-const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.jpg', '.jpeg', '.png', '.gif', '.webp']
+const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.jpg', '.jpeg', '.png', '.gif', '.webp']
 
 // Helper functions
 function formatFileSize(bytes: number): string {
@@ -744,10 +745,10 @@ export default function DocumentRequests({
   }
 
 
-  const downloadAttachmentModel = async (requestId: string, attachmentId?: string) => {
+  const fetchAttachmentSignedUrl = async (requestId: string, disposition?: 'inline', attachmentId?: string) => {
     const res = await apiFetch(`/api/document-requests/${requestId}/attachment/signed-download`, {
       method: 'POST',
-      body: JSON.stringify({ expiresIn: 60 * 5, attachment_id: attachmentId }),
+      body: JSON.stringify({ expiresIn: 60 * 5, ...(disposition ? { disposition } : {}), attachment_id: attachmentId }),
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -755,9 +756,15 @@ export default function DocumentRequests({
         setMissingAttachments(prev => new Set(prev).add(requestId))
         await fetchRequests()
       }
-      return alert('Eroare la descărcare: ' + (data?.error || res.statusText))
+      alert('Eroare la descărcare: ' + (data?.error || res.statusText))
+      return null
     }
-    forceDownload(data.url)
+    return data.url as string
+  }
+
+  const downloadAttachmentModel = async (requestId: string, attachmentId?: string) => {
+    const url = await fetchAttachmentSignedUrl(requestId, undefined, attachmentId)
+    if (url) forceDownload(url)
   }
 
   const handleDeleteRequest = async () => {
@@ -1946,7 +1953,7 @@ export default function DocumentRequests({
                     <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:border-emerald-300 hover:bg-emerald-50/50 transition-colors">
                       <Upload className="w-8 h-8 text-slate-400" />
                       <span className="text-sm text-slate-600 font-medium">Click pentru a încărca documente</span>
-                      <span className="text-xs text-slate-400">PDF, DOC, DOCX, XLS, XLSX, imagini</span>
+                      <span className="text-xs text-slate-400">PDF, DOC, DOCX, XLS, XLSX, CSV, imagini</span>
                       <input
                         type="file"
                         multiple

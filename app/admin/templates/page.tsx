@@ -1428,7 +1428,7 @@ export default function AdminTemplatesPage() {
                                             <input
                                               type="file"
                                               className="hidden"
-                                              accept=".pdf,.doc,.docx,.xls,.xlsx"
+                                              accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp"
                                               multiple
                                               onChange={(e) => {
                                                 const files = Array.from(e.currentTarget.files ?? [])
@@ -1866,7 +1866,7 @@ export default function AdminTemplatesPage() {
                     e.currentTarget.value = ''
                   }}
                   className="hidden"
-                  accept=".pdf,.doc,.docx,.xls,.xlsx"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp"
                   multiple
                 />
                 {(newDocAttachments.length > 0 || newDocTemplates.length > 0) ? (
@@ -1922,7 +1922,7 @@ export default function AdminTemplatesPage() {
                   >
                     <Upload className="w-8 h-8 text-slate-400" />
                     <span className="text-sm text-slate-600 font-medium">Click pentru a adăuga fișiere</span>
-                    <span className="text-xs text-slate-400">PDF, DOC, DOCX, XLS, XLSX</span>
+                    <span className="text-xs text-slate-400">PDF, DOC, DOCX, XLS, XLSX, CSV, imagini</span>
                   </button>
                 )}
                 {newDocOutgoing && !docModalHasTemplate && (

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useRouter } from 'next/navigation'
+import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -195,7 +196,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
       ;(async () => {
         try {
           const res = await apiFetch(`/api/files/${latest.id}/signed-download`, {
-            method: 'POST', body: JSON.stringify({ expiresIn: 3600 }),
+            method: 'POST', body: JSON.stringify({ expiresIn: 600 }), // plafon server-side
           })
           if (res.ok) {
             const { url } = await res.json()
@@ -215,9 +216,13 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
       })
       if (!res.ok) { alert('Eroare la descărcare'); return }
       const { url } = await res.json()
-      const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'
+      const a = document.createElement('a'); a.href = url; a.rel = 'noopener'
       document.body.appendChild(a); a.click(); document.body.removeChild(a)
     } finally { setDownloading(null) }
+  }
+
+  function handleOpen(fileId: string, fileName?: string | null) {
+    openInNewTab(buildPreviewPageUrl({ type: 'file', id: fileId, name: fileName }))
   }
 
   const uniqueProjects = useMemo(() => {
@@ -512,8 +517,20 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                       <p style={{ fontSize: '11px', color: '#9aa0a6' }}>{dateStr}</p>
                     </div>
 
-                    {/* Download */}
-                    <div className="flex-shrink-0">
+                    {/* Actions */}
+                    <div className="flex-shrink-0 flex items-center">
+                      {latest && isPreviewableFile({ fileName: latest.original_name || latest.storage_path }) && (
+                        <button
+                          onClick={() => handleOpen(latest.id, latest.original_name || latest.storage_path)}
+                          className="p-2 rounded-full transition-colors opacity-0 group-hover:opacity-100"
+                          style={{ color: '#5f6368' }}
+                          onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
+                          onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                          title="Deschide în tab nou"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                      )}
                       {latest && (
                         <button
                           onClick={() => handleDownload(latest.id)}

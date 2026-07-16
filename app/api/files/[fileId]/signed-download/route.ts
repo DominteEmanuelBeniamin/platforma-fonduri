@@ -2,12 +2,14 @@ import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { logAction } from '@/app/api/_utils/audit'
+import { isPreviewableFile, clampExpiresIn } from '@/lib/file-preview'
 
 const BUCKET = 'project-files'
 
 type FileDownloadRow = {
   storage_path: string
   original_name: string | null
+  mime_type: string | null
   document_requirements:
     | { project_id: string | null; name: string | null; deleted_at: string | null }
     | Array<{ project_id: string | null; name: string | null; deleted_at: string | null }>
@@ -27,13 +29,14 @@ export async function POST(
   try {
     const { fileId } = await params
     const body = await request.json().catch(() => ({}))
-    const expiresIn = typeof body?.expiresIn === 'number' ? body.expiresIn : 60 * 5
+    const expiresIn = clampExpiresIn(body?.expiresIn)
+    const inlineRequested = body?.disposition === 'inline'
 
     const admin = createSupabaseServiceClient()
 
     const { data: fileRow, error } = await admin
       .from('files')
-      .select('id, storage_path, original_name, requirement_id, deleted_at, document_requirements(project_id, name, deleted_at)')
+      .select('id, storage_path, original_name, mime_type, requirement_id, deleted_at, document_requirements(project_id, name, deleted_at)')
       .eq('id', fileId)
       .is('deleted_at', null)
       .single()
@@ -65,9 +68,17 @@ export async function POST(
     const projectTitle = projectRow?.title ?? projectId
     const requirementName = requirement?.name || null
 
+    // inline doar pentru tipuri afișabile în browser; altfel forțăm descărcarea
+    const inline = inlineRequested && isPreviewableFile({
+      mimeType: typedFileRow.mime_type,
+      fileName: getDownloadName(typedFileRow),
+    })
+
     const { data, error: signErr } = await admin.storage
       .from(BUCKET)
-      .createSignedUrl(typedFileRow.storage_path, expiresIn, { download: getDownloadName(typedFileRow) })
+      .createSignedUrl(typedFileRow.storage_path, expiresIn, {
+        download: inline ? false : getDownloadName(typedFileRow),
+      })
 
     if (signErr || !data?.signedUrl) {
       console.error('signed url error:', signErr)
@@ -87,8 +98,9 @@ export async function POST(
         document_request_name: requirementName,
         storage_path: typedFileRow.storage_path,
         expires_in: expiresIn,
+        disposition: inline ? 'inline' : 'attachment',
       },
-      description: `Descarcare fisier "${getDownloadName(typedFileRow)}" din proiectul "${projectTitle}"${requirementName ? ` pentru cererea "${requirementName}"` : ''}`,
+      description: `${inline ? 'Vizualizare' : 'Descarcare'} fisier "${getDownloadName(typedFileRow)}" din proiectul "${projectTitle}"${requirementName ? ` pentru cererea "${requirementName}"` : ''}`,
       request,
     })
 
