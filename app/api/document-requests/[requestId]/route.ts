@@ -172,8 +172,14 @@ export async function PATCH(
     }
 
     const diff = computeDiff(req as Record<string, any>, updatePayload)
-    if (diff.isEmpty) {
+    // atașamentele (2+) pot rămâne neschimbate pe primul din listă — nu ne
+    // putem baza doar pe diff-ul câmpurilor de request pentru a ști dacă
+    // trebuie resincronizat document_requirement_attachments
+    if (diff.isEmpty && attachments === undefined) {
       return NextResponse.json({ ok: true })
+    }
+    if (attachments !== undefined && !diff.changedKeys.includes('attachments')) {
+      diff.changedKeys.push('attachments')
     }
 
     const { error: updateError } = await admin
