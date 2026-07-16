@@ -339,7 +339,7 @@ export default function DocumentModal({
 
   const openAttachmentModel = (attachmentId?: string, fileName?: string | null) => {
     if (!localAttachmentPath || attachmentMissing) return
-    openInNewTab(buildPreviewPageUrl({ type: 'attachment', id: request.id, name: fileName }))
+    openInNewTab(buildPreviewPageUrl({ type: 'attachment', id: request.id, name: fileName, attachmentId }))
     // verificare în fundal: dacă fișierul a dispărut din storage între timp,
     // cererea rămâne marcată corect chiar dacă utilizatorul nu apasă Descarcă
     apiFetch(`/api/document-requests/${request.id}/attachment/signed-download`, {
@@ -698,7 +698,7 @@ export default function DocumentModal({
                             </div>
                           </div>
                           <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {requestAttachments.length === 1 && isPreviewableFile({ fileName }) && (
+                            {isPreviewableFile({ fileName }) && (
                               <button
                                 onClick={() => openAttachmentModel(attachment.id || undefined, fileName)}
                                 className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
