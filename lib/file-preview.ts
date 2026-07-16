@@ -51,10 +51,15 @@ export function buildPreviewPageUrl(target: {
   type: 'file' | 'attachment'
   id: string
   name?: string | null
+  // pentru cereri cu mai multe modele: care atașament anume se previzualizează
+  attachmentId?: string | null
 }): string {
   // numele poate veni ca storage path — păstrăm doar numele de fișier
   const baseName = target.name?.split('/').filter(Boolean).pop() || null
-  const query = baseName ? `?name=${encodeURIComponent(baseName)}` : ''
+  const params = new URLSearchParams()
+  if (baseName) params.set('name', baseName)
+  if (target.attachmentId) params.set('attachmentId', target.attachmentId)
+  const query = params.toString() ? `?${params.toString()}` : ''
   return `/preview/${target.type}/${target.id}${query}`
 }
 
