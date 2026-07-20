@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { requireProfile } from '@/app/api/_utils/auth'
+import { canReadTemplate, requireProfile } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
@@ -37,6 +37,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
+    if (!canReadTemplate(auth.profile.role)) {
+      return NextResponse.json({ error: 'Forbidden: template access denied' }, { status: 403 })
+    }
 
     const { id: projectId } = await params
     const body = await req.json()
@@ -70,12 +73,15 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const { data: template, error: templateError } = await supabaseAdmin
       .from('project_templates')
-      .select('id, name')
+      .select('id, name, status, is_active')
       .eq('id', template_id)
       .single()
 
     if (templateError || !template) {
       return NextResponse.json({ error: 'Template negăsit' }, { status: 404 })
+    }
+    if (template.status !== 'published' || !template.is_active) {
+      return NextResponse.json({ error: 'Doar template-urile publicate și active pot fi importate' }, { status: 400 })
     }
 
     const { data: templatePhases } = await supabaseAdmin

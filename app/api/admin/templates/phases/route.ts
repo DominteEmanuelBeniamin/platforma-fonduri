@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { requireAdmin } from '@/app/api/_utils/auth'
+import { requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
@@ -12,7 +12,7 @@ const supabaseAdmin = createClient(
 // POST /api/admin/templates/phases - Creează fază nouă în template
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireAdmin(req)
+    const auth = await requireProfile(req)
     if (!auth.ok) {
       return NextResponse.json({ error: 'Doar adminii pot crea faze' }, { status: 403 })
     }
@@ -25,6 +25,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Generează slug dacă nu e furnizat
+    const templateAccess = await requireTemplateAccess(req, template_id, 'edit')
+    if (!templateAccess.ok) {
+      return NextResponse.json({ error: templateAccess.error }, { status: templateAccess.status })
+    }
+
     const finalSlug = slug || name
       .toLowerCase()
       .normalize('NFD')

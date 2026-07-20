@@ -12,6 +12,8 @@ interface ConfirmDeleteModalProps {
   description?: string
   confirmText?: string
   confirmWord?: string
+  confirmReadyText?: string
+  loadingText?: string
   loading?: boolean
   error?: string | null
   children?: React.ReactNode
@@ -25,6 +27,8 @@ export default function ConfirmDeleteModal({
   description = 'Această acțiune este permanentă și nu poate fi anulată.',
   confirmText = 'Șterge',
   confirmWord = 'sterge',
+  confirmReadyText = 'Poți confirma ștergerea',
+  loadingText = 'Se șterge...',
   loading = false,
   error = null,
   children
@@ -153,7 +157,7 @@ export default function ConfirmDeleteModal({
           {isConfirmEnabled && (
             <p className="text-xs text-emerald-600 flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              Poți confirma ștergerea
+              {confirmReadyText}
             </p>
           )}
         </div>
@@ -181,7 +185,7 @@ export default function ConfirmDeleteModal({
             {loading ? (
               <>
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Se șterge...
+                {loadingText}
               </>
             ) : (
               confirmText

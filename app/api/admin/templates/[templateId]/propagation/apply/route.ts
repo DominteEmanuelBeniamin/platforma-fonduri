@@ -704,13 +704,16 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const { data: template, error: templateError } = await supabaseAdmin
       .from('project_templates')
-      .select('id, name')
+      .select('id, name, status')
       .eq('id', templateId)
       .maybeSingle()
 
     if (templateError) throw templateError
     if (!template) {
       return NextResponse.json({ error: 'Template negăsit' }, { status: 404 })
+    }
+    if (template.status !== 'published') {
+      return NextResponse.json({ error: 'Propagarea este permisă doar pentru template-uri publicate' }, { status: 400 })
     }
 
     const { data: projects, error: projectsError } = await supabaseAdmin

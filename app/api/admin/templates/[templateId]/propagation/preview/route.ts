@@ -31,7 +31,7 @@ function addBlockedReason(blocked: string[], reason: string) {
 async function loadTemplate(templateId: string) {
   const { data: template, error } = await supabaseAdmin
     .from('project_templates')
-    .select('id, name')
+    .select('id, name, status')
     .eq('id', templateId)
     .maybeSingle()
 
@@ -255,6 +255,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     if (!template) {
       return NextResponse.json({ error: 'Template negăsit' }, { status: 404 })
+    }
+    if (template.status !== 'published') {
+      return NextResponse.json({ error: 'Preview-ul de propagare este permis doar pentru template-uri publicate' }, { status: 400 })
     }
 
     const { data: projects, error: projectsError } = await supabaseAdmin

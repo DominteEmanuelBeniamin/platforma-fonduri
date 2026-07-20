@@ -7,6 +7,7 @@ type AuditActionType =
   | 'add'
   | 'update'
   | 'delete'
+  | 'publish'
   | 'propagate'
   | 'login'
   | 'logout'
