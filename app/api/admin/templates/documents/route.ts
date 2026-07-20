@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { requireAdmin } from '@/app/api/_utils/auth'
+import { requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { normalizeRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 
@@ -13,7 +13,7 @@ const supabaseAdmin = createClient(
 // POST /api/admin/templates/documents - Creează document requirement în activitate
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireAdmin(req)
+    const auth = await requireProfile(req)
     if (!auth.ok) {
       return NextResponse.json({ error: 'Doar adminii pot crea cerințe de documente' }, { status: 403 })
     }
@@ -38,6 +38,20 @@ export async function POST(req: NextRequest) {
 
     if (!template_activity_id || !name) {
       return NextResponse.json({ error: 'Activitatea și numele sunt obligatorii' }, { status: 400 })
+    }
+
+    const { data: activityRow, error: activityError } = await supabaseAdmin
+      .from('template_activities')
+      .select('template_phases(template_id)')
+      .eq('id', template_activity_id)
+      .maybeSingle()
+    if (activityError) throw activityError
+    const templateId = (activityRow as any)?.template_phases?.template_id
+    if (!templateId) return NextResponse.json({ error: 'Activitatea nu a fost găsită' }, { status: 404 })
+
+    const templateAccess = await requireTemplateAccess(req, templateId, 'edit')
+    if (!templateAccess.ok) {
+      return NextResponse.json({ error: templateAccess.error }, { status: templateAccess.status })
     }
 
     if (is_outgoing && !attachmentPath) {

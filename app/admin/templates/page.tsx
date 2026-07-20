@@ -71,6 +71,7 @@ interface Template {
   id: string
   name: string
   description: string | null
+  status: 'draft' | 'published'
   phases: {
     id: string
     name: string
@@ -274,6 +275,8 @@ function getDeleteModalText(target: TemplateDeleteTarget | null) {
 export default function AdminTemplatesPage() {
   const router = useRouter()
   const { loading: authLoading, token, apiFetch, profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
+  const canEditTemplate = (template: Template) => isAdmin || template.status === 'draft'
 
   const [templates, setTemplates] = useState<Template[]>([])
   const [statuses, setStatuses] = useState<ProjectStatus[]>([])
@@ -292,6 +295,9 @@ export default function AdminTemplatesPage() {
   const [deleteTarget, setDeleteTarget] = useState<TemplateDeleteTarget | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [publishTarget, setPublishTarget] = useState<Template | null>(null)
+  const [publishLoading, setPublishLoading] = useState(false)
+  const [publishError, setPublishError] = useState<string | null>(null)
 
   const [addingDocTo, setAddingDocTo] = useState<{ phaseId: string, activityId: string } | null>(null)
   const [editingDocId, setEditingDocId] = useState<string | null>(null)
@@ -353,7 +359,8 @@ export default function AdminTemplatesPage() {
   useEffect(() => {
     if (authLoading) return
     if (!token) { router.replace('/login'); return }
-    if (profile && profile.role !== 'admin') { router.replace('/'); return }
+    if (!profile) return
+    if (profile.role !== 'admin' && profile.role !== 'consultant') { router.replace('/'); return }
     fetchData()
   }, [authLoading, token, profile, router])
 
@@ -709,7 +716,7 @@ export default function AdminTemplatesPage() {
       const initRes = await apiFetch('/api/admin/templates/documents/attachment/init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: file.name, type: file.type })
+        body: JSON.stringify({ name: file.name, type: file.type, template_id: editingTemplate?.id })
       })
       if (!initRes.ok) return null
       const initData = await initRes.json()
@@ -1024,7 +1031,7 @@ export default function AdminTemplatesPage() {
         }
       }
 
-      if (editingTemplate) {
+      if (editingTemplate && isAdmin && editingTemplate.status === 'published') {
         await openTemplatePropagation(templateId)
       }
 
@@ -1053,6 +1060,42 @@ export default function AdminTemplatesPage() {
       activityCount,
       documentCount: countTemplateDocuments(template),
     })
+  }
+
+  const requestPublishTemplate = (template: Template) => {
+    if (!isAdmin || template.status === 'published') return
+    setPublishError(null)
+    setPublishTarget(template)
+  }
+
+  const closePublishModal = () => {
+    if (publishLoading) return
+    setPublishTarget(null)
+    setPublishError(null)
+  }
+
+  const confirmPublishTemplate = async () => {
+    if (!publishTarget || !isAdmin || publishTarget.status === 'published') return
+
+    try {
+      setPublishLoading(true)
+      setPublishError(null)
+      const res = await apiFetch(`/api/admin/templates/${publishTarget.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'published' }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        throw new Error(data?.error || 'Template-ul nu a putut fi publicat')
+      }
+      setPublishTarget(null)
+      await fetchData()
+    } catch (error: any) {
+      setPublishError(error?.message || 'Template-ul nu a putut fi publicat')
+    } finally {
+      setPublishLoading(false)
+    }
   }
 
   const closeDeleteModal = () => {
@@ -1100,6 +1143,7 @@ export default function AdminTemplatesPage() {
   }
 
   const handleEdit = (template: Template) => {
+    if (!canEditTemplate(template)) return
     setEditingTemplate(template)
     setTemplateName(template.name)
     setTemplateDescription(template.description || '')
@@ -1529,7 +1573,12 @@ export default function AdminTemplatesPage() {
                         <Layers className="w-6 h-6 text-purple-600" />
                       </div>
                       <div>
-                        <h3 className="font-semibold text-slate-900">{template.name}</h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold text-slate-900">{template.name}</h3>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${template.status === 'draft' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                            {template.status === 'draft' ? 'Ciornă' : 'Publicat'}
+                          </span>
+                        </div>
                         <div className="flex items-center gap-4 mt-1 text-sm text-slate-500">
                           <span>{template.phases?.length || 0} faze</span>
                           <span>{template.phases?.reduce((sum, p) => sum + (p.activities?.length || 0), 0) || 0} activități</span>
@@ -1537,18 +1586,33 @@ export default function AdminTemplatesPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleEdit(template)}
-                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => requestDeleteTemplate(template)}
-                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {canEditTemplate(template) && (
+                        <button
+                          onClick={() => handleEdit(template)}
+                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"
+                          title="Editează template-ul"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      )}
+                      {isAdmin && template.status === 'draft' && (
+                        <button
+                          onClick={() => requestPublishTemplate(template)}
+                          className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg"
+                          title="Publică template-ul"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button
+                          onClick={() => requestDeleteTemplate(template)}
+                          className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                          title="Șterge template-ul"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
                   {template.phases && template.phases.length > 0 && (
@@ -1624,6 +1688,28 @@ export default function AdminTemplatesPage() {
             {deleteTarget.type === 'document' && (
               <p className="font-semibold text-slate-900">{deleteTarget.documentName}</p>
             )}
+          </div>
+        )}
+      </ConfirmDeleteModal>
+
+      <ConfirmDeleteModal
+        isOpen={!!publishTarget}
+        onClose={closePublishModal}
+        onConfirm={confirmPublishTemplate}
+        title="Aprobă template-ul"
+        description="Template-ul va fi disponibil pentru proiecte noi."
+        confirmText="Aprobă"
+        confirmWord="aproba"
+        confirmReadyText="Poți confirma aprobarea"
+        loadingText="Se aprobă..."
+        loading={publishLoading}
+        error={publishError}
+      >
+        {publishTarget && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 space-y-2">
+            <p className="font-semibold text-slate-900">{publishTarget.name}</p>
+            <p>După aprobare, consultanții nu îl mai pot edita.</p>
+            <p className="text-red-700">Template-ul nu poate reveni la ciornă.</p>
           </div>
         )}
       </ConfirmDeleteModal>

@@ -66,6 +66,8 @@ export interface ProjectStatusUpdate {
 // =====================================================
 
 // Template principal
+export type TemplateStatus = 'draft' | 'published';
+
 export interface ProjectTemplate {
   id: string;
   name: string;
@@ -74,6 +76,7 @@ export interface ProjectTemplate {
   measure_id: string | null;
   is_default: boolean;
   is_active: boolean;
+  status: TemplateStatus;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -88,6 +91,7 @@ export interface ProjectTemplateCreate {
   description?: string;
   measure_id?: string;
   is_default?: boolean;
+  status?: TemplateStatus;
 }
 
 export interface ProjectTemplateUpdate {
@@ -97,6 +101,7 @@ export interface ProjectTemplateUpdate {
   measure_id?: string | null;
   is_default?: boolean;
   is_active?: boolean;
+  status?: TemplateStatus;
 }
 
 // Fază în template
@@ -218,6 +223,7 @@ export interface TemplateOverview {
   program_name: string | null;
   is_default: boolean;
   is_active: boolean;
+  status: TemplateStatus;
   created_at: string;
   total_phases: number;
   total_activities: number;

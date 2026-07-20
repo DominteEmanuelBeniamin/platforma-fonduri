@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { requireProfile, requireAdmin } from '@/app/api/_utils/auth'
+import { canReadTemplate, requireProfile } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
@@ -117,6 +117,9 @@ export async function GET(req: NextRequest) {
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
+    if (!canReadTemplate(auth.profile.role)) {
+      return NextResponse.json({ error: 'Forbidden: template access denied' }, { status: 403 })
+    }
 
     const { data: templates, error: templatesError } = await supabaseAdmin
       .from('project_templates')
@@ -184,9 +187,12 @@ export async function GET(req: NextRequest) {
 // POST /api/admin/templates
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireAdmin(req)
+    const auth = await requireProfile(req)
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
+    }
+    if (!canReadTemplate(auth.profile.role)) {
+      return NextResponse.json({ error: 'Forbidden: template access denied' }, { status: 403 })
     }
 
     const body = await req.json()
@@ -215,6 +221,7 @@ export async function POST(req: NextRequest) {
         measure_id: measure_id || null,
         is_default: is_default || false,
         is_active: true,
+        status: 'draft',
         created_by: auth.profile.id
       })
       .select()

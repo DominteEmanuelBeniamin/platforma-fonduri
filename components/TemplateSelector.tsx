@@ -12,6 +12,8 @@ interface TemplateOverview {
   total_phases: number
   total_activities: number
   total_documents: number
+  status: 'draft' | 'published'
+  is_active: boolean
 }
 
 interface TemplateSelectorProps {
@@ -31,14 +33,16 @@ export default function TemplateSelector({ selectedTemplateId, onSelect }: Templ
         const res = await apiFetch('/api/admin/templates')
         if (res.ok) {
           const data = await res.json()
-          setTemplates((data.templates || []).map((t: any) => ({
+          setTemplates((data.templates || []).filter((t: any) => t.status === 'published' && t.is_active).map((t: any) => ({
             id: t.id,
             name: t.name,
             description: t.description,
             total_phases: t.phases?.length || 0,
             total_activities: t.phases?.reduce((sum: number, p: any) => sum + (p.activities?.length || 0), 0) || 0,
             total_documents: t.phases?.reduce((sum: number, p: any) => 
-              sum + p.activities?.reduce((aSum: number, a: any) => aSum + (a.document_requirements?.length || 0), 0) || 0, 0) || 0
+              sum + p.activities?.reduce((aSum: number, a: any) => aSum + (a.document_requirements?.length || 0), 0) || 0, 0) || 0,
+            status: t.status,
+            is_active: t.is_active,
           })))
         }
       } catch (error) {

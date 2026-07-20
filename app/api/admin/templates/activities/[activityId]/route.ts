@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { requireAdmin } from '@/app/api/_utils/auth'
+import { requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
 
 async function loadActivityChain(templatePhaseId: string | null | undefined) {
@@ -29,12 +29,23 @@ interface RouteParams {
 // PATCH /api/admin/templates/activities/[activityId]
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
   try {
-    const auth = await requireAdmin(req)
+    const auth = await requireProfile(req)
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const { activityId } = await params
+    const { data: activityAccessRow, error: activityAccessError } = await supabaseAdmin
+      .from('template_activities')
+      .select('template_phases(template_id)')
+      .eq('id', activityId)
+      .maybeSingle()
+    if (activityAccessError) throw activityAccessError
+    const templateId = (activityAccessRow as any)?.template_phases?.template_id
+    if (!templateId) return NextResponse.json({ error: 'Activitatea nu a fost găsită' }, { status: 404 })
+    const templateAccess = await requireTemplateAccess(req, templateId, 'edit')
+    if (!templateAccess.ok) return NextResponse.json({ error: templateAccess.error }, { status: templateAccess.status })
+
     const body = await req.json()
     const { name, description, order_index, estimated_days, is_active, default_consultant_id } = body
 
@@ -87,12 +98,22 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 // DELETE /api/admin/templates/activities/[activityId]
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
-    const auth = await requireAdmin(req)
+    const auth = await requireProfile(req)
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const { activityId } = await params
+    const { data: activityAccessRow, error: activityAccessError } = await supabaseAdmin
+      .from('template_activities')
+      .select('template_phases(template_id)')
+      .eq('id', activityId)
+      .maybeSingle()
+    if (activityAccessError) throw activityAccessError
+    const templateId = (activityAccessRow as any)?.template_phases?.template_id
+    if (!templateId) return NextResponse.json({ error: 'Activitatea nu a fost găsită' }, { status: 404 })
+    const templateAccess = await requireTemplateAccess(req, templateId, 'edit')
+    if (!templateAccess.ok) return NextResponse.json({ error: templateAccess.error }, { status: templateAccess.status })
 
     const { data: before } = await supabaseAdmin
       .from('template_activities')

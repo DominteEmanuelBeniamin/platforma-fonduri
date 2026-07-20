@@ -56,6 +56,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         measure_id: original.measure_id,
         is_default: false,
         is_active: true,
+        status: 'draft',
         created_by: auth.profile.id
       })
       .select()
