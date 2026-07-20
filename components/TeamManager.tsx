@@ -140,26 +140,26 @@ export default function TeamManager({ projectId, onTeamChange }: { projectId: st
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+    <div className="flex flex-col bg-[var(--p-surface)] rounded-2xl border border-[var(--p-border)] shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-[var(--p-border)] bg-[var(--p-surface-2)]/50 flex-shrink-0">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-            <Users className="w-4 h-4 text-slate-500" />
+          <h3 className="text-sm font-semibold text-[var(--p-ink)] flex items-center gap-2">
+            <Users className="w-4 h-4 text-[var(--p-ink-soft)]" />
             Echipa Alocată
           </h3>
-          <span className="bg-slate-100 text-slate-600 text-xs px-2.5 py-1 rounded-full font-medium">
+          <span className="bg-[var(--p-surface-2)] text-[var(--p-ink-soft)] text-xs px-2.5 py-1 rounded-full font-medium">
             {team.length}
           </span>
         </div>
       </div>
 
-      <div className="p-6 space-y-6">
-        <div className="flex gap-3">
+      <div className="flex flex-col p-6 gap-6">
+        <div className="flex gap-3 flex-shrink-0">
           <select
             value={selectedId}
             onChange={(e) => setSelectedId(e.target.value)}
             disabled={initialLoading}
-            className="min-w-0 flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-sm bg-white outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-400/10 transition-all disabled:opacity-60"
+            className="min-w-0 flex-1 px-4 py-2.5 rounded-lg border border-[var(--p-border)] text-sm bg-[var(--p-surface)] outline-none focus:border-[var(--p-accent)] focus:ring-2 focus:ring-[var(--p-accent)]/10 transition-all disabled:opacity-60"
           >
             <option value="">
               {initialLoading ? 'Se încarcă...' : 'Selectează consultant...'}
@@ -175,24 +175,24 @@ export default function TeamManager({ projectId, onTeamChange }: { projectId: st
             onClick={addMember}
             disabled={loading || !selectedId || initialLoading}
             aria-label={loading ? 'Se adaugă consultantul' : 'Adaugă consultant'}
-            className="w-11 flex-shrink-0 justify-center py-2.5 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center"
+            className="w-11 flex-shrink-0 justify-center py-2.5 bg-[var(--p-accent)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center"
           >
             <UserPlus className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="space-y-3">
+        <div className="max-h-[160px] overflow-y-auto space-y-3 pr-1">
           {initialLoading ? (
-            <div className="text-center py-8 border-2 border-dashed border-slate-100 rounded-xl bg-slate-50/50">
-              <p className="text-sm text-slate-500">Se încarcă echipa...</p>
+            <div className="text-center py-8 border-2 border-dashed border-[var(--p-border)] rounded-xl bg-[var(--p-surface-2)]/50">
+              <p className="text-sm text-[var(--p-ink-soft)]">Se încarcă echipa...</p>
             </div>
           ) : team.length === 0 ? (
-            <div className="text-center py-8 border-2 border-dashed border-slate-100 rounded-xl bg-slate-50/50">
-              <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center mx-auto mb-3">
-                <Users className="w-6 h-6 text-slate-400" />
+            <div className="text-center py-8 border-2 border-dashed border-[var(--p-border)] rounded-xl bg-[var(--p-surface-2)]/50">
+              <div className="w-12 h-12 bg-[var(--p-surface-2)] rounded-xl flex items-center justify-center mx-auto mb-3">
+                <Users className="w-6 h-6 text-[var(--p-ink-faint)]" />
               </div>
-              <p className="text-sm font-medium text-slate-900">Niciun membru</p>
-              <p className="text-xs text-slate-500 mt-1">Adaugă consultanți în echipă</p>
+              <p className="text-sm font-medium text-[var(--p-ink)]">Niciun membru</p>
+              <p className="text-xs text-[var(--p-ink-soft)] mt-1">Adaugă consultanți în echipă</p>
             </div>
           ) : (
             team.map(member => {
@@ -203,7 +203,7 @@ export default function TeamManager({ projectId, onTeamChange }: { projectId: st
               return (
                 <div
                   key={member.id}
-                  className="flex items-center justify-between p-4 rounded-xl border border-slate-100 bg-white hover:border-slate-200 hover:shadow-sm transition-all group"
+                  className="flex items-center justify-between p-4 rounded-xl border border-[var(--p-border)] bg-[var(--p-surface)] hover:border-[var(--p-border-strong)] hover:shadow-sm transition-all group"
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <div
@@ -213,10 +213,10 @@ export default function TeamManager({ projectId, onTeamChange }: { projectId: st
                       {initials}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-slate-900 text-sm truncate">
+                      <p className="font-semibold text-[var(--p-ink)] text-sm truncate">
                         {profile?.full_name || 'Nume Lipsă'}
                       </p>
-                      <p className="text-xs text-slate-500 truncate">
+                      <p className="text-xs text-[var(--p-ink-soft)] truncate">
                         {profile?.email || 'Email lipsă'}
                       </p>
                     </div>
@@ -224,7 +224,7 @@ export default function TeamManager({ projectId, onTeamChange }: { projectId: st
 
                   <button
                     onClick={() => removeMember(member.id)}
-                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                    className="p-2 text-[var(--p-ink-faint)] hover:text-[var(--p-danger)] hover:bg-[var(--p-danger-soft)] rounded-lg transition-all opacity-0 group-hover:opacity-100"
                     title="Elimină din echipă"
                   >
                     <X className="w-4 h-4" />

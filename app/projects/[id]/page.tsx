@@ -15,10 +15,8 @@ import {
   Building2,
   MessageSquare,
   FolderOpen,
-  ListChecks,
-  Clock,
-  AlertTriangle,
-  FileText,
+  Search,
+  Plus,
 } from 'lucide-react'
 
 import ProjectChatDrawer from '@/components/ProjectChatDrawer'
@@ -26,6 +24,12 @@ import ProjectPhasesSidebar from '@/components/ProjectPhasesSidebar'
 import type { ProjectPhase } from '@/components/ProjectPhasesSidebar'
 import DocumentRequests from '@/components/DocumentRequests'
 import ProjectDocumentsView from '@/components/ProjectDocumentsView'
+import PhaseAccordionSection from '@/components/PhaseAccordionSection'
+import ActivityFold from '@/components/ActivityFold'
+import ActionNeededPanel from '@/components/ActionNeededPanel'
+import PublishStatusControl from '@/components/PublishStatusControl'
+import UnifiedSearchDialog from '@/components/UnifiedSearchDialog'
+import { buildSearchIndex, type SearchResult } from '@/lib/projectSearch'
 import { useAuth } from '@/app/providers/AuthProvider'
 
 // Secțiunea distinctă „Cereri generale" (documente fără fază/activitate)
@@ -53,6 +57,7 @@ function ProjectDetailsContent() {
   const [projectMembers, setProjectMembers] = useState<{ id: string; full_name: string | null; email: string }[]>([])
 
   const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set())
+  const [expandedActivityIds, setExpandedActivityIds] = useState<Set<string>>(new Set())
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
   const [highlightActivityId, setHighlightActivityId] = useState<string | null>(null)
 
@@ -64,6 +69,25 @@ function ProjectDetailsContent() {
   const [unreadCount, setUnreadCount] = useState(0)
 
   const [activeView, setActiveView] = useState<'phases' | 'documents'>('phases')
+  const [landingView, setLandingView] = useState<'action-needed' | 'browse'>('browse')
+  const [landingViewInitialized, setLandingViewInitialized] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [autoOpenRequestId, setAutoOpenRequestId] = useState<string | null>(null)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+
+  const [showAddActivity, setShowAddActivity] = useState<Record<string, boolean>>({})
+  const [newActivityName, setNewActivityName] = useState<Record<string, string>>({})
+  const [addingActivity, setAddingActivity] = useState<Record<string, boolean>>({})
+
+  // ─── Machetă UI #53 (status „În pregătire”/„Public”) ────────────────────────
+  // Stare locală, nesalvată — doar ca să se vadă aspectul. Fazele/activitățile/
+  // cererile noi pornesc „În pregătire”, ca în specificația reală din #53.
+  // Se înlocuiește cu date reale din API când se implementează logica.
+  const [mockVisibility, setMockVisibility] = useState<Record<string, 'draft' | 'public'>>({})
+  const getMockStatus = (id: string): 'draft' | 'public' => mockVisibility[id] ?? 'draft'
+  const toggleMockStatus = (id: string) => {
+    setMockVisibility(prev => ({ ...prev, [id]: getMockStatus(id) === 'draft' ? 'public' : 'draft' }))
+  }
 
   const documentEntriesCount = useMemo(() => {
     return allDocRequests.reduce((total, req) => {
@@ -99,15 +123,33 @@ function ProjectDetailsContent() {
 
       if (phasesRes.ok) {
         const ph: ProjectPhase[] = (await phasesRes.json()).phases || []
+        const isFirstLoad = phases.length === 0
         setPhases(ph)
+
+        // Nu resetăm fazele deja pliate/depliate la fiecare refresh — doar
+        // curățăm id-urile fazelor șterse între timp din setul de expandate.
+        setExpandedPhases(prev => {
+          const validIds = new Set(ph.map(p => p.id))
+          validIds.add(GENERAL_ID)
+          const next = new Set([...prev].filter(id => validIds.has(id)))
+          return next.size === prev.size ? prev : next
+        })
+
         if (targetPhaseId === GENERAL_ID) {
           setActivePhaseId(GENERAL_ID)
+          if (isFirstLoad) {
+            setExpandedPhases(prev => new Set(prev).add(GENERAL_ID))
+          }
         } else {
           const fromUrl = targetPhaseId ? ph.find(p => p.id === targetPhaseId) : null
           const active = fromUrl || ph.find(p => p.status === 'in_progress') || ph[0]
           if (active) {
-            setExpandedPhases(new Set([active.id]))
             setActivePhaseId(active.id)
+            // Doar la primul load semănăm faza activă ca implicit deplasată —
+            // refresh-urile ulterioare nu trebuie să repliaze fazele utilizatorului.
+            if (isFirstLoad) {
+              setExpandedPhases(prev => new Set(prev).add(active.id))
+            }
           }
         }
       }
@@ -159,6 +201,19 @@ function ProjectDetailsContent() {
   }, [authLoading, token, projectId])
 
   useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      const isTyping = target && ['INPUT', 'TEXTAREA'].includes(target.tagName)
+      if (e.key === '/' && !isTyping && !searchOpen) {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [searchOpen])
+
+  useEffect(() => {
     if (authLoading || !token || !projectId) return
     fetchProjectMembers()
   }, [authLoading, token, projectId])
@@ -189,6 +244,31 @@ function ProjectDetailsContent() {
     } catch (e: any) { alert('Eroare: ' + e.message) }
   }
 
+  const handleAddActivity = async (phaseId: string) => {
+    const name = (newActivityName[phaseId] || '').trim()
+    if (!name) return
+    setAddingActivity(prev => ({ ...prev, [phaseId]: true }))
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/phases/${phaseId}/activities`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (res.ok) {
+        setShowAddActivity(prev => ({ ...prev, [phaseId]: false }))
+        setNewActivityName(prev => ({ ...prev, [phaseId]: '' }))
+        fetchAll()
+      } else {
+        const d = await res.json().catch(() => null)
+        alert(d?.error || 'Eroare la adăugare')
+      }
+    } catch (e: any) {
+      alert('Eroare: ' + e.message)
+    } finally {
+      setAddingActivity(prev => ({ ...prev, [phaseId]: false }))
+    }
+  }
+
   const handleAssignGeneralConsultant = async (assignedTo: string | null) => {
     try {
       const res = await apiFetch(`/api/projects/${projectId}`, {
@@ -206,14 +286,63 @@ function ProjectDetailsContent() {
     } catch (e: any) { alert('Eroare: ' + e.message) }
   }
 
+  // Doar fazele din `expandedPhases` sunt afișate în lista principală —
+  // selectarea unei faze (mai jos) înlocuiește tot setul, exclusiv. Chevron-ul
+  // individual doar adaugă/scoate o faza din set, fără să atingă restul —
+  // folosit ca să închizi o faza vizibilă (ex. în modul „Toate fazele”).
   const handleToggleExpand = (phaseId: string) => {
     setExpandedPhases(prev => {
+      const next = new Set(prev)
+      if (next.has(phaseId)) next.delete(phaseId)
+      else next.add(phaseId)
+      return next
+    })
+  }
+
+  // Selectarea unei faze din sidebar o marchează ca țintă, o depliază și
+  // închide restul — accordion exclusiv.
+  const scrollToPhaseSection = (id: string) => {
+    setTimeout(() => {
+      document.getElementById(`phase-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 120)
+  }
+
+  const handleSelectPhase = (phaseId: string) => {
+    setActiveView('phases')
+    setLandingView('browse')
+    setActivePhaseId(phaseId)
+    setExpandedPhases(new Set([phaseId]))
+    setMobileSidebarOpen(false)
+    scrollToPhaseSection(phaseId)
+  }
+
+  const handleSelectGeneral = () => {
+    setActiveView('phases')
+    setLandingView('browse')
+    setActivePhaseId(GENERAL_ID)
+    setExpandedPhases(new Set([GENERAL_ID]))
+    setMobileSidebarOpen(false)
+    scrollToPhaseSection(GENERAL_ID)
+  }
+
+  const allPhasesExpanded =
+    phases.length > 0 &&
+    phases.every(p => expandedPhases.has(p.id)) &&
+    expandedPhases.has(GENERAL_ID)
+
+  const handleToggleAllPhases = () => {
+    if (allPhasesExpanded) {
+      setExpandedPhases(new Set())
+    } else {
+      setExpandedPhases(new Set([...phases.map(p => p.id), GENERAL_ID]))
+    }
+  }
+
+  const handleToggleActivity = (activityId: string) => {
+    setExpandedActivityIds(prev => {
       const s = new Set(prev)
-      if (s.has(phaseId)) {
-        s.delete(phaseId)
-      } else {
-        s.add(phaseId)
-      }
+      if (s.has(activityId)) s.delete(activityId)
+      else s.add(activityId)
       return s
     })
   }
@@ -221,6 +350,7 @@ function ProjectDetailsContent() {
   // ─── Deep-link: scroll + highlight activitatea țintă din URL ────────────────
   useEffect(() => {
     if (loading || !targetActivityId || activePhaseId !== targetPhaseId) return
+    setExpandedActivityIds(prev => new Set(prev).add(targetActivityId))
     const timer = setTimeout(() => {
       const el = document.getElementById(`activity-${targetActivityId}`)
       if (!el) return
@@ -231,16 +361,25 @@ function ProjectDetailsContent() {
     return () => clearTimeout(timer)
   }, [loading, targetActivityId, targetPhaseId, activePhaseId])
 
-  // Sari direct la o activitate (din panoul "Ce e de făcut"), fără reload
-  const jumpToActivity = (phaseId: string | null, activityId: string | null) => {
+  // Sari direct la o activitate (din panoul "Ce e de făcut"), fără reload.
+  // Cu requestId, deschide direct fișa cererii — zero click-uri suplimentare
+  // pentru client între "ce am de făcut" și zona de încărcare.
+  const jumpToActivity = (phaseId: string | null, activityId: string | null, requestId?: string) => {
     setActiveView('phases')
+    setLandingView('browse')
     if (activityId && phaseId) {
       // Document legat de o activitate dintr-o fază
       setActivePhaseId(phaseId)
-      setExpandedPhases(prev => new Set(prev).add(phaseId))
+      setExpandedPhases(new Set([phaseId]))
+      setExpandedActivityIds(prev => new Set(prev).add(activityId))
     } else {
       // Cerere generală → secțiunea distinctă
       setActivePhaseId(GENERAL_ID)
+      setExpandedPhases(new Set([GENERAL_ID]))
+    }
+    if (requestId) {
+      setAutoOpenRequestId(requestId)
+      setTimeout(() => setAutoOpenRequestId(null), 2500)
     }
     setTimeout(() => {
       const anchor = activityId ? `activity-${activityId}` : 'general-requests'
@@ -256,17 +395,22 @@ function ProjectDetailsContent() {
 
   // ─── Derived ──────────────────────────────────────────────────────────────
 
-  const activePhase = phases.find(p => p.id === activePhaseId) || null
-
   const phaseNameById = useMemo(
     () => new Map(phases.map(p => [p.id, p.name])),
     [phases]
   )
 
   // Documente pe care clientul trebuie să le încarce (de la nivel proiect)
+  // Pentru client: cereri pe care el trebuie să le încarce (pending/rejected).
+  // Pentru consultant/admin: cereri deja încărcate de client, care așteaptă
+  // aprobarea lor (review) — asta e munca lor efectivă, nu "ce mai lipsește
+  // de la client", care doar informează fără să fie acționabil pentru ei.
   const pendingUploads = useMemo(() => {
     return allDocRequests
-      .filter((r: any) => !r.is_outgoing && (r.status === 'pending' || r.status === 'rejected') && !r.deleted_at)
+      .filter((r: any) => {
+        if (r.is_outgoing || r.deleted_at) return false
+        return isClient ? (r.status === 'pending' || r.status === 'rejected') : r.status === 'review'
+      })
       .map((r: any) => {
         const phaseId = r.activity?.phase_id ?? null
         return {
@@ -280,7 +424,38 @@ function ProjectDetailsContent() {
           phase_name: phaseId ? phaseNameById.get(phaseId) ?? null : null,
         }
       })
-  }, [allDocRequests, phaseNameById])
+  }, [allDocRequests, phaseNameById, isClient])
+
+  // Alegem vederea implicită o singură dată, după primul load reușit — dacă
+  // există un deep-link explicit, îl respectăm; altfel arătăm "Ce ai de făcut"
+  // doar dacă chiar are ce conține. Nu recalculăm ulterior, ca să nu forțăm
+  // utilizatorul înapoi dacă a comutat manual.
+  useEffect(() => {
+    if (loading || landingViewInitialized) return
+    const hasDeepLink = !!targetPhaseId
+    setLandingView(hasDeepLink || pendingUploads.length === 0 ? 'browse' : 'action-needed')
+    setLandingViewInitialized(true)
+  }, [loading, landingViewInitialized, pendingUploads.length, targetPhaseId])
+
+  const searchIndex = useMemo(() => buildSearchIndex(phases, allDocRequests), [phases, allDocRequests])
+
+  const handleSearchSelect = (result: SearchResult) => {
+    if (result.type === 'phase') {
+      setActiveView('phases')
+      setLandingView('browse')
+      setExpandedPhases(new Set([result.id]))
+      setTimeout(() => {
+        document.getElementById(`phase-${result.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 120)
+      return
+    }
+    if (result.type === 'activity') {
+      jumpToActivity(result.phaseId, result.activityId)
+      return
+    }
+    // document_request — deschide și fișa cererii, odată ce faza/activitatea e vizibilă
+    jumpToActivity(result.phaseId, result.activityId, result.id)
+  }
 
   // ─── Loading / error ──────────────────────────────────────────────────────
 
@@ -313,17 +488,17 @@ function ProjectDetailsContent() {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="project-scope h-screen flex flex-col overflow-hidden bg-[var(--p-bg)] text-[var(--p-ink)] w-screen ml-[calc(50%-50vw)] mr-[calc(50%-50vw)]">
 
       {/* ── Top bar ── */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
-        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
+      <header className="bg-[var(--p-surface)] border-b border-[var(--p-border)] sticky top-0 z-20">
+        <div className="px-4 sm:px-6 h-14 flex items-center gap-3">
           <button onClick={() => router.push('/')}
-            className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900 transition-colors flex-shrink-0">
+            className="flex items-center gap-1.5 text-sm text-[var(--p-ink-soft)] hover:text-[var(--p-ink)] transition-colors flex-shrink-0">
             <ArrowLeft className="w-4 h-4" />
             <span className="font-medium hidden sm:block">Proiecte</span>
           </button>
-          <span className="text-slate-300 hidden sm:block">/</span>
+          <span className="text-[var(--p-border-strong)] hidden sm:block">/</span>
 
           {/* Editable title */}
           {isEditingTitle ? (
@@ -346,7 +521,7 @@ function ProjectDetailsContent() {
             </div>
           ) : (
             <div className="flex items-center gap-2 flex-1 min-w-0">
-              <h1 className="text-sm font-semibold text-slate-900 truncate">{project.title}</h1>
+              <h1 className="font-display text-base font-semibold text-[var(--p-ink)] truncate">{project.title}</h1>
               {isAdmin && (
                 <button onClick={() => { setEditTitle(project.title); setIsEditingTitle(true) }}
                   className="p-1 rounded text-slate-300 hover:text-slate-600 hover:bg-slate-100 flex-shrink-0">
@@ -359,8 +534,25 @@ function ProjectDetailsContent() {
           {/* Meta pills */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
+              onClick={() => setMobileSidebarOpen(true)}
+              title="Faze proiect"
+              aria-label="Deschide fazele proiectului"
+              className="md:hidden inline-flex items-center justify-center w-7 h-7 rounded-full text-[var(--p-ink-soft)] bg-[var(--p-surface)] border border-[var(--p-border-strong)] hover:bg-[var(--p-surface-2)]"
+            >
+              <Layers className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              onClick={() => setSearchOpen(true)}
+              title="Caută în proiect"
+              className="inline-flex items-center justify-center w-7 h-7 rounded-full text-[var(--p-ink-soft)] bg-[var(--p-surface)] border border-[var(--p-border-strong)] hover:bg-[var(--p-surface-2)]"
+            >
+              <Search className="w-3.5 h-3.5" />
+            </button>
+
+            <button
               onClick={handleOpenChat}
-              className="relative inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 px-2.5 py-1 rounded-full hover:bg-slate-50"
+              className="relative inline-flex items-center gap-1.5 text-xs font-medium text-[var(--p-ink-soft)] bg-[var(--p-surface)] border border-[var(--p-border-strong)] px-2.5 py-1 rounded-full hover:bg-[var(--p-surface-2)]"
             >
               <MessageSquare className="w-3.5 h-3.5" />
               Chat
@@ -371,7 +563,7 @@ function ProjectDetailsContent() {
               )}
             </button>
 
-            <span className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
+            <span className="hidden sm:flex items-center gap-1.5 text-xs text-[var(--p-ink-soft)] bg-[var(--p-surface-2)] px-2.5 py-1 rounded-full">
               <Building2 className="w-3.5 h-3.5" />
               {project.profiles?.full_name || 'Client'}
             </span>
@@ -380,7 +572,7 @@ function ProjectDetailsContent() {
       </header>
 
       {/* ── Body: sidebar + main ── */}
-      <div className="flex flex-1 overflow-hidden max-w-screen-2xl w-full mx-auto">
+      <div className="flex flex-1 min-h-0 overflow-hidden w-full">
 
         {/* ══ SIDEBAR — ascuns în view documente ══ */}
         {activeView === 'phases' && (
@@ -391,103 +583,25 @@ function ProjectDetailsContent() {
             canEdit={canEdit}
             projectId={projectId!}
             isGeneralActive={activePhaseId === GENERAL_ID}
-            onSelectPhase={setActivePhaseId}
-            onSelectGeneral={() => setActivePhaseId(GENERAL_ID)}
+            onSelectPhase={handleSelectPhase}
+            onSelectGeneral={handleSelectGeneral}
             onToggleExpand={handleToggleExpand}
             onRefresh={fetchAll}
             onReorderRefresh={refreshPhases}
             onTeamChange={fetchProjectMembers}
             apiFetch={apiFetch}
             isAdmin={isAdmin}
+            getMockStatus={getMockStatus}
+            mobileOpen={mobileSidebarOpen}
+            onMobileClose={() => setMobileSidebarOpen(false)}
           />
         )}
 
         {/* ══ MAIN ══ */}
-        <main className="flex-1 overflow-y-auto min-w-0">
-
-          {/* ── Ce e de făcut: documente de încărcat în acest proiect ── */}
-          {pendingUploads.length > 0 && (() => {
-            const todayMidnight = new Date()
-            todayMidnight.setHours(0, 0, 0, 0)
-            const overdueCount = pendingUploads.filter(r => {
-              if (!r.deadline_at) return false
-              const d = new Date(r.deadline_at); d.setHours(0, 0, 0, 0)
-              return d < todayMidnight
-            }).length
-
-            return (
-              <div className="px-4 sm:px-6 pt-4">
-                <div className="border border-indigo-100 bg-indigo-50/40 rounded-2xl overflow-hidden">
-                  <div className="flex items-center gap-3 px-4 py-3 border-b border-indigo-100/70">
-                    <div className="w-8 h-8 rounded-lg bg-white border border-indigo-100 flex items-center justify-center flex-shrink-0">
-                      <ListChecks className="w-4 h-4 text-indigo-500" />
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="text-sm font-bold text-slate-800">
-                        {isClient ? 'Ce ai de încărcat' : 'În așteptare de la client'}
-                      </h3>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        {overdueCount > 0 && (
-                          <span className="text-red-500 font-semibold">{overdueCount} expirate · </span>
-                        )}
-                        {pendingUploads.length} document{pendingUploads.length === 1 ? '' : 'e'} · apasă pentru a sări la etapă
-                      </p>
-                    </div>
-                  </div>
-                  <div className="divide-y divide-indigo-100/60 max-h-72 overflow-y-auto">
-                    {pendingUploads.map(req => {
-                      const deadline = req.deadline_at ? new Date(req.deadline_at) : null
-                      deadline?.setHours(0, 0, 0, 0)
-                      const isOverdue = deadline && deadline < todayMidnight
-                      const isRejected = req.status === 'rejected'
-                      return (
-                        <button
-                          key={req.id}
-                          onClick={() => jumpToActivity(req.phase_id, req.activity_id)}
-                          className="group w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/70 transition-colors"
-                        >
-                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                            isOverdue || isRejected ? 'bg-red-100' : 'bg-amber-50'
-                          }`}>
-                            {isOverdue || isRejected
-                              ? <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-                              : <FileText className="w-3.5 h-3.5 text-amber-500" />}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-semibold truncate leading-snug ${isOverdue ? 'text-red-700' : 'text-slate-800'}`}>
-                              {req.name}
-                            </p>
-                            <p className="text-[11px] text-slate-400 truncate mt-0.5">
-                              {req.phase_name
-                                ? <>{req.phase_name}{req.activity_name && <span className="text-slate-300"> / {req.activity_name}</span>}</>
-                                : 'Cereri generale'}
-                            </p>
-                          </div>
-                          {deadline && (
-                            <div className={`hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md flex-shrink-0 ${
-                              isOverdue ? 'bg-red-100 text-red-600' : 'bg-white text-slate-500 border border-slate-200'
-                            }`}>
-                              <Clock className="w-2.5 h-2.5" />
-                              {deadline.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })}
-                            </div>
-                          )}
-                          <span className={`hidden md:inline-flex flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                            isRejected ? 'bg-red-50 text-red-500' : 'bg-amber-50 text-amber-600'
-                          }`}>
-                            {isRejected ? 'Respins' : 'De încărcat'}
-                          </span>
-                          <span className="flex-shrink-0 text-xs font-semibold text-indigo-400 group-hover:text-indigo-600 transition-colors" aria-hidden>→</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
-            )
-          })()}
+        <main className="flex-1 min-h-0 overflow-y-auto min-w-0">
 
           {/* ── Tab switcher ── */}
-          <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6">
+          <div className="sticky top-0 z-10 bg-[var(--p-surface)] border-b border-[var(--p-border)] px-4 sm:px-6">
             <div className="flex gap-1 -mb-px">
               <button
                 onClick={() => setActiveView('phases')}
@@ -526,7 +640,41 @@ function ProjectDetailsContent() {
               requests={allDocRequests}
               phases={phases}
             />
-          ) : phases.length === 0 ? (
+          ) : (
+            <>
+              <div className="flex items-center gap-2 px-4 sm:px-6 pt-4">
+                <button
+                  onClick={() => setLandingView('action-needed')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                    landingView === 'action-needed'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  Ce ai de făcut
+                  {pendingUploads.length > 0 && (
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                      landingView === 'action-needed' ? 'bg-white/20' : 'bg-white'
+                    }`}>
+                      {pendingUploads.length}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setLandingView('browse')}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                    landingView === 'browse'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  Fazele proiectului
+                </button>
+              </div>
+
+              {landingView === 'action-needed' ? (
+                <ActionNeededPanel items={pendingUploads} isClient={isClient} onJump={jumpToActivity} />
+              ) : phases.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center p-8">
               <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
                 <Layers className="w-8 h-8 text-slate-400" />
@@ -536,77 +684,152 @@ function ProjectDetailsContent() {
                 Importați un template de proiect pentru a vedea fazele și cererile de documente organizate pe activități.
               </p>
             </div>
-          ) : activePhaseId === GENERAL_ID ? (
-            /* ── Secțiune distinctă: Cereri generale (fără fază/activitate) ── */
-            <div className="p-4 sm:p-6 space-y-4 max-w-4xl">
-              <div className="flex items-center gap-3 mb-2">
-                <FolderOpen className="w-5 h-5 text-indigo-500 flex-shrink-0" />
-                <div>
-                  <h2 className="text-xl font-bold text-slate-900">Cereri generale</h2>
-                  <p className="text-sm text-slate-500">Documente care nu țin de o anumită fază a proiectului.</p>
-                </div>
-              </div>
-
-              <div id="general-requests" className="scroll-mt-24">
-                <DocumentRequests
-                  key="__general__"
-                  projectId={projectId!}
-                  activityId={null}
-                  activityName="Cereri generale"
-                  externalRequests={allDocRequests}
-                  onRefresh={refreshDocs}
-                  activityAssignedTo={project?.general_consultant_id ?? null}
-                  activityAssignedUser={project?.general_consultant ?? null}
-                  projectMembers={projectMembers}
-                  onAssignActivity={isAdmin ? (assignedTo: string | null) => handleAssignGeneralConsultant(assignedTo) : undefined}
-                  clientEmail={project?.profiles?.email ?? null}
-                  clientName={project?.profiles?.full_name ?? null}
-                  projectTitle={project?.title}
-                />
-              </div>
-            </div>
           ) : (
-            <div className="p-4 sm:p-6 space-y-4 max-w-4xl">
-
-              {/* Phase header */}
-              {activePhase && (
-                <div className="flex items-center gap-3 mb-2">
-                  <span
-                    className="w-3 h-3 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: activePhase.project_status?.color || '#6B7280' }}
-                  />
-                  <h2 className="text-xl font-bold text-slate-900">{activePhase.name}</h2>
-                </div>
-              )}
-
-              {/* Document requests per activitate */}
-              {activePhase?.activities?.map(activity => (
-                <div
-                  key={activity.id}
-                  id={`activity-${activity.id}`}
-                  className={`scroll-mt-24 rounded-2xl transition-all duration-500 ${
-                    highlightActivityId === activity.id
-                      ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-slate-50'
-                      : ''
-                  }`}
+            <div className="p-4 sm:p-8 space-y-5 max-w-5xl mx-auto">
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Faze &amp; Activități</h2>
+                <button
+                  onClick={handleToggleAllPhases}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 flex-shrink-0"
                 >
-                  <DocumentRequests
-                    projectId={projectId!}
-                    activityId={activity.id}
-                    activityName={activity.name}
-                    externalRequests={allDocRequests}
-                    onRefresh={refreshDocs}
-                    activityAssignedTo={activity.assigned_to ?? null}
-                    activityAssignedUser={activity.assigned_user ?? null}
-                    projectMembers={projectMembers}
-                    onAssignActivity={isAdmin ? (assignedTo: string | null) => handleAssignActivity(activePhase!.id, activity.id, assignedTo) : undefined}
-                    clientEmail={project?.profiles?.email ?? null}
-                    clientName={project?.profiles?.full_name ?? null}
-                    projectTitle={project?.title}
-                  />
-                </div>
+                  {allPhasesExpanded ? 'Restrânge toate fazele' : 'Extinde toate fazele'}
+                </button>
+              </div>
+
+              {phases.filter(phase => expandedPhases.has(phase.id)).map(phase => (
+                <PhaseAccordionSection
+                  key={phase.id}
+                  id={phase.id}
+                  title={phase.name}
+                  subtitle={`${phase.activities?.length ?? 0} activit${phase.activities?.length === 1 ? 'ate' : 'ăți'}`}
+                  color={phase.project_status?.color}
+                  headerRight={
+                    <PublishStatusControl
+                      status={getMockStatus(phase.id)}
+                      canPublish={canEdit}
+                      onToggle={() => toggleMockStatus(phase.id)}
+                    />
+                  }
+                  open={expandedPhases.has(phase.id)}
+                  onOpenChange={() => handleToggleExpand(phase.id)}
+                >
+                  {(phase.activities?.length ?? 0) === 0 && !canEdit ? (
+                    <p className="text-sm text-[var(--p-ink-faint)]">Nicio activitate în această fază.</p>
+                  ) : (
+                    <>
+                    {phase.activities?.map(activity => (
+                      <ActivityFold
+                        key={activity.id}
+                        activity={activity}
+                        requestCount={allDocRequests.filter((r: any) => !r.is_outgoing && r.activity_id === activity.id).length}
+                        open={expandedActivityIds.has(activity.id)}
+                        onOpenChange={() => handleToggleActivity(activity.id)}
+                        highlighted={highlightActivityId === activity.id}
+                        isAdmin={isAdmin}
+                        projectMembers={projectMembers}
+                        onAssign={assignedTo => handleAssignActivity(phase.id, activity.id, assignedTo)}
+                        mockStatus={getMockStatus(activity.id)}
+                        canPublish={canEdit}
+                        onTogglePublish={() => toggleMockStatus(activity.id)}
+                      >
+                        <DocumentRequests
+                          projectId={projectId!}
+                          activityId={activity.id}
+                          activityName={activity.name}
+                          externalRequests={allDocRequests}
+                          onRefresh={refreshDocs}
+                          activityAssignedTo={activity.assigned_to ?? null}
+                          activityAssignedUser={activity.assigned_user ?? null}
+                          projectMembers={projectMembers}
+                          onAssignActivity={isAdmin ? (assignedTo: string | null) => handleAssignActivity(phase.id, activity.id, assignedTo) : undefined}
+                          clientEmail={project?.profiles?.email ?? null}
+                          clientName={project?.profiles?.full_name ?? null}
+                          projectTitle={project?.title}
+                          autoOpenRequestId={autoOpenRequestId}
+                          getMockStatus={getMockStatus}
+                          toggleMockStatus={toggleMockStatus}
+                        />
+                      </ActivityFold>
+                    ))}
+                    {canEdit && (
+                      showAddActivity[phase.id] ? (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            autoFocus
+                            value={newActivityName[phase.id] || ''}
+                            onChange={e => setNewActivityName(prev => ({ ...prev, [phase.id]: e.target.value }))}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') handleAddActivity(phase.id)
+                              if (e.key === 'Escape') setShowAddActivity(prev => ({ ...prev, [phase.id]: false }))
+                            }}
+                            placeholder="Nume activitate..."
+                            disabled={!!addingActivity[phase.id]}
+                            className="flex-1 text-sm px-3 py-2 rounded-lg border border-[var(--p-border-strong)] bg-[var(--p-surface)] text-[var(--p-ink)] outline-none focus:ring-2 focus:ring-[var(--p-accent)]/20 focus:border-[var(--p-accent)]"
+                          />
+                          <button
+                            onClick={() => handleAddActivity(phase.id)}
+                            disabled={!!addingActivity[phase.id] || !(newActivityName[phase.id] || '').trim()}
+                            className="p-2 rounded-lg bg-[var(--p-success-soft)] text-[var(--p-success)] hover:opacity-80 disabled:opacity-40 flex-shrink-0"
+                          >
+                            {addingActivity[phase.id] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                          </button>
+                          <button
+                            onClick={() => setShowAddActivity(prev => ({ ...prev, [phase.id]: false }))}
+                            className="p-2 rounded-lg bg-[var(--p-surface-2)] text-[var(--p-ink-soft)] hover:opacity-80 flex-shrink-0"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setShowAddActivity(prev => ({ ...prev, [phase.id]: true }))}
+                          className="flex items-center gap-1.5 text-sm font-medium text-[var(--p-accent)] hover:opacity-80 transition-opacity"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Adaugă activitate
+                        </button>
+                      )
+                    )}
+                    </>
+                  )}
+                </PhaseAccordionSection>
               ))}
+
+              {/* ── Secțiune distinctă: Cereri generale (fără fază/activitate) ── */}
+              {expandedPhases.has(GENERAL_ID) && (
+                <PhaseAccordionSection
+                  id={GENERAL_ID}
+                  title="Cereri generale"
+                  subtitle="Documente care nu țin de o anumită fază a proiectului."
+                  icon={<FolderOpen className="w-4 h-4 text-indigo-500 flex-shrink-0" />}
+                  open={expandedPhases.has(GENERAL_ID)}
+                  onOpenChange={() => handleToggleExpand(GENERAL_ID)}
+                >
+                  <div id="general-requests" className="scroll-mt-24">
+                    <DocumentRequests
+                      key="__general__"
+                      projectId={projectId!}
+                      activityId={null}
+                      activityName="Cereri generale"
+                      externalRequests={allDocRequests}
+                      onRefresh={refreshDocs}
+                      activityAssignedTo={project?.general_consultant_id ?? null}
+                      activityAssignedUser={project?.general_consultant ?? null}
+                      projectMembers={projectMembers}
+                      onAssignActivity={isAdmin ? (assignedTo: string | null) => handleAssignGeneralConsultant(assignedTo) : undefined}
+                      clientEmail={project?.profiles?.email ?? null}
+                      clientName={project?.profiles?.full_name ?? null}
+                      projectTitle={project?.title}
+                      autoOpenRequestId={autoOpenRequestId}
+                      getMockStatus={getMockStatus}
+                      toggleMockStatus={toggleMockStatus}
+                    />
+                  </div>
+                </PhaseAccordionSection>
+              )}
             </div>
+          )}
+            </>
           )}
         </main>
       </div>
@@ -620,6 +843,13 @@ function ProjectDetailsContent() {
           onUnreadCountChange={setUnreadCount}
         />
       )}
+
+      <UnifiedSearchDialog
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        index={searchIndex}
+        onSelect={handleSearchSelect}
+      />
 
     </div>
   )

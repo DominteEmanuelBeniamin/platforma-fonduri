@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import * as Collapsible from '@radix-ui/react-collapsible'
 import {
   ChevronDown,
   ChevronRight,
@@ -66,18 +67,18 @@ function InlineInput({
         }}
         placeholder={placeholder}
         disabled={loading}
-        className="flex-1 text-xs px-2 py-1.5 border border-indigo-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white text-slate-800 placeholder:text-slate-400"
+        className="flex-1 text-xs px-2 py-1.5 border border-[var(--p-accent)]/40 rounded-md focus:outline-none focus:ring-1 focus:ring-[var(--p-accent)] bg-[var(--p-surface)] text-[var(--p-ink)] placeholder:text-[var(--p-ink-faint)]"
       />
       <button
         onClick={() => value.trim() && onConfirm(value.trim())}
         disabled={loading || !value.trim()}
-        className="p-1 rounded bg-emerald-100 text-emerald-600 hover:bg-emerald-200 disabled:opacity-40"
+        className="p-1 rounded bg-[var(--p-success-soft)] text-[var(--p-success)] hover:opacity-80 disabled:opacity-40"
       >
         {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
       </button>
       <button
         onClick={onCancel}
-        className="p-1 rounded bg-slate-100 text-slate-500 hover:bg-slate-200"
+        className="p-1 rounded bg-[var(--p-surface-2)] text-[var(--p-ink-soft)] hover:opacity-80"
       >
         <X className="w-3 h-3" />
       </button>
@@ -99,18 +100,18 @@ function ConfirmDelete({
   loading: boolean
 }) {
   return (
-    <div className="flex items-center gap-1.5 px-2 py-1 bg-red-50 rounded-md border border-red-100">
-      <span className="text-[11px] text-red-600 flex-1 truncate">Ștergi &ldquo;{label}&rdquo;?</span>
+    <div className="flex items-center gap-1.5 px-2 py-1 bg-[var(--p-danger-soft)] rounded-md border border-[var(--p-danger)]/20">
+      <span className="text-[11px] text-[var(--p-danger)] flex-1 truncate">Ștergi &ldquo;{label}&rdquo;?</span>
       <button
         onClick={onConfirm}
         disabled={loading}
-        className="p-0.5 rounded bg-red-100 text-red-600 hover:bg-red-200 disabled:opacity-40"
+        className="p-0.5 rounded bg-[var(--p-danger)]/15 text-[var(--p-danger)] hover:bg-[var(--p-danger)]/25 disabled:opacity-40"
       >
         {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
       </button>
       <button
         onClick={onCancel}
-        className="p-0.5 rounded bg-slate-100 text-slate-500 hover:bg-slate-200"
+        className="p-0.5 rounded bg-[var(--p-surface-2)] text-[var(--p-ink-soft)] hover:opacity-80"
       >
         <X className="w-3 h-3" />
       </button>
@@ -135,6 +136,11 @@ interface ProjectPhasesSidebarProps {
   onReorderRefresh?: () => Promise<void> | void
   onTeamChange?: () => void
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>
+  /** Machetă #53 — status „În pregătire”/„Public” per fază, doar vizual. */
+  getMockStatus?: (id: string) => 'draft' | 'public'
+  /** Pe mobil, sidebar-ul devine un drawer — controlat din pagina părinte. */
+  mobileOpen: boolean
+  onMobileClose: () => void
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -154,6 +160,9 @@ export default function ProjectPhasesSidebar({
   onReorderRefresh,
   onTeamChange,
   apiFetch,
+  getMockStatus,
+  mobileOpen,
+  onMobileClose,
 }: ProjectPhasesSidebarProps) {
   const [showAddPhase, setShowAddPhase] = useState(false)
   const [addingPhase, setAddingPhase] = useState(false)
@@ -169,6 +178,20 @@ export default function ProjectPhasesSidebar({
   // deadline edit state: activityId → true/false (popup deschis)
   const [editingDeadline, setEditingDeadline] = useState<string | null>(null)
   const [savingDeadline, setSavingDeadline] = useState<string | null>(null)
+
+  // Drawer pe mobil: Escape + blocare scroll pe fundal cât timp e deschis
+  useEffect(() => {
+    if (!mobileOpen) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onMobileClose()
+    }
+    window.addEventListener('keydown', handler)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', handler)
+      document.body.style.overflow = ''
+    }
+  }, [mobileOpen, onMobileClose])
 
   // drag & drop reorder state — override temporar peste ordinea din props până la refresh
   const [draggedPhaseId, setDraggedPhaseId] = useState<string | null>(null)
@@ -336,21 +359,44 @@ export default function ProjectPhasesSidebar({
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <aside className="hidden md:flex flex-col w-64 lg:w-72 flex-shrink-0 bg-white border-r border-slate-200 overflow-y-auto">
+    <>
+      {/* Backdrop — doar pe mobil, cât timp drawer-ul e deschis */}
+      {mobileOpen && (
+        <div
+          onClick={onMobileClose}
+          className="md:hidden fixed inset-0 bg-slate-900/50 z-[999998]"
+          aria-hidden="true"
+        />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-[999999] w-80 max-w-[85vw] shadow-2xl
+        md:static md:z-auto md:w-64 lg:w-72 md:shadow-none md:translate-x-0
+        flex flex-col flex-shrink-0 min-h-0 bg-[var(--p-surface)] md:border-r border-[var(--p-border)]
+        transition-transform duration-300 ease-out overflow-hidden
+        ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
+      >
 
       {/* Header */}
-      <div className="p-4 border-b border-slate-100 flex-shrink-0">
-        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+      <div className="p-4 border-b border-[var(--p-border)] flex-shrink-0 flex items-center justify-between">
+        <p className="text-[11px] font-semibold text-[var(--p-ink-faint)] uppercase tracking-wider flex items-center gap-2">
           <Layers className="w-3.5 h-3.5" /> Faze proiect
         </p>
+        <button
+          onClick={onMobileClose}
+          aria-label="Închide"
+          className="md:hidden p-1 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface-2)]"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Phases list */}
-      <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
+      <nav className="min-h-0 p-2 space-y-0.5 overflow-y-auto">
         {phases.length === 0 && !showAddPhase && (
           <div className="p-6 text-center">
-            <FolderOpen className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-            <p className="text-xs text-slate-400">Nicio fază adăugată</p>
+            <FolderOpen className="w-8 h-8 text-[var(--p-ink-faint)] mx-auto mb-2" />
+            <p className="text-xs text-[var(--p-ink-faint)]">Nicio fază adăugată</p>
           </div>
         )}
 
@@ -373,14 +419,12 @@ export default function ProjectPhasesSidebar({
                   />
                 </div>
               ) : (
+                <Collapsible.Root open={isExpanded} onOpenChange={() => onToggleExpand(phase.id)}>
                 <div
-                    onClick={() => {
-                      onSelectPhase(phase.id)
-                      onToggleExpand(phase.id)
-                    }}
+                    onClick={() => onSelectPhase(phase.id)}
                     onDragOver={e => handlePhaseDragOver(e, phase.id)}
                     className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-all ${
-                      isActive ? 'bg-indigo-50' : 'hover:bg-slate-50'
+                      isActive ? 'bg-[var(--p-accent-soft)]' : 'hover:bg-[var(--p-surface-2)]'
                     } ${draggedPhaseId === phase.id ? 'opacity-50' : ''}`}
                   >
                     {canEdit && (
@@ -390,33 +434,48 @@ export default function ProjectPhasesSidebar({
                         onDragEnd={handlePhaseDragEnd}
                         onClick={e => e.stopPropagation()}
                         title="Trage pentru a reordona"
-                        className="-ml-1.5 p-0.5 rounded text-slate-300 hover:text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing flex-shrink-0"
+                        className="-ml-1.5 p-0.5 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink-soft)] opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing flex-shrink-0"
                       >
                         <GripVertical className="w-3.5 h-3.5" />
                       </span>
                     )}
                     <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                    <span className={`flex-1 text-sm font-medium truncate ${isActive ? 'text-indigo-900' : 'text-slate-700'}`}>
+                    <span className={`flex-1 text-sm font-medium truncate ${isActive ? 'text-[var(--p-accent-ink)]' : 'text-[var(--p-ink)]'}`}>
                       {phase.name}
                     </span>
-                    {isExpanded
-                      ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                      : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                    }
+                    {getMockStatus && (
+                      <span
+                        title={getMockStatus(phase.id) === 'draft' ? 'În pregătire' : 'Public'}
+                        className={`flex-shrink-0 w-1.5 h-1.5 rounded-full ${
+                          getMockStatus(phase.id) === 'draft' ? 'bg-[var(--p-draft)]' : 'bg-[var(--p-success)]'
+                        }`}
+                      />
+                    )}
+                    <Collapsible.Trigger asChild>
+                      <button
+                        onClick={e => e.stopPropagation()}
+                        aria-label={isExpanded ? 'Restrânge faza' : 'Extinde faza'}
+                        className="p-0.5 rounded hover:bg-[var(--p-surface-2)] flex-shrink-0"
+                      >
+                        {isExpanded
+                          ? <ChevronDown className="w-3.5 h-3.5 text-[var(--p-ink-faint)]" />
+                          : <ChevronRight className="w-3.5 h-3.5 text-[var(--p-ink-faint)]" />
+                        }
+                      </button>
+                    </Collapsible.Trigger>
                     {isAdmin && (
                       <button
                         onClick={e => { e.stopPropagation(); setConfirmDeletePhase(phase.id) }}
-                        className="p-1 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                        className="p-1 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-danger)] hover:bg-[var(--p-danger-soft)] opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     )}
                 </div>
-              )}
 
               {/* Activities sub-list */}
-              {isExpanded && (
-                <div className="ml-5 mt-0.5 mb-1 pl-3 border-l-2 border-slate-100 space-y-0.5">
+              <Collapsible.Content>
+                <div className="ml-5 mt-0.5 mb-1 pl-3 border-l-2 border-[var(--p-border)] space-y-0.5">
                   {displayActivities(phase)?.map(act => {
                     const isConfirmingDeleteAct = confirmDeleteActivity === act.id
 
@@ -449,7 +508,7 @@ export default function ProjectPhasesSidebar({
                       <div
                         key={act.id}
                         onDragOver={e => handleActivityDragOver(e, phase.id, act.id)}
-                        className={`group/act flex flex-col gap-0.5 py-1.5 px-2 rounded-md hover:bg-slate-50 ${
+                        className={`group/act flex flex-col gap-0.5 py-1.5 px-2 rounded-md hover:bg-[var(--p-surface-2)] ${
                           draggedActivity?.actId === act.id ? 'opacity-50' : ''
                         }`}
                       >
@@ -461,12 +520,12 @@ export default function ProjectPhasesSidebar({
                               onDragEnd={handleActivityDragEnd}
                               onClick={e => e.stopPropagation()}
                               title="Trage pentru a reordona"
-                              className="-ml-1 p-0.5 rounded text-slate-300 hover:text-slate-500 opacity-0 group-hover/act:opacity-100 transition-opacity cursor-grab active:cursor-grabbing flex-shrink-0"
+                              className="-ml-1 p-0.5 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink-soft)] opacity-0 group-hover/act:opacity-100 transition-opacity cursor-grab active:cursor-grabbing flex-shrink-0"
                             >
                               <GripVertical className="w-3 h-3" />
                             </span>
                           )}
-                          <span className="text-xs text-slate-600 truncate flex-1">{act.name}</span>
+                          <span className="text-xs text-[var(--p-ink-soft)] truncate flex-1">{act.name}</span>
 
                           {/* Buton calendar — pentru admin/consultant */}
                           {canEdit && (
@@ -479,9 +538,9 @@ export default function ProjectPhasesSidebar({
                               className={`p-0.5 rounded transition-all flex-shrink-0 ${
                                 act.deadline_at
                                   ? isOverdue
-                                    ? 'text-red-400 hover:text-red-600'
-                                    : 'text-amber-400 hover:text-amber-600'
-                                  : 'text-slate-300 hover:text-indigo-500 opacity-0 group-hover/act:opacity-100'
+                                    ? 'text-[var(--p-danger)] hover:opacity-80'
+                                    : 'text-[var(--p-warning)] hover:opacity-80'
+                                  : 'text-[var(--p-ink-faint)] hover:text-[var(--p-accent)] opacity-0 group-hover/act:opacity-100'
                               }`}
                             >
                               <Calendar className="w-3 h-3" />
@@ -491,7 +550,7 @@ export default function ProjectPhasesSidebar({
                           {isAdmin && (
                             <button
                               onClick={e => { e.stopPropagation(); setConfirmDeleteActivity(act.id) }}
-                              className="p-0.5 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover/act:opacity-100 transition-opacity flex-shrink-0"
+                              className="p-0.5 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-danger)] hover:bg-[var(--p-danger-soft)] opacity-0 group-hover/act:opacity-100 transition-opacity flex-shrink-0"
                             >
                               <Trash2 className="w-3 h-3" />
                             </button>
@@ -502,7 +561,7 @@ export default function ProjectPhasesSidebar({
                         {deadlineLabel && !isEditingThisDeadline && (
                           <span
                             className={`text-[10px] font-medium ml-0 ${
-                              isOverdue ? 'text-red-500' : 'text-amber-500'
+                              isOverdue ? 'text-[var(--p-danger)]' : 'text-[var(--p-warning)]'
                             }`}
                           >
                             {isOverdue ? '⚠ ' : ''}{deadlineLabel}
@@ -520,7 +579,7 @@ export default function ProjectPhasesSidebar({
                               defaultValue={currentDeadline}
                               disabled={savingDeadline === act.id}
                               autoFocus
-                              className="flex-1 text-[11px] px-1.5 py-1 border border-indigo-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white text-slate-700"
+                              className="flex-1 text-[11px] px-1.5 py-1 border border-[var(--p-accent)]/40 rounded-md focus:outline-none focus:ring-1 focus:ring-[var(--p-accent)] bg-[var(--p-surface)] text-[var(--p-ink)]"
                               onKeyDown={e => {
                                 if (e.key === 'Escape') setEditingDeadline(null)
                                 if (e.key === 'Enter') {
@@ -534,7 +593,7 @@ export default function ProjectPhasesSidebar({
                                 handleSaveDeadline(phase.id, act.id, input.value)
                               }}
                               disabled={savingDeadline === act.id}
-                              className="p-1 rounded bg-emerald-100 text-emerald-600 hover:bg-emerald-200 disabled:opacity-40 flex-shrink-0"
+                              className="p-1 rounded bg-[var(--p-success-soft)] text-[var(--p-success)] hover:opacity-80 disabled:opacity-40 flex-shrink-0"
                             >
                               {savingDeadline === act.id
                                 ? <Loader2 className="w-3 h-3 animate-spin" />
@@ -543,7 +602,7 @@ export default function ProjectPhasesSidebar({
                             </button>
                             <button
                               onClick={() => setEditingDeadline(null)}
-                              className="p-1 rounded bg-slate-100 text-slate-500 hover:bg-slate-200 flex-shrink-0"
+                              className="p-1 rounded bg-[var(--p-surface-2)] text-[var(--p-ink-soft)] hover:opacity-80 flex-shrink-0"
                             >
                               <X className="w-3 h-3" />
                             </button>
@@ -567,7 +626,7 @@ export default function ProjectPhasesSidebar({
                     ) : (
                       <button
                         onClick={() => setShowAddActivity(prev => ({ ...prev, [phase.id]: true }))}
-                        className="flex items-center gap-1.5 w-full px-2 py-1.5 text-[11px] text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+                        className="flex items-center gap-1.5 w-full px-2 py-1.5 text-[11px] text-[var(--p-ink-faint)] hover:text-[var(--p-accent)] hover:bg-[var(--p-accent-soft)] rounded-md transition-colors"
                       >
                         <Plus className="w-3 h-3" />
                         Adaugă activitate
@@ -575,6 +634,8 @@ export default function ProjectPhasesSidebar({
                     )
                   )}
                 </div>
+              </Collapsible.Content>
+              </Collapsible.Root>
               )}
             </div>
           )
@@ -595,7 +656,7 @@ export default function ProjectPhasesSidebar({
             ) : (
               <button
                 onClick={() => setShowAddPhase(true)}
-                className="flex items-center gap-1.5 w-full px-3 py-2 text-xs text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                className="flex items-center gap-1.5 w-full px-3 py-2 text-xs text-[var(--p-ink-faint)] hover:text-[var(--p-accent)] hover:bg-[var(--p-accent-soft)] rounded-lg transition-colors"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Adaugă fază
@@ -605,15 +666,15 @@ export default function ProjectPhasesSidebar({
         )}
 
         {/* Cereri generale — secțiune distinctă, separată de faze */}
-        <div className="pt-2 mt-2 border-t border-slate-100">
+        <div className="pt-2 mt-2 border-t border-[var(--p-border)]">
           <div
             onClick={onSelectGeneral}
             className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-all ${
-              isGeneralActive ? 'bg-indigo-50' : 'hover:bg-slate-50'
+              isGeneralActive ? 'bg-[var(--p-accent-soft)]' : 'hover:bg-[var(--p-surface-2)]'
             }`}
           >
-            <FolderOpen className={`w-4 h-4 flex-shrink-0 ${isGeneralActive ? 'text-indigo-500' : 'text-slate-400'}`} />
-            <span className={`flex-1 text-sm font-medium truncate ${isGeneralActive ? 'text-indigo-900' : 'text-slate-700'}`}>
+            <FolderOpen className={`w-4 h-4 flex-shrink-0 ${isGeneralActive ? 'text-[var(--p-accent)]' : 'text-[var(--p-ink-faint)]'}`} />
+            <span className={`flex-1 text-sm font-medium truncate ${isGeneralActive ? 'text-[var(--p-accent-ink)]' : 'text-[var(--p-ink)]'}`}>
               Cereri generale
             </span>
           </div>
@@ -622,10 +683,11 @@ export default function ProjectPhasesSidebar({
 
       {/* Team manager */}
       {isAdmin && (
-        <div className="border-t border-slate-100 flex-shrink-0">
+        <div className="flex-shrink-0 border-t border-[var(--p-border)]">
           <TeamManager projectId={projectId} onTeamChange={onTeamChange} />
         </div>
       )}
-    </aside>
+      </aside>
+    </>
   )
 }

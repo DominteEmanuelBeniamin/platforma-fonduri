@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Manrope, Fraunces } from "next/font/google";
 import "./globals.css";
 import Navbar from "@/components/Navbar"; // <-- Importăm noul Navbar
 import { AuthProvider } from './providers/AuthProvider'
 import { ProjectChatUnreadProvider } from './providers/ProjectChatUnreadProvider'
 
 const inter = Inter({ subsets: ["latin"], variable: '--font-inter' });
+
+// Folosite doar în pagina proiectului (#55) — restul aplicației rămâne pe Inter.
+const manrope = Manrope({ subsets: ["latin"], variable: '--font-manrope', weight: ['400', '500', '600', '700', '800'] });
+const fraunces = Fraunces({ subsets: ["latin"], variable: '--font-fraunces', weight: ['500', '600'] });
 
 export const metadata: Metadata = {
   title: "Bonie | Project Management",
@@ -18,7 +22,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ro" className="h-full">
+    <html lang="ro" className={`h-full ${manrope.variable} ${fraunces.variable}`}>
       <body className={`${inter.className} h-full bg-slate-50 text-slate-900 antialiased`}>
         <AuthProvider>
           <ProjectChatUnreadProvider>
