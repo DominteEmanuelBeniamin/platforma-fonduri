@@ -13,6 +13,7 @@ export type PhaseStatus = 'pending' | 'in_progress' | 'completed' | 'skipped';
 export type ActivityStatus = 'pending' | 'in_progress' | 'completed' | 'skipped' | 'blocked';
 export type SessionStatus = 'upcoming' | 'open' | 'closed' | 'evaluation' | 'completed';
 export type DocumentRequirementStatus = 'pending' | 'uploaded' | 'review' | 'approved' | 'rejected';
+export type ProjectItemVisibility = 'draft' | 'published';
 export type FileReviewStatus = 'pending' | 'approved' | 'rejected';
 export type AuditActionType = 'create' | 'update' | 'delete' | 'login' | 'logout';
 export type AuditEntityType = 'project' | 'document' | 'user' | 'file' | 'team_member' | 'phase' | 'activity' | 'template';
@@ -428,6 +429,7 @@ export interface ProjectPhase {
   description: string | null;
   order_index: number;
   status: PhaseStatus;
+  visibility: ProjectItemVisibility;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -445,6 +447,7 @@ export interface ProjectPhaseCreate {
   description?: string;
   order_index?: number;
   source_template_phase_id?: string | null;
+  visibility?: ProjectItemVisibility;
 }
 
 export interface ProjectPhaseUpdate {
@@ -457,6 +460,7 @@ export interface ProjectPhaseUpdate {
   started_at?: string | null;
   completed_at?: string | null;
   source_template_phase_id?: string | null;
+  visibility?: ProjectItemVisibility;
 }
 
 // View pentru faze cu status
@@ -479,6 +483,7 @@ export interface ProjectActivity {
   description: string | null;
   order_index: number;
   status: ActivityStatus;
+  visibility: ProjectItemVisibility;
   assigned_to: string | null;
   deadline_at: string | null;
   started_at: string | null;
@@ -499,6 +504,7 @@ export interface ProjectActivityCreate {
   assigned_to?: string;
   deadline_at?: string;
   source_template_activity_id?: string | null;
+  visibility?: ProjectItemVisibility;
 }
 
 export interface ProjectActivityUpdate {
@@ -512,6 +518,7 @@ export interface ProjectActivityUpdate {
   completed_at?: string | null;
   notes?: string;
   source_template_activity_id?: string | null;
+  visibility?: ProjectItemVisibility;
 }
 
 // CERINȚĂ DOCUMENT (neschimbat)
@@ -536,6 +543,7 @@ export interface ActivityDocumentRequirement {
   attachment_missing_at: string | null;
   attachment_missing_checked_at: string | null;
   source_template_document_requirement_id: string | null;
+  visibility: ProjectItemVisibility;
   files?: ActivityDocumentFile[];
 }
 
@@ -553,6 +561,7 @@ export interface ActivityDocumentRequirementCreate {
   attachment_missing_at?: string | null;
   attachment_missing_checked_at?: string | null;
   source_template_document_requirement_id?: string | null;
+  visibility?: ProjectItemVisibility;
 }
 
 export interface DocumentRequestReview {

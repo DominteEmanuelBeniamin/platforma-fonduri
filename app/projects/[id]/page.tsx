@@ -59,6 +59,8 @@ function ProjectDetailsContent() {
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState('')
   const [saving, setSaving] = useState(false)
+  const [confirmPublishId, setConfirmPublishId] = useState<string | null>(null)
+  const [publishingId, setPublishingId] = useState<string | null>(null)
 
   const [chatOpen, setChatOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
@@ -187,6 +189,25 @@ function ProjectDetailsContent() {
       if (res.ok) fetchAll()
       else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare la atribuire') }
     } catch (e: any) { alert('Eroare: ' + e.message) }
+  }
+
+  const publishProjectItem = async (url: string, id: string) => {
+    setPublishingId(id)
+    try {
+      const res = await apiFetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visibility: 'published' }),
+      })
+      if (res.ok) {
+        await Promise.all([refreshPhases(), refreshDocs()])
+      } else {
+        const data = await res.json().catch(() => null)
+        alert(data?.error || 'Eroare la publicare')
+      }
+    } finally {
+      setPublishingId(null)
+    }
   }
 
   const handleAssignGeneralConsultant = async (assignedTo: string | null) => {
@@ -570,12 +591,47 @@ function ProjectDetailsContent() {
 
               {/* Phase header */}
               {activePhase && (
-                <div className="flex items-center gap-3 mb-2">
+                <div className="flex flex-wrap items-center gap-3 mb-2">
                   <span
                     className="w-3 h-3 rounded-full flex-shrink-0"
                     style={{ backgroundColor: activePhase.project_status?.color || '#6B7280' }}
                   />
                   <h2 className="text-xl font-bold text-slate-900">{activePhase.name}</h2>
+                  {canEdit && (
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${activePhase.visibility === 'published' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                      {activePhase.visibility === 'published' ? 'Publică' : 'În pregătire'}
+                    </span>
+                  )}
+                  {canEdit && activePhase.visibility === 'draft' && (
+                    confirmPublishId === `phase:${activePhase.id}` ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-slate-600">Faza va deveni vizibilă clientului.</span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await publishProjectItem(`/api/projects/${projectId}/phases/${activePhase.id}`, `phase:${activePhase.id}`)
+                            setConfirmPublishId(null)
+                          }}
+                          disabled={publishingId === `phase:${activePhase.id}`}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                        >
+                          {publishingId === `phase:${activePhase.id}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                          Confirmă publicarea
+                        </button>
+                        <button type="button" onClick={() => setConfirmPublishId(null)} className="p-1.5 text-slate-500 hover:text-slate-700" aria-label="Anulează">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmPublishId(`phase:${activePhase.id}`)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                      >
+                        <Check className="w-3.5 h-3.5" /> Publică faza
+                      </button>
+                    )
+                  )}
                 </div>
               )}
 
@@ -594,6 +650,8 @@ function ProjectDetailsContent() {
                     projectId={projectId!}
                     activityId={activity.id}
                     activityName={activity.name}
+                    activityVisibility={activity.visibility}
+                    onPublishActivity={() => publishProjectItem(`/api/projects/${projectId}/phases/${activePhase!.id}/activities/${activity.id}`, `activity:${activity.id}`)}
                     externalRequests={allDocRequests}
                     onRefresh={refreshDocs}
                     activityAssignedTo={activity.assigned_to ?? null}

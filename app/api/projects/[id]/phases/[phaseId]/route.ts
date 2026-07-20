@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
+import { isClientVisiblePhase } from '@/lib/client-visibility'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,6 +44,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Fază negăsită' }, { status: 404 })
     }
 
+    if (auth.access.role === 'client' && !isClientVisiblePhase(phase)) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+
     return NextResponse.json({ phase })
   } catch (error: any) {
     console.error('GET /api/projects/[id]/phases/[phaseId] error:', error)
@@ -65,7 +70,11 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
 
     const body = await req.json()
-    const { name, description, project_status_id, order_index, status } = body
+    const { name, description, project_status_id, order_index, status, visibility } = body
+
+    if (visibility !== undefined && visibility !== 'published') {
+      return NextResponse.json({ error: 'Invalid visibility transition' }, { status: 400 })
+    }
 
     const updateData: Record<string, any> = {}
     if (name !== undefined) updateData.name = name
@@ -88,6 +97,13 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       .eq('id', phaseId)
       .eq('project_id', projectId)
       .maybeSingle()
+
+    if (visibility === 'published') {
+      if (!before || before.visibility !== 'draft') {
+        return NextResponse.json({ error: 'Phase is already published' }, { status: 400 })
+      }
+      updateData.visibility = 'published'
+    }
 
     const { data: phase, error } = await supabaseAdmin
       .from('project_phases')

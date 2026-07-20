@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { logAction } from '@/app/api/_utils/audit'
+import { isClientVisibleDocument } from '@/lib/client-visibility'
 
 const BUCKET = 'project-files'
 const SIGNED_URL_EXPIRES_IN = 60 * 10 // 10 minute
@@ -28,6 +29,9 @@ type FileProjectRow = {
   document_requirements: {
     project_id: string | null
     deleted_at?: string | null
+    activity_id?: string | null
+    visibility?: string | null
+    activity?: unknown
   } | null
 }
 
@@ -268,7 +272,7 @@ export async function POST(request: Request) {
      */
     const { data: fileProjectRows, error: projectLookupError } = await admin
       .from('files')
-      .select('id, document_requirements!inner(project_id, deleted_at)')
+      .select('id, document_requirements!inner(project_id, deleted_at, activity_id, visibility, activity:activity_id(visibility, phase:phase_id(visibility)))')
       .in('id', fileIds)
       .is('deleted_at', null)
       .is('document_requirements.deleted_at', null)
@@ -321,6 +325,12 @@ export async function POST(request: Request) {
     const access = await requireProjectAccess(request, projectId)
     if (!access.ok) {
       return guardToResponse(access)
+    }
+    if (
+      access.profile.role === 'client' &&
+      typedProjectRows.some(file => !isClientVisibleDocument(file.document_requirements))
+    ) {
+      return NextResponse.json({ error: 'Some files were not found' }, { status: 404 })
     }
 
     /**

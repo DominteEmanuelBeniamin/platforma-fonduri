@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { isClientVisibleDocument } from '@/lib/client-visibility'
 
 const MAX_FILES = 50
 const MAX_ORIGINAL_NAME_LENGTH = 200
@@ -90,7 +91,7 @@ export async function POST(
 
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('id, project_id, name, is_outgoing, deleted_at')
+      .select('id, project_id, name, activity_id, visibility, is_outgoing, deleted_at, activity:activity_id(visibility, phase:phase_id(visibility))')
       .eq('id', requestId)
       .is('deleted_at', null)
       .single()
@@ -109,14 +110,18 @@ export async function POST(
       console.error('Document requirement has no project_id:', reqRow)
       return NextResponse.json({ error: 'Document request is not linked to a project' }, { status: 500 })
     }
-    if (reqRow.is_outgoing) {
-      return NextResponse.json({ error: 'Documentele trimise clientului nu acceptă răspunsuri încărcate.' }, { status: 400 })
-    }
-
     const access = await requireProjectAccess(request, reqRow.project_id)
     if (!access.ok) {
       console.error('Project access denied:', access.error, 'project_id:', reqRow.project_id)
       return guardToResponse(access)
+    }
+
+    if (access.profile.role === 'client' && !isClientVisibleDocument(reqRow)) {
+      return NextResponse.json({ error: 'Document request not found' }, { status: 404 })
+    }
+
+    if (reqRow.is_outgoing) {
+      return NextResponse.json({ error: 'Documentele trimise clientului nu acceptă răspunsuri încărcate.' }, { status: 400 })
     }
 
     console.log('Project access granted for user:', access.user.id, 'project:', reqRow.project_id)
