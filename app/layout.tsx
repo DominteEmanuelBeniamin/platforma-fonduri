@@ -22,8 +22,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ro" className={`h-full ${manrope.variable} ${fraunces.variable}`}>
-      <body className={`${inter.className} h-full bg-slate-50 text-slate-900 antialiased`}>
+    <html lang="ro" className={`h-full overflow-x-hidden ${manrope.variable} ${fraunces.variable}`}>
+      <body className={`${inter.className} h-full bg-slate-50 text-slate-900 antialiased overflow-x-hidden`}>
         <AuthProvider>
           <ProjectChatUnreadProvider>
             {/* Navbar-ul Inteligent */}

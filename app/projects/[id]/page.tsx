@@ -572,7 +572,7 @@ function ProjectDetailsContent() {
       </header>
 
       {/* ── Body: sidebar + main ── */}
-      <div className="flex flex-1 min-h-0 overflow-hidden w-full">
+      <div className="flex flex-1 min-h-0 overflow-hidden w-full px-4 sm:px-6">
 
         {/* ══ SIDEBAR — ascuns în view documente ══ */}
         {activeView === 'phases' && (

@@ -439,18 +439,14 @@ export default function ProjectPhasesSidebar({
                         <GripVertical className="w-3.5 h-3.5" />
                       </span>
                     )}
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                    <span
+                      title={getMockStatus ? (getMockStatus(phase.id) === 'draft' ? 'În pregătire — invizibil pentru client' : 'Public — vizibil pentru client') : undefined}
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: getMockStatus ? (getMockStatus(phase.id) === 'draft' ? 'var(--p-draft)' : 'var(--p-success)') : color }}
+                    />
                     <span className={`flex-1 text-sm font-medium truncate ${isActive ? 'text-[var(--p-accent-ink)]' : 'text-[var(--p-ink)]'}`}>
                       {phase.name}
                     </span>
-                    {getMockStatus && (
-                      <span
-                        title={getMockStatus(phase.id) === 'draft' ? 'În pregătire' : 'Public'}
-                        className={`flex-shrink-0 w-1.5 h-1.5 rounded-full ${
-                          getMockStatus(phase.id) === 'draft' ? 'bg-[var(--p-draft)]' : 'bg-[var(--p-success)]'
-                        }`}
-                      />
-                    )}
                     <Collapsible.Trigger asChild>
                       <button
                         onClick={e => e.stopPropagation()}
