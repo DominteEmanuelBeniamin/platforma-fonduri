@@ -2,26 +2,23 @@
 'use client'
 import { useEffect, useMemo, useState, JSX, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import * as Dialog from '@radix-ui/react-dialog'
 import {
   FileText,
   Plus,
   Download,
   Upload,
   CheckCircle2,
-  XCircle,
   Clock,
   Calendar,
   User,
   X,
   Paperclip,
   ChevronRight,
+  ChevronDown,
   Eye,
   MessageSquare,
   FileSpreadsheet,
-  FileCheck,
-  FileClock,
-  FileX,
-  FileQuestion,
   FolderUp,
   Files,
   AlertCircle,
@@ -35,6 +32,7 @@ import {
 } from 'lucide-react'
 import DocumentModal from './DocumentModal'
 import ConfirmDeleteModal from './ConfirmDeleteModal'
+import PublishStatusControl from './PublishStatusControl'
 import { useAuth } from '@/app/providers/AuthProvider'
 import {
   getReminderType,
@@ -42,7 +40,7 @@ import {
   REMINDER_LABELS,
   REMINDER_BADGE,
 } from '@/lib/document-reminder'
-import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS, REQUIREMENT_BADGE } from '@/lib/requirement-type'
+import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS } from '@/lib/requirement-type'
 
 interface DocumentRequest {
   id: string
@@ -232,6 +230,11 @@ interface DocumentRequestsProps {
   clientEmail?: string | null
   clientName?: string | null
   projectTitle?: string
+  /** Id-ul unei cereri de deschis automat (ex. venit dintr-un rezultat de căutare) */
+  autoOpenRequestId?: string | null
+  /** Machetă #53 — status „În pregătire”/„Public” per cerere, doar vizual. */
+  getMockStatus?: (id: string) => 'draft' | 'public'
+  toggleMockStatus?: (id: string) => void
 }
 
 export default function DocumentRequests({
@@ -247,6 +250,9 @@ export default function DocumentRequests({
   clientEmail,
   clientName,
   projectTitle,
+  autoOpenRequestId,
+  getMockStatus,
+  toggleMockStatus,
 }: DocumentRequestsProps) {
   const { loading: authLoading, token, profile, apiFetch } = useAuth()
 
@@ -292,6 +298,18 @@ export default function DocumentRequests({
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [missingAttachments, setMissingAttachments] = useState<Set<string>>(() => new Set())
 
+  // Pliere per-cerere — set de „închise" (implicit deschis), ca cererile nou create
+  // să nu aibă nevoie de sincronizare specială.
+  const [closedRequestIds, setClosedRequestIds] = useState<Set<string>>(() => new Set())
+  const toggleRequestFold = (id: string) => {
+    setClosedRequestIds(prev => {
+      const s = new Set(prev)
+      if (s.has(id)) s.delete(id)
+      else s.add(id)
+      return s
+    })
+  }
+
   const canUploadFolder =
     typeof window !== 'undefined' &&
     'webkitdirectory' in HTMLInputElement.prototype &&
@@ -309,6 +327,21 @@ export default function DocumentRequests({
     }
     return src
   }, [externalRequests, internalRequests, activityId])
+
+  // Deschide automat o cerere (ex. dintr-un rezultat de căutare) — doar instanța
+  // care chiar conține cererea respectivă printre cele filtrate reacționează.
+  useEffect(() => {
+    if (!autoOpenRequestId) return
+    const match = requests.find(r => r.id === autoOpenRequestId)
+    if (!match) return
+    setSelectedRequest(match)
+    setClosedRequestIds(prev => {
+      if (!prev.has(match.id)) return prev
+      const s = new Set(prev)
+      s.delete(match.id)
+      return s
+    })
+  }, [autoOpenRequestId, requests])
 
   // Documente trimise de consultant CĂTRE client (informative) — nivel proiect
   const outgoingDocs = useMemo(() => {
@@ -1015,13 +1048,11 @@ export default function DocumentRequests({
   }, [requests])
 
 
-  const statusConfig: Record<string, {
-    bg: string; text: string; border: string; icon: JSX.Element; docIcon: JSX.Element; label: string; iconBg: string
-  }> = {
-    pending: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: <Clock className="w-4 h-4" />, docIcon: <FileClock className="w-5 h-5" />, label: 'Așteaptă', iconBg: 'bg-amber-100' },
-    review: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', icon: <Eye className="w-4 h-4" />, docIcon: <FileQuestion className="w-5 h-5" />, label: 'În verificare', iconBg: 'bg-blue-100' },
-    approved: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: <CheckCircle2 className="w-4 h-4" />, docIcon: <FileCheck className="w-5 h-5" />, label: 'Aprobat', iconBg: 'bg-emerald-100' },
-    rejected: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', icon: <XCircle className="w-4 h-4" />, docIcon: <FileX className="w-5 h-5" />, label: 'Respins', iconBg: 'bg-red-100' },
+  const statusConfig: Record<string, { label: string; dot: string }> = {
+    pending: { label: 'Așteaptă', dot: 'bg-amber-400' },
+    review: { label: 'În verificare', dot: 'bg-blue-400' },
+    approved: { label: 'Aprobat', dot: 'bg-emerald-400' },
+    rejected: { label: 'Respins', dot: 'bg-red-400' },
   }
 
   if (loading) {
@@ -1090,37 +1121,42 @@ export default function DocumentRequests({
                 )}
                 <button
                   onClick={openCreateForm}
-                  className={`flex items-center gap-2 whitespace-nowrap px-3 sm:px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                    showForm ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-900/10'
-                  }`}
+                  className="flex items-center gap-2 whitespace-nowrap px-3 sm:px-4 py-2.5 rounded-xl text-sm font-medium transition-all bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-900/10"
                 >
-                  {showForm && !editingRequest ? (<><X className="w-4 h-4" /><span className="hidden sm:inline">Anulează</span></>) : (<><Plus className="w-4 h-4" /><span className="hidden sm:inline">Cerere de document nouă</span></>)}
+                  <Plus className="w-4 h-4" /><span className="hidden sm:inline">Cerere de document nouă</span>
                 </button>
               </div>
             )}
           </div>
         </div>
 
-        {showForm && isAdminOrConsultant && (
-          <div className="p-4 sm:p-5 bg-slate-50/80 border-b border-slate-200">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {editingRequest && (
-                <div className="flex items-center justify-between gap-3">
+        <Dialog.Root open={showForm && isAdminOrConsultant} onOpenChange={open => { if (!open) closeRequestForm() }}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[999999]" />
+            <Dialog.Content
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl z-[999999] focus:outline-none"
+            >
+              <div className="p-4 sm:p-5 bg-slate-50/80">
+                <div className="flex items-start justify-between gap-3 mb-4">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">Modifică cererea de document</p>
-                    <p className="text-xs text-slate-500">Actualizează detaliile cererii pentru client.</p>
+                    <Dialog.Title className="text-sm font-semibold text-slate-900">
+                      {editingRequest ? 'Modifică cererea de document' : 'Cerere de document nouă'}
+                    </Dialog.Title>
+                    <Dialog.Description className="text-xs text-slate-500">
+                      {editingRequest ? 'Actualizează detaliile cererii pentru client.' : 'Completează detaliile cererii pentru client.'}
+                    </Dialog.Description>
                   </div>
-                  <button
-                    type="button"
-                    onClick={closeRequestForm}
-                    className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-                    title="Anulează editarea"
-                    aria-label="Anulează editarea"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                  <Dialog.Close asChild>
+                    <button
+                      type="button"
+                      className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors flex-shrink-0"
+                      aria-label="Închide"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </Dialog.Close>
                 </div>
-              )}
+                <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">Titlu document</label>
@@ -1262,9 +1298,11 @@ export default function DocumentRequests({
                   <span>Modelul existent este indisponibil. Alege un fișier nou pentru înlocuire.</span>
                 </div>
               )}
-            </form>
-          </div>
-        )}
+                </form>
+              </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
 
         {!activityId && (outgoingDocs.length > 0 || isAdminOrConsultant) && (
           <div className="border-b border-slate-100 bg-emerald-50/30">
@@ -1320,6 +1358,7 @@ export default function DocumentRequests({
             displayRequests.map((req) => {
               const status = statusConfig[req.status] || statusConfig.pending
               const isOverdue = req.deadline_at && new Date(req.deadline_at) < new Date() && req.status === 'pending'
+              const isFolded = closedRequestIds.has(req.id)
 
               return (
                 <div
@@ -1343,128 +1382,149 @@ export default function DocumentRequests({
                         <GripVertical className="w-4 h-4" />
                       </span>
                     )}
-                    <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl ${status.iconBg} flex items-center justify-center flex-shrink-0 ${status.text}`}>
-                      {status.docIcon}
+                    <div className="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center flex-shrink-0 text-slate-400">
+                      <FileText className="w-4 h-4" />
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2 mb-1">
-                        <h3 className="min-w-0 flex-1 font-semibold text-slate-900 text-sm sm:text-base break-words pr-2">{req.name}</h3>
-                        <span className={`flex-shrink-0 px-2.5 py-1 rounded-lg text-xs font-semibold ${status.bg} ${status.text} ${status.border} border`}>
-                          {status.label}
-                        </span>
+                      <div className="flex items-start gap-2">
+                        <h3 className="flex-1 min-w-0 font-semibold text-slate-900 text-sm sm:text-base leading-snug line-clamp-2">{req.name}</h3>
+                        <div className="flex items-center gap-0.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                          {!isFolded && isAdminOrConsultant && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => openEditForm(req)}
+                                className="p-1.5 rounded-lg text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                                title="Modifică cererea"
+                                aria-label="Modifică cererea"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setRequestToDelete(req)}
+                                className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                title="Șterge din proiect"
+                                aria-label="Șterge din proiect"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => toggleRequestFold(req.id)}
+                            className="p-1.5 rounded-lg text-slate-300 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                            aria-label={isFolded ? 'Arată detaliile cererii' : 'Ascunde detaliile cererii'}
+                            aria-expanded={!isFolded}
+                          >
+                            <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isFolded ? '' : 'rotate-180'}`} />
+                          </button>
+                        </div>
                       </div>
 
-                      {(() => {
-                        const rt = req.requirement_type as RequirementType | undefined
-                        const badge = rt ? REQUIREMENT_BADGE[rt] : null
-                        return rt && badge ? (
-                          <span className={`inline-block mb-2 text-[11px] px-1.5 py-0.5 rounded border ${badge.bg} ${badge.text} ${badge.border}`}>
-                            {REQUIREMENT_LABELS[rt]}
-                          </span>
-                        ) : null
-                      })()}
-
-                      {req.description && <p className="text-sm text-slate-600 mb-3 line-clamp-2">{req.description}</p>}
-
-                      <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-xs text-slate-500">
-                        <span className="flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                          {new Date(req.created_at).toLocaleDateString('ro-RO')}
+                      <div className="flex flex-wrap items-center gap-3 mt-1">
+                        <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                          <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
+                          {status.label}
                         </span>
-
-                        {req.deadline_at && (
-                          <span className={`flex items-center gap-1.5 ${isOverdue ? 'text-red-600 font-medium' : 'text-amber-600'}`}>
-                            <Clock className="w-3.5 h-3.5" />
-                            Termen: {new Date(req.deadline_at).toLocaleDateString('ro-RO')}
-                          </span>
-                        )}
-
-                        {(requestMeta.get(req.id)?.responseCount ?? 0) > 0 ? (
-                          <span className="flex items-center gap-1.5 text-emerald-600">
-                            <Upload className="w-3.5 h-3.5" />
-                            {requestMeta.get(req.id)!.responseCount}{' '}
-                            {requestMeta.get(req.id)!.responseCount === 1 ? 'răspuns' : 'răspunsuri'}
-                          </span>
-                        ) : null}
-
-
-                        {(() => {
-                          const attachments = getRequestAttachments(req)
-                          if (attachments.length === 0) return null
-                          const missingCount = attachments.filter(attachment => attachment.missing_at || missingAttachments.has(req.id)).length
-
+                        {!isFolded && (() => {
+                          const rt = req.requirement_type as RequirementType | undefined
+                          if (!rt) return null
+                          const dot = rt === 'obligatoriu' ? 'bg-red-400' : rt === 'daca_e_cazul' ? 'bg-amber-400' : 'bg-slate-300'
                           return (
-                            <span className={`flex items-center gap-1.5 ${missingCount > 0 ? 'text-amber-700' : 'text-indigo-600'}`}>
-                              {missingCount > 0 ? <AlertCircle className="w-3.5 h-3.5" /> : <Paperclip className="w-3.5 h-3.5" />}
-                              {missingCount === attachments.length
-                                ? attachments.length === 1 ? 'Model indisponibil' : `${attachments.length} modele indisponibile`
-                                : attachments.length === 1 ? '1 model de descărcat' : `${attachments.length} modele de descărcat`}
+                            <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                              <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+                              {REQUIREMENT_LABELS[rt]}
                             </span>
                           )
                         })()}
+                        {!isFolded && getMockStatus && toggleMockStatus && (
+                          <PublishStatusControl
+                            status={getMockStatus(req.id)}
+                            canPublish={isAdminOrConsultant}
+                            onToggle={() => toggleMockStatus(req.id)}
+                            size="sm"
+                          />
+                        )}
                       </div>
 
-                      {/* ── Buton reminder client ── */}
-                      {isAdminOrConsultant && clientEmail && (() => {
-                        const reminderType = getReminderType(req.deadline_at)
-                        if (!reminderType) return null
-                        const badge = REMINDER_BADGE[reminderType]
-                        const mailtoLink = generateMailtoLink(
-                          {
-                            requestName: req.name,
-                            requestDescription: req.description,
-                            deadlineAt: req.deadline_at,
-                            clientEmail,
-                            clientName: clientName ?? null,
-                            projectTitle: projectTitle ?? '',
-                            projectId,
-                          },
-                          reminderType
-                        )
-                        return (
-                          <div className="mt-3" onClick={(e) => e.stopPropagation()}>
-                            <a
-                              href={mailtoLink}
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-opacity hover:opacity-75 ${badge.bg} ${badge.text} ${badge.border}`}
-                              title="Deschide clientul de email cu mesajul pregătit automat"
-                            >
-                              <Mail className="w-3 h-3" />
-                              Trimite reminder clientului
-                              <span className="mx-0.5 opacity-50">·</span>
-                              {REMINDER_LABELS[reminderType]}
-                            </a>
+                      {!isFolded && (
+                        <>
+
+
+                          {req.description && <p className="text-sm text-slate-600 mb-3 line-clamp-2">{req.description}</p>}
+
+                          <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-xs text-slate-500">
+                            {req.deadline_at && (
+                              <span className={`flex items-center gap-1.5 ${isOverdue ? 'text-red-600 font-medium' : 'text-amber-600'}`}>
+                                <Clock className="w-3.5 h-3.5" />
+                                Termen: {new Date(req.deadline_at).toLocaleDateString('ro-RO')}
+                              </span>
+                            )}
+
+                            {(requestMeta.get(req.id)?.responseCount ?? 0) > 0 ? (
+                              <span className="flex items-center gap-1.5 text-emerald-600">
+                                <Upload className="w-3.5 h-3.5" />
+                                {requestMeta.get(req.id)!.responseCount}{' '}
+                                {requestMeta.get(req.id)!.responseCount === 1 ? 'răspuns' : 'răspunsuri'}
+                              </span>
+                            ) : null}
+
+
+                            {(() => {
+                              const attachments = getRequestAttachments(req)
+                              if (attachments.length === 0) return null
+                              const missingCount = attachments.filter(attachment => attachment.missing_at || missingAttachments.has(req.id)).length
+
+                              return (
+                                <span className={`flex items-center gap-1.5 ${missingCount > 0 ? 'text-amber-700' : 'text-indigo-600'}`}>
+                                  {missingCount > 0 ? <AlertCircle className="w-3.5 h-3.5" /> : <Paperclip className="w-3.5 h-3.5" />}
+                                  {missingCount === attachments.length
+                                    ? attachments.length === 1 ? 'Model indisponibil' : `${attachments.length} modele indisponibile`
+                                    : attachments.length === 1 ? '1 model de descărcat' : `${attachments.length} modele de descărcat`}
+                                </span>
+                              )
+                            })()}
                           </div>
-                        )
-                      })()}
+
+                          {/* ── Buton reminder client ── */}
+                          {isAdminOrConsultant && clientEmail && (() => {
+                            const reminderType = getReminderType(req.deadline_at)
+                            if (!reminderType) return null
+                            const badge = REMINDER_BADGE[reminderType]
+                            const mailtoLink = generateMailtoLink(
+                              {
+                                requestName: req.name,
+                                requestDescription: req.description,
+                                deadlineAt: req.deadline_at,
+                                clientEmail,
+                                clientName: clientName ?? null,
+                                projectTitle: projectTitle ?? '',
+                                projectId,
+                              },
+                              reminderType
+                            )
+                            return (
+                              <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+                                <a
+                                  href={mailtoLink}
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-opacity hover:opacity-75 ${badge.bg} ${badge.text} ${badge.border}`}
+                                  title="Deschide clientul de email cu mesajul pregătit automat"
+                                >
+                                  <Mail className="w-3 h-3" />
+                                  Trimite reminder clientului
+                                  <span className="mx-0.5 opacity-50">·</span>
+                                  {REMINDER_LABELS[reminderType]}
+                                </a>
+                              </div>
+                            )
+                          })()}
+                        </>
+                      )}
 
                     </div>
-
-                    {isAdminOrConsultant ? (
-                      <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          onClick={() => openEditForm(req)}
-                          className="p-2 rounded-lg text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
-                          title="Modifică cererea"
-                          aria-label="Modifică cererea"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setRequestToDelete(req)}
-                          className="p-2 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"
-                          title="Șterge din proiect"
-                          aria-label="Șterge din proiect"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                        <ChevronRight className="w-5 h-5 text-slate-300 hidden sm:block" />
-                      </div>
-                    ) : (
-                      <ChevronRight className="w-5 h-5 text-slate-300 hidden sm:block flex-shrink-0" />
-                    )}
                   </div>
 
                   {isClient && (req.attachment_missing_at || missingAttachments.has(req.id)) && (
