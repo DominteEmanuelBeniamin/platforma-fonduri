@@ -3,6 +3,8 @@ import type { User } from '@supabase/supabase-js'
 import { createSupabaseServerClient, createSupabaseServiceClient } from './supabase'
 
 export type AppRole = 'admin' | 'consultant' | 'client'
+export type TemplateStatus = 'draft' | 'published'
+export type TemplatePermission = 'read' | 'edit' | 'publish'
 
 type Ok<T> = { ok: true } & T
 type Err = { ok: false; status: number; error: string }
@@ -62,6 +64,59 @@ export async function requireAdmin(
   }
 
   return { ok: true, user: ctx.user, profile: { ...ctx.profile, role: 'admin' } }
+}
+
+export function canReadTemplate(role: AppRole) {
+  return role === 'admin' || role === 'consultant'
+}
+
+export function canEditTemplate(role: AppRole, status: TemplateStatus | null | undefined) {
+  return role === 'admin' || (role === 'consultant' && status === 'draft')
+}
+
+export function canPublishTemplate(role: AppRole) {
+  return role === 'admin'
+}
+
+export async function requireTemplateAccess(
+  request: Request,
+  templateId: string,
+  permission: TemplatePermission,
+) {
+  const ctx = await requireProfile(request)
+  if (!ctx.ok) return ctx
+
+  if (permission === 'read' && !canReadTemplate(ctx.profile.role)) {
+    return { ok: false as const, status: 403, error: 'Forbidden: template access denied' }
+  }
+
+  const admin = createSupabaseServiceClient()
+  const { data: template, error } = await admin
+    .from('project_templates')
+    .select('id, name, status, is_active')
+    .eq('id', templateId)
+    .maybeSingle()
+
+  if (error) return { ok: false as const, status: 500, error: 'Failed to load template' }
+  if (!template) return { ok: false as const, status: 404, error: 'Template not found' }
+
+  const status: TemplateStatus = template.status === 'draft' ? 'draft' : 'published'
+  const allowed = permission === 'read'
+    ? canReadTemplate(ctx.profile.role)
+    : permission === 'edit'
+    ? canEditTemplate(ctx.profile.role, status)
+    : canPublishTemplate(ctx.profile.role)
+
+  if (!allowed) {
+    return { ok: false as const, status: 403, error: 'Forbidden: template modification denied' }
+  }
+
+  return {
+    ok: true as const,
+    user: ctx.user,
+    profile: ctx.profile,
+    template: { ...template, status },
+  }
 }
 
 /**

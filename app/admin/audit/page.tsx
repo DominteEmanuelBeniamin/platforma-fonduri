@@ -85,6 +85,7 @@ const ACTION_CONFIG: Record<string, ActionConfig> = {
   create: { label: 'Creare', color: 'text-blue-700', bgColor: 'bg-blue-50', borderColor: 'border-blue-200', icon: Plus },
   add: { label: 'Adaugare', color: 'text-cyan-700', bgColor: 'bg-cyan-50', borderColor: 'border-cyan-200', icon: PlusSquare },
   update: { label: 'Modificare', color: 'text-amber-700', bgColor: 'bg-amber-50', borderColor: 'border-amber-200', icon: Pencil },
+  publish: { label: 'Publicare', color: 'text-emerald-700', bgColor: 'bg-emerald-50', borderColor: 'border-emerald-200', icon: CheckSquare },
   propagate: { label: 'Propagare', color: 'text-purple-700', bgColor: 'bg-purple-50', borderColor: 'border-purple-200', icon: Share2 },
   delete: { label: 'Stergere', color: 'text-red-700', bgColor: 'bg-red-50', borderColor: 'border-red-200', icon: Trash2 },
   download: { label: 'Descarcare', color: 'text-violet-700', bgColor: 'bg-violet-50', borderColor: 'border-violet-200', icon: Download },

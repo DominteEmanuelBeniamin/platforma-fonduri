@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { requireAdmin } from '@/app/api/_utils/auth'
+import { requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
 
 async function loadTemplateName(templateId: string | null | undefined): Promise<string> {
@@ -26,12 +26,22 @@ interface RouteParams {
 // PATCH /api/admin/templates/phases/[phaseId]
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
   try {
-    const auth = await requireAdmin(req)
+    const auth = await requireProfile(req)
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const { phaseId } = await params
+    const { data: phaseAccessRow, error: phaseAccessError } = await supabaseAdmin
+      .from('template_phases')
+      .select('template_id')
+      .eq('id', phaseId)
+      .maybeSingle()
+    if (phaseAccessError) throw phaseAccessError
+    if (!phaseAccessRow) return NextResponse.json({ error: 'Faza nu a fost găsită' }, { status: 404 })
+    const templateAccess = await requireTemplateAccess(req, phaseAccessRow.template_id, 'edit')
+    if (!templateAccess.ok) return NextResponse.json({ error: templateAccess.error }, { status: templateAccess.status })
+
     const body = await req.json()
     const { name, slug, description, project_status_id, order_index, estimated_days, is_active } = body
 
@@ -120,12 +130,21 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 // DELETE /api/admin/templates/phases/[phaseId]
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
-    const auth = await requireAdmin(req)
+    const auth = await requireProfile(req)
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const { phaseId } = await params
+    const { data: phaseAccessRow, error: phaseAccessError } = await supabaseAdmin
+      .from('template_phases')
+      .select('template_id')
+      .eq('id', phaseId)
+      .maybeSingle()
+    if (phaseAccessError) throw phaseAccessError
+    if (!phaseAccessRow) return NextResponse.json({ error: 'Faza nu a fost găsită' }, { status: 404 })
+    const templateAccess = await requireTemplateAccess(req, phaseAccessRow.template_id, 'edit')
+    if (!templateAccess.ok) return NextResponse.json({ error: templateAccess.error }, { status: templateAccess.status })
 
     const { data: before } = await supabaseAdmin
       .from('template_phases')

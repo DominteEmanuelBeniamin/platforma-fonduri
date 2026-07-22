@@ -132,7 +132,12 @@ export default function NewProjectPage() {
           apiFetch('/api/admin/statuses'),
           apiFetch('/api/users'),
         ])
-        if (templatesRes.ok) setTemplates((await templatesRes.json()).templates || [])
+        if (templatesRes.ok) {
+          const data = await templatesRes.json()
+          setTemplates((data.templates || []).filter((template: TemplateData & { status?: string; is_active?: boolean }) =>
+            template.status === 'published' && template.is_active
+          ))
+        }
         if (statusesRes.ok) setStatuses((await statusesRes.json()).statuses || [])
         if (usersRes.ok) {
           const all = (await usersRes.json()).users || []

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { requireAdmin } from '@/app/api/_utils/auth'
+import { requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
@@ -12,7 +12,7 @@ const supabaseAdmin = createClient(
 // POST /api/admin/templates/activities - Creează activitate nouă în fază
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireAdmin(req)
+    const auth = await requireProfile(req)
     if (!auth.ok) {
       return NextResponse.json({ error: 'Doar adminii pot crea activități' }, { status: 403 })
     }
@@ -25,6 +25,19 @@ export async function POST(req: NextRequest) {
     }
 
     // Calculează order_index dacă nu e furnizat
+    const { data: phaseAccessRow, error: phaseError } = await supabaseAdmin
+      .from('template_phases')
+      .select('template_id')
+      .eq('id', template_phase_id)
+      .maybeSingle()
+    if (phaseError) throw phaseError
+    if (!phaseAccessRow) return NextResponse.json({ error: 'Faza nu a fost găsită' }, { status: 404 })
+
+    const templateAccess = await requireTemplateAccess(req, phaseAccessRow.template_id, 'edit')
+    if (!templateAccess.ok) {
+      return NextResponse.json({ error: templateAccess.error }, { status: templateAccess.status })
+    }
+
     let finalOrderIndex = order_index
     if (!finalOrderIndex) {
       const { data: maxOrder } = await supabaseAdmin

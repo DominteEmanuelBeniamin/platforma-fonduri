@@ -79,11 +79,11 @@ export default function Navbar() {
                 )}
               </Link>
             )}
-            {profile?.role === 'admin' && (
+            {(profile?.role === 'admin' || profile?.role === 'consultant') && (
               <>
                 <Link
-                  href="/admin"
-                  className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/admin')}`}
+                  href={profile?.role === 'admin' ? '/admin' : '/admin/templates'}
+                  className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive(profile?.role === 'admin' ? '/admin' : '/admin/templates')}`}
                 >
                   Șabloane
                 </Link>

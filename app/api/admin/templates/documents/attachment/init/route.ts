@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { requireAdmin } from '@/app/api/_utils/auth'
+import { canReadTemplate, requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,12 +14,16 @@ const BUCKET = 'project-files'
 // Generează signed upload URL pentru modelul de document dintr-un template
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireAdmin(req)
-    if (!auth.ok) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status })
+    const body = await req.json().catch(() => null)
+    const templateId = typeof body?.template_id === 'string' ? body.template_id : ''
+    const auth = templateId
+      ? await requireTemplateAccess(req, templateId, 'edit')
+      : await requireProfile(req)
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+    if (!templateId && !canReadTemplate(auth.profile.role)) {
+      return NextResponse.json({ error: 'Forbidden: template access denied' }, { status: 403 })
     }
 
-    const body = await req.json().catch(() => null)
     const name = typeof body?.name === 'string' ? body.name.trim() : ''
     const type = typeof body?.type === 'string' && body.type
       ? body.type

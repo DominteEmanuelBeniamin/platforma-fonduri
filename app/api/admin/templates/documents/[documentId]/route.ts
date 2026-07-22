@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { guardToResponse, requireAdmin } from '@/app/api/_utils/auth'
+import { guardToResponse, requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
 import { normalizeRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 
@@ -31,7 +31,7 @@ async function loadDocumentChain(templateActivityId: string | null | undefined) 
 // PATCH /api/admin/templates/documents/[documentId]
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
   try {
-    const auth = await requireAdmin(req)
+    const auth = await requireProfile(req)
     if (!auth.ok) return guardToResponse(auth)
 
     const { documentId } = await params
@@ -70,6 +70,17 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (!previousDoc) {
       return NextResponse.json({ error: 'Documentul nu a fost găsit' }, { status: 404 })
     }
+
+    const { data: activityAccessRow, error: activityAccessError } = await supabaseAdmin
+      .from('template_activities')
+      .select('template_phases(template_id)')
+      .eq('id', previousDoc.template_activity_id)
+      .maybeSingle()
+    if (activityAccessError) throw activityAccessError
+    const templateId = (activityAccessRow as any)?.template_phases?.template_id
+    if (!templateId) return NextResponse.json({ error: 'Activitatea nu a fost găsită' }, { status: 404 })
+    const templateAccess = await requireTemplateAccess(req, templateId, 'edit')
+    if (!templateAccess.ok) return guardToResponse(templateAccess)
 
     const finalIsOutgoing = incomingIsOutgoing ?? Boolean(previousDoc.is_outgoing)
     const finalAttachmentPath = attachmentItems !== undefined
@@ -168,7 +179,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 // DELETE /api/admin/templates/documents/[documentId]
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
-    const auth = await requireAdmin(req)
+    const auth = await requireProfile(req)
     if (!auth.ok) return guardToResponse(auth)
 
     const { documentId } = await params
@@ -178,6 +189,17 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       .select('*')
       .eq('id', documentId)
       .maybeSingle()
+
+    const { data: activityAccessRow, error: activityAccessError } = await supabaseAdmin
+      .from('template_activities')
+      .select('template_phases(template_id)')
+      .eq('id', before?.template_activity_id)
+      .maybeSingle()
+    if (activityAccessError) throw activityAccessError
+    const templateId = (activityAccessRow as any)?.template_phases?.template_id
+    if (!templateId) return NextResponse.json({ error: 'Documentul nu a fost găsit' }, { status: 404 })
+    const templateAccess = await requireTemplateAccess(req, templateId, 'edit')
+    if (!templateAccess.ok) return guardToResponse(templateAccess)
 
     const { error } = await supabaseAdmin
       .from('template_document_requirements')

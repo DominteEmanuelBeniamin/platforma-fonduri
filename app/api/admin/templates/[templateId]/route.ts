@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { requireAdmin } from '@/app/api/_utils/auth'
+import { requireAdmin, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
 
 const supabaseAdmin = createClient(
@@ -17,6 +17,8 @@ interface RouteParams {
 export async function GET(req: NextRequest, { params }: RouteParams) {
   try {
     const { templateId } = await params
+    const auth = await requireTemplateAccess(req, templateId, 'read')
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
     const { data: template, error } = await supabaseAdmin
       .from('project_templates')
@@ -38,14 +40,16 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 // PATCH /api/admin/templates/[templateId]
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
   try {
-    const auth = await requireAdmin(req)
-    if (!auth.ok) {
-      return NextResponse.json({ error: 'Doar adminii pot modifica template-uri' }, { status: 403 })
-    }
-
     const { templateId } = await params
     const body = await req.json()
-    const { name, slug, description, measure_id, is_default, is_active } = body
+    const { name, slug, description, measure_id, is_default, is_active, status } = body
+
+    if (status !== undefined && status !== 'published') {
+      return NextResponse.json({ error: 'Un template publicat nu poate reveni la ciornă' }, { status: 400 })
+    }
+
+    const auth = await requireTemplateAccess(req, templateId, status !== undefined ? 'publish' : 'edit')
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
     const updateData: Record<string, any> = {}
     if (name !== undefined) updateData.name = name
@@ -54,12 +58,15 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (measure_id !== undefined) updateData.measure_id = measure_id
     if (is_default !== undefined) updateData.is_default = is_default
     if (is_active !== undefined) updateData.is_active = is_active
+    if (status !== undefined) updateData.status = status
 
-    const { data: before } = await supabaseAdmin
+    const { data: before, error: beforeError } = await supabaseAdmin
       .from('project_templates')
       .select('*')
       .eq('id', templateId)
       .maybeSingle()
+    if (beforeError) throw beforeError
+    if (!before) return NextResponse.json({ error: 'Template negăsit' }, { status: 404 })
 
     const { data: template, error } = await supabaseAdmin
       .from('project_templates')
@@ -74,13 +81,15 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (!diff.isEmpty) {
       await logAction({
         actorId: auth.profile.id,
-        actionType: 'update',
+        actionType: diff.changedKeys.includes('status') ? 'publish' : 'update',
         entityType: 'template',
         entityId: templateId,
         entityName: template.name,
         oldValues: diff.oldValues,
         newValues: diff.newValues,
-        description: `Modificare sablon "${template.name}" (${diff.changedKeys.join(', ')})`,
+        description: diff.changedKeys.includes('status')
+          ? `Publicare sablon "${template.name}"`
+          : `Modificare sablon "${template.name}" (${diff.changedKeys.join(', ')})`,
         request: req,
       })
     }
