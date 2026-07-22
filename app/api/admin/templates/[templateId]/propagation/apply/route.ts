@@ -316,6 +316,7 @@ async function insertDocs(
         attachment_missing_at: attachmentPath && !attachmentAvailable ? attachmentCheckedAt : null,
         attachment_missing_checked_at: attachmentCheckedAt,
         status: 'pending',
+        visibility: 'draft',
         created_by: actorId,
         source_template_document_requirement_id: tDoc.id,
       })
@@ -451,6 +452,7 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
             description: tPhase.description,
             order_index: tPhase.order_index,
             status: 'pending',
+            visibility: 'draft',
             source_template_phase_id: tPhase.id,
           })
           .select('id, name, project_status_id')
@@ -504,6 +506,7 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
               description: tActivity.description,
               order_index: tActivity.order_index,
               status: 'pending',
+              visibility: 'draft',
               source_template_activity_id: tActivity.id,
             })
             .select('id, name')

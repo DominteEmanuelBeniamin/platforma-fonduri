@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, JSX, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   FileText,
+  Check,
   Plus,
   Download,
   Upload,
@@ -50,6 +51,7 @@ interface DocumentRequest {
   description: string | null
   requirement_type?: RequirementType
   status: 'pending' | 'review' | 'approved' | 'rejected'
+  visibility: 'draft' | 'published'
   is_outgoing?: boolean
   order_index?: number
   attachment_path: string | null
@@ -219,6 +221,8 @@ interface DocumentRequestsProps {
   activityId?: string | null
   /** Titlul activității afișat în header */
   activityName?: string
+  activityVisibility?: 'draft' | 'published'
+  onPublishActivity?: () => Promise<void>
   /** Date externe de la pagina părinte (evită fetch duplicat) */
   externalRequests?: any[]
   /** Callback refresh pentru pagina părinte */
@@ -238,6 +242,8 @@ export default function DocumentRequests({
   projectId,
   activityId,
   activityName,
+  activityVisibility,
+  onPublishActivity,
   externalRequests,
   onRefresh,
   activityAssignedTo,
@@ -291,12 +297,27 @@ export default function DocumentRequests({
   const [requestToDelete, setRequestToDelete] = useState<DocumentRequest | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [missingAttachments, setMissingAttachments] = useState<Set<string>>(() => new Set())
+  const [publishingId, setPublishingId] = useState<string | null>(null)
+  const [confirmPublishId, setConfirmPublishId] = useState<string | null>(null)
 
   const canUploadFolder =
     typeof window !== 'undefined' &&
     'webkitdirectory' in HTMLInputElement.prototype &&
     !window.matchMedia?.('(pointer: coarse)').matches &&
     !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+
+  const publishRequest = async (requestId: string) => {
+    setPublishingId(requestId)
+    try {
+      const res = await apiFetch(`/api/document-requests/${requestId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visibility: 'published' }),
+      })
+      if (res.ok) await fetchRequests()
+      else { const data = await res.json().catch(() => null); alert(data?.error || 'Eroare la publicare') }
+    } finally { setPublishingId(null) }
+  }
 
   // Requests derivate: externe filtrate sau interne
   const requests = useMemo(() => {
@@ -1048,6 +1069,11 @@ export default function DocumentRequests({
                 <h2 className="text-base font-semibold leading-snug text-slate-900 break-words">
                   {activityName ?? (isClient ? 'Documente de completat' : 'Cereri documente')}
                 </h2>
+                {isAdminOrConsultant && activityVisibility && (
+                  <span className={`inline-flex mt-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${activityVisibility === 'published' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                    {activityVisibility === 'published' ? 'Publică' : 'În pregătire'}
+                  </span>
+                )}
                 <p className="text-xs text-slate-500 hidden sm:block">
                   {activityName ? `${requests.length} cereri` : (isClient ? 'Descarcă, completează și încarcă' : `${requests.length} cereri în total`)}
                 </p>
@@ -1070,6 +1096,33 @@ export default function DocumentRequests({
                       <span className="text-xs font-medium text-slate-700">
                         {activityAssignedUser?.full_name ?? activityAssignedUser?.email ?? 'Neatribuit'}
                       </span>
+                    )}
+                  </div>
+                )}
+                {isAdminOrConsultant && activityId && activityVisibility === 'draft' && onPublishActivity && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {confirmPublishId === `activity:${activityId}` ? (
+                      <>
+                        <span className="text-xs text-slate-600">Activitatea va deveni vizibilă clientului.</span>
+                        <button
+                          type="button"
+                          onClick={async () => { await onPublishActivity(); setConfirmPublishId(null) }}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
+                        >
+                          <Check className="w-3.5 h-3.5" /> Confirmă publicarea
+                        </button>
+                        <button type="button" onClick={() => setConfirmPublishId(null)} className="p-1.5 text-slate-500 hover:text-slate-700" aria-label="Anulează">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmPublishId(`activity:${activityId}`)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                      >
+                        <Check className="w-3.5 h-3.5" /> Publică activitatea
+                      </button>
                     )}
                   </div>
                 )}
@@ -1297,6 +1350,11 @@ export default function DocumentRequests({
                         {getRequestAttachments(doc).map(attachment => attachment.original_name || attachment.storage_path.split('/').pop() || 'document').join(', ')} · {new Date(doc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </p>
                     </div>
+                    {isAdminOrConsultant && (
+                      <span className={`text-xs font-semibold ${doc.visibility === 'published' ? 'text-emerald-700' : 'text-amber-700'}`}>
+                        {doc.visibility === 'published' ? 'Publică' : 'În pregătire'}
+                      </span>
+                    )}
                     <ChevronRight className="w-4 h-4 text-emerald-300 flex-shrink-0" />
                   </button>
                 ))}
@@ -1353,6 +1411,11 @@ export default function DocumentRequests({
                         <span className={`flex-shrink-0 px-2.5 py-1 rounded-lg text-xs font-semibold ${status.bg} ${status.text} ${status.border} border`}>
                           {status.label}
                         </span>
+                        {isAdminOrConsultant && (
+                          <span className={`flex-shrink-0 px-2 py-1 rounded-lg text-xs font-semibold ${req.visibility === 'published' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                            {req.visibility === 'published' ? 'Publică' : 'În pregătire'}
+                          </span>
+                        )}
                       </div>
 
                       {(() => {
@@ -1366,6 +1429,35 @@ export default function DocumentRequests({
                       })()}
 
                       {req.description && <p className="text-sm text-slate-600 mb-3 line-clamp-2">{req.description}</p>}
+
+                      {isAdminOrConsultant && req.visibility === 'draft' && (
+                        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2" onClick={e => e.stopPropagation()}>
+                          {confirmPublishId === req.id ? (
+                            <>
+                              <span className="text-xs font-medium text-amber-900">Cererea va deveni vizibilă clientului.</span>
+                              <button
+                                type="button"
+                                onClick={async () => { await publishRequest(req.id); setConfirmPublishId(null) }}
+                                disabled={publishingId === req.id}
+                                className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                              >
+                                <Check className="w-3.5 h-3.5" /> Confirmă
+                              </button>
+                              <button type="button" onClick={() => setConfirmPublishId(null)} className="p-1 text-amber-800 hover:text-amber-950" aria-label="Anulează">
+                                <X className="w-4 h-4" />
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmPublishId(req.id)}
+                              className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-700 hover:text-indigo-900"
+                            >
+                              <Check className="w-3.5 h-3.5" /> Publică pentru client
+                            </button>
+                          )}
+                        </div>
+                      )}
 
                       <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-xs text-slate-500">
                         <span className="flex items-center gap-1.5">
@@ -1885,7 +1977,37 @@ export default function DocumentRequests({
             </div>
 
             {isAdminOrConsultant && (
-              <div className="border-t border-slate-100 bg-slate-50 px-6 py-4">
+              <div className="border-t border-slate-100 bg-slate-50 px-6 py-4 flex gap-2">
+                {selectedOutgoingDoc.visibility === 'draft' && (
+                  confirmPublishId === `outgoing:${selectedOutgoingDoc.id}` ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-slate-600">Documentul va deveni vizibil clientului.</span>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await publishRequest(selectedOutgoingDoc.id)
+                          setConfirmPublishId(null)
+                          setSelectedOutgoingDoc(null)
+                        }}
+                        disabled={publishingId === selectedOutgoingDoc.id}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        <Check className="w-4 h-4" /> Confirmă publicarea
+                      </button>
+                      <button type="button" onClick={() => setConfirmPublishId(null)} className="p-2 text-slate-500 hover:text-slate-700" aria-label="Anulează">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmPublishId(`outgoing:${selectedOutgoingDoc.id}`)}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+                    >
+                      <Check className="w-4 h-4" /> Publică pentru client
+                    </button>
+                  )
+                )}
                 <button
                   type="button"
                   onClick={() => {

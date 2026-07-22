@@ -24,6 +24,7 @@ export interface ProjectActivity {
   name: string
   status: string
   order_index: number
+  visibility: 'draft' | 'published'
   deadline_at?: string | null
   assigned_to?: string | null
   assigned_user?: { id: string; full_name: string | null; email: string } | null
@@ -34,6 +35,7 @@ export interface ProjectPhase {
   name: string
   status: string
   order_index: number
+  visibility: 'draft' | 'published'
   project_status_id: string
   project_status?: { id: string; name: string; color: string }
   activities?: ProjectActivity[]
@@ -399,6 +401,11 @@ export default function ProjectPhasesSidebar({
                     <span className={`flex-1 text-sm font-medium truncate ${isActive ? 'text-indigo-900' : 'text-slate-700'}`}>
                       {phase.name}
                     </span>
+                    {canEdit && (
+                      <span className={`text-[10px] font-semibold ${phase.visibility === 'published' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        {phase.visibility === 'published' ? 'Public' : 'În pregătire'}
+                      </span>
+                    )}
                     {isExpanded
                       ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
                       : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
@@ -467,6 +474,11 @@ export default function ProjectPhasesSidebar({
                             </span>
                           )}
                           <span className="text-xs text-slate-600 truncate flex-1">{act.name}</span>
+                          {canEdit && (
+                            <span className={`text-[10px] font-semibold ${act.visibility === 'published' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                              {act.visibility === 'published' ? 'Public' : 'În pregătire'}
+                            </span>
+                          )}
 
                           {/* Buton calendar — pentru admin/consultant */}
                           {canEdit && (
