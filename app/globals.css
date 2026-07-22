@@ -122,3 +122,36 @@ input:-webkit-autofill:active{
 .animate-fadeIn {
   animation: fadeIn 0.3s ease-out;
 }
+
+/* --------------------------------------------------------- */
+/* --- TOKEN-URI PAGINA PROIECTULUI (#55) --- */
+/* Domeniu local, sub .project-scope — restul aplicației rămâne pe modul
+   "light forțat" definit mai sus, neschimbat. */
+/* --------------------------------------------------------- */
+
+.project-scope {
+  --p-bg: #F8FAFC;
+  --p-surface: #FFFFFF;
+  --p-surface-2: #F1F5F9;
+  --p-border: #E2E8F0;
+  --p-border-strong: #CBD5E1;
+  --p-ink: #0F172A;
+  --p-ink-soft: #475569;
+  --p-ink-faint: #94A3B8;
+  --p-accent: #4A3F7A;
+  --p-accent-soft: #EDEAF7;
+  --p-accent-ink: #34294F;
+  --p-success: #2F7D5C;
+  --p-success-soft: #E4F3EC;
+  --p-warning: #B8792E;
+  --p-warning-soft: #FBEEDD;
+  --p-danger: #B94A3D;
+  --p-danger-soft: #FBE9E6;
+  --p-draft: #6E6A85;
+  --p-draft-soft: #EDECF4;
+  font-family: var(--font-manrope), var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+.font-display {
+  font-family: var(--font-fraunces), Georgia, serif;
+}
