@@ -8,6 +8,7 @@ import {
   Check, X, Paperclip, Upload, Loader2, Pencil
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { useToast } from '@/app/providers/ToastProvider'
 import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS, REQUIREMENT_BADGE } from '@/lib/requirement-type'
 
 interface ClientProfile {
@@ -80,6 +81,7 @@ function generateId() {
 
 export default function NewProjectPage() {
   const { apiFetch } = useAuth()
+  const { showToast } = useToast()
   const router = useRouter()
 
   const [clients, setClients] = useState<ClientProfile[]>([])
@@ -450,8 +452,8 @@ export default function NewProjectPage() {
       }
 
       router.push(`/projects/${projectId}`)
-    } catch (err: any) {
-      alert('Eroare: ' + (err?.message || 'Unknown error'))
+    } catch {
+      showToast('Nu am putut crea proiectul. Verifică datele și reîncearcă.', 'error')
     } finally {
       setLoading(false)
     }

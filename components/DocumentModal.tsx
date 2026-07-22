@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
@@ -18,6 +17,7 @@ import {
   Trash2
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { useToast } from '@/app/providers/ToastProvider'
 import { downloadFilesArchive } from '@/app/api/_utils/download-files-archive'
 import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
 import { Mail } from 'lucide-react'
@@ -65,8 +65,6 @@ interface DocumentRequest {
   } | null
 }
 
-type ToastType = 'success' | 'error' | 'info'
-
 const MODEL_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'jpg', 'jpeg', 'png', 'gif', 'webp'])
 const MODEL_MAX_SIZE = 25 * 1024 * 1024
 
@@ -99,16 +97,16 @@ export default function DocumentModal({
   projectTitle?: string
 }) {
   const { apiFetch, profile } = useAuth()
+  const { showToast, confirm } = useToast()
   const [notes, setNotes] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
-  const [showRejectConfirm, setShowRejectConfirm] = useState(false)
-  const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null)
   const [attachmentMissing, setAttachmentMissing] = useState(!!request.attachment_missing_at)
   const [localAttachmentPath, setLocalAttachmentPath] = useState<string | null>(request.attachment_path)
   const [attachmentActionLoading, setAttachmentActionLoading] = useState(false)
   const attachmentInputRef = useRef<HTMLInputElement | null>(null)
+  const handleApproveRef = useRef<(() => Promise<void>) | null>(null)
 
   // Deadline edit state
   const [editingDeadline, setEditingDeadline] = useState(false)
@@ -146,8 +144,8 @@ export default function DocumentModal({
         setEditingDeadline(false)
         onUpdate()
       } else {
-        const d = await res.json().catch(() => null)
-        alert(d?.error || 'Eroare la salvare')
+        await res.json().catch(() => null)
+        showToast('Nu am putut salva termenul-limită. Reîncearcă.', 'error')
       }
     } finally {
       setSavingDeadline(false)
@@ -191,12 +189,6 @@ export default function DocumentModal({
     return new Date(localDeadline) < new Date() && request.status === 'pending'
   }, [localDeadline, request.status])
 
-  // Toast system
-  const showToast = (message: string, type: ToastType = 'info') => {
-    setToast({ message, type })
-    setTimeout(() => setToast(null), 3000)
-  }
-
   useEffect(() => {
     setMounted(true)
     document.body.style.overflow = 'hidden'
@@ -205,7 +197,7 @@ export default function DocumentModal({
     const handleKeyboard = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
       if (e.key === 'Enter' && e.ctrlKey && isAdminOrConsultant && request.status === 'review') {
-        handleApprove()
+        void handleApproveRef.current?.()
       }
     }
 
@@ -215,7 +207,7 @@ export default function DocumentModal({
       document.body.style.overflow = 'unset'
       window.removeEventListener('keydown', handleKeyboard)
     }
-  }, [request.status, isAdminOrConsultant])
+  }, [request.status, isAdminOrConsultant, onClose])
 
   const forceDownload = (url: string) => {
     const a = document.createElement('a')
@@ -303,8 +295,8 @@ export default function DocumentModal({
       })
   
       showToast('Arhiva a fost descărcată.', 'success')
-    } catch (error: any) {
-      showToast('Eroare la descărcare: ' + error.message, 'error')
+    } catch {
+      showToast('Nu am putut descărca arhiva. Reîncearcă.', 'error')
     } finally {
       setDownloadingId(null)
     }
@@ -325,13 +317,13 @@ export default function DocumentModal({
           setAttachmentMissing(true)
           onUpdate()
         }
-        throw new Error(data?.error || res.statusText)
+        throw new Error('Nu am putut descărca modelul.')
       }
       
       forceDownload(data.url)
       showToast('Descărcare începută', 'success')
-    } catch (error: any) {
-      showToast('Eroare la descărcare: ' + error.message, 'error')
+    } catch {
+      showToast('Nu am putut descărca modelul. Reîncearcă.', 'error')
     } finally {
       setDownloadingId(null)
     }
@@ -409,8 +401,8 @@ export default function DocumentModal({
       setAttachmentMissing(false)
       onUpdate()
       showToast('Modelul a fost actualizat.', 'success')
-    } catch (error: any) {
-      showToast('Eroare la actualizarea modelului: ' + error.message, 'error')
+    } catch {
+      showToast('Nu am putut actualiza modelul. Reîncearcă.', 'error')
     } finally {
       if (attachmentInputRef.current) attachmentInputRef.current.value = ''
       setAttachmentActionLoading(false)
@@ -419,7 +411,7 @@ export default function DocumentModal({
 
   const handleRemoveModel = async () => {
     if (!isAdminOrConsultant || attachmentActionLoading) return
-    if (!confirm('Elimini modelul din această cerere? Clientul nu va mai vedea că există un model atașat.')) return
+    if (!await confirm({ title: 'Elimini modelul?', description: 'Clientul nu va mai vedea că există un model atașat.', confirmText: 'Elimină modelul' })) return
 
     setAttachmentActionLoading(true)
     try {
@@ -428,8 +420,8 @@ export default function DocumentModal({
       setAttachmentMissing(false)
       onUpdate()
       showToast('Modelul a fost eliminat din cerere.', 'success')
-    } catch (error: any) {
-      showToast('Eroare la eliminarea modelului: ' + error.message, 'error')
+    } catch {
+      showToast('Nu am putut elimina modelul. Reîncearcă.', 'error')
     } finally {
       setAttachmentActionLoading(false)
     }
@@ -443,12 +435,12 @@ export default function DocumentModal({
         body: JSON.stringify({ expiresIn: 60 * 5 })
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || res.statusText)
+      if (!res.ok) throw new Error('Nu am putut descărca fișierul.')
       
       forceDownload(data.url)
       showToast('Descărcare începută', 'success')
-    } catch (error: any) {
-      showToast('Eroare la descărcare: ' + error.message, 'error')
+    } catch {
+      showToast('Nu am putut descărca fișierul. Reîncearcă.', 'error')
     } finally {
       setDownloadingId(null)
     }
@@ -478,12 +470,13 @@ export default function DocumentModal({
         onUpdate()
         onClose()
       }, 500)
-    } catch (e: any) {
-      showToast('Eroare: ' + e.message, 'error')
+    } catch {
+      showToast('Nu am putut aproba documentul. Reîncearcă.', 'error')
     } finally {
       setActionLoading(false)
     }
   }
+  handleApproveRef.current = handleApprove
 
   const handleReject = async () => {
     if (!notes.trim()) {
@@ -496,15 +489,24 @@ export default function DocumentModal({
       await reviewRequest('rejected')
       showToast('Document respins', 'success')
       setNotes('')
-      setShowRejectConfirm(false)
       setTimeout(() => {
         onUpdate()
         onClose()
       }, 500)
-    } catch (e: any) {
-      showToast('Eroare: ' + e.message, 'error')
+    } catch {
+      showToast('Nu am putut respinge documentul. Reîncearcă.', 'error')
     } finally {
       setActionLoading(false)
+    }
+  }
+
+  const confirmReject = async () => {
+    if (!notes.trim()) {
+      showToast('Te rog scrie motivul respingerii, ca utilizatorul să știe ce să corecteze.', 'warning')
+      return
+    }
+    if (await confirm({ title: 'Confirmă respingerea', description: 'Utilizatorul va trebui să reîncarce documentele.', confirmText: 'Respinge documentul' })) {
+      await handleReject()
     }
   }
 
@@ -523,31 +525,6 @@ export default function DocumentModal({
       role="dialog"
       aria-modal="true"
     >
-      {/* Toast Notification */}
-      {toast && (
-        <div
-          className="fixed top-4 right-4 z-[1000000] animate-in slide-in-from-top-2 fade-in duration-300"
-          style={{ maxWidth: '400px' }}
-        >
-          <div className={`rounded-xl shadow-2xl border p-4 flex items-start gap-3 ${
-            toast.type === 'success' ? 'bg-emerald-50 border-emerald-200' :
-            toast.type === 'error' ? 'bg-red-50 border-red-200' :
-            'bg-blue-50 border-blue-200'
-          }`}>
-            {toast.type === 'success' && <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />}
-            {toast.type === 'error' && <XCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />}
-            {toast.type === 'info' && <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />}
-            <p className={`text-sm font-medium ${
-              toast.type === 'success' ? 'text-emerald-900' :
-              toast.type === 'error' ? 'text-red-900' :
-              'text-blue-900'
-            }`}>
-              {toast.message}
-            </p>
-          </div>
-        </div>
-      )}
-
       <div className="absolute inset-0" onClick={onClose} />
 
       <div className="relative bg-white w-full max-w-2xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
@@ -938,7 +915,7 @@ export default function DocumentModal({
         {isAdminOrConsultant && request.status === 'review' && (
           <div className="px-5 sm:px-6 py-4 border-t border-slate-100 flex flex-col sm:flex-row gap-2.5">
             <button
-              onClick={() => setShowRejectConfirm(true)}
+              onClick={confirmReject}
               disabled={actionLoading}
               className="flex-1 py-3 rounded-xl text-sm font-bold border border-red-200 text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
@@ -1002,50 +979,6 @@ export default function DocumentModal({
         )}
       </div>
 
-      {/* Reject Confirmation Dialog */}
-      {showRejectConfirm && (
-        <div className="absolute inset-0 flex items-center justify-center p-4 z-10">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setShowRejectConfirm(false)} />
-          
-          <div className="relative bg-white rounded-xl shadow-2xl p-6 max-w-md w-full">
-            <div className="flex items-start gap-4 mb-4">
-              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                <AlertCircle className="w-6 h-6 text-red-600" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-slate-900 mb-1">Confirmă respingerea</h3>
-                <p className="text-sm text-slate-600">
-                  Ești sigur că vrei să respingi acest document? Clientul va trebui să reîncarce fișierele.
-                </p>
-              </div>
-            </div>
-
-            {!notes.trim() && (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg mb-4">
-                <p className="text-xs text-amber-800 font-medium">
-                  ⚠️ Te rog scrie un motiv în câmpul de feedback pentru ca clientul să știe ce să corecteze.
-                </p>
-              </div>
-            )}
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowRejectConfirm(false)}
-                className="flex-1 py-2.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 font-medium transition-colors"
-              >
-                Anulează
-              </button>
-              <button
-                onClick={handleReject}
-                disabled={!notes.trim() || actionLoading}
-                className="flex-1 py-2.5 rounded-lg bg-red-600 text-white hover:bg-red-700 font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {actionLoading ? 'Se procesează...' : 'Confirmă respingere'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 

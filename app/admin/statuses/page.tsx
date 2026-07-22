@@ -1,7 +1,6 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { 
   Plus, Trash2, GripVertical, Save, X, Palette, 
@@ -10,6 +9,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
+import { useToast } from '@/app/providers/ToastProvider'
 
 interface ProjectStatus {
   id: string
@@ -57,6 +57,7 @@ function generateSlug(text: string): string {
 export default function AdminStatusesPage() {
   const router = useRouter()
   const { loading: authLoading, token, apiFetch } = useAuth()
+  const { showToast } = useToast()
   
   const [statuses, setStatuses] = useState<ProjectStatus[]>([])
   const [loading, setLoading] = useState(true)
@@ -73,7 +74,7 @@ export default function AdminStatusesPage() {
   const [draggedId, setDraggedId] = useState<string | null>(null)
   const [hasOrderChanges, setHasOrderChanges] = useState(false)
 
-  const fetchStatuses = async () => {
+  const fetchStatuses = useCallback(async () => {
     try {
       setLoading(true)
       const res = await apiFetch('/api/admin/statuses')
@@ -85,13 +86,13 @@ export default function AdminStatusesPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [apiFetch])
 
   useEffect(() => {
     if (authLoading) return
     if (!token) { router.replace('/login'); return }
     fetchStatuses()
-  }, [authLoading, token, router])
+  }, [authLoading, token, router, fetchStatuses])
 
   useEffect(() => {
     if (newStatus.name && !editingId) {
@@ -112,7 +113,7 @@ export default function AdminStatusesPage() {
       setNewStatus({ name: '', slug: '', description: '', color: '#6366F1', icon: 'Circle', order_index: 0 })
       setShowNewForm(false)
       fetchStatuses()
-    } catch (error: any) { alert('Eroare: ' + error.message) }
+    } catch { showToast('Nu am putut salva statusul. Reîncearcă.', 'error') }
     finally { setSaving(false) }
   }
 
@@ -127,7 +128,7 @@ export default function AdminStatusesPage() {
       if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Eroare') }
       setEditingId(null); setEditData({})
       fetchStatuses()
-    } catch (error: any) { alert('Eroare: ' + error.message) }
+    } catch { showToast('Nu am putut actualiza statusul. Reîncearcă.', 'error') }
     finally { setSaving(false) }
   }
 
@@ -139,7 +140,7 @@ export default function AdminStatusesPage() {
       if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Eroare') }
       setDeleteModalOpen(false); setStatusToDelete(null)
       fetchStatuses()
-    } catch (error: any) { alert('Eroare: ' + error.message) }
+    } catch { showToast('Nu am putut șterge statusul. Reîncearcă.', 'error') }
     finally { setIsDeleting(false) }
   }
 
@@ -168,7 +169,7 @@ export default function AdminStatusesPage() {
       })
       if (!res.ok) throw new Error('Eroare la salvare ordine')
       setHasOrderChanges(false)
-    } catch (error: any) { alert('Eroare: ' + error.message); fetchStatuses() }
+    } catch { showToast('Nu am putut salva ordinea. Reîncearcă.', 'error'); fetchStatuses() }
     finally { setSaving(false) }
   }
 

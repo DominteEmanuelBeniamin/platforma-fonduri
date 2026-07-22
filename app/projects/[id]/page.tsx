@@ -27,6 +27,7 @@ import type { ProjectPhase } from '@/components/ProjectPhasesSidebar'
 import DocumentRequests from '@/components/DocumentRequests'
 import ProjectDocumentsView from '@/components/ProjectDocumentsView'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { useToast } from '@/app/providers/ToastProvider'
 
 // Secțiunea distinctă „Cereri generale" (documente fără fază/activitate)
 const GENERAL_ID = '__general__'
@@ -45,6 +46,7 @@ function ProjectDetailsContent() {
   }, [params])
 
   const { loading: authLoading, token, apiFetch, profile } = useAuth()
+  const { showToast } = useToast()
 
   const [project, setProject] = useState<any>(null)
   const [phases, setPhases] = useState<ProjectPhase[]>([])
@@ -174,7 +176,7 @@ function ProjectDetailsContent() {
       })
       const data = await res.json().catch(() => null)
       if (res.ok) { setProject(data.project); setIsEditingTitle(false) }
-      else alert(data?.error || 'Eroare')
+      else showToast('Nu am putut salva proiectul. Reîncearcă.', 'error')
     } finally { setSaving(false) }
   }
 
@@ -185,8 +187,8 @@ function ProjectDetailsContent() {
         { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assigned_to: assignedTo }) }
       )
       if (res.ok) fetchAll()
-      else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare la atribuire') }
-    } catch (e: any) { alert('Eroare: ' + e.message) }
+      else { showToast('Nu am putut atribui consultantul. Reîncearcă.', 'error') }
+    } catch { showToast('Nu am putut atribui consultantul. Reîncearcă.', 'error') }
   }
 
   const handleAssignGeneralConsultant = async (assignedTo: string | null) => {
@@ -200,10 +202,10 @@ function ProjectDetailsContent() {
         const data = await res.json().catch(() => null)
         if (data?.project) setProject(data.project)
       } else {
-        const d = await res.json().catch(() => null)
-        alert(d?.error || 'Eroare la atribuire')
+        await res.json().catch(() => null)
+        showToast('Nu am putut atribui consultantul. Reîncearcă.', 'error')
       }
-    } catch (e: any) { alert('Eroare: ' + e.message) }
+    } catch { showToast('Nu am putut atribui consultantul. Reîncearcă.', 'error') }
   }
 
   const handleToggleExpand = (phaseId: string) => {

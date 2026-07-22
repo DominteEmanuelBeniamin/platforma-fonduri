@@ -4,6 +4,7 @@ import "./globals.css";
 import Navbar from "@/components/Navbar"; // <-- Importăm noul Navbar
 import { AuthProvider } from './providers/AuthProvider'
 import { ProjectChatUnreadProvider } from './providers/ProjectChatUnreadProvider'
+import { ToastProvider } from './providers/ToastProvider'
 
 const inter = Inter({ subsets: ["latin"], variable: '--font-inter' });
 
@@ -20,6 +21,7 @@ export default function RootLayout({
   return (
     <html lang="ro" className="h-full">
       <body className={`${inter.className} h-full bg-slate-50 text-slate-900 antialiased`}>
+        <ToastProvider>
         <AuthProvider>
           <ProjectChatUnreadProvider>
             {/* Navbar-ul Inteligent */}
@@ -38,6 +40,7 @@ export default function RootLayout({
             </main>
           </ProjectChatUnreadProvider>
         </AuthProvider>
+        </ToastProvider>
       </body>
     </html>
   );

@@ -1,9 +1,9 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { userErrorMessage } from '@/lib/user-error'
 
 export type PrivateChatProfile = {
   id: string
@@ -145,7 +145,7 @@ export function usePrivateChat(
       const json = (await res.json().catch(() => null)) as GetMessagesResponse | null
 
       if (!res.ok) {
-        setError((json as any)?.error ?? 'Failed to load messages')
+        setError(userErrorMessage(res.status, 'Nu am putut încărca mesajele.'))
         resetState()
         return
       }
@@ -159,7 +159,7 @@ export function usePrivateChat(
       setMessages(oldestFirst)
       setNextCursor(cursor)
     } catch {
-      setError('Failed to load messages')
+      setError(userErrorMessage(undefined, 'Nu am putut încărca mesajele.'))
     } finally {
       setLoading(false)
     }
@@ -183,7 +183,7 @@ export function usePrivateChat(
       const json = (await res.json().catch(() => null)) as GetMessagesResponse | null
 
       if (!res.ok) {
-        setError((json as any)?.error ?? 'Failed to load more messages')
+        setError(userErrorMessage(res.status, 'Nu am putut încărca mesajele mai vechi.'))
         return
       }
 
@@ -209,7 +209,7 @@ export function usePrivateChat(
 
       setNextCursor(cursor)
     } catch {
-      setError('Failed to load more messages')
+      setError(userErrorMessage(undefined, 'Nu am putut încărca mesajele mai vechi.'))
     } finally {
       setLoading(false)
     }
@@ -231,14 +231,14 @@ export function usePrivateChat(
         const json = (await res.json().catch(() => null)) as PostMessageResponse | null
 
         if (!res.ok) {
-          setError((json as any)?.error ?? 'Failed to send message')
+          setError(userErrorMessage(res.status, 'Nu am putut trimite mesajul.'))
           return
         }
 
         const item = json?.item
         if (item) pushOne(item)
       } catch {
-        setError('Failed to send message')
+        setError(userErrorMessage(undefined, 'Nu am putut trimite mesajul.'))
       } finally {
         setSending(false)
       }
@@ -264,13 +264,13 @@ export function usePrivateChat(
         const json = (await res.json().catch(() => null)) as PatchMessageResponse | null
 
         if (!res.ok) {
-          setError((json as any)?.error ?? 'Failed to edit message')
+          setError(userErrorMessage(res.status, 'Nu am putut edita mesajul.'))
           return
         }
 
         if (json?.item) upsertOne(json.item)
       } catch {
-        setError('Failed to edit message')
+        setError(userErrorMessage(undefined, 'Nu am putut edita mesajul.'))
       }
     },
     [apiFetch, conversationId, upsertOne]
@@ -290,7 +290,7 @@ export function usePrivateChat(
         const json = (await res.json().catch(() => null)) as DeleteMessageResponse | null
 
         if (!res.ok || !json?.ok) {
-          setError((json as any)?.error ?? 'Failed to delete message')
+          setError(userErrorMessage(res.status, 'Nu am putut șterge mesajul.'))
           return
         }
 
@@ -299,7 +299,7 @@ export function usePrivateChat(
           prev.map((m) => (m.id === messageId ? { ...m, deleted_at: nowIso } : m))
         )
       } catch {
-        setError('Failed to delete message')
+        setError(userErrorMessage(undefined, 'Nu am putut șterge mesajul.'))
       }
     },
     [apiFetch, conversationId]

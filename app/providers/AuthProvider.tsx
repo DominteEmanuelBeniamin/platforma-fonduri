@@ -1,10 +1,9 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable react-hooks/preserve-manual-memoization */
 'use client'
 
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
+import { userErrorMessage } from '@/lib/user-error'
 
 type Profile = {
   id: string
@@ -37,8 +36,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   // apiFetch: toate requesturile către API routes cu Bearer token
-  const apiFetch = useMemo(() => {
-    return async (input: RequestInfo, init?: RequestInit) => {
+  const apiFetch = useCallback(async (input: RequestInfo, init?: RequestInit) => {
       if (!token) {
         throw new Error('Missing Authorization Bearer token')
       }
@@ -52,8 +50,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         headers.set('Content-Type', 'application/json')
       }
 
-      return fetch(input, { ...init, headers })
-    }
+      const response = await fetch(input, { ...init, headers })
+
+      if (!response.ok) {
+        const readJson = response.json.bind(response)
+        Object.defineProperty(response, 'json', {
+          value: async () => {
+            const body = await readJson()
+            if (body && typeof body === 'object' && 'error' in body) {
+              return { ...body, error: userErrorMessage(response.status, 'Nu am putut finaliza acțiunea.') }
+            }
+            return body
+          },
+        })
+      }
+
+      return response
   }, [token])
 
   // 1) Inițializare: citim sesiunea și ne abonăm la schimbări
@@ -129,7 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // Acceptăm fie { profile }, fie { user, profile }
         setProfile(json?.profile ?? null)
-      } catch (_e) {
+      } catch {
         if (!cancelled) setProfile(null)
       }
     }
@@ -141,7 +153,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [token, apiFetch])
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     // Înregistrăm audit log pentru logout ÎNAINTE de a șterge sesiunea
     if (token) {
       try {
@@ -165,12 +177,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null)
     setProfile(null)
     router.replace('/login')
-  }
+  }, [router, token])
 
   const value = useMemo(
-    // eslint-disable-next-line react-hooks/preserve-manual-memoization
     () => ({ token, userId, user, profile, loading, apiFetch, signOut }),
-    [token, userId, user, profile, loading, apiFetch]
+    [token, userId, user, profile, loading, apiFetch, signOut]
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

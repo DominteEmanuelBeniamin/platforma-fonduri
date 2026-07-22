@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, use } from 'react'
 import { Download, Loader2, AlertCircle, FileText } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { useToast } from '@/app/providers/ToastProvider'
 import { getExtension, isImageFileName } from '@/lib/file-preview'
 
 // Vizualizare într-o pagină proprie: fișierul e descărcat din Supabase Storage
@@ -32,6 +33,7 @@ export default function PreviewPage({
 }) {
   const { kind, id } = use(params)
   const { apiFetch, token, loading: authLoading } = useAuth()
+  const { showToast } = useToast()
 
   const [status, setStatus] = useState<Status>('loading')
   const [error, setError] = useState('')
@@ -97,8 +99,8 @@ export default function PreviewPage({
         setIsImage(image)
         setBlobUrl(URL.createObjectURL(typed))
         setStatus('ready')
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Eroare la încărcarea fișierului')
+      } catch {
+        setError('Nu am putut încărca fișierul. Reîncearcă.')
         setStatus('error')
       }
     })()
@@ -129,8 +131,8 @@ export default function PreviewPage({
       document.body.appendChild(a)
       a.click()
       a.remove()
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Eroare la descărcare')
+    } catch {
+      showToast('Nu am putut descărca fișierul. Reîncearcă.', 'error')
     } finally {
       setDownloading(false)
     }

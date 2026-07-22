@@ -36,6 +36,8 @@ import {
 import DocumentModal from './DocumentModal'
 import ConfirmDeleteModal from './ConfirmDeleteModal'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { useToast } from '@/app/providers/ToastProvider'
+import { FeedbackMessage } from '@/components/FeedbackMessage'
 import {
   getReminderType,
   generateMailtoLink,
@@ -249,6 +251,7 @@ export default function DocumentRequests({
   projectTitle,
 }: DocumentRequestsProps) {
   const { loading: authLoading, token, profile, apiFetch } = useAuth()
+  const { showToast } = useToast()
 
   const [internalRequests, setInternalRequests] = useState<DocumentRequest[]>([])
   const [loading, setLoading] = useState(!externalRequests)
@@ -362,7 +365,7 @@ export default function DocumentRequests({
         body: JSON.stringify({ orders: order.map((id, i) => ({ id, order_index: i + 1 })) }),
       })
       if (res.ok) await Promise.resolve(onRefresh ? onRefresh() : fetchRequests())
-      else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare la salvarea ordinii') }
+      else { showToast('Nu am putut salva ordinea. Reîncearcă.', 'error') }
     } finally { setReqOrder(null) }
   }
 
@@ -494,7 +497,7 @@ export default function DocumentRequests({
     try {
       const res = await apiFetch(`/api/projects/${projectId}/document-requests`, { method: 'GET' })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || res.statusText)
+      if (!res.ok) throw new Error('Nu am putut încărca cererile de documente.')
       setInternalRequests(data?.requests || [])
     } catch (e: any) {
       console.error('Eroare la încărcare cereri:', e.message)
@@ -616,7 +619,7 @@ export default function DocumentRequests({
       }),
     })
     const init = await initRes.json().catch(() => ({}))
-    if (!initRes.ok) throw new Error(init?.error || 'Init upload failed')
+    if (!initRes.ok) throw new Error('Nu am putut inițializa încărcarea fișierelor.')
 
     // 2. Upload fișiere INDIVIDUAL cu progress tracking
     const uploadResults = await Promise.allSettled(
@@ -643,7 +646,7 @@ export default function DocumentRequests({
           })
 
           if (!res.ok) {
-            throw new Error(`Upload failed: ${res.statusText}`)
+            throw new Error('Încărcarea fișierului a eșuat.')
           }
 
           // Success
@@ -661,7 +664,7 @@ export default function DocumentRequests({
           setClientFiles(prev => 
             prev.map(f => 
               f.id === pickedFile.id 
-                ? { ...f, uploadStatus: 'error' as const, uploadError: error.message }
+                ? { ...f, uploadStatus: 'error' as const, uploadError: 'Încărcarea fișierului a eșuat. Reîncearcă.' }
                 : f
             )
           )
@@ -699,8 +702,7 @@ export default function DocumentRequests({
         })),
       }),
     })
-    const complete = await completeRes.json().catch(() => ({}))
-    if (!completeRes.ok) throw new Error(complete?.error || 'Complete upload failed')
+    if (!completeRes.ok) throw new Error('Nu am putut finaliza încărcarea fișierelor.')
 
     return {
       total: uploadResults.length,
@@ -714,7 +716,7 @@ export default function DocumentRequests({
     const validFiles = clientFiles.filter(f => !f.validationError)
     
     if (validFiles.length === 0) {
-      alert('Niciun fișier valid de încărcat. Verifică erorile de validare.')
+      showToast('Nu există fișiere valide. Verifică erorile de validare.', 'warning')
       return
     }
 
@@ -724,21 +726,16 @@ export default function DocumentRequests({
       
       // Success message
       if (result.failed === 0) {
-        alert(`✓ Toate ${result.successful} fișiere încărcate cu succes!`)
+        showToast(`Au fost încărcate ${result.successful} fișiere.`, 'success')
       } else {
-        alert(
-          `Parțial reușit:\n` +
-          `✓ ${result.successful} fișiere încărcate\n` +
-          `✗ ${result.failed} fișiere eșuate\n\n` +
-          `Erori:\n${result.failures.map((f: any) => `- ${f.name}: ${f.error}`).join('\n')}`
-        )
+        showToast(`${result.successful} fișiere au fost încărcate, iar ${result.failed} au eșuat. Verifică lista fișierelor.`, 'warning')
       }
 
       // Clear și refresh
       clearAllFiles()
       await fetchRequests()
-    } catch (e: any) {
-      alert('Eroare la încărcare: ' + e.message)
+    } catch {
+      showToast('Nu am putut încărca fișierele. Reîncearcă.', 'error')
     } finally {
       setSubmitting(false)
     }
@@ -756,7 +753,7 @@ export default function DocumentRequests({
         setMissingAttachments(prev => new Set(prev).add(requestId))
         await fetchRequests()
       }
-      alert('Eroare la descărcare: ' + (data?.error || res.statusText))
+      showToast('Nu am putut descărca modelul. Reîncearcă.', 'error')
       return null
     }
     return data.url as string
@@ -781,8 +778,8 @@ export default function DocumentRequests({
 
       setRequestToDelete(null)
       await fetchRequests()
-    } catch (e: any) {
-      alert('Eroare la ștergere: ' + e.message)
+    } catch {
+      showToast('Nu am putut șterge cererea. Reîncearcă.', 'error')
     } finally {
       setDeleteLoading(false)
     }
@@ -873,8 +870,8 @@ export default function DocumentRequests({
 
       closeRequestForm()
       await fetchRequests()
-    } catch (e: any) {
-      alert('Eroare: ' + e.message)
+    } catch {
+      showToast('Nu am putut salva cererea. Reîncearcă.', 'error')
     } finally {
       setSubmitting(false)
     }
@@ -931,8 +928,8 @@ export default function DocumentRequests({
 
           successful += 1
           updateSendFile(pickedFile.id, { uploadStatus: 'success', uploadProgress: 100 })
-        } catch (error: any) {
-          const message = error?.message || 'Trimiterea documentului a eșuat'
+        } catch {
+          const message = 'Trimiterea documentului a eșuat. Reîncearcă.'
           failures.push({ id: pickedFile.id, name: pickedFile.name, error: message })
           updateSendFile(pickedFile.id, { uploadStatus: 'error', uploadError: message })
         }
@@ -945,12 +942,7 @@ export default function DocumentRequests({
         setShowSendDoc(false)
       } else {
         setSendFiles(prev => prev.filter(f => f.validationError || failures.some(fail => fail.id === f.id)))
-        alert(
-          `Parțial reușit:\n` +
-          `${successful} documente trimise\n` +
-          `${failures.length} documente eșuate\n\n` +
-          failures.map(f => `- ${f.name}: ${f.error}`).join('\n')
-        )
+        showToast(`${successful} documente au fost trimise, iar ${failures.length} au eșuat. Verifică lista fișierelor.`, 'warning')
       }
     } finally {
       setSendSubmitting(false)
@@ -1244,18 +1236,7 @@ export default function DocumentRequests({
                   ))}
                 </div>
               )}
-              {templateFileError && (
-                <div className="flex items-start gap-2 text-xs text-red-600">
-                  <AlertCircle className="w-3.5 h-3.5" />
-                  <span className="whitespace-pre-line">{templateFileError}</span>
-                </div>
-              )}
-              {templateFileError && (
-                <div className="flex items-center gap-2 text-xs text-red-600">
-                  <AlertCircle className="w-3.5 h-3.5" />
-                  <span>{templateFileError}</span>
-                </div>
-              )}
+              {templateFileError && <FeedbackMessage variant="error" className="text-xs"><span className="whitespace-pre-line">{templateFileError}</span></FeedbackMessage>}
               {editingRequest?.attachment_missing_at && (
                 <div className="flex items-center gap-2 text-xs text-amber-700">
                   <AlertCircle className="w-3.5 h-3.5" />
@@ -1569,20 +1550,10 @@ export default function DocumentRequests({
                                       </p>
 
                                       {/* Validation Error */}
-                                      {hasError && (
-                                        <p className="text-xs text-red-600 font-medium mt-1 flex items-center gap-1">
-                                          <AlertCircle className="w-3 h-3" />
-                                          {pickedFile.validationError?.message}
-                                        </p>
-                                      )}
+                                      {hasError && <FeedbackMessage variant="error" className="mt-1 text-xs">{pickedFile.validationError?.message}</FeedbackMessage>}
 
                                       {/* Upload Error */}
-                                      {isError && pickedFile.uploadError && (
-                                        <p className="text-xs text-red-600 font-medium mt-1 flex items-center gap-1">
-                                          <AlertCircle className="w-3 h-3" />
-                                          {pickedFile.uploadError}
-                                        </p>
-                                      )}
+                                      {isError && pickedFile.uploadError && <FeedbackMessage variant="error" className="mt-1 text-xs">{pickedFile.uploadError}</FeedbackMessage>}
 
                                       {/* Success Message */}
                                       {isSuccess && (
@@ -2055,18 +2026,8 @@ export default function DocumentRequests({
                                     {pickedFile.name}
                                   </p>
                                   <p className="text-xs text-slate-500 mt-0.5">{formatFileSize(pickedFile.size)}</p>
-                                  {hasError && (
-                                    <p className="text-xs text-red-600 font-medium mt-1 flex items-center gap-1">
-                                      <AlertCircle className="w-3 h-3" />
-                                      {pickedFile.validationError?.message}
-                                    </p>
-                                  )}
-                                  {isError && pickedFile.uploadError && (
-                                    <p className="text-xs text-red-600 font-medium mt-1 flex items-center gap-1">
-                                      <AlertCircle className="w-3 h-3" />
-                                      {pickedFile.uploadError}
-                                    </p>
-                                  )}
+                                  {hasError && <FeedbackMessage variant="error" className="mt-1 text-xs">{pickedFile.validationError?.message}</FeedbackMessage>}
+                                  {isError && pickedFile.uploadError && <FeedbackMessage variant="error" className="mt-1 text-xs">{pickedFile.uploadError}</FeedbackMessage>}
                                   {nameWarning && (
                                     <p className="text-xs text-amber-700 font-medium mt-1 flex items-center gap-1">
                                       <AlertCircle className="w-3 h-3" />

@@ -1,10 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { UserPlus, Trash2, Users, Building2, Briefcase, Shield, Info } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
+import { useToast } from '@/app/providers/ToastProvider'
 
 const roleConfig = {
   admin: {
@@ -45,6 +46,7 @@ const roleConfig = {
 export default function AdminUsersPage() {
   const router = useRouter()
   const { loading: authLoading, token, apiFetch } = useAuth()
+  const { showToast, confirm } = useToast()
 
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -69,23 +71,23 @@ export default function AdminUsersPage() {
   const [userToDelete, setUserToDelete] = useState<{ id: string; email: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       setLoading(true)
       const res = await apiFetch('/api/users')
-      if (!res.ok) { alert('Eroare la încărcarea utilizatorilor.'); return }
+      if (!res.ok) { showToast('Nu am putut încărca utilizatorii. Reîncearcă.', 'error'); return }
       const { users: data } = await res.json()
       setUsers(data)
     } finally {
       setLoading(false)
     }
-  }
+  }, [apiFetch, showToast])
 
   useEffect(() => {
     if (authLoading) return
     if (!token) { router.replace('/login'); return }
     fetchUsers()
-  }, [authLoading, token])
+  }, [authLoading, token, router, fetchUsers])
 
   useEffect(() => {
     setCif(''); setNumeFirma(''); setAdresaFirma(''); setPersoanaContact('')
@@ -102,30 +104,30 @@ export default function AdminUsersPage() {
       else if (newRole === 'admin') { payload.departament = departament || null }
 
       const res = await apiFetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error) }
+      if (!res.ok) throw new Error()
 
-      alert('Utilizator creat cu succes!')
+      showToast('Utilizatorul a fost creat.', 'success')
       setNewEmail(''); setNewPassword(''); setNewName(''); setTelefon('')
       setCif(''); setNumeFirma(''); setAdresaFirma(''); setPersoanaContact('')
       setSpecializare(''); setDepartament('')
       fetchUsers()
-    } catch (error: any) {
-      alert('Eroare: ' + error.message)
+    } catch {
+      showToast('Nu am putut crea utilizatorul. Verifică datele și reîncearcă.', 'error')
     } finally {
       setIsCreating(false)
     }
   }
 
   const updateUserRole = async (userId: string, newRole: string) => {
-    if (!confirm('Schimbi rolul?')) return
+    if (!await confirm({ title: 'Confirmă schimbarea rolului', description: 'Rolul utilizatorului va fi actualizat.', confirmText: 'Schimbă rolul' })) return
     setUpdatingRoleId(userId)
     try {
       const res = await apiFetch(`/api/users/${userId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: newRole }) })
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error) }
+      if (!res.ok) throw new Error()
       fetchUsers()
-      alert('Rol actualizat cu succes!')
-    } catch (error: any) {
-      alert('Eroare la update: ' + error.message)
+      showToast('Rolul utilizatorului a fost actualizat.', 'success')
+    } catch {
+      showToast('Nu am putut actualiza rolul. Reîncearcă.', 'error')
     } finally {
       setUpdatingRoleId(null)
     }
@@ -136,12 +138,12 @@ export default function AdminUsersPage() {
     setIsDeleting(true)
     try {
       const res = await apiFetch(`/api/users/${userToDelete.id}`, { method: 'DELETE' })
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error) }
+      if (!res.ok) throw new Error()
       setDeleteModalOpen(false)
       setUserToDelete(null)
       fetchUsers()
-    } catch (error: any) {
-      alert('Eroare la ștergere: ' + error.message)
+    } catch {
+      showToast('Nu am putut șterge utilizatorul. Reîncearcă.', 'error')
     } finally {
       setIsDeleting(false)
     }
