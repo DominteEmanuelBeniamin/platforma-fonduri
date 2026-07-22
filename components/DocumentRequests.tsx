@@ -253,7 +253,7 @@ export default function DocumentRequests({
   autoOpenRequestId,
 }: DocumentRequestsProps) {
   const { loading: authLoading, token, profile, apiFetch } = useAuth()
-  const { showToast } = useToast()
+  const { showToast, confirm } = useToast()
 
   const [internalRequests, setInternalRequests] = useState<DocumentRequest[]>([])
   const [loading, setLoading] = useState(!externalRequests)
@@ -316,7 +316,11 @@ export default function DocumentRequests({
     !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 
   const publishRequest = async (requestId: string) => {
-    if (!window.confirm('Cererea va deveni vizibilă clientului. Continui?')) return
+    if (!await confirm({
+      title: 'Publică cererea?',
+      description: 'Cererea va deveni vizibilă clientului.',
+      confirmText: 'Publică',
+    })) return
     try {
       const res = await apiFetch(`/api/document-requests/${requestId}`, {
         method: 'PATCH',
@@ -326,9 +330,13 @@ export default function DocumentRequests({
       if (res.ok) {
         setSelectedOutgoingDoc(prev => prev?.id === requestId ? { ...prev, visibility: 'published' } : prev)
         await fetchRequests()
+        showToast('Cererea a fost publicată.', 'success')
       }
-      else { const data = await res.json().catch(() => null); alert(data?.error || 'Eroare la publicare') }
-    } catch (e: any) { alert('Eroare: ' + e.message) }
+      else {
+        await res.json().catch(() => null)
+        showToast('Nu am putut publica cererea. Reîncearcă.', 'error')
+      }
+    } catch { showToast('Nu am putut publica cererea. Reîncearcă.', 'error') }
   }
 
   // Requests derivate: externe filtrate sau interne

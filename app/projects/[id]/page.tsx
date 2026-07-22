@@ -50,7 +50,7 @@ function ProjectDetailsContent() {
   }, [params])
 
   const { loading: authLoading, token, apiFetch, profile } = useAuth()
-  const { showToast } = useToast()
+  const { showToast, confirm } = useToast()
 
   const [project, setProject] = useState<any>(null)
   const [phases, setPhases] = useState<ProjectPhase[]>([])
@@ -250,28 +250,38 @@ function ProjectDetailsContent() {
         setShowAddActivity(prev => ({ ...prev, [phaseId]: false }))
         setNewActivityName(prev => ({ ...prev, [phaseId]: '' }))
         fetchAll()
+        showToast('Activitatea a fost adăugată.', 'success')
       } else {
-        const d = await res.json().catch(() => null)
-        alert(d?.error || 'Eroare la adăugare')
+        await res.json().catch(() => null)
+        showToast('Nu am putut adăuga activitatea. Reîncearcă.', 'error')
       }
-    } catch (e: any) {
-      alert('Eroare: ' + e.message)
+    } catch {
+      showToast('Nu am putut adăuga activitatea. Reîncearcă.', 'error')
     } finally {
       setAddingActivity(prev => ({ ...prev, [phaseId]: false }))
     }
   }
 
   const publishProjectItem = async (url: string) => {
-    if (!window.confirm('Elementul va deveni vizibil clientului. Continui?')) return
+    if (!await confirm({
+      title: 'Publică elementul?',
+      description: 'Elementul va deveni vizibil clientului.',
+      confirmText: 'Publică',
+    })) return
     try {
       const res = await apiFetch(url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ visibility: 'published' }),
       })
-      if (res.ok) await Promise.all([refreshPhases(), refreshDocs()])
-      else { const data = await res.json().catch(() => null); alert(data?.error || 'Eroare la publicare') }
-    } catch (e: any) { alert('Eroare: ' + e.message) }
+      if (res.ok) {
+        await Promise.all([refreshPhases(), refreshDocs()])
+        showToast('Elementul a fost publicat.', 'success')
+      } else {
+        await res.json().catch(() => null)
+        showToast('Nu am putut publica elementul. Reîncearcă.', 'error')
+      }
+    } catch { showToast('Nu am putut publica elementul. Reîncearcă.', 'error') }
   }
 
   const handleAssignGeneralConsultant = async (assignedTo: string | null) => {
