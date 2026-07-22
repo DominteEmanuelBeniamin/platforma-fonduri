@@ -531,7 +531,7 @@ function ProjectDetailsContent() {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="project-scope h-screen flex flex-col overflow-hidden bg-[var(--p-bg)] text-[var(--p-ink)] w-screen ml-[calc(50%-50vw)] mr-[calc(50%-50vw)]">
+    <div className="project-scope min-h-screen flex flex-col bg-[var(--p-bg)] text-[var(--p-ink)] w-screen ml-[calc(50%-50vw)] mr-[calc(50%-50vw)]">
 
       {/* ── Top bar ── */}
       <header className="bg-[var(--p-surface)] border-b border-[var(--p-border)] sticky top-0 z-20">
@@ -615,7 +615,7 @@ function ProjectDetailsContent() {
       </header>
 
       {/* ── Body: sidebar + main ── */}
-      <div className="flex flex-1 min-h-0 overflow-hidden w-full px-4 sm:px-6">
+      <div className="flex flex-1 w-full px-4 sm:px-6">
 
         {/* ══ SIDEBAR — ascuns în view documente ══ */}
         {activeView === 'phases' && (
@@ -640,10 +640,10 @@ function ProjectDetailsContent() {
         )}
 
         {/* ══ MAIN ══ */}
-        <main className="flex-1 min-h-0 overflow-y-auto min-w-0">
+        <main className="flex-1 min-w-0">
 
           {/* ── Tab switcher ── */}
-          <div className="sticky top-0 z-10 bg-[var(--p-surface)] border-b border-[var(--p-border)] px-4 sm:px-6">
+          <div className="sticky top-14 z-10 bg-[var(--p-surface)] border-b border-[var(--p-border)] px-4 sm:px-6">
             <div className="flex gap-1 -mb-px">
               <button
                 onClick={() => setActiveView('phases')}

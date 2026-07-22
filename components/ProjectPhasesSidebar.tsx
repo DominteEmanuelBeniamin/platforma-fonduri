@@ -372,9 +372,9 @@ export default function ProjectPhasesSidebar({
 
       <aside
         className={`fixed inset-y-0 left-0 z-[999999] w-80 max-w-[85vw] shadow-2xl
-        md:static md:z-auto md:w-64 lg:w-72 md:shadow-none md:translate-x-0
+        md:sticky md:top-14 md:inset-auto md:self-start md:z-auto md:w-64 lg:w-72 md:shadow-none md:translate-x-0
         flex flex-col flex-shrink-0 min-h-0 bg-[var(--p-surface)] md:border-r border-[var(--p-border)]
-        transition-transform duration-300 ease-out overflow-hidden
+        transition-transform duration-300 ease-out overflow-hidden md:overflow-visible
         ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
 
@@ -393,7 +393,7 @@ export default function ProjectPhasesSidebar({
       </div>
 
       {/* Phases list */}
-      <nav className="min-h-0 p-2 space-y-0.5 overflow-y-auto">
+      <nav className="flex-1 min-h-0 p-2 space-y-0.5 overflow-y-auto md:flex-none md:overflow-visible">
         {phases.length === 0 && !showAddPhase && (
           <div className="p-6 text-center">
             <FolderOpen className="w-8 h-8 text-[var(--p-ink-faint)] mx-auto mb-2" />
