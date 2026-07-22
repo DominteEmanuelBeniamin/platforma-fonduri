@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 'use client'
 
-import { Suspense, useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft,
@@ -79,6 +79,7 @@ function ProjectDetailsContent() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [autoOpenRequestId, setAutoOpenRequestId] = useState<string | null>(null)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const handledDeepLink = useRef<string | null>(null)
 
   const [showAddActivity, setShowAddActivity] = useState<Record<string, boolean>>({})
   const [newActivityName, setNewActivityName] = useState<Record<string, string>>({})
@@ -367,6 +368,12 @@ function ProjectDetailsContent() {
 
   // ─── Deep-link: scroll + highlight zona țintă din URL ───────────────────────
   useEffect(() => {
+    const deepLinkKey = `${targetPhaseId}:${targetActivityId}:${targetDocumentId}`
+    if (!targetPhaseId) {
+      handledDeepLink.current = null
+      return
+    }
+    if (handledDeepLink.current === deepLinkKey) return
     if (loading || activePhaseId !== targetPhaseId) return
     const anchor = targetActivityId
       ? `activity-${targetActivityId}`
@@ -377,6 +384,7 @@ function ProjectDetailsContent() {
     const timer = setTimeout(() => {
       const el = document.getElementById(anchor)
       if (!el) return
+      handledDeepLink.current = deepLinkKey
       el.scrollIntoView({ behavior: 'smooth', block: 'center' })
       if (targetActivityId) {
         setHighlightActivityId(targetActivityId)
