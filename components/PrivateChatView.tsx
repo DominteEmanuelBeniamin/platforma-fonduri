@@ -10,8 +10,10 @@ import {
   MoreHorizontal,
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { useToast } from '@/app/providers/ToastProvider'
 import { type PrivateChatMessage, usePrivateChat } from '@/hooks/usePrivateChat'
 import { getAvatarColor, getInitials } from '@/lib/avatar'
+import { FeedbackMessage } from '@/components/FeedbackMessage'
 
 type Props = {
   conversationId: string
@@ -108,6 +110,7 @@ export default function PrivateChatView({
   onMarkedAsRead,
 }: Props) {
   const { loading: authLoading, userId } = useAuth()
+  const { confirm } = useToast()
 
   const [text, setText] = useState('')
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
@@ -375,11 +378,7 @@ export default function PrivateChatView({
           </div>
         )}
 
-        {error && (
-          <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-            {error}
-          </div>
-        )}
+        {error && <FeedbackMessage variant="error" className="mb-4">{error}</FeedbackMessage>}
 
         {messages.map((m, idx) => {
           const prev = idx > 0 ? messages[idx - 1] : null
@@ -589,7 +588,7 @@ export default function PrivateChatView({
                                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50"
                                   onClick={async () => {
                                     setOpenMenuId(null)
-                                    if (confirm('Ești sigur că vrei să ștergi acest mesaj?')) {
+                                    if (await confirm({ title: 'Ștergi mesajul?', description: 'Mesajul va fi eliminat din conversație.', confirmText: 'Șterge mesajul' })) {
                                       await deleteMessage(m.id)
                                     }
                                   }}

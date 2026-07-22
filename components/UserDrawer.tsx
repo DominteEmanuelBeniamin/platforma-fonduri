@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useEffect, useState, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useState, useMemo, useRef } from 'react'
 import {
   X, FolderOpen, FileText, FileSpreadsheet,
   Image as ImageIcon, File, CheckCircle2, XCircle,
@@ -10,6 +10,7 @@ import {
   ExternalLink, ArrowLeft,
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { useToast } from '@/app/providers/ToastProvider'
 import { useRouter } from 'next/navigation'
 import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
 
@@ -117,6 +118,7 @@ function fmtDate(iso: string) {
 
 export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
   const { apiFetch } = useAuth()
+  const { showToast } = useToast()
   const router = useRouter()
 
   const [allDocs, setAllDocs] = useState<any[]>([])
@@ -141,18 +143,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
     return () => { document.body.style.overflow = '' }
   }, [open])
 
-  useEffect(() => {
-    if (!open || !user) return
-    setAllDocs([])
-    setSearch('')
-    setFilterStatus('all')
-    setFilterProject('all')
-    setPreviewUrls({})
-    fetchedIds.current.clear()
-    loadAll()
-  }, [open, user?.id])
-
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
     if (!user) return
     setLoading(true)
     try {
@@ -183,7 +174,18 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [apiFetch, user])
+
+  useEffect(() => {
+    if (!open || !user) return
+    setAllDocs([])
+    setSearch('')
+    setFilterStatus('all')
+    setFilterProject('all')
+    setPreviewUrls({})
+    fetchedIds.current.clear()
+    loadAll()
+  }, [open, user, loadAll])
 
   // Fetch image preview signed URLs
   useEffect(() => {
@@ -214,7 +216,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
       const res = await apiFetch(`/api/files/${fileId}/signed-download`, {
         method: 'POST', body: JSON.stringify({ expiresIn: 300 }),
       })
-      if (!res.ok) { alert('Eroare la descărcare'); return }
+      if (!res.ok) { showToast('Nu am putut descărca fișierul. Reîncearcă.', 'error'); return }
       const { url } = await res.json()
       const a = document.createElement('a'); a.href = url; a.rel = 'noopener'
       document.body.appendChild(a); a.click(); document.body.removeChild(a)

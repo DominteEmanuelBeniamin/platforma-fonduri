@@ -1,13 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from './providers/AuthProvider'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import { Mail, FileText, Clock, AlertTriangle, Check, MessageSquare } from 'lucide-react'
 import { useProjectChatUnread } from '@/app/providers/ProjectChatUnreadProvider'
+import { useToast } from '@/app/providers/ToastProvider'
 import {
   getReminderType,
   generateMailtoLink,
@@ -18,6 +19,7 @@ import {
 export default function Dashboard() {
   const router = useRouter()
   const { loading: authLoading, token, apiFetch } = useAuth()
+  const { showToast } = useToast()
 
   const [loading, setLoading] = useState(true)
   const [projects, setProjects] = useState<any[]>([])
@@ -34,19 +36,19 @@ export default function Dashboard() {
     return new Map(unreadProjects.map((item) => [item.projectId, item.unreadMessageCount]))
   }, [unreadProjects])
 
-  const fetchMyProjects = async () => {
+  const fetchMyProjects = useCallback(async () => {
     const res = await apiFetch('/api/projects')
     const json = await res.json()
     if (!res.ok) throw new Error(json?.error || 'Failed to load projects')
     setProjects(json.projects ?? [])
-  }
+  }, [apiFetch])
 
-  const fetchCurrentUser = async () => {
+  const fetchCurrentUser = useCallback(async () => {
     const res = await apiFetch('/api/me')
     const json = await res.json()
     if (!res.ok) throw new Error(json?.error || 'Failed to load current user')
     setCurrentUser(json.profile)
-  }
+  }, [apiFetch])
 
   // Delete project - cu modal de confirmare și API
   const handleDeleteProject = async () => {
@@ -61,9 +63,8 @@ export default function Dashboard() {
       setProjects(prev => prev.filter(p => p.id !== projectToDelete.id))
       setShowDeleteModal(false)
       setProjectToDelete(null)
-    } catch (error: any) {
-      console.error('Eroare la ștergere:', error)
-      alert('Nu s-a putut șterge proiectul: ' + error.message)
+    } catch {
+      showToast('Nu am putut șterge proiectul. Reîncearcă.', 'error')
     } finally {
       setDeleteLoading(false)
     }
@@ -90,7 +91,7 @@ export default function Dashboard() {
     setLoading(true)
     Promise.all([fetchMyProjects(), fetchCurrentUser()])
       .finally(() => setLoading(false))
-  }, [authLoading, token, router])
+  }, [authLoading, token, router, fetchMyProjects, fetchCurrentUser])
 
   useEffect(() => {
     if (authLoading || !token) return
@@ -99,8 +100,7 @@ export default function Dashboard() {
       .then(r => r.json())
       .then(d => setMyDocRequests(d.requests ?? []))
       .catch(console.error)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, token, currentUser?.role])
+  }, [authLoading, token, currentUser?.role, apiFetch])
 
   const toggleReminder = async (reqId: string) => {
     if (togglingId === reqId) return

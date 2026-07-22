@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { userErrorMessage } from '@/lib/user-error'
 
 export type PrivateChatUserSearchItem = {
   id: string
@@ -49,14 +50,14 @@ export function usePrivateChatUsers() {
       if (searchSeqRef.current !== searchSeq) return
 
       if (!res.ok) {
-        setError(json?.error ?? 'Search failed')
+        setError(userErrorMessage(res.status, 'Nu am putut căuta utilizatorii.'))
         return
       }
 
       setItems(json?.items ?? [])
     } catch {
       if (searchSeqRef.current !== searchSeq) return
-      setError('Search failed')
+      setError(userErrorMessage(undefined, 'Nu am putut căuta utilizatorii.'))
     } finally {
       if (searchSeqRef.current === searchSeq) {
         setLoading(false)

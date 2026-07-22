@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, X } from 'lucide-react'
+import { FeedbackMessage } from '@/components/FeedbackMessage'
 
 interface ConfirmDeleteModalProps {
   isOpen: boolean
@@ -136,11 +137,7 @@ export default function ConfirmDeleteModal({
             />
           </div>
 
-          {error && (
-            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
+          {error && <FeedbackMessage variant="error">{error}</FeedbackMessage>}
 
           {/* Feedback */}
           {inputValue.length > 0 && !isConfirmEnabled && (

@@ -12,8 +12,10 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import { useAuth } from "@/app/providers/AuthProvider";
+import { useToast } from "@/app/providers/ToastProvider";
 import { useProjectChat } from "@/hooks/useProjectChat";
 import { getAvatarColor, getInitials } from "@/lib/avatar";
+import { FeedbackMessage } from "@/components/FeedbackMessage";
 
 type Props = {
   open: boolean;
@@ -31,6 +33,7 @@ export default function ProjectChatDrawer({
   onUnreadCountChange,
 }: Props) {
   const { loading: authLoading, userId, profile } = useAuth();
+  const { confirm } = useToast();
   const isAdmin = profile?.role === "admin";
 
   const {
@@ -357,11 +360,7 @@ export default function ProjectChatDrawer({
             </div>
           )}
 
-          {error && (
-            <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              {error}
-            </div>
-          )}
+          {error && <FeedbackMessage variant="error" className="mb-4">{error}</FeedbackMessage>}
 
           {messages.map((m, idx) => {
             const prev = idx > 0 ? messages[idx - 1] : null;
@@ -587,11 +586,7 @@ export default function ProjectChatDrawer({
                                     className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg hover:bg-rose-50 text-rose-600"
                                     onClick={async () => {
                                       setOpenMenuId(null);
-                                      if (
-                                        confirm(
-                                          "Ești sigur că vrei să ștergi acest mesaj?"
-                                        )
-                                      )
+                                      if (await confirm({ title: "Ștergi mesajul?", description: "Mesajul va fi eliminat din conversație.", confirmText: "Șterge mesajul" }))
                                         await deleteMessage(m.id);
                                     }}
                                   >
