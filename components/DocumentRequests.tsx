@@ -36,6 +36,7 @@ import PublishStatusControl from './PublishStatusControl'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
+import { buildPreviewPageUrl, isPreviewableFile, openInNewTab } from '@/lib/file-preview'
 import {
   getReminderType,
   generateMailtoLink,
@@ -1919,21 +1920,36 @@ export default function DocumentRequests({
                     const label = attachment.original_name || attachment.storage_path.split('/').pop() || `Document ${index + 1}`
 
                     return (
-                      <button
+                      <div
                         key={attachment.id || `${attachment.storage_path}-${index}`}
-                        type="button"
-                        onClick={() => downloadAttachmentModel(selectedOutgoingDoc.id, attachment.id)}
-                        disabled={isMissing}
-                        className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed ${
+                        className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
                           isMissing
                             ? 'border-amber-200 bg-amber-50 text-amber-800'
                             : 'border-emerald-200 bg-emerald-50/50 text-emerald-800 hover:bg-emerald-50'
                         }`}
                       >
-                        {isMissing ? <AlertCircle className="w-5 h-5 flex-shrink-0" /> : <Download className="w-5 h-5 flex-shrink-0" />}
-                        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{label}</span>
-                        <span className="text-xs font-medium">{isMissing ? 'Indisponibil' : 'Descarcă'}</span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => downloadAttachmentModel(selectedOutgoingDoc.id, attachment.id)}
+                          disabled={isMissing}
+                          className="flex min-w-0 flex-1 items-center gap-3 disabled:cursor-not-allowed"
+                        >
+                          {isMissing ? <AlertCircle className="w-5 h-5 flex-shrink-0" /> : <Download className="w-5 h-5 flex-shrink-0" />}
+                          <span className="min-w-0 flex-1 truncate text-left text-sm font-semibold">{label}</span>
+                          <span className="text-xs font-medium">{isMissing ? 'Indisponibil' : 'Descarcă'}</span>
+                        </button>
+                        {!isMissing && isPreviewableFile({ fileName: label }) && (
+                          <button
+                            type="button"
+                            onClick={() => openInNewTab(buildPreviewPageUrl({ type: 'attachment', id: selectedOutgoingDoc.id, name: label, attachmentId: attachment.id }))}
+                            title="Deschide"
+                            aria-label={`Deschide ${label}`}
+                            className="rounded-lg p-2 hover:bg-emerald-100"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     )
                   })}
                 </div>
