@@ -81,6 +81,19 @@ body {
   animation: fadeInUp 0.6s ease-out forwards;
 }
 
+@keyframes drawerSlideIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.drawer-slide-in {
+  animation: drawerSlideIn 0.25s ease-out;
+}
+
 /* 3. Scrollbar personalizat (opțional, dar arată mai bine pe Windows) */
 ::-webkit-scrollbar {
   width: 8px;

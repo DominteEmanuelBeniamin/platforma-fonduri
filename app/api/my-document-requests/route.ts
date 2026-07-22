@@ -22,7 +22,7 @@ export async function GET(request: Request) {
       const clientProjectIds = (clientProjects ?? []).map((p: any) => p.id)
 
       if (clientProjectIds.length === 0) {
-        return NextResponse.json({ requests: [] })
+        return NextResponse.json({ requests: [], informativeDocs: [] })
       }
 
       const { data: clientRows, error: clientError } = await admin
@@ -62,7 +62,25 @@ export async function GET(request: Request) {
         }
       })
 
-      return NextResponse.json({ requests })
+      // Documente informative recente (trimise clientului) — pentru secțiunea „Documente recente"
+      const { data: infoRows } = await admin
+        .from('document_requirements')
+        .select('id, name, project_id, created_at, project:project_id(title)')
+        .in('project_id', clientProjectIds)
+        .eq('is_outgoing', true)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(6)
+
+      const informativeDocs = (infoRows ?? []).map((d: any) => ({
+        id: d.id,
+        name: d.name,
+        project_id: d.project_id,
+        project_title: (d.project as any)?.title ?? null,
+        created_at: d.created_at,
+      }))
+
+      return NextResponse.json({ requests, informativeDocs })
     }
 
     // Obținem project_ids accesibile
@@ -87,9 +105,10 @@ export async function GET(request: Request) {
     const { data, error } = await admin
       .from('document_requirements')
       .select(`
-        id, project_id, name, description, status, deadline_at,
+        id, project_id, activity_id, name, description, status, deadline_at,
         reminder_sent_at, reminder_type_sent, created_at,
-        project:project_id(id, title, client:profiles!projects_client_id_fkey(full_name, email))
+        project:project_id(id, title, client:profiles!projects_client_id_fkey(full_name, email)),
+        activity:activity_id(id, name, phase:phase_id(id, name))
       `)
       .in('project_id', projectIds)
       .in('status', ['pending', 'review'])
@@ -102,20 +121,28 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    const requests = (data ?? []).map((req: any) => ({
-      id: req.id,
-      name: req.name,
-      description: req.description ?? null,
-      status: req.status,
-      deadline_at: req.deadline_at ?? null,
-      reminder_sent_at: req.reminder_sent_at ?? null,
-      reminder_type_sent: req.reminder_type_sent ?? null,
-      created_at: req.created_at,
-      project_id: req.project_id,
-      project_title: (req.project as any)?.title ?? null,
-      client_name: (req.project as any)?.client?.full_name ?? null,
-      client_email: (req.project as any)?.client?.email ?? null,
-    }))
+    const requests = (data ?? []).map((req: any) => {
+      const activity = req.activity ?? null
+      const phase = activity?.phase ?? null
+      return {
+        id: req.id,
+        name: req.name,
+        description: req.description ?? null,
+        status: req.status,
+        deadline_at: req.deadline_at ?? null,
+        reminder_sent_at: req.reminder_sent_at ?? null,
+        reminder_type_sent: req.reminder_type_sent ?? null,
+        created_at: req.created_at,
+        project_id: req.project_id,
+        project_title: (req.project as any)?.title ?? null,
+        client_name: (req.project as any)?.client?.full_name ?? null,
+        client_email: (req.project as any)?.client?.email ?? null,
+        activity_id: req.activity_id ?? null,
+        activity_name: activity?.name ?? null,
+        phase_id: phase?.id ?? null,
+        phase_name: phase?.name ?? null,
+      }
+    })
 
     return NextResponse.json({ requests })
   } catch (e: any) {

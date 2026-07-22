@@ -23,7 +23,7 @@ export async function GET(request: Request) {
     if (profile.role === 'admin') {
       const { data, error } = await admin
         .from('projects')
-        .select('*, profiles!projects_client_id_fkey(full_name, cif)')
+        .select('*, profiles!projects_client_id_fkey(full_name, cif), template:project_templates(id, name)')
         .order('created_at', { ascending: false })
 
       if (error) return NextResponse.json({ error: error.message }, { status: 400 })
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
     if (profile.role === 'client') {
       const { data, error } = await admin
         .from('projects')
-        .select('*, profiles!projects_client_id_fkey(full_name, cif)')
+        .select('*, profiles!projects_client_id_fkey(full_name, cif), template:project_templates(id, name)')
         .eq('client_id', callerId)
         .order('created_at', { ascending: false })
 
@@ -61,7 +61,7 @@ export async function GET(request: Request) {
 
       const { data, error } = await admin
         .from('projects')
-        .select('*, profiles!projects_client_id_fkey(full_name, cif)')
+        .select('*, profiles!projects_client_id_fkey(full_name, cif), template:project_templates(id, name)')
         .in('id', projectIds)
         .order('created_at', { ascending: false })
 
