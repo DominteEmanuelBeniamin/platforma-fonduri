@@ -773,6 +773,7 @@ function ProjectDetailsContent() {
                         visibility={activity.visibility}
                         canPublish={canEdit}
                         onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`)}
+                        actionSlotId={`activity-action-${activity.id}`}
                       >
                         <DocumentRequests
                           projectId={projectId!}
@@ -788,6 +789,7 @@ function ProjectDetailsContent() {
                           clientName={project?.profiles?.full_name ?? null}
                           projectTitle={project?.title}
                           autoOpenRequestId={autoOpenRequestId}
+                          actionSlotId={`activity-action-${activity.id}`}
                         />
                       </ActivityFold>
                     ))}

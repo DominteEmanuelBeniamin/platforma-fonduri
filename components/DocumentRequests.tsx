@@ -234,6 +234,7 @@ interface DocumentRequestsProps {
   projectTitle?: string
   /** Id-ul unei cereri de deschis automat (ex. venit dintr-un rezultat de căutare) */
   autoOpenRequestId?: string | null
+  actionSlotId?: string
 }
 
 export default function DocumentRequests({
@@ -250,6 +251,7 @@ export default function DocumentRequests({
   clientName,
   projectTitle,
   autoOpenRequestId,
+  actionSlotId,
 }: DocumentRequestsProps) {
   const { loading: authLoading, token, profile, apiFetch } = useAuth()
   const { showToast, confirm } = useToast()
@@ -258,6 +260,7 @@ export default function DocumentRequests({
   const [loading, setLoading] = useState(!externalRequests)
   const [showForm, setShowForm] = useState(false)
   const [editingRequest, setEditingRequest] = useState<DocumentRequest | null>(null)
+  const [actionSlot, setActionSlot] = useState<HTMLElement | null>(null)
   
   const folderInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -267,6 +270,10 @@ export default function DocumentRequests({
     folderInputRef.current.setAttribute('webkitdirectory', '')
     folderInputRef.current.setAttribute('directory', '')
   }, [])
+
+  useEffect(() => {
+    setActionSlot(actionSlotId ? document.getElementById(actionSlotId) : null)
+  }, [actionSlotId])
 
   // Modal state
   const [selectedRequest, setSelectedRequest] = useState<DocumentRequest | null>(null)
@@ -1085,7 +1092,14 @@ export default function DocumentRequests({
 
   return (
     <>
+      {actionSlot && isAdminOrConsultant && createPortal(
+        <button onClick={openCreateForm} className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">
+          <Plus className="w-3.5 h-3.5" /> Cerere
+        </button>,
+        actionSlot,
+      )}
       <div className={`bg-white ${isEmbedded ? '' : 'rounded-2xl border border-slate-200 shadow-sm overflow-hidden'}`}>
+        {(!isEmbedded || activityId === null) && (
         <div className={`${isEmbedded ? 'flex justify-end px-4 py-3 border-b border-slate-100' : 'p-4 sm:p-5 border-b border-slate-100'}`}>
           <div className={`flex ${isEmbedded ? '' : 'flex-col gap-3 xl:flex-row xl:items-start xl:justify-between'}`}>
             {!isEmbedded && <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -1140,6 +1154,7 @@ export default function DocumentRequests({
             )}
           </div>
         </div>
+        )}
 
         <Dialog.Root open={showForm && isAdminOrConsultant} onOpenChange={open => { if (!open) closeRequestForm() }}>
           <Dialog.Portal>
