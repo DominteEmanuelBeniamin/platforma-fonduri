@@ -44,6 +44,7 @@ function ProjectDetailsContent() {
   const searchParams = useSearchParams()
   const targetPhaseId = searchParams.get('phase')
   const targetActivityId = searchParams.get('activity')
+  const targetView = searchParams.get('view')
   const projectId = useMemo(() => {
     const id = (params as any)?.id
     return typeof id === 'string' && id.trim().length > 0 ? id : null
@@ -71,7 +72,7 @@ function ProjectDetailsContent() {
   const [chatOpen, setChatOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
 
-  const [activeView, setActiveView] = useState<'phases' | 'documents'>('phases')
+  const [activeView, setActiveView] = useState<'phases' | 'documents'>(targetView === 'documents' ? 'documents' : 'phases')
   const [landingView, setLandingView] = useState<'action-needed' | 'browse'>('browse')
   const [landingViewInitialized, setLandingViewInitialized] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
