@@ -45,7 +45,7 @@ const roleConfig = {
 
 export default function AdminUsersPage() {
   const router = useRouter()
-  const { loading: authLoading, token, apiFetch } = useAuth()
+  const { loading: authLoading, token, apiFetch, profile } = useAuth()
   const { showToast, confirm } = useToast()
 
   const [users, setUsers] = useState<any[]>([])
@@ -86,8 +86,10 @@ export default function AdminUsersPage() {
   useEffect(() => {
     if (authLoading) return
     if (!token) { router.replace('/login'); return }
+    if (!profile) return
+    if (profile.role !== 'admin') { router.replace('/'); return }
     fetchUsers()
-  }, [authLoading, token, router, fetchUsers])
+  }, [authLoading, token, profile, router, fetchUsers])
 
   useEffect(() => {
     setCif(''); setNumeFirma(''); setAdresaFirma(''); setPersoanaContact('')

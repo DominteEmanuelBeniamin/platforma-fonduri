@@ -226,7 +226,8 @@ export default function AuditPage() {
       router.push('/login')
       return
     }
-    if (profile && profile.role !== 'admin') {
+    if (!profile) return
+    if (profile.role !== 'admin') {
       router.push('/')
       return
     }
