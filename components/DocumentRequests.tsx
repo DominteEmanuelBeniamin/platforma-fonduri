@@ -48,6 +48,7 @@ interface DocumentRequest {
   description: string | null
   requirement_type?: RequirementType
   status: 'pending' | 'review' | 'approved' | 'rejected'
+  visibility?: 'draft' | 'published'
   is_outgoing?: boolean
   order_index?: number
   attachment_path: string | null
@@ -232,9 +233,6 @@ interface DocumentRequestsProps {
   projectTitle?: string
   /** Id-ul unei cereri de deschis automat (ex. venit dintr-un rezultat de căutare) */
   autoOpenRequestId?: string | null
-  /** Machetă #53 — status „În pregătire”/„Public” per cerere, doar vizual. */
-  getMockStatus?: (id: string) => 'draft' | 'public'
-  toggleMockStatus?: (id: string) => void
 }
 
 export default function DocumentRequests({
@@ -251,8 +249,6 @@ export default function DocumentRequests({
   clientName,
   projectTitle,
   autoOpenRequestId,
-  getMockStatus,
-  toggleMockStatus,
 }: DocumentRequestsProps) {
   const { loading: authLoading, token, profile, apiFetch } = useAuth()
 
@@ -315,6 +311,22 @@ export default function DocumentRequests({
     'webkitdirectory' in HTMLInputElement.prototype &&
     !window.matchMedia?.('(pointer: coarse)').matches &&
     !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+
+  const publishRequest = async (requestId: string) => {
+    if (!window.confirm('Cererea va deveni vizibilă clientului. Continui?')) return
+    try {
+      const res = await apiFetch(`/api/document-requests/${requestId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visibility: 'published' }),
+      })
+      if (res.ok) {
+        setSelectedOutgoingDoc(prev => prev?.id === requestId ? { ...prev, visibility: 'published' } : prev)
+        await fetchRequests()
+      }
+      else { const data = await res.json().catch(() => null); alert(data?.error || 'Eroare la publicare') }
+    } catch (e: any) { alert('Eroare: ' + e.message) }
+  }
 
   // Requests derivate: externe filtrate sau interne
   const requests = useMemo(() => {
@@ -1440,11 +1452,11 @@ export default function DocumentRequests({
                             </span>
                           )
                         })()}
-                        {!isFolded && getMockStatus && toggleMockStatus && (
+                        {!isFolded && (
                           <PublishStatusControl
-                            status={getMockStatus(req.id)}
+                            status={req.visibility ?? 'draft'}
                             canPublish={isAdminOrConsultant}
-                            onToggle={() => toggleMockStatus(req.id)}
+                            onPublish={() => publishRequest(req.id)}
                             size="sm"
                           />
                         )}
@@ -1945,7 +1957,12 @@ export default function DocumentRequests({
             </div>
 
             {isAdminOrConsultant && (
-              <div className="border-t border-slate-100 bg-slate-50 px-6 py-4">
+              <div className="flex gap-2 border-t border-slate-100 bg-slate-50 px-6 py-4">
+                <PublishStatusControl
+                  status={selectedOutgoingDoc.visibility ?? 'draft'}
+                  canPublish
+                  onPublish={() => publishRequest(selectedOutgoingDoc.id)}
+                />
                 <button
                   type="button"
                   onClick={() => {

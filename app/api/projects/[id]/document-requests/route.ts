@@ -4,6 +4,7 @@ import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { normalizeRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
+import { isClientVisibleDocument } from '@/lib/client-visibility'
 
 type LatestRejection = {
   reason: string
@@ -64,6 +65,7 @@ export async function GET(
         name,
         description,
         status,
+        visibility,
         is_mandatory,
         is_outgoing,
         requirement_type,
@@ -81,7 +83,7 @@ export async function GET(
         creator:created_by(full_name, email),
         assigned_to,
         assigned_consultant:assigned_to(id, full_name, email),
-        activity:activity_id(id, name, phase_id),
+        activity:activity_id(id, name, phase_id, visibility, phase:phase_id(id, visibility)),
         files(
           id,
           storage_path,
@@ -106,7 +108,9 @@ export async function GET(
       return NextResponse.json({ error: 'Failed to load document requests' }, { status: 500 })
     }
 
-    const rows = data ?? []
+    const rows = access.profile.role === 'client'
+      ? (data ?? []).filter(isClientVisibleDocument)
+      : data ?? []
     const latestRejections = await loadLatestRejections(admin, rows.map((row: any) => row.id))
     const requests = rows.map((row: any) => ({
       ...row,
@@ -167,11 +171,23 @@ export async function POST(
     const [{ data: projectRow }, { data: activityRow }] = await Promise.all([
       admin.from('projects').select('title').eq('id', projectId).maybeSingle(),
       activity_id
-        ? admin.from('project_activities').select('name').eq('id', activity_id).maybeSingle()
+        ? admin.from('project_activities').select('id, name, phase_id').eq('id', activity_id).maybeSingle()
         : Promise.resolve({ data: null }),
     ])
     const projectTitle = projectRow?.title ?? projectId
     const activityName = activityRow?.name ?? null
+
+    if (activity_id) {
+      const { data: phase } = await admin
+        .from('project_phases')
+        .select('id')
+        .eq('id', activityRow?.phase_id ?? '')
+        .eq('project_id', projectId)
+        .maybeSingle()
+      if (!activityRow || !phase) {
+        return NextResponse.json({ error: 'Activity not found' }, { status: 404 })
+      }
+    }
 
     // Ordinea manuală: documentul nou intră la finalul grupului său (activitate sau „Cereri generale")
     let maxOrderQuery = admin
@@ -202,6 +218,7 @@ export async function POST(
       order_index: (maxOrderRow?.order_index || 0) + 1,
       created_by: access.profile.id,
       status: 'pending',
+      visibility: is_outgoing ? 'published' : 'draft',
     }
 
     const { data, error } = await admin
@@ -214,6 +231,7 @@ export async function POST(
         name,
         description,
         status,
+        visibility,
         is_mandatory,
         is_outgoing,
         requirement_type,

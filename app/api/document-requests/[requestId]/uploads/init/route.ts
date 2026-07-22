@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { isClientVisibleDocument } from '@/lib/client-visibility'
 
 const BUCKET = 'project-files'
 const MAX_FILES = 50
@@ -52,7 +53,7 @@ export async function POST(request: Request,
     // Load requirement -> project_id
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('id, project_id, is_outgoing, deleted_at')
+      .select('id, project_id, activity_id, visibility, is_outgoing, deleted_at, activity:activity_id(visibility, phase:phase_id(visibility))')
       .eq('id', requestId)
       .is('deleted_at', null)
       .single()
@@ -60,12 +61,14 @@ export async function POST(request: Request,
     if (reqErr || !reqRow) {
       return NextResponse.json({ error: 'Document request not found' }, { status: 404 })
     }
+    const access = await requireProjectAccess(request, reqRow.project_id)
+    if (!access.ok) return guardToResponse(access)
+    if (access.profile.role === 'client' && !isClientVisibleDocument(reqRow)) {
+      return NextResponse.json({ error: 'Document request not found' }, { status: 404 })
+    }
     if (reqRow.is_outgoing) {
       return NextResponse.json({ error: 'Documentele trimise clientului nu acceptă răspunsuri încărcate.' }, { status: 400 })
     }
-
-    const access = await requireProjectAccess(request, reqRow.project_id)
-    if (!access.ok) return guardToResponse(access)
 
     // Compute next version_number
     const { data: lastFile } = await admin

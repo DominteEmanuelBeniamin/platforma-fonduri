@@ -3,6 +3,7 @@ import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { logAction } from '@/app/api/_utils/audit'
 import { isPreviewableFileName, clampExpiresIn } from '@/lib/file-preview'
+import { isClientVisibleDocument } from '@/lib/client-visibility'
 
 const BUCKET = 'project-files'
 
@@ -109,7 +110,7 @@ export async function POST(
 
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('project_id, name, is_outgoing, attachment_path, attachment_original_name, attachment_missing_at, deleted_at, document_requirement_attachments(id, storage_path, original_name, missing_at, missing_checked_at, order_index)')
+      .select('project_id, name, activity_id, visibility, is_outgoing, attachment_path, attachment_original_name, attachment_missing_at, deleted_at, activity:activity_id(visibility, phase:phase_id(visibility)), document_requirement_attachments(id, storage_path, original_name, missing_at, missing_checked_at, order_index)')
       .eq('id', requestId)
       .is('deleted_at', null)
       .single()
@@ -120,6 +121,9 @@ export async function POST(
 
     const access = await requireProjectAccess(request, reqRow.project_id)
     if (!access.ok) return guardToResponse(access)
+    if (access.profile.role === 'client' && !isClientVisibleDocument(reqRow)) {
+      return NextResponse.json({ error: 'Document request not found' }, { status: 404 })
+    }
 
     const { data: projectRow } = await admin
       .from('projects')

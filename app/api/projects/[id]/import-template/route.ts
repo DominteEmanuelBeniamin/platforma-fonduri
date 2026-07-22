@@ -102,6 +102,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           description: tPhase.description,
           order_index: tPhase.order_index,
           status: 'pending',
+          visibility: 'draft',
           source_template_phase_id: tPhase.id,
         })
         .select()
@@ -131,6 +132,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             description: tActivity.description,
             order_index: tActivity.order_index,
             status: 'pending',
+            visibility: 'draft',
             source_template_activity_id: tActivity.id,
           })
           .select()
@@ -246,6 +248,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
               attachment_missing_at: null,
               attachment_missing_checked_at: attachmentCheckedAt,
               status: 'pending',
+              visibility: 'draft',
               created_by: auth.profile.id,
               source_template_document_requirement_id: tDoc.id,
             })

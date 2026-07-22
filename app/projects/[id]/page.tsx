@@ -79,16 +79,6 @@ function ProjectDetailsContent() {
   const [newActivityName, setNewActivityName] = useState<Record<string, string>>({})
   const [addingActivity, setAddingActivity] = useState<Record<string, boolean>>({})
 
-  // ─── Machetă UI #53 (status „În pregătire”/„Public”) ────────────────────────
-  // Stare locală, nesalvată — doar ca să se vadă aspectul. Fazele/activitățile/
-  // cererile noi pornesc „În pregătire”, ca în specificația reală din #53.
-  // Se înlocuiește cu date reale din API când se implementează logica.
-  const [mockVisibility, setMockVisibility] = useState<Record<string, 'draft' | 'public'>>({})
-  const getMockStatus = (id: string): 'draft' | 'public' => mockVisibility[id] ?? 'draft'
-  const toggleMockStatus = (id: string) => {
-    setMockVisibility(prev => ({ ...prev, [id]: getMockStatus(id) === 'draft' ? 'public' : 'draft' }))
-  }
-
   const documentEntriesCount = useMemo(() => {
     return allDocRequests.reduce((total, req) => {
       const requestAttachmentCount = req.attachment_path && !req.attachment_missing_at ? 1 : 0
@@ -267,6 +257,19 @@ function ProjectDetailsContent() {
     } finally {
       setAddingActivity(prev => ({ ...prev, [phaseId]: false }))
     }
+  }
+
+  const publishProjectItem = async (url: string) => {
+    if (!window.confirm('Elementul va deveni vizibil clientului. Continui?')) return
+    try {
+      const res = await apiFetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visibility: 'published' }),
+      })
+      if (res.ok) await Promise.all([refreshPhases(), refreshDocs()])
+      else { const data = await res.json().catch(() => null); alert(data?.error || 'Eroare la publicare') }
+    } catch (e: any) { alert('Eroare: ' + e.message) }
   }
 
   const handleAssignGeneralConsultant = async (assignedTo: string | null) => {
@@ -591,7 +594,6 @@ function ProjectDetailsContent() {
             onTeamChange={fetchProjectMembers}
             apiFetch={apiFetch}
             isAdmin={isAdmin}
-            getMockStatus={getMockStatus}
             mobileOpen={mobileSidebarOpen}
             onMobileClose={() => setMobileSidebarOpen(false)}
           />
@@ -705,9 +707,9 @@ function ProjectDetailsContent() {
                   color={phase.project_status?.color}
                   headerRight={
                     <PublishStatusControl
-                      status={getMockStatus(phase.id)}
+                      status={phase.visibility ?? 'draft'}
                       canPublish={canEdit}
-                      onToggle={() => toggleMockStatus(phase.id)}
+                      onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}`)}
                     />
                   }
                   open={expandedPhases.has(phase.id)}
@@ -728,9 +730,9 @@ function ProjectDetailsContent() {
                         isAdmin={isAdmin}
                         projectMembers={projectMembers}
                         onAssign={assignedTo => handleAssignActivity(phase.id, activity.id, assignedTo)}
-                        mockStatus={getMockStatus(activity.id)}
+                        visibility={activity.visibility}
                         canPublish={canEdit}
-                        onTogglePublish={() => toggleMockStatus(activity.id)}
+                        onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`)}
                       >
                         <DocumentRequests
                           projectId={projectId!}
@@ -746,8 +748,6 @@ function ProjectDetailsContent() {
                           clientName={project?.profiles?.full_name ?? null}
                           projectTitle={project?.title}
                           autoOpenRequestId={autoOpenRequestId}
-                          getMockStatus={getMockStatus}
-                          toggleMockStatus={toggleMockStatus}
                         />
                       </ActivityFold>
                     ))}
@@ -821,8 +821,6 @@ function ProjectDetailsContent() {
                       clientName={project?.profiles?.full_name ?? null}
                       projectTitle={project?.title}
                       autoOpenRequestId={autoOpenRequestId}
-                      getMockStatus={getMockStatus}
-                      toggleMockStatus={toggleMockStatus}
                     />
                   </div>
                 </PhaseAccordionSection>

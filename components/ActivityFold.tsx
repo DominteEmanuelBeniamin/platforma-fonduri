@@ -21,10 +21,9 @@ interface ActivityFoldProps {
   isAdmin: boolean
   projectMembers: Member[]
   onAssign: (assignedTo: string | null) => void
-  /** Machetă #53 — status „În pregătire”/„Public”, doar vizual. */
-  mockStatus: 'draft' | 'public'
+  visibility?: 'draft' | 'published'
   canPublish: boolean
-  onTogglePublish: () => void
+  onPublish: () => void
   children: ReactNode
 }
 
@@ -44,9 +43,9 @@ export default function ActivityFold({
   isAdmin,
   projectMembers,
   onAssign,
-  mockStatus,
+  visibility,
   canPublish,
-  onTogglePublish,
+  onPublish,
   children,
 }: ActivityFoldProps) {
   const deadline = activity.deadline_at ? new Date(activity.deadline_at) : null
@@ -96,7 +95,7 @@ export default function ActivityFold({
           </button>
         </Collapsible.Trigger>
 
-        <PublishStatusControl status={mockStatus} canPublish={canPublish} onToggle={onTogglePublish} size="sm" />
+        <PublishStatusControl status={visibility ?? 'draft'} canPublish={canPublish} onPublish={onPublish} size="sm" />
 
         <div onClick={e => e.stopPropagation()} className="flex-shrink-0">
           {isAdmin ? (

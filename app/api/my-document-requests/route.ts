@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server'
 import { requireProfile, guardToResponse } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { isClientVisibleDocument } from '@/lib/client-visibility'
 
 // GET /api/my-document-requests
 // Returnează cererile de documente generale (fără activitate) în așteptare
@@ -28,9 +29,9 @@ export async function GET(request: Request) {
       const { data: clientRows, error: clientError } = await admin
         .from('document_requirements')
         .select(`
-          id, project_id, activity_id, name, description, status, deadline_at, created_at,
+          id, project_id, activity_id, name, description, status, visibility, deadline_at, created_at,
           project:project_id(id, title),
-          activity:activity_id(id, name, phase:phase_id(id, name))
+          activity:activity_id(id, name, visibility, phase:phase_id(id, name, visibility))
         `)
         .in('project_id', clientProjectIds)
         .in('status', ['pending', 'rejected'])
@@ -43,7 +44,7 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: clientError.message }, { status: 500 })
       }
 
-      const requests = (clientRows ?? []).map((req: any) => {
+      const requests = (clientRows ?? []).filter(isClientVisibleDocument).map((req: any) => {
         const activity = req.activity ?? null
         const phase = activity?.phase ?? null
         return {

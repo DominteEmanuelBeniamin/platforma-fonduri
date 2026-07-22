@@ -3,6 +3,7 @@ import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { logAction } from '@/app/api/_utils/audit'
 import { isPreviewableFile, clampExpiresIn } from '@/lib/file-preview'
+import { isClientVisibleDocument } from '@/lib/client-visibility'
 
 const BUCKET = 'project-files'
 
@@ -11,8 +12,8 @@ type FileDownloadRow = {
   original_name: string | null
   mime_type: string | null
   document_requirements:
-    | { project_id: string | null; name: string | null; deleted_at: string | null }
-    | Array<{ project_id: string | null; name: string | null; deleted_at: string | null }>
+    | { project_id: string | null; name: string | null; deleted_at: string | null; activity_id: string | null; visibility: string | null; activity?: unknown }
+    | Array<{ project_id: string | null; name: string | null; deleted_at: string | null; activity_id: string | null; visibility: string | null; activity?: unknown }>
     | null
 }
 
@@ -36,7 +37,7 @@ export async function POST(
 
     const { data: fileRow, error } = await admin
       .from('files')
-      .select('id, storage_path, original_name, mime_type, requirement_id, deleted_at, document_requirements(project_id, name, deleted_at)')
+      .select('id, storage_path, original_name, mime_type, requirement_id, deleted_at, document_requirements(project_id, name, deleted_at, activity_id, visibility, activity:activity_id(visibility, phase:phase_id(visibility)))')
       .eq('id', fileId)
       .is('deleted_at', null)
       .single()
@@ -59,6 +60,9 @@ export async function POST(
 
     const access = await requireProjectAccess(request, projectId)
     if (!access.ok) return guardToResponse(access)
+    if (access.profile.role === 'client' && !isClientVisibleDocument(requirement)) {
+      return NextResponse.json({ error: 'File not found' }, { status: 404 })
+    }
 
     const { data: projectRow } = await admin
       .from('projects')

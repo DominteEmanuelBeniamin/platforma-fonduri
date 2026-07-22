@@ -25,6 +25,7 @@ export interface ProjectActivity {
   name: string
   status: string
   order_index: number
+  visibility?: 'draft' | 'published'
   deadline_at?: string | null
   assigned_to?: string | null
   assigned_user?: { id: string; full_name: string | null; email: string } | null
@@ -35,6 +36,7 @@ export interface ProjectPhase {
   name: string
   status: string
   order_index: number
+  visibility?: 'draft' | 'published'
   project_status_id: string
   project_status?: { id: string; name: string; color: string }
   activities?: ProjectActivity[]
@@ -136,8 +138,6 @@ interface ProjectPhasesSidebarProps {
   onReorderRefresh?: () => Promise<void> | void
   onTeamChange?: () => void
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>
-  /** Machetă #53 — status „În pregătire”/„Public” per fază, doar vizual. */
-  getMockStatus?: (id: string) => 'draft' | 'public'
   /** Pe mobil, sidebar-ul devine un drawer — controlat din pagina părinte. */
   mobileOpen: boolean
   onMobileClose: () => void
@@ -160,7 +160,6 @@ export default function ProjectPhasesSidebar({
   onReorderRefresh,
   onTeamChange,
   apiFetch,
-  getMockStatus,
   mobileOpen,
   onMobileClose,
 }: ProjectPhasesSidebarProps) {
@@ -440,9 +439,9 @@ export default function ProjectPhasesSidebar({
                       </span>
                     )}
                     <span
-                      title={getMockStatus ? (getMockStatus(phase.id) === 'draft' ? 'În pregătire — invizibil pentru client' : 'Public — vizibil pentru client') : undefined}
+                      title={phase.visibility === 'published' ? 'Public — vizibil pentru client' : 'În pregătire — invizibil pentru client'}
                       className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: getMockStatus ? (getMockStatus(phase.id) === 'draft' ? 'var(--p-draft)' : 'var(--p-success)') : color }}
+                      style={{ backgroundColor: phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-draft)' }}
                     />
                     <span className={`flex-1 text-sm font-medium truncate ${isActive ? 'text-[var(--p-accent-ink)]' : 'text-[var(--p-ink)]'}`}>
                       {phase.name}

@@ -50,6 +50,11 @@ export async function PATCH(
     }
 
     // assigned_to trebuie să fie string (UUID), null sau omis
+    const visibility = (body as any).visibility
+    if (visibility !== undefined && visibility !== 'published') {
+      return NextResponse.json({ error: 'Invalid visibility transition' }, { status: 400 })
+    }
+
     const rawAssigned = (body as any).assigned_to
     if (rawAssigned !== undefined && rawAssigned !== null && typeof rawAssigned !== 'string') {
       return NextResponse.json({ error: 'assigned_to trebuie să fie un UUID sau null' }, { status: 400 })
@@ -94,7 +99,7 @@ export async function PATCH(
     // Obține cererea pentru a afla project_id și detalii email
     const { data: req, error: reqError } = await admin
       .from('document_requirements')
-      .select('id, project_id, name, description, deadline_at, requirement_type, is_mandatory, is_outgoing, assigned_to, attachment_path, attachment_original_name, attachment_missing_at, attachment_missing_checked_at, deleted_at, document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at, source_template_attachment_id, created_at)')
+      .select('id, project_id, name, description, deadline_at, requirement_type, is_mandatory, is_outgoing, visibility, assigned_to, attachment_path, attachment_original_name, attachment_missing_at, attachment_missing_checked_at, deleted_at, document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at, source_template_attachment_id, created_at)')
       .eq('id', requestId)
       .is('deleted_at', null)
       .maybeSingle()
@@ -111,6 +116,10 @@ export async function PATCH(
     if (!access.ok) return guardToResponse(access)
     if (access.profile.role === 'client') {
       return NextResponse.json({ error: 'Nu ai permisiunea să modifici cereri' }, { status: 403 })
+    }
+
+    if (visibility === 'published' && req.visibility !== 'draft') {
+      return NextResponse.json({ error: 'Document request is already published' }, { status: 400 })
     }
 
     const { data: projectRow } = await admin
@@ -166,6 +175,8 @@ export async function PATCH(
       updatePayload.attachment_missing_at = null
       updatePayload.attachment_missing_checked_at = null
     }
+
+    if (visibility === 'published') updatePayload.visibility = 'published'
 
     if (Object.keys(updatePayload).length === 0) {
       return NextResponse.json({ error: 'Nu există câmpuri de actualizat' }, { status: 400 })

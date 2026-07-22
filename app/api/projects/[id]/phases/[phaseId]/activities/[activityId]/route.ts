@@ -25,7 +25,7 @@ interface RouteParams {
 // PATCH /api/projects/[id]/phases/[phaseId]/activities/[activityId]
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
   try {
-    const { id: projectId, activityId } = await params
+    const { id: projectId, phaseId, activityId } = await params
     
     const auth = await requireProjectAccess(req, projectId)
     if (!auth.ok) {
@@ -37,7 +37,11 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
 
     const body = await req.json()
-    const { name, description, order_index, status, assigned_to, deadline_at } = body
+    const { name, description, order_index, status, assigned_to, deadline_at, visibility } = body
+
+    if (visibility !== undefined && visibility !== 'published') {
+      return NextResponse.json({ error: 'Invalid visibility transition' }, { status: 400 })
+    }
 
     const updateData: Record<string, any> = {}
     if (name !== undefined) updateData.name = name
@@ -51,12 +55,31 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       .from('project_activities')
       .select('*')
       .eq('id', activityId)
+      .eq('phase_id', phaseId)
       .maybeSingle()
+
+    if (!before) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    const { data: phase } = await supabaseAdmin
+      .from('project_phases')
+      .select('id')
+      .eq('id', phaseId)
+      .eq('project_id', projectId)
+      .maybeSingle()
+    if (!phase) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    if (visibility === 'published') {
+      if (before.visibility !== 'draft') {
+        return NextResponse.json({ error: 'Activity is already published' }, { status: 400 })
+      }
+      updateData.visibility = 'published'
+    }
 
     const { data: activity, error } = await supabaseAdmin
       .from('project_activities')
       .update(updateData)
       .eq('id', activityId)
+      .eq('phase_id', phaseId)
       .select()
       .single()
 
@@ -86,7 +109,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 // DELETE /api/projects/[id]/phases/[phaseId]/activities/[activityId]
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
-    const { id: projectId, activityId } = await params
+    const { id: projectId, phaseId, activityId } = await params
     
     const auth = await requireProjectAccess(req, projectId)
     if (!auth.ok) {
@@ -101,12 +124,24 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       .from('project_activities')
       .select('*')
       .eq('id', activityId)
+      .eq('phase_id', phaseId)
       .maybeSingle()
+
+    if (!before) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    const { data: phase } = await supabaseAdmin
+      .from('project_phases')
+      .select('id')
+      .eq('id', phaseId)
+      .eq('project_id', projectId)
+      .maybeSingle()
+    if (!phase) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const { error } = await supabaseAdmin
       .from('project_activities')
       .delete()
       .eq('id', activityId)
+      .eq('phase_id', phaseId)
 
     if (error) throw error
 

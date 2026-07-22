@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
+import { isClientVisibleActivity, isClientVisiblePhase } from '@/lib/client-visibility'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,6 +24,16 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
+    const { data: phase } = await supabaseAdmin
+      .from('project_phases')
+      .select('id, visibility')
+      .eq('id', phaseId)
+      .eq('project_id', projectId)
+      .maybeSingle()
+    if (!phase || (auth.access.role === 'client' && !isClientVisiblePhase(phase))) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+
     const { data: activities, error } = await supabaseAdmin
       .from('project_activities')
       .select('*')
@@ -31,7 +42,11 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     if (error) throw error
 
-    return NextResponse.json({ activities: activities || [] })
+    return NextResponse.json({
+      activities: auth.access.role === 'client'
+        ? (activities || []).filter(activity => isClientVisibleActivity({ ...activity, phase }))
+        : activities || [],
+    })
   } catch (error: any) {
     console.error('GET activities error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
@@ -51,6 +66,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (auth.access.role === 'client') {
       return NextResponse.json({ error: 'Nu ai permisiunea' }, { status: 403 })
     }
+
+    const { data: phase } = await supabaseAdmin
+      .from('project_phases')
+      .select('id')
+      .eq('id', phaseId)
+      .eq('project_id', projectId)
+      .maybeSingle()
+    if (!phase) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const body = await req.json()
     const { name, description, order_index, status } = body
@@ -79,7 +102,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         name,
         description: description || null,
         order_index: finalOrderIndex,
-        status: status || 'pending'
+        status: status || 'pending',
+        visibility: 'draft',
       })
       .select()
       .single()

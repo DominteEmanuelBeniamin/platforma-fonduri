@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
+import { isClientVisibleActivity, isClientVisiblePhase } from '@/lib/client-visibility'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -44,11 +45,20 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           .eq('phase_id', phase.id)
           .order('order_index', { ascending: true })
 
-        return { ...phase, activities: activities || [] }
+        return {
+          ...phase,
+          activities: auth.access.role === 'client'
+            ? (activities || []).filter(activity => isClientVisibleActivity({ ...activity, phase }))
+            : activities || [],
+        }
       })
     )
 
-    return NextResponse.json({ phases: phasesWithActivities })
+    return NextResponse.json({
+      phases: auth.access.role === 'client'
+        ? phasesWithActivities.filter(isClientVisiblePhase)
+        : phasesWithActivities,
+    })
   } catch (error: any) {
     console.error('GET /api/projects/[id]/phases error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
@@ -108,7 +118,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         description: description || null,
         project_status_id: project_status_id || null,
         order_index: finalOrderIndex,
-        status: status || 'pending'
+        status: status || 'pending',
+        visibility: 'draft',
       })
       .select()
       .single()
