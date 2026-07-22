@@ -62,6 +62,7 @@ function ProjectDetailsContent() {
   const [expandedActivityIds, setExpandedActivityIds] = useState<Set<string>>(new Set())
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
   const [highlightActivityId, setHighlightActivityId] = useState<string | null>(null)
+  const [highlightGeneralRequests, setHighlightGeneralRequests] = useState(false)
 
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState('')
@@ -362,16 +363,26 @@ function ProjectDetailsContent() {
     })
   }
 
-  // ─── Deep-link: scroll + highlight activitatea țintă din URL ────────────────
+  // ─── Deep-link: scroll + highlight zona țintă din URL ───────────────────────
   useEffect(() => {
-    if (loading || !targetActivityId || activePhaseId !== targetPhaseId) return
-    setExpandedActivityIds(prev => new Set(prev).add(targetActivityId))
+    if (loading || activePhaseId !== targetPhaseId) return
+    const anchor = targetActivityId
+      ? `activity-${targetActivityId}`
+      : targetPhaseId === GENERAL_ID ? 'general-requests' : null
+    if (!anchor) return
+
+    if (targetActivityId) setExpandedActivityIds(prev => new Set(prev).add(targetActivityId))
     const timer = setTimeout(() => {
-      const el = document.getElementById(`activity-${targetActivityId}`)
+      const el = document.getElementById(anchor)
       if (!el) return
       el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      setHighlightActivityId(targetActivityId)
-      setTimeout(() => setHighlightActivityId(null), 2500)
+      if (targetActivityId) {
+        setHighlightActivityId(targetActivityId)
+        setTimeout(() => setHighlightActivityId(null), 2500)
+      } else {
+        setHighlightGeneralRequests(true)
+        setTimeout(() => setHighlightGeneralRequests(false), 2500)
+      }
     }, 250)
     return () => clearTimeout(timer)
   }, [loading, targetActivityId, targetPhaseId, activePhaseId])
@@ -404,6 +415,9 @@ function ProjectDetailsContent() {
       if (activityId) {
         setHighlightActivityId(activityId)
         setTimeout(() => setHighlightActivityId(null), 2500)
+      } else {
+        setHighlightGeneralRequests(true)
+        setTimeout(() => setHighlightGeneralRequests(false), 2500)
       }
     }, 120)
   }
@@ -817,7 +831,10 @@ function ProjectDetailsContent() {
                   open={expandedPhases.has(GENERAL_ID)}
                   onOpenChange={() => handleToggleExpand(GENERAL_ID)}
                 >
-                  <div id="general-requests" className="scroll-mt-24">
+                  <div
+                    id="general-requests"
+                    className={`scroll-mt-24 rounded-xl transition-shadow ${highlightGeneralRequests ? 'ring-2 ring-[var(--p-accent)] ring-offset-2 ring-offset-[var(--p-bg)]' : ''}`}
+                  >
                     <DocumentRequests
                       key="__general__"
                       projectId={projectId!}
