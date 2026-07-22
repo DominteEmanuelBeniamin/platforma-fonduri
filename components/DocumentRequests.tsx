@@ -11,7 +11,6 @@ import {
   CheckCircle2,
   Clock,
   Calendar,
-  User,
   X,
   Paperclip,
   ChevronRight,
@@ -225,7 +224,6 @@ interface DocumentRequestsProps {
   externalRequests?: any[]
   /** Callback refresh pentru pagina părinte */
   onRefresh?: () => void
-  /** Consultantul asignat activității */
   activityAssignedTo?: string | null
   activityAssignedUser?: { id: string; full_name: string | null; email: string } | null
   projectMembers?: { id: string; full_name: string | null; email: string }[]
@@ -1072,10 +1070,11 @@ export default function DocumentRequests({
     approved: { label: 'Aprobat', dot: 'bg-emerald-400' },
     rejected: { label: 'Respins', dot: 'bg-red-400' },
   }
+  const isEmbedded = activityId !== undefined
 
   if (loading) {
     return (
-      <div className="bg-white rounded-2xl border border-slate-200 min-h-[400px] flex items-center justify-center">
+      <div className={`bg-white min-h-[400px] flex items-center justify-center ${isEmbedded ? '' : 'rounded-2xl border border-slate-200'}`}>
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-4 border-slate-100 border-t-indigo-600 rounded-full animate-spin"></div>
           <p className="text-sm text-slate-500 font-medium">Se încarcă documentele...</p>
@@ -1086,10 +1085,10 @@ export default function DocumentRequests({
 
   return (
     <>
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-4 sm:p-5 border-b border-slate-100">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-            <div className="flex items-center gap-3 min-w-0 flex-1">
+      <div className={`bg-white ${isEmbedded ? '' : 'rounded-2xl border border-slate-200 shadow-sm overflow-hidden'}`}>
+        <div className={`${isEmbedded ? 'flex justify-end px-4 py-3 border-b border-slate-100' : 'p-4 sm:p-5 border-b border-slate-100'}`}>
+          <div className={`flex ${isEmbedded ? '' : 'flex-col gap-3 xl:flex-row xl:items-start xl:justify-between'}`}>
+            {!isEmbedded && <div className="flex items-center gap-3 min-w-0 flex-1">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-500/20">
                 <FileText className="w-5 h-5 text-white" />
               </div>
@@ -1100,33 +1099,27 @@ export default function DocumentRequests({
                 <p className="text-xs text-slate-500 hidden sm:block">
                   {activityName ? `${requests.length} cereri` : (isClient ? 'Descarcă, completează și încarcă' : `${requests.length} cereri în total`)}
                 </p>
-                {(activityId !== undefined) && (
-                  <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                    <User className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                    <span className="text-xs text-slate-500">Consultant responsabil:</span>
-                    {isAdmin && onAssignActivity && externalProjectMembers ? (
-                      <select
-                        value={activityAssignedTo ?? ''}
-                        onChange={e => onAssignActivity(e.target.value || null)}
-                        className="max-w-full text-xs border border-slate-200 rounded-md px-1.5 py-0.5 text-slate-700 bg-white focus:border-indigo-500 outline-none transition-all"
-                      >
-                        <option value="">Neatribuit</option>
-                        {externalProjectMembers.map(m => (
-                          <option key={m.id} value={m.id}>{m.full_name || m.email}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="text-xs font-medium text-slate-700">
-                        {activityAssignedUser?.full_name ?? activityAssignedUser?.email ?? 'Neatribuit'}
-                      </span>
-                    )}
-                  </div>
-                )}
               </div>
-            </div>
+            </div>}
+
+            {isEmbedded && activityId === null && (
+              isAdmin && onAssignActivity && externalProjectMembers ? (
+                <select
+                  value={activityAssignedTo ?? ''}
+                  onChange={e => onAssignActivity(e.target.value || null)}
+                  aria-label="Atribuie consultant pentru cererile generale"
+                  className="mr-2 max-w-40 text-xs border border-slate-200 rounded-md px-1.5 py-1 text-slate-700 bg-white"
+                >
+                  <option value="">Neatribuit</option>
+                  {externalProjectMembers.map(m => <option key={m.id} value={m.id}>{m.full_name || m.email}</option>)}
+                </select>
+              ) : (
+                <span className="mr-2 self-center text-xs text-slate-500">{activityAssignedUser?.full_name ?? activityAssignedUser?.email ?? 'Neatribuit'}</span>
+              )
+            )}
 
             {isAdminOrConsultant && (
-              <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:flex-shrink-0">
+              <div className={`flex flex-wrap items-center gap-2 ${isEmbedded ? '' : 'w-full xl:w-auto xl:flex-shrink-0'}`}>
                 {!activityId && (
                   <button
                     type="button"
