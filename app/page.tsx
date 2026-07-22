@@ -329,7 +329,7 @@ function TaskRow({ req, todayTs, mode }: { req: any; todayTs: number; mode: 'cli
 function DocRow({ doc }: { doc: any }) {
   const date = doc.created_at ? new Date(doc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' }) : null
   return (
-    <Link href={`/projects/${doc.project_id}?view=documents`} className="group flex items-center gap-3 pl-4 pr-4 py-3 hover:bg-slate-50/70 transition-colors">
+    <Link href={`/projects/${doc.project_id}?phase=__general__&document=${doc.id}#general-requests`} className="group flex items-center gap-3 pl-4 pr-4 py-3 hover:bg-slate-50/70 transition-colors">
       <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
         <FileText className="w-3.5 h-3.5 text-indigo-500" />
       </div>

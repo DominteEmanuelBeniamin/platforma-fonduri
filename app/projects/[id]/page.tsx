@@ -44,6 +44,7 @@ function ProjectDetailsContent() {
   const searchParams = useSearchParams()
   const targetPhaseId = searchParams.get('phase')
   const targetActivityId = searchParams.get('activity')
+  const targetDocumentId = searchParams.get('document')
   const targetView = searchParams.get('view')
   const projectId = useMemo(() => {
     const id = (params as any)?.id
@@ -383,10 +384,14 @@ function ProjectDetailsContent() {
       } else {
         setHighlightGeneralRequests(true)
         setTimeout(() => setHighlightGeneralRequests(false), 2500)
+        if (targetDocumentId) {
+          setAutoOpenRequestId(targetDocumentId)
+          setTimeout(() => setAutoOpenRequestId(null), 2500)
+        }
       }
     }, 250)
     return () => clearTimeout(timer)
-  }, [loading, targetActivityId, targetPhaseId, activePhaseId])
+  }, [loading, targetActivityId, targetPhaseId, targetDocumentId, activePhaseId])
 
   // Sari direct la o activitate (din panoul "Ce e de făcut"), fără reload.
   // Cu requestId, deschide direct fișa cererii — zero click-uri suplimentare

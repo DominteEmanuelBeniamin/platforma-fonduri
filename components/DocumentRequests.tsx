@@ -351,25 +351,30 @@ export default function DocumentRequests({
     return src
   }, [externalRequests, internalRequests, activityId])
 
-  // Deschide automat o cerere (ex. dintr-un rezultat de căutare) — doar instanța
-  // care chiar conține cererea respectivă printre cele filtrate reacționează.
-  useEffect(() => {
-    if (!autoOpenRequestId) return
-    const match = requests.find(r => r.id === autoOpenRequestId)
-    if (!match) return
-    setSelectedRequest(match)
-    setClosedRequestIds(prev => {
-      if (!prev.has(match.id)) return prev
-      const s = new Set(prev)
-      s.delete(match.id)
-      return s
-    })
-  }, [autoOpenRequestId, requests])
-
   // Documente trimise de consultant CĂTRE client (informative) — nivel proiect
   const outgoingDocs = useMemo(() => {
     return (externalRequests ?? internalRequests).filter((r: any) => r.is_outgoing && !r.deleted_at)
   }, [externalRequests, internalRequests])
+
+  // Deschide cererea sau documentul trimis indicat prin deep-link.
+  useEffect(() => {
+    if (!autoOpenRequestId) return
+    const request = requests.find(r => r.id === autoOpenRequestId)
+    if (request) {
+      setSelectedRequest(request)
+      setClosedRequestIds(prev => {
+        if (!prev.has(request.id)) return prev
+        const s = new Set(prev)
+        s.delete(request.id)
+        return s
+      })
+      return
+    }
+    if (activityId === null) {
+      const outgoing = outgoingDocs.find(doc => doc.id === autoOpenRequestId)
+      if (outgoing) setSelectedOutgoingDoc(outgoing)
+    }
+  }, [activityId, autoOpenRequestId, outgoingDocs, requests])
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
   const isAdmin = profile?.role === 'admin'
