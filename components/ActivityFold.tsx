@@ -24,7 +24,6 @@ interface ActivityFoldProps {
   visibility?: 'draft' | 'published'
   canPublish: boolean
   onPublish: () => void
-  actionSlotId?: string
   children: ReactNode
 }
 
@@ -47,7 +46,6 @@ export default function ActivityFold({
   visibility,
   canPublish,
   onPublish,
-  actionSlotId,
   children,
 }: ActivityFoldProps) {
   const deadline = activity.deadline_at ? new Date(activity.deadline_at) : null
@@ -98,8 +96,6 @@ export default function ActivityFold({
         </Collapsible.Trigger>
 
         <PublishStatusControl status={visibility ?? 'draft'} canPublish={canPublish} onPublish={onPublish} size="sm" />
-
-        {actionSlotId && <div id={actionSlotId} className="flex-shrink-0" />}
 
         <div onClick={e => e.stopPropagation()} className="flex-shrink-0">
           {isAdmin ? (

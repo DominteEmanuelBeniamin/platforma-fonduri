@@ -234,7 +234,6 @@ interface DocumentRequestsProps {
   projectTitle?: string
   /** Id-ul unei cereri de deschis automat (ex. venit dintr-un rezultat de căutare) */
   autoOpenRequestId?: string | null
-  actionSlotId?: string
 }
 
 export default function DocumentRequests({
@@ -251,7 +250,6 @@ export default function DocumentRequests({
   clientName,
   projectTitle,
   autoOpenRequestId,
-  actionSlotId,
 }: DocumentRequestsProps) {
   const { loading: authLoading, token, profile, apiFetch } = useAuth()
   const { showToast, confirm } = useToast()
@@ -260,9 +258,9 @@ export default function DocumentRequests({
   const [loading, setLoading] = useState(!externalRequests)
   const [showForm, setShowForm] = useState(false)
   const [editingRequest, setEditingRequest] = useState<DocumentRequest | null>(null)
-  const [actionSlot, setActionSlot] = useState<HTMLElement | null>(null)
   
   const folderInputRef = useRef<HTMLInputElement | null>(null)
+  const formScrollY = useRef(0)
 
   useEffect(() => {
     if (!folderInputRef.current) return
@@ -272,8 +270,11 @@ export default function DocumentRequests({
   }, [])
 
   useEffect(() => {
-    setActionSlot(actionSlotId ? document.getElementById(actionSlotId) : null)
-  }, [actionSlotId])
+    if (!showForm) return
+    formScrollY.current = window.scrollY
+    requestAnimationFrame(() => window.scrollTo(0, formScrollY.current))
+    return () => { requestAnimationFrame(() => window.scrollTo(0, formScrollY.current)) }
+  }, [showForm])
 
   // Modal state
   const [selectedRequest, setSelectedRequest] = useState<DocumentRequest | null>(null)
@@ -1092,12 +1093,6 @@ export default function DocumentRequests({
 
   return (
     <>
-      {actionSlot && isAdminOrConsultant && createPortal(
-        <button onClick={openCreateForm} className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">
-          <Plus className="w-3.5 h-3.5" /> Cerere
-        </button>,
-        actionSlot,
-      )}
       <div className={`bg-white ${isEmbedded ? '' : 'rounded-2xl border border-slate-200 shadow-sm overflow-hidden'}`}>
         {(!isEmbedded || activityId === null) && (
         <div className={`${isEmbedded ? 'flex justify-end px-4 py-3 border-b border-slate-100' : 'p-4 sm:p-5 border-b border-slate-100'}`}>
@@ -1160,6 +1155,7 @@ export default function DocumentRequests({
           <Dialog.Portal>
             <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[999999]" />
             <Dialog.Content
+              onCloseAutoFocus={event => event.preventDefault()}
               className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl z-[999999] focus:outline-none"
             >
               <div className="p-4 sm:p-5 bg-slate-50/80">
@@ -1869,6 +1865,18 @@ export default function DocumentRequests({
                 </div>
               )
             })
+          )}
+          {isEmbedded && activityId && isAdminOrConsultant && (
+            <button
+              type="button"
+              onClick={openCreateForm}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-indigo-700 bg-indigo-50/50 hover:bg-indigo-50 transition-colors"
+            >
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600">
+                <Plus className="w-4 h-4" />
+              </span>
+              <span className="text-sm font-semibold">Adaugă cerere de document nouă</span>
+            </button>
           )}
         </div>
       </div>

@@ -379,7 +379,7 @@ export default function ProjectPhasesSidebar({
       >
 
       {/* Header */}
-      <div className="p-4 border-b border-[var(--p-border)] flex-shrink-0 flex items-center justify-between">
+      <div className="h-[45px] px-4 border-b border-[var(--p-border)] flex-shrink-0 flex items-center justify-between">
         <p className="text-[11px] font-semibold text-[var(--p-ink-faint)] uppercase tracking-wider flex items-center gap-2">
           <Layers className="w-3.5 h-3.5" /> Faze proiect
         </p>

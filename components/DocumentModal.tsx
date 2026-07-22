@@ -191,7 +191,10 @@ export default function DocumentModal({
 
   useEffect(() => {
     setMounted(true)
+    const scrollY = window.scrollY
+    const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
+    requestAnimationFrame(() => window.scrollTo(0, scrollY))
     
     // Keyboard shortcuts
     const handleKeyboard = (e: KeyboardEvent) => {
@@ -204,7 +207,8 @@ export default function DocumentModal({
     window.addEventListener('keydown', handleKeyboard)
 
     return () => {
-      document.body.style.overflow = 'unset'
+      document.body.style.overflow = previousOverflow
+      requestAnimationFrame(() => window.scrollTo(0, scrollY))
       window.removeEventListener('keydown', handleKeyboard)
     }
   }, [request.status, isAdminOrConsultant, onClose])
