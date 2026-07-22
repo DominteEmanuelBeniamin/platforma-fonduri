@@ -7,6 +7,7 @@ import {
   Search, FolderOpen, ChevronDown, Grid3X3, List,
 } from 'lucide-react'
 import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
+import { useToast } from '@/app/providers/ToastProvider'
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -151,6 +152,7 @@ export default function DriveFilesView({
   emptyText = 'Niciun document',
   standalone = false,
 }: DriveFilesViewProps) {
+  const { showToast } = useToast()
   const [search, setSearch]               = useState('')
   const [filterStatus, setFilterStatus]   = useState('all')
   const [filterSecondary, setFilterSecondary] = useState('all')
@@ -204,7 +206,7 @@ export default function DriveFilesView({
       body: JSON.stringify({ expiresIn: 300, ...(disposition ? { disposition } : {}) }),
     })
     const data = await res.json().catch(() => ({}))
-    if (!res.ok) { alert(data?.error || 'Eroare la descărcare'); return null }
+    if (!res.ok) { showToast('Nu am putut descărca fișierul. Reîncearcă.', 'error'); return null }
     return data.url as string
   }
 

@@ -52,7 +52,7 @@ export default function TemplateSelector({ selectedTemplateId, onSelect }: Templ
       }
     }
     fetchTemplates()
-  }, [])
+  }, [apiFetch])
 
   const selectedTemplate = templates.find(t => t.id === selectedTemplateId)
 

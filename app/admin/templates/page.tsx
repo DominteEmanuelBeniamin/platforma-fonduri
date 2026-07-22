@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createPortal } from 'react-dom'
@@ -13,6 +13,8 @@ import {
 import { useAuth } from '@/app/providers/AuthProvider'
 import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS, REQUIREMENT_BADGE, normalizeRequirementType } from '@/lib/requirement-type'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
+import { FeedbackMessage } from '@/components/FeedbackMessage'
+import { useToast } from '@/app/providers/ToastProvider'
 
 interface ProjectStatus {
   id: string
@@ -277,6 +279,7 @@ export default function AdminTemplatesPage() {
   const { loading: authLoading, token, apiFetch, profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const canEditTemplate = (template: Template) => isAdmin || template.status === 'draft'
+  const { showToast } = useToast()
 
   const [templates, setTemplates] = useState<Template[]>([])
   const [statuses, setStatuses] = useState<ProjectStatus[]>([])
@@ -356,15 +359,7 @@ export default function AdminTemplatesPage() {
     }
   }
 
-  useEffect(() => {
-    if (authLoading) return
-    if (!token) { router.replace('/login'); return }
-    if (!profile) return
-    if (profile.role !== 'admin' && profile.role !== 'consultant') { router.replace('/'); return }
-    fetchData()
-  }, [authLoading, token, profile, router])
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const [templatesRes, statusesRes, usersRes] = await Promise.all([
         apiFetch('/api/admin/templates'),
@@ -388,7 +383,15 @@ export default function AdminTemplatesPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [apiFetch])
+
+  useEffect(() => {
+    if (authLoading) return
+    if (!token) { router.replace('/login'); return }
+    if (!profile) return
+    if (profile.role !== 'admin' && profile.role !== 'consultant') { router.replace('/'); return }
+    fetchData()
+  }, [authLoading, token, profile, router, fetchData])
 
   const addPhase = () => {
     setPhases([...phases, {
@@ -741,7 +744,7 @@ export default function AdminTemplatesPage() {
     })
     const previewData = await previewRes.json().catch(() => ({}))
     if (!previewRes.ok) {
-      alert(previewData?.error || 'Preview-ul de propagare nu a putut fi încărcat')
+      showToast('Nu am putut încărca previzualizarea propagării. Reîncearcă.', 'error')
       return
     }
 
@@ -750,7 +753,7 @@ export default function AdminTemplatesPage() {
     const ineligible = preview.ineligible ?? []
 
     if (affectedEligible.length === 0 && ineligible.length === 0) {
-      alert('Nu există proiecte care necesită propagarea modificărilor.')
+      showToast('Nu există proiecte care necesită propagarea modificărilor.', 'info')
       return
     }
 
@@ -808,7 +811,7 @@ export default function AdminTemplatesPage() {
         return
       }
 
-      alert('Modificările template-ului au fost propagate în proiectele eligibile.')
+      showToast('Modificările template-ului au fost propagate.', 'success')
       closeTemplatePropagation()
     } catch (error: any) {
       setPropagationError(error?.message || 'Propagarea template-ului a eșuat')
@@ -1037,8 +1040,8 @@ export default function AdminTemplatesPage() {
 
       resetForm()
       fetchData()
-    } catch (error: any) {
-      alert('Eroare: ' + error.message)
+    } catch {
+      showToast('Nu am putut salva template-ul. Reîncearcă.', 'error')
     } finally {
       setSaving(false)
     }
@@ -1242,12 +1245,7 @@ export default function AdminTemplatesPage() {
             </div>
 
             <div className="p-6 space-y-6">
-              {formError && (
-                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                  <span>{formError}</span>
-                </div>
-              )}
+              {formError && <FeedbackMessage variant="error">{formError}</FeedbackMessage>}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -1767,12 +1765,7 @@ export default function AdminTemplatesPage() {
                 </div>
               </div>
 
-              {propagationError && (
-                <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-100 text-sm text-red-700">
-                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                  <span>{propagationError}</span>
-                </div>
-              )}
+              {propagationError && <FeedbackMessage variant="error">{propagationError}</FeedbackMessage>}
 
               <section className="space-y-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

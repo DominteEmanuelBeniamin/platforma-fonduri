@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from './providers/AuthProvider'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
+import { useToast } from '@/app/providers/ToastProvider'
 import {
   AlertTriangle, Check, MessageSquare, FileText, Plus, MoreVertical, Trash2,
   Search, SlidersHorizontal, ArrowUpDown, LayoutGrid, List, X, ChevronRight, ChevronDown, Info, Clock,
@@ -421,6 +422,7 @@ function PriorityDrawer({
 export default function Dashboard() {
   const router = useRouter()
   const { loading: authLoading, token, apiFetch } = useAuth()
+  const { showToast } = useToast()
 
   const [loading, setLoading] = useState(true)
   const [projects, setProjects] = useState<any[]>([])
@@ -557,19 +559,19 @@ export default function Dashboard() {
   }
   const clearAll = () => { setSearch(''); clearFilters() }
 
-  const fetchMyProjects = async () => {
+  const fetchMyProjects = useCallback(async () => {
     const res = await apiFetch('/api/projects')
     const json = await res.json()
     if (!res.ok) throw new Error(json?.error || 'Failed to load projects')
     setProjects(json.projects ?? [])
-  }
+  }, [apiFetch])
 
-  const fetchCurrentUser = async () => {
+  const fetchCurrentUser = useCallback(async () => {
     const res = await apiFetch('/api/me')
     const json = await res.json()
     if (!res.ok) throw new Error(json?.error || 'Failed to load current user')
     setCurrentUser(json.profile)
-  }
+  }, [apiFetch])
 
   const handleDeleteProject = async () => {
     if (!projectToDelete) return
@@ -581,9 +583,8 @@ export default function Dashboard() {
       setProjects((prev) => prev.filter((p) => p.id !== projectToDelete.id))
       setShowDeleteModal(false)
       setProjectToDelete(null)
-    } catch (error: any) {
-      console.error('Eroare la ștergere:', error)
-      alert('Nu s-a putut șterge proiectul: ' + error.message)
+    } catch {
+      showToast('Nu am putut șterge proiectul. Reîncearcă.', 'error')
     } finally {
       setDeleteLoading(false)
     }
@@ -614,9 +615,9 @@ export default function Dashboard() {
     if (authLoading) return
     if (!token) { router.push('/login'); return }
     setLoading(true)
-    Promise.all([fetchMyProjects(), fetchCurrentUser()]).finally(() => setLoading(false))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, token, router])
+    Promise.all([fetchMyProjects(), fetchCurrentUser()])
+      .finally(() => setLoading(false))
+  }, [authLoading, token, router, fetchMyProjects, fetchCurrentUser])
 
   useEffect(() => {
     if (authLoading || !token) return
@@ -627,8 +628,7 @@ export default function Dashboard() {
       .then((d) => { setMyDocRequests(d.requests ?? []); setInformativeDocs(d.informativeDocs ?? []) })
       .catch(console.error)
       .finally(() => setDocRequestsLoaded(true))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, token, currentUser?.role])
+  }, [authLoading, token, currentUser?.role, apiFetch])
 
   if (loading || authLoading) {
     return (

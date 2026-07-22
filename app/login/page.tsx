@@ -5,10 +5,12 @@ import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { Eye, EyeOff } from 'lucide-react'
+import { useToast } from '@/app/providers/ToastProvider'
 
 export default function LoginPage() {
   const router = useRouter()
   const { loading: authInitLoading, token } = useAuth()
+  const { showToast } = useToast()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -29,7 +31,7 @@ export default function LoginPage() {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
       if (error) {
-        alert(error.message) // Ideal ar fi un toast notification aici
+        showToast('Autentificarea a eșuat. Verifică emailul și parola.', 'error')
         return
       }
 

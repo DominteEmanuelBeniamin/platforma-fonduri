@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 
 import TeamManager from '@/components/TeamManager'
+import { useToast } from '@/app/providers/ToastProvider'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -163,6 +164,7 @@ export default function ProjectPhasesSidebar({
   mobileOpen,
   onMobileClose,
 }: ProjectPhasesSidebarProps) {
+  const { showToast } = useToast()
   const [showAddPhase, setShowAddPhase] = useState(false)
   const [addingPhase, setAddingPhase] = useState(false)
   const [showAddActivity, setShowAddActivity] = useState<Record<string, boolean>>({})
@@ -222,7 +224,7 @@ export default function ProjectPhasesSidebar({
         body: JSON.stringify({ name }),
       })
       if (res.ok) { setShowAddPhase(false); onRefresh() }
-      else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare') }
+      else { showToast('Nu am putut salva faza. Reîncearcă.', 'error') }
     } finally { setAddingPhase(false) }
   }
 
@@ -235,7 +237,7 @@ export default function ProjectPhasesSidebar({
         body: JSON.stringify({ name }),
       })
       if (res.ok) { setShowAddActivity(prev => ({ ...prev, [phaseId]: false })); onRefresh() }
-      else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare') }
+      else { showToast('Nu am putut salva activitatea. Reîncearcă.', 'error') }
     } finally { setAddingActivity(prev => ({ ...prev, [phaseId]: false })) }
   }
 
@@ -246,7 +248,7 @@ export default function ProjectPhasesSidebar({
         method: 'DELETE',
       })
       if (res.ok) { setConfirmDeletePhase(null); onRefresh() }
-      else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare la ștergere') }
+      else { showToast('Nu am putut șterge faza. Reîncearcă.', 'error') }
     } finally { setDeletingPhase(null) }
   }
 
@@ -258,7 +260,7 @@ export default function ProjectPhasesSidebar({
         { method: 'DELETE' }
       )
       if (res.ok) { setConfirmDeleteActivity(null); onRefresh() }
-      else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare la ștergere') }
+      else { showToast('Nu am putut șterge activitatea. Reîncearcă.', 'error') }
     } finally { setDeletingActivity(null) }
   }
 
@@ -274,7 +276,7 @@ export default function ProjectPhasesSidebar({
         }
       )
       if (res.ok) { setEditingDeadline(null); onRefresh() }
-      else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare la salvare') }
+      else { showToast('Nu am putut salva modificarea. Reîncearcă.', 'error') }
     } finally { setSavingDeadline(null) }
   }
 
@@ -312,7 +314,7 @@ export default function ProjectPhasesSidebar({
         body: JSON.stringify({ orders: order.map((id, i) => ({ id, order_index: i + 1 })) }),
       })
       if (res.ok) await onReorderRefresh?.()
-      else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare la salvarea ordinii') }
+      else { showToast('Nu am putut salva ordinea. Reîncearcă.', 'error') }
     } finally { setPhaseOrder(null) }
   }
 
@@ -351,7 +353,7 @@ export default function ProjectPhasesSidebar({
         body: JSON.stringify({ orders: order.map((id, i) => ({ id, order_index: i + 1 })) }),
       })
       if (res.ok) await onReorderRefresh?.()
-      else { const d = await res.json().catch(() => null); alert(d?.error || 'Eroare la salvarea ordinii') }
+      else { showToast('Nu am putut salva ordinea. Reîncearcă.', 'error') }
     } finally { setActivityOrder(null) }
   }
 

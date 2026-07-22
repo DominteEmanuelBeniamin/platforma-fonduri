@@ -8,6 +8,7 @@ import { usePrivateConversations } from '@/hooks/usePrivateConversations'
 import { usePrivateChatUsers } from '@/hooks/usePrivateChatUsers'
 import PrivateChatView from '@/components/PrivateChatView'
 import { getAvatarColor, getInitials } from '@/lib/avatar'
+import { FeedbackMessage } from '@/components/FeedbackMessage'
 
 function formatConversationTime(iso: string | null) {
   if (!iso) return ''
@@ -242,11 +243,7 @@ function ChatPageContent() {
                     </div>
                   )}
 
-                  {!userSearchLoading && userSearchError && (
-                    <div className="px-4 py-3 text-sm text-rose-600">
-                      {userSearchError}
-                    </div>
-                  )}
+                  {!userSearchLoading && userSearchError && <FeedbackMessage variant="error" className="m-2">{userSearchError}</FeedbackMessage>}
 
                   {!userSearchLoading &&
                     !userSearchError &&
@@ -306,11 +303,7 @@ function ChatPageContent() {
               <div className="p-4 text-sm text-slate-500">Se încarcă conversațiile...</div>
             )}
 
-            {error && (
-              <div className="m-4 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                {error}
-              </div>
-            )}
+            {error && <FeedbackMessage variant="error" className="m-4">{error}</FeedbackMessage>}
 
             {!loading && items.length === 0 && !error && (
               <div className="flex h-full flex-col items-center justify-center px-6 text-center">

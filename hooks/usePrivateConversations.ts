@@ -1,9 +1,9 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { userErrorMessage } from '@/lib/user-error'
 
 export type PrivateConversationListItem = {
   id: string
@@ -67,7 +67,7 @@ export function usePrivateConversations() {
           if (!mountedRef.current) return
       
           if (!res.ok) {
-            setError((json as any)?.error ?? 'Failed to load conversations')
+            setError(userErrorMessage(res.status, 'Nu am putut încărca conversațiile.'))
             setItems([])
             return
           }
@@ -75,7 +75,7 @@ export function usePrivateConversations() {
           setItems(json?.items ?? [])
         } catch {
           if (!mountedRef.current) return
-          setError('Failed to load conversations')
+          setError(userErrorMessage(undefined, 'Nu am putut încărca conversațiile.'))
           setItems([])
         } finally {
           if (mountedRef.current) {
@@ -130,7 +130,7 @@ export function usePrivateConversations() {
         const json = (await res.json().catch(() => null)) as CreatePrivateConversationResponse | null
 
         if (!res.ok) {
-          setError((json as any)?.error ?? 'Failed to create conversation')
+          setError(userErrorMessage(res.status, 'Nu am putut crea conversația.'))
           return null
         }
 
@@ -143,7 +143,7 @@ export function usePrivateConversations() {
 
         return createdId
       } catch {
-        setError('Failed to create conversation')
+        setError(userErrorMessage(undefined, 'Nu am putut crea conversația.'))
         return null
       } finally {
         setCreating(false)

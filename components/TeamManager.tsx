@@ -4,6 +4,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Users, UserPlus, X } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { useToast } from '@/app/providers/ToastProvider'
 
 // Culori pentru avatare
 const avatarColors = [
@@ -38,6 +39,7 @@ const getAvatarColor = (identifier: string) => {
 
 export default function TeamManager({ projectId, onTeamChange }: { projectId: string; onTeamChange?: () => void }) {
   const { loading: authLoading, token, apiFetch, profile } = useAuth()
+  const { showToast, confirm } = useToast()
 
   const [team, setTeam] = useState<any[]>([])
   const [consultants, setConsultants] = useState<any[]>([])
@@ -106,15 +108,15 @@ export default function TeamManager({ projectId, onTeamChange }: { projectId: st
       setConsultants(prev => prev.filter(c => c.id !== selectedId))
       setSelectedId('')
       onTeamChange?.()
-    } catch (e: any) {
-      alert(e?.message || 'Eroare la adăugare')
+    } catch {
+      showToast('Nu am putut adăuga membrul. Reîncearcă.', 'error')
     } finally {
       setLoading(false)
     }
   }
 
   const removeMember = async (memberId: string) => {
-    if (!confirm('Elimini membrul?')) return
+    if (!await confirm({ title: 'Elimini membrul?', description: 'Membrul nu va mai avea acces la acest proiect.', confirmText: 'Elimină membrul' })) return
 
     try {
       const res = await apiFetch(`/api/projects/${projectId}/members/${memberId}`, {
@@ -134,8 +136,8 @@ export default function TeamManager({ projectId, onTeamChange }: { projectId: st
         setConsultants(prev => [{ id: profile.id, full_name: profile.full_name, email: profile.email }, ...prev])
       }
       onTeamChange?.()
-    } catch (e: any) {
-      alert(e?.message || 'Eroare la eliminare')
+    } catch {
+      showToast('Nu am putut elimina membrul. Reîncearcă.', 'error')
     }
   }
 
