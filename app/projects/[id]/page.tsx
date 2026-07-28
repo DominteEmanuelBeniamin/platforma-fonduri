@@ -453,31 +453,35 @@ function ProjectDetailsContent() {
     [phases]
   )
 
-  // Documente pe care clientul trebuie să le încarce (de la nivel proiect)
-  // Pentru client: cereri pe care el trebuie să le încarce (pending/rejected).
-  // Pentru consultant/admin: cereri deja încărcate de client, care așteaptă
-  // aprobarea lor (review) — asta e munca lor efectivă, nu "ce mai lipsește
-  // de la client", care doar informează fără să fie acționabil pentru ei.
-  const pendingUploads = useMemo(() => {
-    return allDocRequests
-      .filter((r: any) => {
-        if (r.is_outgoing || r.deleted_at) return false
-        return isClient ? (r.status === 'pending' || r.status === 'rejected') : r.status === 'review'
-      })
-      .map((r: any) => {
-        const phaseId = r.activity?.phase_id ?? null
-        return {
-          id: r.id,
-          name: r.name,
-          status: r.status,
-          deadline_at: r.deadline_at ?? null,
-          activity_id: r.activity?.id ?? r.activity_id ?? null,
-          activity_name: r.activity?.name ?? null,
-          phase_id: phaseId,
-          phase_name: phaseId ? phaseNameById.get(phaseId) ?? null : null,
-        }
-      })
+  const { pendingUploads, waitingOnClient } = useMemo(() => {
+    const incoming = allDocRequests.filter((r: any) => !r.is_outgoing && !r.deleted_at)
+    const deadlineTs = (r: { deadline_at: string | null }) => {
+      const ts = r.deadline_at ? new Date(r.deadline_at).getTime() : Number.POSITIVE_INFINITY
+      return Number.isNaN(ts) ? Number.POSITIVE_INFINITY : ts
+    }
+    const byDeadline = (a: { deadline_at: string | null }, b: { deadline_at: string | null }) => deadlineTs(a) - deadlineTs(b)
+    const toPanelItem = (r: any) => {
+      const phaseId = r.activity?.phase_id ?? null
+      return {
+        id: r.id,
+        name: r.name,
+        status: r.status,
+        deadline_at: r.deadline_at ?? null,
+        activity_id: r.activity?.id ?? r.activity_id ?? null,
+        activity_name: r.activity?.name ?? null,
+        phase_id: phaseId,
+        phase_name: phaseId ? phaseNameById.get(phaseId) ?? null : null,
+      }
+    }
+    return {
+      pendingUploads: incoming
+        .filter((r: any) => isClient ? (r.status === 'pending' || r.status === 'rejected') : r.status === 'review')
+        .map(toPanelItem)
+        .sort(byDeadline),
+      waitingOnClient: isClient ? [] : incoming.filter((r: any) => r.status === 'pending').map(toPanelItem).sort(byDeadline),
+    }
   }, [allDocRequests, phaseNameById, isClient])
+  const actionNeededCount = pendingUploads.length + waitingOnClient.length
 
   // Fără params deschidem mereu "Ce ai de făcut"; params expliciți duc la browse.
   useEffect(() => {
@@ -700,11 +704,11 @@ function ProjectDetailsContent() {
                   }`}
                 >
                   Ce ai de făcut
-                  {pendingUploads.length > 0 && (
+                  {actionNeededCount > 0 && (
                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
                       landingView === 'action-needed' ? 'bg-white/20' : 'bg-white'
                     }`}>
-                      {pendingUploads.length}
+                      {actionNeededCount}
                     </span>
                   )}
                 </button>
@@ -721,7 +725,7 @@ function ProjectDetailsContent() {
               </div>
 
               {landingView === 'action-needed' ? (
-                <ActionNeededPanel items={pendingUploads} isClient={isClient} onJump={jumpToActivity} />
+                <ActionNeededPanel items={pendingUploads} waitingItems={waitingOnClient} isClient={isClient} onJump={jumpToActivity} />
               ) : phases.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center p-8">
               <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">

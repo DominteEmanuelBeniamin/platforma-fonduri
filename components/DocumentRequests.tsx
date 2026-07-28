@@ -420,7 +420,6 @@ export default function DocumentRequests({
   }, [activityId, autoOpenRequestId, outgoingDocs, requests])
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
-  const isAdmin = profile?.role === 'admin'
   const isClient = profile?.role === 'client'
 
   // Drag & drop reorder — override temporar peste ordinea din API până la refresh
@@ -1396,7 +1395,7 @@ export default function DocumentRequests({
           ) : (
             displayRequests.map((req) => {
               const status = statusConfig[req.status] || statusConfig.pending
-              const isOverdue = req.deadline_at && new Date(req.deadline_at) < new Date() && req.status === 'pending'
+              const isOverdue = req.deadline_at && new Date(req.deadline_at) < new Date()
               const isFolded = closedRequestIds.has(req.id)
 
               return (
@@ -1529,7 +1528,7 @@ export default function DocumentRequests({
                           </div>
 
                           {/* ── Buton reminder client ── */}
-                          {isAdminOrConsultant && clientEmail && (() => {
+                          {isAdminOrConsultant && clientEmail && req.status === 'pending' && (() => {
                             const reminderType = getReminderType(req.deadline_at)
                             if (!reminderType) return null
                             const badge = REMINDER_BADGE[reminderType]

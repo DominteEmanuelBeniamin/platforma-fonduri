@@ -186,8 +186,12 @@ export default function DocumentModal({
   // Check if deadline is overdue
   const isOverdue = useMemo(() => {
     if (!localDeadline) return false
-    return new Date(localDeadline) < new Date() && request.status === 'pending'
-  }, [localDeadline, request.status])
+    const deadline = new Date(localDeadline)
+    const today = new Date()
+    deadline.setHours(0, 0, 0, 0)
+    today.setHours(0, 0, 0, 0)
+    return deadline < today
+  }, [localDeadline])
 
   useEffect(() => {
     setMounted(true)

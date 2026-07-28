@@ -143,7 +143,8 @@ export default function MyRequestsPage() {
                 {group.items.map((req: any) => {
                   const reminderType = getReminderType(req.deadline_at) ?? '1_week'
                   const badge = REMINDER_BADGE[reminderType]
-                  const mailtoLink = req.client_email
+                  const canRemind = req.status === 'pending'
+                  const mailtoLink = canRemind && req.client_email
                     ? generateMailtoLink(
                         {
                           requestName: req.name,
@@ -241,28 +242,28 @@ export default function MyRequestsPage() {
                         {req.status === 'review' ? 'Verificare' : 'Așteaptă răspuns'}
                       </span>
 
-                      {/* Reminder */}
-                      {mailtoLink ? (
-                        <a
-                          href={mailtoLink}
-                          title={REMINDER_LABELS[reminderType]}
-                          className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all hover:shadow-sm active:scale-95 ${badge.bg} ${badge.text} ${badge.border}`}
-                        >
-                          <Mail className="w-3.5 h-3.5" />
-                          Reminder
-                        </a>
-                      ) : (
-                        <div
-                          title="Fără email client"
-                          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-slate-200 text-xs font-medium text-slate-300 cursor-not-allowed"
-                        >
-                          <Mail className="w-3.5 h-3.5" />
-                          Reminder
-                        </div>
+                      {canRemind && (
+                        mailtoLink ? (
+                          <a
+                            href={mailtoLink}
+                            title={REMINDER_LABELS[reminderType]}
+                            className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all hover:shadow-sm active:scale-95 ${badge.bg} ${badge.text} ${badge.border}`}
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                            Reminder
+                          </a>
+                        ) : (
+                          <div
+                            title="Fără email client"
+                            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-slate-200 text-xs font-medium text-slate-300 cursor-not-allowed"
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                            Reminder
+                          </div>
+                        )
                       )}
 
-                      {/* Sent checkbox */}
-                      {(() => {
+                      {canRemind && (() => {
                         const isSent = req.reminder_sent_at && req.reminder_type_sent === reminderType
                         const sentBefore = req.reminder_sent_at && !isSent
                         const sentDate = req.reminder_sent_at

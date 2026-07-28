@@ -22,13 +22,17 @@ export async function POST(
     // Obține cererea + project_id + deadline pentru a calcula tipul de reminder
     const { data: req, error: reqError } = await admin
       .from('document_requirements')
-      .select('id, project_id, name, deadline_at, reminder_sent_at, reminder_type_sent, deleted_at')
+      .select('id, project_id, name, status, deadline_at, reminder_sent_at, reminder_type_sent, deleted_at')
       .eq('id', requestId)
       .is('deleted_at', null)
       .maybeSingle()
 
     if (reqError || !req) {
       return NextResponse.json({ error: 'Cererea nu a fost găsită' }, { status: 404 })
+    }
+
+    if (req.status !== 'pending') {
+      return NextResponse.json({ error: 'Cererea are deja un răspuns de verificat.' }, { status: 409 })
     }
 
     // Consultantul trebuie să fie admin sau membru al proiectului

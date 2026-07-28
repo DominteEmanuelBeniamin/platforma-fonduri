@@ -76,13 +76,13 @@ function buildBadges(att: Att, isClient: boolean): any[] {
     if (att.total > 0) badges.push({ key: 'todo', cls: 'bg-amber-50 text-amber-700 ring-amber-100', icon: <FileText className="w-3 h-3" />, label: `${att.total} de încărcat`, title: `${att.total} documente de încărcat` })
   } else {
     if (att.review > 0) badges.push({ key: 'review', cls: 'bg-blue-50 text-blue-600 ring-blue-100', icon: <FileText className="w-3 h-3" />, label: `${att.review} de verificat`, title: `${att.review} cereri de verificat` })
-    else if (att.pending > 0) badges.push({ key: 'pending', cls: 'bg-amber-50 text-amber-700 ring-amber-100', icon: <FileText className="w-3 h-3" />, label: `${att.pending} în așteptare`, title: `${att.pending} cereri în așteptare la client` })
+    badges.push({ key: 'pending', cls: att.pending > 0 ? 'bg-amber-50 text-amber-700 ring-amber-100' : 'bg-slate-50 text-slate-500 ring-slate-100', icon: <FileText className="w-3 h-3" />, label: `${att.pending} la client`, title: `${att.pending} cereri așteaptă documente de la client` })
   }
   if (att.unread > 0) {
     badges.push({ key: 'chat', cls: 'bg-rose-50 text-rose-600 ring-rose-100', icon: <MessageSquare className="w-3 h-3" />, label: `${att.unread > 99 ? '99+' : att.unread} mesaje`, title: `${att.unread} mesaje necitite în chat` })
   }
   if (att.clean) {
-    badges.push({ key: 'clean', cls: 'bg-emerald-50 text-emerald-600 ring-emerald-100', icon: <Check className="w-3 h-3" strokeWidth={3} />, label: 'La zi', title: 'Nimic în așteptare' })
+    badges.push({ key: 'clean', cls: 'bg-emerald-50 text-emerald-600 ring-emerald-100', icon: <Check className="w-3 h-3" strokeWidth={3} />, label: 'La zi', title: 'Nimic de făcut' })
   }
   return badges
 }
@@ -93,7 +93,7 @@ function AttentionBadges({ att, isClient, className = '' }: { att: Att; isClient
   return (
     <div className={`flex flex-wrap items-center gap-1.5 ${className}`}>
       {badges.map((b) => (
-        <span key={b.key} title={b.title} className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${b.cls}`}>
+        <span key={b.key} title={b.title} className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold ring-1 whitespace-nowrap ${b.cls}`}>
           {b.icon}
           {b.label}
         </span>
@@ -296,7 +296,7 @@ function TaskRow({ req, todayTs, mode }: { req: any; todayTs: number; mode: 'cli
   const rowBg = isOverdue ? 'bg-red-50/40 hover:bg-red-50/70' : 'hover:bg-slate-50/70'
   const pill = mode === 'client'
     ? (isRejected ? { cls: 'bg-red-50 text-red-500', label: 'Respins' } : { cls: 'bg-amber-50 text-amber-600', label: 'De încărcat' })
-    : (isReview ? { cls: 'bg-blue-50 text-blue-500', label: 'Verificare' } : { cls: 'bg-amber-50 text-amber-600', label: 'Așteaptă răspuns' })
+    : (isReview ? { cls: 'bg-blue-50 text-blue-500', label: 'Verificare' } : { cls: 'bg-amber-50 text-amber-600', label: 'La client' })
   return (
     <Link href={buildRequestHref(req)} className={`group relative flex items-center gap-3 pl-4 pr-4 py-3 transition-colors ${rowBg}`}>
       <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${accent}`} />
@@ -407,7 +407,7 @@ function PriorityDrawer({
                 <Check className="w-6 h-6 text-emerald-400" strokeWidth={2.5} />
               </div>
               <p className="text-sm font-semibold text-slate-600">Totul e la zi!</p>
-              <p className="text-xs text-slate-400">Nu ai nimic în așteptare.</p>
+              <p className="text-xs text-slate-400">Nu ai nimic de făcut.</p>
             </div>
           )}
         </div>
@@ -661,7 +661,7 @@ export default function Dashboard() {
     isClient
       ? { dot: 'bg-amber-400', label: 'De încărcat', desc: 'documente cerute' }
       : { dot: 'bg-blue-400', label: 'De verificat', desc: 'așteaptă verificarea ta' },
-    ...(!isClient ? [{ dot: 'bg-amber-400', label: 'Așteaptă răspuns', desc: 'așteaptă fișier de la client' }] : []),
+    ...(!isClient ? [{ dot: 'bg-amber-400', label: 'La client', desc: 'așteaptă document de la client' }] : []),
     { dot: 'bg-rose-400', label: 'Chat necitit', desc: 'mesaje noi' },
     { dot: 'bg-emerald-400', label: 'La zi', desc: 'nimic de făcut' },
   ]
