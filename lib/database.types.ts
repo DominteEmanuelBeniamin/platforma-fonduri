@@ -808,7 +808,7 @@ export const ACTIVITY_STATUS_CONFIG: Record<ActivityStatus, StatusConfig> = {
 };
 
 export const DOCUMENT_STATUS_CONFIG: Record<DocumentRequirementStatus, StatusConfig> = {
-  pending: { bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', icon: 'FileQuestion', label: 'Așteaptă document' },
+  pending: { bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', icon: 'FileQuestion', label: 'De încărcat' },
   uploaded: { bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200', icon: 'FileUp', label: 'Încărcat' },
   review: { bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', icon: 'FileSearch', label: 'În verificare' },
   approved: { bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-200', icon: 'FileCheck', label: 'Aprobat' },

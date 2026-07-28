@@ -46,6 +46,7 @@ function ProjectDetailsContent() {
   const targetActivityId = searchParams.get('activity')
   const targetDocumentId = searchParams.get('document')
   const targetView = searchParams.get('view')
+  const hasUrlParams = searchParams.toString().length > 0
   const projectId = useMemo(() => {
     const id = (params as any)?.id
     return typeof id === 'string' && id.trim().length > 0 ? id : null
@@ -74,7 +75,7 @@ function ProjectDetailsContent() {
   const [unreadCount, setUnreadCount] = useState(0)
 
   const [activeView, setActiveView] = useState<'phases' | 'documents'>(targetView === 'documents' ? 'documents' : 'phases')
-  const [landingView, setLandingView] = useState<'action-needed' | 'browse'>('browse')
+  const [landingView, setLandingView] = useState<'action-needed' | 'browse'>(hasUrlParams ? 'browse' : 'action-needed')
   const [landingViewInitialized, setLandingViewInitialized] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [autoOpenRequestId, setAutoOpenRequestId] = useState<string | null>(null)
@@ -131,14 +132,16 @@ function ProjectDetailsContent() {
           return next.size === prev.size ? prev : next
         })
 
-        if (targetPhaseId === GENERAL_ID) {
+        if (!hasUrlParams) {
+          setActivePhaseId(null)
+          if (isFirstLoad) setExpandedPhases(new Set())
+        } else if (targetPhaseId === GENERAL_ID) {
           setActivePhaseId(GENERAL_ID)
           if (isFirstLoad) {
             setExpandedPhases(prev => new Set(prev).add(GENERAL_ID))
           }
-        } else {
-          const fromUrl = targetPhaseId ? ph.find(p => p.id === targetPhaseId) : null
-          const active = fromUrl || ph.find(p => p.status === 'in_progress') || ph[0]
+        } else if (targetPhaseId) {
+          const active = ph.find(p => p.id === targetPhaseId)
           if (active) {
             setActivePhaseId(active.id)
             // Doar la primul load semănăm faza activă ca implicit deplasată —
@@ -266,10 +269,13 @@ function ProjectDetailsContent() {
     }
   }
 
-  const publishProjectItem = async (url: string) => {
+  const publishProjectItem = async (
+    url: string,
+    copy: { title?: string; description?: string } = {},
+  ) => {
     if (!await confirm({
-      title: 'Publică elementul?',
-      description: 'Elementul va deveni vizibil clientului.',
+      title: copy.title || 'Publică elementul?',
+      description: copy.description || 'Elementul va deveni vizibil clientului.',
       confirmText: 'Publică',
     })) return
     try {
@@ -389,6 +395,10 @@ function ProjectDetailsContent() {
       if (targetActivityId) {
         setHighlightActivityId(targetActivityId)
         setTimeout(() => setHighlightActivityId(null), 2500)
+        if (targetDocumentId) {
+          setAutoOpenRequestId(targetDocumentId)
+          setTimeout(() => setAutoOpenRequestId(null), 2500)
+        }
       } else {
         setHighlightGeneralRequests(true)
         setTimeout(() => setHighlightGeneralRequests(false), 2500)
@@ -469,16 +479,12 @@ function ProjectDetailsContent() {
       })
   }, [allDocRequests, phaseNameById, isClient])
 
-  // Alegem vederea implicită o singură dată, după primul load reușit — dacă
-  // există un deep-link explicit, îl respectăm; altfel arătăm "Ce ai de făcut"
-  // doar dacă chiar are ce conține. Nu recalculăm ulterior, ca să nu forțăm
-  // utilizatorul înapoi dacă a comutat manual.
+  // Fără params deschidem mereu "Ce ai de făcut"; params expliciți duc la browse.
   useEffect(() => {
     if (loading || landingViewInitialized) return
-    const hasDeepLink = !!targetPhaseId
-    setLandingView(hasDeepLink || pendingUploads.length === 0 ? 'browse' : 'action-needed')
+    setLandingView(hasUrlParams ? 'browse' : 'action-needed')
     setLandingViewInitialized(true)
-  }, [loading, landingViewInitialized, pendingUploads.length, targetPhaseId])
+  }, [loading, landingViewInitialized, hasUrlParams])
 
   const searchIndex = useMemo(() => buildSearchIndex(phases, allDocRequests), [phases, allDocRequests])
 
@@ -621,11 +627,11 @@ function ProjectDetailsContent() {
         {activeView === 'phases' && (
           <ProjectPhasesSidebar
             phases={phases}
-            activePhaseId={activePhaseId}
+            activePhaseId={landingView === 'browse' ? activePhaseId : null}
             expandedPhases={expandedPhases}
             canEdit={canEdit}
             projectId={projectId!}
-            isGeneralActive={activePhaseId === GENERAL_ID}
+            isGeneralActive={landingView === 'browse' && activePhaseId === GENERAL_ID}
             onSelectPhase={handleSelectPhase}
             onSelectGeneral={handleSelectGeneral}
             onToggleExpand={handleToggleExpand}
@@ -643,11 +649,11 @@ function ProjectDetailsContent() {
         <main className="flex-1 min-w-0">
 
           {/* ── Tab switcher ── */}
-          <div className="sticky top-14 z-10 bg-[var(--p-surface)] border-b border-[var(--p-border)] px-4 sm:px-6">
-            <div className="flex gap-1 -mb-px">
+          <div className="sticky top-14 z-10 h-12 bg-[var(--p-surface)] border-b border-[var(--p-border)] px-4 sm:px-6">
+            <div className="flex h-full gap-1 -mb-px">
               <button
                 onClick={() => setActiveView('phases')}
-                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                className={`flex h-full items-center gap-2 px-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   activeView === 'phases'
                     ? 'border-indigo-600 text-indigo-600'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -658,7 +664,7 @@ function ProjectDetailsContent() {
               </button>
               <button
                 onClick={() => setActiveView('documents')}
-                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                className={`flex h-full items-center gap-2 px-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   activeView === 'documents'
                     ? 'border-indigo-600 text-indigo-600'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -744,12 +750,15 @@ function ProjectDetailsContent() {
                   id={phase.id}
                   title={phase.name}
                   subtitle={`${phase.activities?.length ?? 0} activit${phase.activities?.length === 1 ? 'ate' : 'ăți'}`}
-                  color={phase.project_status?.color}
+                  color={phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)'}
                   headerRight={
                     <PublishStatusControl
                       status={phase.visibility ?? 'draft'}
                       canPublish={canEdit}
-                      onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}`)}
+                      onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}`, {
+                        title: 'Publică faza?',
+                        description: 'Faza va deveni vizibilă clientului. Activitățile și cererile deja publicate din această fază vor deveni vizibile.',
+                      })}
                     />
                   }
                   open={expandedPhases.has(phase.id)}
@@ -772,18 +781,22 @@ function ProjectDetailsContent() {
                         onAssign={assignedTo => handleAssignActivity(phase.id, activity.id, assignedTo)}
                         visibility={activity.visibility}
                         canPublish={canEdit}
-                        onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`)}
+                        onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, {
+                          title: 'Publică activitatea?',
+                          description: phase.visibility === 'published'
+                            ? 'Activitatea va deveni vizibilă clientului.'
+                            : `Activitatea va fi publicată, dar clientul o va vedea doar după ce publici faza „${phase.name}”.`,
+                        })}
                       >
                         <DocumentRequests
                           projectId={projectId!}
                           activityId={activity.id}
                           activityName={activity.name}
+                          parentActivityVisibility={activity.visibility}
+                          parentPhaseName={phase.name}
+                          parentPhaseVisibility={phase.visibility}
                           externalRequests={allDocRequests}
                           onRefresh={refreshDocs}
-                          activityAssignedTo={activity.assigned_to ?? null}
-                          activityAssignedUser={activity.assigned_user ?? null}
-                          projectMembers={projectMembers}
-                          onAssignActivity={isAdmin ? (assignedTo: string | null) => handleAssignActivity(phase.id, activity.id, assignedTo) : undefined}
                           clientEmail={project?.profiles?.email ?? null}
                           clientName={project?.profiles?.full_name ?? null}
                           projectTitle={project?.title}
@@ -842,6 +855,24 @@ function ProjectDetailsContent() {
                   title="Cereri generale"
                   subtitle="Documente care nu țin de o anumită fază a proiectului."
                   icon={<FolderOpen className="w-4 h-4 text-indigo-500 flex-shrink-0" />}
+                  headerRight={
+                    isAdmin ? (
+                      <select
+                        value={project?.general_consultant_id ?? ''}
+                        onClick={e => e.stopPropagation()}
+                        onChange={e => handleAssignGeneralConsultant(e.target.value || null)}
+                        aria-label="Atribuie consultant pentru cererile generale"
+                        className="max-w-40 text-xs border border-slate-200 rounded-md px-1.5 py-1 text-slate-700 bg-white"
+                      >
+                        <option value="">Neatribuit</option>
+                        {projectMembers.map(m => <option key={m.id} value={m.id}>{m.full_name || m.email}</option>)}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-slate-500">
+                        {project?.general_consultant?.full_name ?? project?.general_consultant?.email ?? 'Neatribuit'}
+                      </span>
+                    )
+                  }
                   open={expandedPhases.has(GENERAL_ID)}
                   onOpenChange={() => handleToggleExpand(GENERAL_ID)}
                 >
@@ -856,10 +887,6 @@ function ProjectDetailsContent() {
                       activityName="Cereri generale"
                       externalRequests={allDocRequests}
                       onRefresh={refreshDocs}
-                      activityAssignedTo={project?.general_consultant_id ?? null}
-                      activityAssignedUser={project?.general_consultant ?? null}
-                      projectMembers={projectMembers}
-                      onAssignActivity={isAdmin ? (assignedTo: string | null) => handleAssignGeneralConsultant(assignedTo) : undefined}
                       clientEmail={project?.profiles?.email ?? null}
                       clientName={project?.profiles?.full_name ?? null}
                       projectTitle={project?.title}

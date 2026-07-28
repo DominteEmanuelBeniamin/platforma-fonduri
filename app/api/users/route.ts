@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // app/api/users/route.ts
 import { NextResponse } from 'next/server'
-import { requireAdmin, guardToResponse } from '../_utils/auth'
+import { requireAdmin, requireProfile, guardToResponse } from '../_utils/auth'
 import { createSupabaseServiceClient } from '../_utils/supabase'
 import { logUserAction, getClientIP, getUserAgent } from '../_utils/audit'
 
@@ -103,10 +103,26 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request){
   try {
-    const ctx = await requireAdmin(request)
+    const ctx = await requireProfile(request)
     if (!ctx.ok) return guardToResponse(ctx)
 
     const admin = createSupabaseServiceClient()
+    if (ctx.profile.role === 'consultant') {
+      const { data, error } = await admin
+        .from('profiles')
+        .select('id, email, full_name, role')
+        .eq('role', 'consultant')
+        .order('full_name')
+
+      if (error) throw error
+
+      return NextResponse.json({ users: data })
+    }
+
+    if (ctx.profile.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const { data, error } = await admin
       .from('profiles')
       .select('*')

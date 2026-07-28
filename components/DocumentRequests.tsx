@@ -14,7 +14,6 @@ import {
   X,
   Paperclip,
   ChevronRight,
-  ChevronDown,
   Eye,
   MessageSquare,
   FileSpreadsheet,
@@ -52,6 +51,12 @@ interface DocumentRequest {
   status: 'pending' | 'review' | 'approved' | 'rejected'
   visibility?: 'draft' | 'published'
   is_outgoing?: boolean
+  activity?: {
+    id: string
+    name: string
+    visibility?: 'draft' | 'published'
+    phase?: { id: string; name?: string | null; visibility?: 'draft' | 'published' } | null
+  } | null
   order_index?: number
   attachment_path: string | null
   attachment_original_name?: string | null
@@ -214,20 +219,24 @@ function getFileIcon(file: PickedFile): JSX.Element {
   return <File className="w-5 h-5" />
 }
 
+function joinVisibilityRequirements(items: string[]) {
+  if (items.length <= 1) return items[0] || ''
+  return `${items.slice(0, -1).join(', ')} și ${items[items.length - 1]}`
+}
+
 interface DocumentRequestsProps {
   projectId: string
   /** Dacă e furnizat, filtrează cererile după activity_id */
   activityId?: string | null
   /** Titlul activității afișat în header */
   activityName?: string
+  parentActivityVisibility?: 'draft' | 'published'
+  parentPhaseName?: string
+  parentPhaseVisibility?: 'draft' | 'published'
   /** Date externe de la pagina părinte (evită fetch duplicat) */
   externalRequests?: any[]
   /** Callback refresh pentru pagina părinte */
-  onRefresh?: () => void
-  activityAssignedTo?: string | null
-  activityAssignedUser?: { id: string; full_name: string | null; email: string } | null
-  projectMembers?: { id: string; full_name: string | null; email: string }[]
-  onAssignActivity?: (assignedTo: string | null) => void
+  onRefresh?: () => void | Promise<void>
   /** Date client pentru reminder-uri — transmise din pagina proiectului */
   clientEmail?: string | null
   clientName?: string | null
@@ -240,12 +249,11 @@ export default function DocumentRequests({
   projectId,
   activityId,
   activityName,
+  parentActivityVisibility,
+  parentPhaseName,
+  parentPhaseVisibility,
   externalRequests,
   onRefresh,
-  activityAssignedTo,
-  activityAssignedUser,
-  projectMembers: externalProjectMembers,
-  onAssignActivity,
   clientEmail,
   clientName,
   projectTitle,
@@ -322,10 +330,38 @@ export default function DocumentRequests({
     !window.matchMedia?.('(pointer: coarse)').matches &&
     !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 
+  const getPublishRequestCopy = (requestId: string) => {
+    const request = requests.find(req => req.id === requestId) ?? outgoingDocs.find(req => req.id === requestId)
+    const isOutgoing = Boolean(request?.is_outgoing)
+    const noun = isOutgoing ? 'Documentul' : 'Cererea'
+    const lowerNoun = request?.is_outgoing ? 'documentul' : 'cererea'
+    const publishedForm = isOutgoing ? 'publicat' : 'publicată'
+    const visibleForm = isOutgoing ? 'vizibil' : 'vizibilă'
+    const missingParents = []
+
+    const phaseVisibility = request?.activity?.phase?.visibility ?? parentPhaseVisibility
+    const activityVisibility = request?.activity?.visibility ?? parentActivityVisibility
+
+    if (request?.activity_id && phaseVisibility !== 'published') {
+      missingParents.push(`faza „${request.activity?.phase?.name || parentPhaseName || 'părinte'}”`)
+    }
+    if (request?.activity_id && activityVisibility !== 'published') {
+      missingParents.push(`activitatea „${request.activity?.name || activityName || 'părinte'}”`)
+    }
+
+    return {
+      title: request?.is_outgoing ? 'Publică documentul?' : 'Publică cererea?',
+      description: missingParents.length
+        ? `${noun} va fi ${publishedForm}, dar clientul va vedea ${lowerNoun} doar după ce publici ${joinVisibilityRequirements(missingParents)}.`
+        : `${noun} va deveni ${visibleForm} clientului.`,
+    }
+  }
+
   const publishRequest = async (requestId: string) => {
+    const copy = getPublishRequestCopy(requestId)
     if (!await confirm({
-      title: 'Publică cererea?',
-      description: 'Cererea va deveni vizibilă clientului.',
+      title: copy.title,
+      description: copy.description,
       confirmText: 'Publică',
     })) return
     try {
@@ -554,7 +590,7 @@ export default function DocumentRequests({
   const fetchRequests = async () => {
     // Dacă avem date externe, delegăm refresh-ul la pagina părinte
     if (externalRequests !== undefined) {
-      onRefresh?.()
+      await onRefresh?.()
       return
     }
     if (!projectId) return
@@ -1073,7 +1109,7 @@ export default function DocumentRequests({
 
 
   const statusConfig: Record<string, { label: string; dot: string }> = {
-    pending: { label: 'Așteaptă', dot: 'bg-amber-400' },
+    pending: { label: isClient ? 'De încărcat' : 'Așteaptă răspuns', dot: 'bg-amber-400' },
     review: { label: 'În verificare', dot: 'bg-blue-400' },
     approved: { label: 'Aprobat', dot: 'bg-emerald-400' },
     rejected: { label: 'Respins', dot: 'bg-red-400' },
@@ -1094,9 +1130,9 @@ export default function DocumentRequests({
   return (
     <>
       <div className={`bg-white ${isEmbedded ? '' : 'rounded-2xl border border-slate-200 shadow-sm overflow-hidden'}`}>
-        {(!isEmbedded || activityId === null) && (
-        <div className={`${isEmbedded ? 'flex justify-end px-4 py-3 border-b border-slate-100' : 'p-4 sm:p-5 border-b border-slate-100'}`}>
-          <div className={`flex ${isEmbedded ? '' : 'flex-col gap-3 xl:flex-row xl:items-start xl:justify-between'}`}>
+        {(!isEmbedded || (activityId === null && isAdminOrConsultant)) && (
+        <div className={`${isEmbedded ? 'flex items-center justify-between px-4 pb-5 sm:pb-6 border-b border-slate-100' : 'p-4 sm:p-5 border-b border-slate-100'}`}>
+          <div className={`flex items-center ${isEmbedded ? 'w-full justify-between' : 'flex-col gap-3 xl:flex-row xl:items-start xl:justify-between'}`}>
             {!isEmbedded && <div className="flex items-center gap-3 min-w-0 flex-1">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-500/20">
                 <FileText className="w-5 h-5 text-white" />
@@ -1111,24 +1147,8 @@ export default function DocumentRequests({
               </div>
             </div>}
 
-            {isEmbedded && activityId === null && (
-              isAdmin && onAssignActivity && externalProjectMembers ? (
-                <select
-                  value={activityAssignedTo ?? ''}
-                  onChange={e => onAssignActivity(e.target.value || null)}
-                  aria-label="Atribuie consultant pentru cererile generale"
-                  className="mr-2 max-w-40 text-xs border border-slate-200 rounded-md px-1.5 py-1 text-slate-700 bg-white"
-                >
-                  <option value="">Neatribuit</option>
-                  {externalProjectMembers.map(m => <option key={m.id} value={m.id}>{m.full_name || m.email}</option>)}
-                </select>
-              ) : (
-                <span className="mr-2 self-center text-xs text-slate-500">{activityAssignedUser?.full_name ?? activityAssignedUser?.email ?? 'Neatribuit'}</span>
-              )
-            )}
-
             {isAdminOrConsultant && (
-              <div className={`flex flex-wrap items-center gap-2 ${isEmbedded ? '' : 'w-full xl:w-auto xl:flex-shrink-0'}`}>
+              <div className={`flex flex-wrap items-center gap-2 ${isEmbedded ? 'order-first' : 'w-full xl:w-auto xl:flex-shrink-0'}`}>
                 {!activityId && (
                   <button
                     type="button"
@@ -1341,7 +1361,15 @@ export default function DocumentRequests({
                       <FileText className="w-4 h-4" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-900 break-words">{doc.name}</p>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+                        <p className="min-w-0 text-sm font-medium text-slate-900 break-words">{doc.name}</p>
+                        <PublishStatusControl
+                          status={doc.visibility ?? 'draft'}
+                          canPublish={false}
+                          onPublish={() => undefined}
+                          size="sm"
+                        />
+                      </div>
                       <p className="text-xs text-slate-500 truncate">
                         {getRequestAttachments(doc).map(attachment => attachment.original_name || attachment.storage_path.split('/').pop() || 'document').join(', ')} · {new Date(doc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </p>
@@ -1430,7 +1458,7 @@ export default function DocumentRequests({
                             aria-label={isFolded ? 'Arată detaliile cererii' : 'Ascunde detaliile cererii'}
                             aria-expanded={!isFolded}
                           >
-                            <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isFolded ? '' : 'rotate-180'}`} />
+                            <ChevronRight className={`w-3.5 h-3.5 transition-transform duration-200 ${isFolded ? '' : 'rotate-90'}`} />
                           </button>
                         </div>
                       </div>
@@ -1866,7 +1894,7 @@ export default function DocumentRequests({
               )
             })
           )}
-          {isEmbedded && activityId && isAdminOrConsultant && (
+          {isEmbedded && isAdminOrConsultant && (
             <button
               type="button"
               onClick={openCreateForm}
@@ -1902,7 +1930,16 @@ export default function DocumentRequests({
                   <FolderUp className="w-3 h-3" />
                   Document trimis clientului
                 </div>
-                <h3 className="text-lg font-semibold text-slate-900 break-words">{selectedOutgoingDoc.name}</h3>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <h3 className="text-lg font-semibold text-slate-900 break-words">{selectedOutgoingDoc.name}</h3>
+                  {isAdminOrConsultant && (
+                    <PublishStatusControl
+                      status={selectedOutgoingDoc.visibility ?? 'draft'}
+                      canPublish
+                      onPublish={() => publishRequest(selectedOutgoingDoc.id)}
+                    />
+                  )}
+                </div>
                 <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
                   <Calendar className="w-3.5 h-3.5" />
                   {new Date(selectedOutgoingDoc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -1973,12 +2010,7 @@ export default function DocumentRequests({
             </div>
 
             {isAdminOrConsultant && (
-              <div className="flex gap-2 border-t border-slate-100 bg-slate-50 px-6 py-4">
-                <PublishStatusControl
-                  status={selectedOutgoingDoc.visibility ?? 'draft'}
-                  canPublish
-                  onPublish={() => publishRequest(selectedOutgoingDoc.id)}
-                />
+              <div className="flex justify-center gap-2 border-t border-slate-100 bg-slate-50 px-6 py-4">
                 <button
                   type="button"
                   onClick={() => {

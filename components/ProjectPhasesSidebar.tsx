@@ -379,7 +379,7 @@ export default function ProjectPhasesSidebar({
       >
 
       {/* Header */}
-      <div className="h-[45px] px-4 border-b border-[var(--p-border)] flex-shrink-0 flex items-center justify-between">
+      <div className="h-12 px-4 border-b border-[var(--p-border)] flex-shrink-0 flex items-center justify-between">
         <p className="text-[11px] font-semibold text-[var(--p-ink-faint)] uppercase tracking-wider flex items-center gap-2">
           <Layers className="w-3.5 h-3.5" /> Faze proiect
         </p>
@@ -404,7 +404,6 @@ export default function ProjectPhasesSidebar({
         {displayPhases.map(phase => {
           const isActive = phase.id === activePhaseId
           const isExpanded = expandedPhases.has(phase.id)
-          const color = phase.project_status?.color || '#6B7280'
           const isConfirmingDeletePhase = confirmDeletePhase === phase.id
 
           return (
@@ -443,7 +442,7 @@ export default function ProjectPhasesSidebar({
                     <span
                       title={phase.visibility === 'published' ? 'Public — vizibil pentru client' : 'În pregătire — invizibil pentru client'}
                       className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-draft)' }}
+                      style={{ backgroundColor: phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)' }}
                     />
                     <span className={`flex-1 text-sm font-medium truncate ${isActive ? 'text-[var(--p-accent-ink)]' : 'text-[var(--p-ink)]'}`}>
                       {phase.name}

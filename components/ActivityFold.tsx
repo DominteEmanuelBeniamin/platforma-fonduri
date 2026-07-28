@@ -61,59 +61,59 @@ export default function ActivityFold({
     <Collapsible.Root
       id={`activity-${activity.id}`}
       open={open}
-      onOpenChange={onOpenChange}
       className={`border rounded-xl bg-[var(--p-surface)] overflow-hidden scroll-mt-24 transition-all duration-500 ${
         highlighted
           ? 'ring-2 ring-[var(--p-accent)] ring-offset-2 ring-offset-[var(--p-bg)] border-[var(--p-accent-soft)]'
           : 'border-[var(--p-border)]/60 shadow-[0_1px_2px_rgba(15,23,42,0.03)]'
       }`}
     >
-      <div className="flex items-center gap-2.5 px-3.5 py-3">
-        <Collapsible.Trigger asChild>
-          <button className="flex-1 min-w-0 flex items-center gap-2.5 text-left">
-            <span className="text-sm font-semibold text-[var(--p-ink)] truncate">{activity.name}</span>
-            {deadlineLabel && (
-              <span
-                className={`hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold px-1.5 py-0.5 rounded-md flex-shrink-0 ${
-                  isOverdue ? 'bg-[var(--p-danger-soft)] text-[var(--p-danger)]' : 'bg-[var(--p-warning-soft)] text-[var(--p-warning)]'
-                }`}
-              >
-                <Clock className="w-2.5 h-2.5" />
-                {deadlineLabel}
-              </span>
-            )}
-            {requestCount > 0 && (
-              <span className="hidden sm:inline text-[11px] font-medium text-[var(--p-ink-faint)] flex-shrink-0">
-                {requestCount} cerer{requestCount === 1 ? 'e' : 'i'}
-              </span>
-            )}
-            <ChevronRight
-              className={`w-3.5 h-3.5 text-[var(--p-ink-faint)] flex-shrink-0 ml-auto transition-transform duration-200 ${
-                open ? 'rotate-90' : ''
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onOpenChange}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onOpenChange()
+          }
+        }}
+        className="flex items-center gap-2.5 px-3.5 py-3 cursor-pointer hover:bg-[var(--p-surface-2)] transition-colors"
+      >
+        <div className="min-w-0 flex items-center gap-2.5 text-left">
+          <span className="text-sm font-semibold text-[var(--p-ink)] truncate">{activity.name}</span>
+          {deadlineLabel && (
+            <span
+              className={`hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold px-1.5 py-0.5 rounded-md flex-shrink-0 ${
+                isOverdue ? 'bg-[var(--p-danger-soft)] text-[var(--p-danger)]' : 'bg-[var(--p-warning-soft)] text-[var(--p-warning)]'
               }`}
-            />
-          </button>
-        </Collapsible.Trigger>
+            >
+              <Clock className="w-2.5 h-2.5" />
+              {deadlineLabel}
+            </span>
+          )}
+          {requestCount > 0 && (
+            <span className="hidden sm:inline text-[11px] font-medium text-[var(--p-ink-faint)] flex-shrink-0">
+              {requestCount} cerer{requestCount === 1 ? 'e' : 'i'}
+            </span>
+          )}
+        </div>
 
-        <PublishStatusControl status={visibility ?? 'draft'} canPublish={canPublish} onPublish={onPublish} size="sm" />
-
-        <div onClick={e => e.stopPropagation()} className="flex-shrink-0">
+        <div className="hidden sm:flex items-center flex-shrink-0">
           {isAdmin ? (
-            <div className="inline-flex items-center text-[var(--p-accent)]">
-              <select
-                value={activity.assigned_to ?? ''}
-                onChange={e => onAssign(e.target.value || null)}
-                aria-label="Atribuie consultant"
-                className="text-[11px] font-semibold text-[var(--p-accent)] border border-[var(--p-accent-soft)] rounded-md pl-1.5 pr-4 py-1 bg-[var(--p-accent-soft)] hover:opacity-80 cursor-pointer outline-none max-w-[9rem] truncate"
-              >
-                <option value="">Neasignată</option>
-                {projectMembers.map(m => (
-                  <option key={m.id} value={m.id}>{m.full_name || m.email}</option>
-                ))}
-              </select>
-            </div>
+            <select
+              value={activity.assigned_to ?? ''}
+              onClick={e => e.stopPropagation()}
+              onChange={e => onAssign(e.target.value || null)}
+              aria-label="Atribuie consultant"
+              className="font-sans text-xs font-medium text-[var(--p-accent)] border border-[var(--p-accent-soft)] rounded-md pl-2 pr-5 py-1 bg-[var(--p-accent-soft)] hover:opacity-80 cursor-pointer outline-none max-w-[10rem] truncate"
+            >
+              <option value="">Neasignată</option>
+              {projectMembers.map(m => (
+                <option key={m.id} value={m.id}>{m.full_name || m.email}</option>
+              ))}
+            </select>
           ) : activity.assigned_to ? (
-            <span className="inline-flex items-center gap-1.5 text-xs text-[var(--p-ink-soft)]" title={activity.assigned_user?.full_name || activity.assigned_user?.email}>
+            <span className="inline-flex items-center gap-1.5 text-xs leading-none text-[var(--p-ink-soft)]" title={activity.assigned_user?.full_name || activity.assigned_user?.email}>
               <span className="w-5 h-5 rounded-full bg-[var(--p-accent-soft)] text-[var(--p-accent-ink)] text-[10px] font-bold flex items-center justify-center flex-shrink-0">
                 {initials(activity.assigned_user?.full_name, activity.assigned_user?.email)}
               </span>
@@ -122,9 +122,21 @@ export default function ActivityFold({
               </span>
             </span>
           ) : (
-            <span className="text-[11px] text-[var(--p-ink-faint)] italic">Neasignată</span>
+            <span className="text-xs leading-none text-[var(--p-ink-faint)] italic">Neasignată</span>
           )}
         </div>
+
+        <div className="flex-1" />
+
+        <div onClick={e => e.stopPropagation()} className="flex-shrink-0">
+          <PublishStatusControl status={visibility ?? 'draft'} canPublish={canPublish} onPublish={onPublish} size="sm" />
+        </div>
+
+        <ChevronRight
+          className={`w-3.5 h-3.5 text-[var(--p-ink-faint)] flex-shrink-0 transition-transform duration-200 ${
+            open ? 'rotate-90' : ''
+          }`}
+        />
       </div>
       <Collapsible.Content>
         <div className="border-t border-[var(--p-border)]">{children}</div>

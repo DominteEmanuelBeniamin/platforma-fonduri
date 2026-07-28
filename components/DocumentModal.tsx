@@ -159,7 +159,7 @@ export default function DocumentModal({
         bg: 'bg-amber-50',
         text: 'text-amber-700',
         icon: Clock,
-        label: 'Așteaptă răspuns',
+        label: isAdminOrConsultant ? 'Așteaptă răspuns' : 'De încărcat',
       },
       review: {
         bg: 'bg-blue-50',
@@ -181,7 +181,7 @@ export default function DocumentModal({
       }
     }
     return configs[request.status] || configs.pending
-  }, [request.status])
+  }, [request.status, isAdminOrConsultant])
 
   // Check if deadline is overdue
   const isOverdue = useMemo(() => {

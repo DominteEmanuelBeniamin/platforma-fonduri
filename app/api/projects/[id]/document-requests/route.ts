@@ -83,7 +83,7 @@ export async function GET(
         creator:created_by(full_name, email),
         assigned_to,
         assigned_consultant:assigned_to(id, full_name, email),
-        activity:activity_id(id, name, phase_id, visibility, phase:phase_id(id, visibility)),
+        activity:activity_id(id, name, phase_id, visibility, phase:phase_id(id, name, visibility)),
         files(
           id,
           storage_path,
@@ -218,7 +218,7 @@ export async function POST(
       order_index: (maxOrderRow?.order_index || 0) + 1,
       created_by: access.profile.id,
       status: 'pending',
-      visibility: is_outgoing ? 'published' : 'draft',
+      visibility: 'draft',
     }
 
     const { data, error } = await admin

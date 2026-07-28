@@ -21,7 +21,7 @@ const statusConfig: Record<StatusType, {
     bg: 'bg-amber-50',
     text: 'text-amber-700',
     border: 'border-amber-200',
-    label: 'Așteaptă răspuns',
+    label: 'De încărcat',
     icon: <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
   },
   review: {

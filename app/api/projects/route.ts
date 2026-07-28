@@ -83,11 +83,10 @@ export async function POST(request: Request) {
 
     const { user, profile } = ctx
 
-    // Doar admin poate crea proiecte
-    const allowed = new Set(['admin'])
+    const allowed = new Set(['admin', 'consultant'])
     if (!allowed.has(profile.role)) {
       return NextResponse.json(
-        { error: 'Forbidden: only admin can create projects' },
+        { error: 'Forbidden: only admin or consultant can create projects' },
         { status: 403 }
       )
     }
@@ -149,6 +148,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: insertError.message }, { status: 400 })
     }
 
+    if (profile.role === 'consultant') {
+      const { error: memberError } = await admin
+        .from('project_members')
+        .insert({ project_id: project.id, consultant_id: user.id, role_in_project: 'member' })
+
+      if (memberError) {
+        console.error('project creator membership error:', memberError)
+        return NextResponse.json({ error: 'Project created, but consultant access could not be granted' }, { status: 500 })
+      }
+    }
+
     // ✅ AUDIT LOG - Creare proiect
     await logProjectAction({
       adminId: user.id,
@@ -165,7 +175,7 @@ export async function POST(request: Request) {
         status: project.status,
         cod_intern: project.cod_intern
       },
-      description: `${profile.email || 'Admin'} a creat proiectul "${project.title}" pentru clientul ${clientProfile.email || clientProfile.full_name || client_id}`,
+      description: `${profile.email || 'User'} a creat proiectul "${project.title}" pentru clientul ${clientProfile.email || clientProfile.full_name || client_id}`,
       ipAddress: getClientIP(request),
       userAgent: getUserAgent(request)
     })

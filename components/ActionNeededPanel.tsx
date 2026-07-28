@@ -64,7 +64,7 @@ export default function ActionNeededPanel({ items, isClient, onJump }: ActionNee
             </p>
           </div>
         </div>
-        <div className="divide-y divide-[var(--p-accent-soft)] max-h-[560px] overflow-y-auto">
+        <div className="divide-y divide-[var(--p-accent-soft)]">
           {items.map(req => {
             const deadline = req.deadline_at ? new Date(req.deadline_at) : null
             deadline?.setHours(0, 0, 0, 0)

@@ -14,7 +14,7 @@ interface PublishStatusControlProps {
 export default function PublishStatusControl({ status, canPublish, onPublish, size = 'md' }: PublishStatusControlProps) {
   const isDraft = status === 'draft'
   const textClass = size === 'sm' ? 'text-xs' : 'text-[13px]'
-  const colorClass = isDraft ? 'text-[var(--p-ink-faint)]' : 'text-[var(--p-success)]'
+  const colorClass = isDraft ? 'text-slate-500' : 'text-emerald-600'
 
   if (!canPublish || !isDraft) {
     return (
@@ -34,7 +34,7 @@ export default function PublishStatusControl({ status, canPublish, onPublish, si
       title="Apasă ca să publici — devine vizibil clientului"
       className={`inline-flex items-center gap-2 flex-shrink-0 ${textClass}`}
     >
-      <span className={`relative inline-flex h-4 w-7 flex-shrink-0 items-center rounded-full transition-colors ${isDraft ? 'bg-[var(--p-border-strong)]' : 'bg-[var(--p-success)]'}`}>
+      <span className="relative inline-flex h-4 w-7 flex-shrink-0 items-center rounded-full bg-slate-300 transition-colors">
         <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${isDraft ? 'translate-x-0.5' : 'translate-x-3.5'}`} />
       </span>
       <span className={colorClass}>{isDraft ? 'În pregătire' : 'Public'}</span>

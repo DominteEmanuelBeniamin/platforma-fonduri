@@ -238,7 +238,7 @@ export default function MyRequestsPage() {
                           ? 'bg-blue-50 text-blue-500'
                           : 'bg-amber-50 text-amber-600'
                       }`}>
-                        {req.status === 'review' ? 'Verificare' : 'Așteaptă'}
+                        {req.status === 'review' ? 'Verificare' : 'Așteaptă răspuns'}
                       </span>
 
                       {/* Reminder */}

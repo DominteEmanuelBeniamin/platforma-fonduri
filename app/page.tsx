@@ -277,9 +277,9 @@ function FilterModal({
 // Deep-link direct la cererea/activitatea relevantă (sau la cererile generale)
 function buildRequestHref(r: any) {
   if (r.phase_id && r.activity_id) {
-    return `/projects/${r.project_id}?phase=${r.phase_id}&activity=${r.activity_id}#activity-${r.activity_id}`
+    return `/projects/${r.project_id}?phase=${r.phase_id}&activity=${r.activity_id}&document=${r.id}#activity-${r.activity_id}`
   }
-  return `/projects/${r.project_id}?phase=__general__#general-requests`
+  return `/projects/${r.project_id}?phase=__general__&document=${r.id}#general-requests`
 }
 
 // Rând acționabil: deschide direct cererea/activitatea
@@ -294,9 +294,7 @@ function TaskRow({ req, todayTs, mode }: { req: any; todayTs: number; mode: 'cli
   const rowBg = isOverdue ? 'bg-red-50/40 hover:bg-red-50/70' : 'hover:bg-slate-50/70'
   const pill = mode === 'client'
     ? (isRejected ? { cls: 'bg-red-50 text-red-500', label: 'Respins' } : { cls: 'bg-amber-50 text-amber-600', label: 'De încărcat' })
-    : (isReview ? { cls: 'bg-blue-50 text-blue-500', label: 'Verificare' } : { cls: 'bg-amber-50 text-amber-600', label: 'Așteaptă' })
-  const action = mode === 'client' ? 'Încarcă' : 'Deschide'
-
+    : (isReview ? { cls: 'bg-blue-50 text-blue-500', label: 'Verificare' } : { cls: 'bg-amber-50 text-amber-600', label: 'Așteaptă răspuns' })
   return (
     <Link href={buildRequestHref(req)} className={`group relative flex items-center gap-3 pl-4 pr-4 py-3 transition-colors ${rowBg}`}>
       <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${accent}`} />
@@ -318,9 +316,7 @@ function TaskRow({ req, todayTs, mode }: { req: any; todayTs: number; mode: 'cli
         </div>
       )}
       <span className={`hidden md:inline-flex flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-md ${pill.cls}`}>{pill.label}</span>
-      <span className="flex-shrink-0 flex items-center gap-1 text-xs font-semibold text-indigo-500 group-hover:text-indigo-700 transition-colors">
-        {action} <span aria-hidden>→</span>
-      </span>
+      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 transition-colors flex-shrink-0" />
     </Link>
   )
 }
@@ -337,7 +333,7 @@ function DocRow({ doc }: { doc: any }) {
         <p className="text-sm font-semibold text-slate-800 truncate leading-snug">{doc.name}</p>
         <p className="text-[11px] text-slate-400 truncate mt-0.5">{doc.project_title}{date && <span className="text-slate-300"> · {date}</span>}</p>
       </div>
-      <span className="flex-shrink-0 flex items-center gap-1 text-xs font-semibold text-indigo-500 group-hover:text-indigo-700 transition-colors">Vezi <span aria-hidden>→</span></span>
+      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 transition-colors flex-shrink-0" />
     </Link>
   )
 }
@@ -449,6 +445,7 @@ export default function Dashboard() {
   const [legendOpen, setLegendOpen] = useState(false)
 
   const isAdmin = currentUser?.role === 'admin'
+  const canCreateProject = isAdmin || currentUser?.role === 'consultant'
   const isClient = currentUser?.role === 'client'
 
   const unreadProjectCountById = useMemo(
@@ -662,7 +659,7 @@ export default function Dashboard() {
     isClient
       ? { dot: 'bg-amber-400', label: 'De încărcat', desc: 'documente cerute' }
       : { dot: 'bg-blue-400', label: 'De verificat', desc: 'așteaptă verificarea ta' },
-    ...(!isClient ? [{ dot: 'bg-amber-400', label: 'În așteptare', desc: 'la client' }] : []),
+    ...(!isClient ? [{ dot: 'bg-amber-400', label: 'Așteaptă răspuns', desc: 'așteaptă fișier de la client' }] : []),
     { dot: 'bg-rose-400', label: 'Chat necitit', desc: 'mesaje noi' },
     { dot: 'bg-emerald-400', label: 'La zi', desc: 'nimic de făcut' },
   ]
@@ -701,7 +698,7 @@ export default function Dashboard() {
               <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-slate-100 text-slate-500 text-[11px] font-bold">{priorityCount}</span>
             </button>
           )}
-          {isAdmin && (
+          {canCreateProject && (
             <Link href="/projects/new">
               <button className="flex items-center gap-2 px-4 md:px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold shadow-lg shadow-indigo-600/20 transition-all active:scale-95">
                 <Plus className="w-4 h-4" strokeWidth={2.5} />
@@ -719,8 +716,8 @@ export default function Dashboard() {
             <FileText className="w-6 h-6 text-slate-300" />
           </div>
           <h3 className="text-lg font-bold text-slate-900">Niciun proiect activ</h3>
-          <p className="text-slate-500 mt-1">{isAdmin ? 'Creează primul proiect pentru a începe.' : 'Lista este goală momentan.'}</p>
-          {isAdmin && (
+          <p className="text-slate-500 mt-1">{canCreateProject ? 'Creează primul proiect pentru a începe.' : 'Lista este goală momentan.'}</p>
+          {canCreateProject && (
             <Link href="/projects/new">
               <button className="mt-6 flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold shadow-lg shadow-indigo-600/20 transition-all active:scale-95">
                 <Plus className="w-4 h-4" strokeWidth={2.5} /> Proiect nou

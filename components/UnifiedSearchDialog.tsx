@@ -41,6 +41,16 @@ function highlightMatch(text: string, query: string) {
   )
 }
 
+function matchSnippet(text: string | null, query: string, radius = 44) {
+  const q = query.trim()
+  if (!text || !q) return null
+  const idx = text.toLowerCase().indexOf(q.toLowerCase())
+  if (idx === -1) return null
+  const start = Math.max(0, idx - radius)
+  const end = Math.min(text.length, idx + q.length + radius)
+  return `${start > 0 ? '...' : ''}${text.slice(start, end)}${end < text.length ? '...' : ''}`
+}
+
 export default function UnifiedSearchDialog({ open, onOpenChange, index, onSelect }: UnifiedSearchDialogProps) {
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
@@ -125,6 +135,7 @@ export default function UnifiedSearchDialog({ open, onOpenChange, index, onSelec
                       : r.type === 'activity'
                       ? r.phaseName
                       : [r.phaseName, r.activityName].filter(Boolean).join(' / ') || 'Cerere generală'
+                  const descriptionSnippet = matchSnippet(r.description, query)
                   return (
                     <li key={`${r.type}-${r.id}`}>
                       <button
@@ -140,6 +151,11 @@ export default function UnifiedSearchDialog({ open, onOpenChange, index, onSelec
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-[var(--p-ink)] truncate">{highlightMatch(r.title, query)}</p>
+                          {descriptionSnippet && (
+                            <p className="text-xs text-[var(--p-ink-soft)] truncate">
+                              {highlightMatch(descriptionSnippet, query)}
+                            </p>
+                          )}
                           {context && <p className="text-xs text-[var(--p-ink-faint)] truncate">{context}</p>}
                         </div>
                         <span className="text-[10px] font-semibold text-[var(--p-ink-faint)] uppercase tracking-wide flex-shrink-0">

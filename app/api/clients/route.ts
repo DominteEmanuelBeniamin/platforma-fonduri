@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server'
-import { guardToResponse, requireAdmin } from '../_utils/auth'
+import { guardToResponse, requireProfile } from '../_utils/auth'
 import { createSupabaseServiceClient } from '../_utils/supabase'
 
 export async function GET(request: Request) {
   try {
-    const ctx = await requireAdmin(request)
+    const ctx = await requireProfile(request)
     if (!ctx.ok) return guardToResponse(ctx)
+    if (ctx.profile.role !== 'admin' && ctx.profile.role !== 'consultant') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const admin = createSupabaseServiceClient()
     const { data, error } = await admin
       .from('profiles')

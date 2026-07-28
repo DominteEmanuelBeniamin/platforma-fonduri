@@ -66,14 +66,15 @@ export async function GET(request: Request) {
       // Documente informative recente (trimise clientului) — pentru secțiunea „Documente recente"
       const { data: infoRows } = await admin
         .from('document_requirements')
-        .select('id, name, project_id, created_at, project:project_id(title)')
+        .select('id, name, project_id, created_at, visibility, activity:activity_id(visibility, phase:phase_id(visibility)), project:project_id(title)')
         .in('project_id', clientProjectIds)
         .eq('is_outgoing', true)
+        .eq('visibility', 'published')
         .is('deleted_at', null)
         .order('created_at', { ascending: false })
         .limit(6)
 
-      const informativeDocs = (infoRows ?? []).map((d: any) => ({
+      const informativeDocs = (infoRows ?? []).filter(isClientVisibleDocument).map((d: any) => ({
         id: d.id,
         name: d.name,
         project_id: d.project_id,
