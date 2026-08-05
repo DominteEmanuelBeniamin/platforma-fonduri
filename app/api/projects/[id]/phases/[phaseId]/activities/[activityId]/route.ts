@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { Resend } from 'resend'
 import { requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 
@@ -16,6 +17,92 @@ async function loadProjectTitle(projectId: string) {
     .eq('id', projectId)
     .maybeSingle()
   return data?.title ?? projectId
+}
+
+// Trimite email consultantului nou atribuit (erorile nu blochează salvarea)
+async function sendActivityAssignedEmail(params: {
+  consultantId: string
+  activityName: string
+  phaseName: string
+  projectId: string
+  projectTitle: string
+  deadlineAt: string | null
+}) {
+  try {
+    const { data: consultant } = await supabaseAdmin
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', params.consultantId)
+      .maybeSingle()
+
+    if (!consultant?.email) return
+
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
+    const projectUrl = `${appUrl}/projects/${params.projectId}`
+    const salut = consultant.full_name ? `Salut, ${consultant.full_name}!` : 'Salut!'
+    const deadline = params.deadlineAt
+      ? new Date(params.deadlineAt).toLocaleDateString('ro-RO', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        })
+      : null
+
+    const html = `<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:560px;margin:40px auto;background:#ffffff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">
+
+    <div style="background:linear-gradient(135deg,#4f46e5,#6366f1);padding:32px 40px;">
+      <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.3px;">Activitate nouă atribuită</h1>
+      <p style="margin:8px 0 0;color:#c7d2fe;font-size:14px;">${params.projectTitle}</p>
+    </div>
+
+    <div style="padding:32px 40px;">
+      <p style="margin:0 0 20px;color:#374151;font-size:15px;">${salut}</p>
+      <p style="margin:0 0 24px;color:#374151;font-size:15px;">
+        Ți-a fost atribuită o nouă activitate în proiectul <strong>${params.projectTitle}</strong>.
+      </p>
+
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin:0 0 28px;">
+        <p style="margin:0 0 12px;color:#6b7280;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">Detalii activitate</p>
+        <p style="margin:0 0 8px;color:#111827;font-size:16px;font-weight:600;">${params.activityName}</p>
+        <p style="margin:0 0 10px;color:#4b5563;font-size:14px;line-height:1.6;">Fază: ${params.phaseName}</p>
+        ${deadline ? `<p style="margin:0;color:#d97706;font-size:13px;font-weight:500;">⏱ Termen limită: ${deadline}</p>` : ''}
+      </div>
+
+      <a href="${projectUrl}"
+         style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:13px 26px;border-radius:8px;font-size:14px;font-weight:600;letter-spacing:0.01em;">
+        Mergi la proiect →
+      </a>
+    </div>
+
+    <div style="padding:20px 40px;border-top:1px solid #f1f5f9;">
+      <p style="margin:0;color:#9ca3af;font-size:12px;">
+        Acest email a fost generat automat de Platforma Fonduri EU. Nu răspunde la acest mesaj.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`
+
+    const resend = new Resend(process.env.RESEND_API_KEY)
+    const { error: emailError } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev',
+      to: consultant.email,
+      subject: `Ți-a fost atribuită o activitate nouă — ${params.projectTitle}`,
+      html,
+    })
+    if (emailError) {
+      console.error('Resend error:', emailError)
+    }
+  } catch (emailError) {
+    console.error('Activity assigned email send error (non-blocking):', emailError)
+  }
 }
 
 interface RouteParams {
@@ -62,7 +149,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     const { data: phase } = await supabaseAdmin
       .from('project_phases')
-      .select('id')
+      .select('id, name')
       .eq('id', phaseId)
       .eq('project_id', projectId)
       .maybeSingle()
@@ -98,6 +185,21 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       description: `Modificare activitate "${activity.name}" in proiectul "${projectTitle}"`,
       request: req,
     })
+
+    if (
+      assigned_to !== undefined &&
+      assigned_to !== null &&
+      assigned_to !== before.assigned_to
+    ) {
+      await sendActivityAssignedEmail({
+        consultantId: assigned_to,
+        activityName: activity.name,
+        phaseName: phase.name,
+        projectId,
+        projectTitle,
+        deadlineAt: activity.deadline_at,
+      })
+    }
 
     return NextResponse.json({ activity })
   } catch (error: any) {
