@@ -142,27 +142,6 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Invalid visibility transition' }, { status: 400 })
     }
 
-    // Dacă se atribuie cuiva, verifică că este consultant membru al proiectului
-    if (assigned_to !== undefined && assigned_to !== null) {
-      const { data: membership, error: memberError } = await supabaseAdmin
-        .from('project_members')
-        .select('id')
-        .eq('project_id', projectId)
-        .eq('consultant_id', assigned_to)
-        .maybeSingle()
-
-      if (memberError) {
-        console.error('PATCH activity membership error:', memberError)
-        return NextResponse.json({ error: 'Eroare la verificarea membrului' }, { status: 500 })
-      }
-      if (!membership) {
-        return NextResponse.json(
-          { error: 'Consultantul nu este membru al acestui proiect' },
-          { status: 400 }
-        )
-      }
-    }
-
     const updateData: Record<string, any> = {}
     if (name !== undefined) updateData.name = name
     if (description !== undefined) updateData.description = description
@@ -187,6 +166,27 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       .eq('project_id', projectId)
       .maybeSingle()
     if (!phase) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    // Dacă se atribuie cuiva, verifică că este consultant membru al proiectului
+    if (assigned_to !== undefined && assigned_to !== null) {
+      const { data: membership, error: memberError } = await supabaseAdmin
+        .from('project_members')
+        .select('id')
+        .eq('project_id', projectId)
+        .eq('consultant_id', assigned_to)
+        .maybeSingle()
+
+      if (memberError) {
+        console.error('PATCH activity membership error:', memberError)
+        return NextResponse.json({ error: 'Eroare la verificarea membrului' }, { status: 500 })
+      }
+      if (!membership) {
+        return NextResponse.json(
+          { error: 'Consultantul nu este membru al acestui proiect' },
+          { status: 400 }
+        )
+      }
+    }
 
     if (visibility === 'published') {
       if (before.visibility !== 'draft') {
