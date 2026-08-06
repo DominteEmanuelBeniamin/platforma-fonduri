@@ -66,6 +66,8 @@ export async function GET(
         description,
         status,
         visibility,
+        reminder_sent_at,
+        reminder_type_sent,
         is_mandatory,
         is_outgoing,
         requirement_type,

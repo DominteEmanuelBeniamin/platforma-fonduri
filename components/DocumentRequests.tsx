@@ -37,9 +37,9 @@ import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { buildPreviewPageUrl, isPreviewableFile, openInNewTab } from '@/lib/file-preview'
 import {
   getReminderType,
-  generateMailtoLink,
   REMINDER_LABELS,
   REMINDER_BADGE,
+  type ReminderType,
 } from '@/lib/document-reminder'
 import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS } from '@/lib/requirement-type'
 
@@ -73,6 +73,8 @@ interface DocumentRequest {
     missing_checked_at?: string | null
   }[]
   deadline_at: string | null
+  reminder_sent_at?: string | null
+  reminder_type_sent?: ReminderType | null
   created_by: string | null
   created_at: string
   deleted_at?: string | null
@@ -310,6 +312,7 @@ export default function DocumentRequests({
   const [showFilePreview, setShowFilePreview] = useState(false)
   const [requestToDelete, setRequestToDelete] = useState<DocumentRequest | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
+  const [sendingReminderId, setSendingReminderId] = useState<string | null>(null)
   const [missingAttachments, setMissingAttachments] = useState<Set<string>>(() => new Set())
 
   // Pliere per-cerere — set de „închise" (implicit deschis), ca cererile nou create
@@ -380,6 +383,22 @@ export default function DocumentRequests({
         showToast('Nu am putut publica cererea. Reîncearcă.', 'error')
       }
     } catch { showToast('Nu am putut publica cererea. Reîncearcă.', 'error') }
+  }
+
+  const sendReminder = async (requestId: string) => {
+    if (sendingReminderId) return
+    setSendingReminderId(requestId)
+    try {
+      const res = await apiFetch(`/api/document-requests/${requestId}/reminder`, { method: 'POST' })
+      const data = await res.json().catch(() => null)
+      if (res.ok) {
+        await fetchRequests()
+        showToast('Reminder-ul a fost trimis clientului.', 'success')
+      } else {
+        showToast(data?.error || 'Nu am putut trimite reminder-ul. Reîncearcă.', 'error')
+      }
+    } catch { showToast('Nu am putut trimite reminder-ul. Reîncearcă.', 'error') }
+    finally { setSendingReminderId(null) }
   }
 
   // Requests derivate: externe filtrate sau interne
@@ -1532,30 +1551,32 @@ export default function DocumentRequests({
                             const reminderType = getReminderType(req.deadline_at)
                             if (!reminderType) return null
                             const badge = REMINDER_BADGE[reminderType]
-                            const mailtoLink = generateMailtoLink(
-                              {
-                                requestName: req.name,
-                                requestDescription: req.description,
-                                deadlineAt: req.deadline_at,
-                                clientEmail,
-                                clientName: clientName ?? null,
-                                projectTitle: projectTitle ?? '',
-                                projectId,
-                              },
-                              reminderType
-                            )
+                            const isSending = sendingReminderId === req.id
+                            const alreadySent = !!req.reminder_sent_at && req.reminder_type_sent === reminderType
                             return (
                               <div className="mt-3" onClick={(e) => e.stopPropagation()}>
-                                <a
-                                  href={mailtoLink}
-                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-opacity hover:opacity-75 ${badge.bg} ${badge.text} ${badge.border}`}
-                                  title="Deschide clientul de email cu mesajul pregătit automat"
+                                <button
+                                  type="button"
+                                  onClick={() => sendReminder(req.id)}
+                                  disabled={isSending}
+                                  title={alreadySent
+                                    ? `Trimis pe ${new Date(req.reminder_sent_at!).toLocaleDateString('ro-RO')} — apasă pentru a retrimite`
+                                    : 'Trimite emailul de reminder către client'}
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-opacity hover:opacity-75 disabled:opacity-60 disabled:cursor-not-allowed ${
+                                    alreadySent
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : `${badge.bg} ${badge.text} ${badge.border}`
+                                  }`}
                                 >
-                                  <Mail className="w-3 h-3" />
-                                  Trimite reminder clientului
+                                  {isSending
+                                    ? <Loader2 className="w-3 h-3 animate-spin" />
+                                    : alreadySent
+                                    ? <CheckCircle2 className="w-3 h-3" />
+                                    : <Mail className="w-3 h-3" />}
+                                  {isSending ? 'Se trimite...' : alreadySent ? 'Reminder trimis' : 'Trimite reminder clientului'}
                                   <span className="mx-0.5 opacity-50">·</span>
                                   {REMINDER_LABELS[reminderType]}
-                                </a>
+                                </button>
                               </div>
                             )
                           })()}
