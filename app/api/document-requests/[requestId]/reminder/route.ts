@@ -66,12 +66,21 @@ export async function POST(
         client_email: result.clientEmail,
         reminder_type_sent: result.reminderType,
         reminder_sent_at: result.sentAt,
+        ...(result.stateSaveFailed ? { state_save_failed: true } : {}),
       },
-      description: `${ctx.profile.email || 'User'} a trimis „${REMINDER_LABELS[result.reminderType]}” pentru cererea "${result.requestName}" din proiectul "${result.projectTitle}"`,
+      description: result.stateSaveFailed
+        ? `${ctx.profile.email || 'User'} a trimis „${REMINDER_LABELS[result.reminderType]}” pentru cererea "${result.requestName}" din proiectul "${result.projectTitle}" — ATENȚIE: salvarea reminder_sent_at a eșuat, verifică manual`
+        : `${ctx.profile.email || 'User'} a trimis „${REMINDER_LABELS[result.reminderType]}” pentru cererea "${result.requestName}" din proiectul "${result.projectTitle}"`,
       request,
     })
 
-    return NextResponse.json({ reminder_sent_at: result.sentAt, reminder_type_sent: result.reminderType })
+    return NextResponse.json({
+      reminder_sent_at: result.sentAt,
+      reminder_type_sent: result.reminderType,
+      ...(result.stateSaveFailed
+        ? { warning: 'Emailul a fost trimis, dar actualizarea stării a eșuat. Reîmprospătează pagina pentru starea reală.' }
+        : {}),
+    })
   } catch (e: any) {
     console.error('POST reminder exception:', e)
     return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })

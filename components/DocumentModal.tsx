@@ -118,6 +118,7 @@ export default function DocumentModal({
   const [savingDeadline, setSavingDeadline] = useState(false)
   const [localDeadline, setLocalDeadline] = useState<string | null>(request.deadline_at)
   const [sendingReminder, setSendingReminder] = useState(false)
+  const sendingReminderLock = useRef(false)
   const [localReminderSentAt, setLocalReminderSentAt] = useState<string | null>(request.reminder_sent_at ?? null)
   const [localReminderTypeSent, setLocalReminderTypeSent] = useState<ReminderType | null>(request.reminder_type_sent ?? null)
 
@@ -160,7 +161,8 @@ export default function DocumentModal({
   }
 
   const sendReminder = async () => {
-    if (sendingReminder) return
+    if (sendingReminderLock.current) return
+    sendingReminderLock.current = true
     setSendingReminder(true)
     try {
       const res = await apiFetch(`/api/document-requests/${request.id}/reminder`, { method: 'POST' })
@@ -169,13 +171,14 @@ export default function DocumentModal({
         setLocalReminderSentAt(data?.reminder_sent_at ?? null)
         setLocalReminderTypeSent(data?.reminder_type_sent ?? null)
         onUpdate()
-        showToast('Reminder-ul a fost trimis clientului.', 'success')
+        showToast(data?.warning || 'Reminder-ul a fost trimis clientului.', data?.warning ? 'warning' : 'success')
       } else {
         showToast(data?.error || 'Nu am putut trimite reminder-ul. Reîncearcă.', 'error')
       }
     } catch {
       showToast('Nu am putut trimite reminder-ul. Reîncearcă.', 'error')
     } finally {
+      sendingReminderLock.current = false
       setSendingReminder(false)
     }
   }

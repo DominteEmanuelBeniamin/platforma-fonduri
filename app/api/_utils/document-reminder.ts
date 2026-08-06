@@ -22,6 +22,10 @@ export type SendReminderResult =
       projectId: string
       projectTitle: string
       clientEmail: string
+      // Emailul a plecat, dar update-ul reminder_sent_at/reminder_type_sent a eșuat
+      // (ex. glitch tranzitoriu de DB). Nu tratăm asta ca eșec total — clientul chiar
+      // a primit emailul — ca să nu împingem apelantul spre o retrimitere duplicată.
+      stateSaveFailed?: boolean
     }
   | { ok: false; status: number; error: string }
 
@@ -225,16 +229,25 @@ export async function sendDocumentReminder(
     return { ok: false, status: 502, error: 'Trimiterea emailului a eșuat. Reîncearcă.' }
   }
 
+  // Emailul a plecat deja — de aici încolo un eșec e doar de persistare a stării,
+  // nu mai poate fi tratat ca eșec total (ar împinge apelantul spre retrimitere
+  // duplicată a unui email real către client). Încercăm update-ul de două ori
+  // pentru glitch-uri tranzitorii, apoi raportăm succes cu stateSaveFailed.
   const sentAt = new Date().toISOString()
-  const { error: updateError } = await admin
-    .from('document_requirements')
-    .update({ reminder_sent_at: sentAt, reminder_type_sent: reminderType })
-    .eq('id', requestId)
-    .is('deleted_at', null)
+  let stateSaveFailed = false
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const { error: updateError } = await admin
+      .from('document_requirements')
+      .update({ reminder_sent_at: sentAt, reminder_type_sent: reminderType })
+      .eq('id', requestId)
+      .is('deleted_at', null)
 
-  if (updateError) {
-    console.error('sendDocumentReminder update error:', updateError)
-    return { ok: false, status: 500, error: 'Emailul a fost trimis, dar salvarea stării a eșuat.' }
+    if (!updateError) {
+      stateSaveFailed = false
+      break
+    }
+    console.error(`sendDocumentReminder update error (attempt ${attempt}):`, updateError)
+    stateSaveFailed = true
   }
 
   return {
@@ -245,5 +258,6 @@ export async function sendDocumentReminder(
     projectId,
     projectTitle,
     clientEmail: client.email,
+    ...(stateSaveFailed ? { stateSaveFailed: true } : {}),
   }
 }

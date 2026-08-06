@@ -313,6 +313,7 @@ export default function DocumentRequests({
   const [requestToDelete, setRequestToDelete] = useState<DocumentRequest | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null)
+  const sendingReminderLock = useRef(false)
   const [missingAttachments, setMissingAttachments] = useState<Set<string>>(() => new Set())
 
   // Pliere per-cerere — set de „închise" (implicit deschis), ca cererile nou create
@@ -386,19 +387,22 @@ export default function DocumentRequests({
   }
 
   const sendReminder = async (requestId: string) => {
-    if (sendingReminderId) return
+    // Lock sincron (nu bazat pe state) — blochează click-uri duble foarte rapide
+    // înainte ca React să apuce să re-randeze `disabled` pe buton.
+    if (sendingReminderLock.current) return
+    sendingReminderLock.current = true
     setSendingReminderId(requestId)
     try {
       const res = await apiFetch(`/api/document-requests/${requestId}/reminder`, { method: 'POST' })
       const data = await res.json().catch(() => null)
       if (res.ok) {
         await fetchRequests()
-        showToast('Reminder-ul a fost trimis clientului.', 'success')
+        showToast(data?.warning || 'Reminder-ul a fost trimis clientului.', data?.warning ? 'warning' : 'success')
       } else {
         showToast(data?.error || 'Nu am putut trimite reminder-ul. Reîncearcă.', 'error')
       }
     } catch { showToast('Nu am putut trimite reminder-ul. Reîncearcă.', 'error') }
-    finally { setSendingReminderId(null) }
+    finally { sendingReminderLock.current = false; setSendingReminderId(null) }
   }
 
   // Requests derivate: externe filtrate sau interne

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/app/providers/AuthProvider'
@@ -28,6 +28,7 @@ export default function MyRequestsPage() {
   const [requests, setRequests] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [sendingId, setSendingId] = useState<string | null>(null)
+  const sendingLock = useRef(false)
 
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -46,7 +47,8 @@ export default function MyRequestsPage() {
   }, [authLoading, token, profile?.role])
 
   const sendReminder = async (reqId: string) => {
-    if (sendingId) return
+    if (sendingLock.current) return
+    sendingLock.current = true
     setSendingId(reqId)
     try {
       const res = await apiFetch(`/api/document-requests/${reqId}/reminder`, { method: 'POST' })
@@ -55,13 +57,14 @@ export default function MyRequestsPage() {
         setRequests(prev =>
           prev.map(r => r.id === reqId ? { ...r, reminder_sent_at: json.reminder_sent_at, reminder_type_sent: json.reminder_type_sent } : r)
         )
-        showToast('Reminder-ul a fost trimis clientului.', 'success')
+        showToast(json?.warning || 'Reminder-ul a fost trimis clientului.', json?.warning ? 'warning' : 'success')
       } else {
         showToast(json?.error || 'Nu am putut trimite reminder-ul. Reîncearcă.', 'error')
       }
     } catch {
       showToast('Nu am putut trimite reminder-ul. Reîncearcă.', 'error')
     } finally {
+      sendingLock.current = false
       setSendingId(null)
     }
   }
