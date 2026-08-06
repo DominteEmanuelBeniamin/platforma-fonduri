@@ -19,6 +19,15 @@ async function loadProjectTitle(projectId: string) {
   return data?.title ?? projectId
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 // Trimite email consultantului nou atribuit (erorile nu blochează salvarea)
 async function sendActivityAssignedEmail(params: {
   consultantId: string
@@ -39,7 +48,10 @@ async function sendActivityAssignedEmail(params: {
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
     const projectUrl = `${appUrl}/projects/${params.projectId}`
-    const salut = consultant.full_name ? `Salut, ${consultant.full_name}!` : 'Salut!'
+    const safeProjectTitle = escapeHtml(params.projectTitle)
+    const safeActivityName = escapeHtml(params.activityName)
+    const safePhaseName = escapeHtml(params.phaseName)
+    const salut = consultant.full_name ? `Salut, ${escapeHtml(consultant.full_name)}!` : 'Salut!'
     const deadline = params.deadlineAt
       ? new Date(params.deadlineAt).toLocaleDateString('ro-RO', {
           day: 'numeric',
@@ -59,19 +71,19 @@ async function sendActivityAssignedEmail(params: {
 
     <div style="background:linear-gradient(135deg,#4f46e5,#6366f1);padding:32px 40px;">
       <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.3px;">Activitate nouă atribuită</h1>
-      <p style="margin:8px 0 0;color:#c7d2fe;font-size:14px;">${params.projectTitle}</p>
+      <p style="margin:8px 0 0;color:#c7d2fe;font-size:14px;">${safeProjectTitle}</p>
     </div>
 
     <div style="padding:32px 40px;">
       <p style="margin:0 0 20px;color:#374151;font-size:15px;">${salut}</p>
       <p style="margin:0 0 24px;color:#374151;font-size:15px;">
-        Ți-a fost atribuită o nouă activitate în proiectul <strong>${params.projectTitle}</strong>.
+        Ți-a fost atribuită o nouă activitate în proiectul <strong>${safeProjectTitle}</strong>.
       </p>
 
       <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin:0 0 28px;">
         <p style="margin:0 0 12px;color:#6b7280;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">Detalii activitate</p>
-        <p style="margin:0 0 8px;color:#111827;font-size:16px;font-weight:600;">${params.activityName}</p>
-        <p style="margin:0 0 10px;color:#4b5563;font-size:14px;line-height:1.6;">Fază: ${params.phaseName}</p>
+        <p style="margin:0 0 8px;color:#111827;font-size:16px;font-weight:600;">${safeActivityName}</p>
+        <p style="margin:0 0 10px;color:#4b5563;font-size:14px;line-height:1.6;">Fază: ${safePhaseName}</p>
         ${deadline ? `<p style="margin:0;color:#d97706;font-size:13px;font-weight:500;">⏱ Termen limită: ${deadline}</p>` : ''}
       </div>
 
@@ -128,6 +140,27 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     if (visibility !== undefined && visibility !== 'published') {
       return NextResponse.json({ error: 'Invalid visibility transition' }, { status: 400 })
+    }
+
+    // Dacă se atribuie cuiva, verifică că este consultant membru al proiectului
+    if (assigned_to !== undefined && assigned_to !== null) {
+      const { data: membership, error: memberError } = await supabaseAdmin
+        .from('project_members')
+        .select('id')
+        .eq('project_id', projectId)
+        .eq('consultant_id', assigned_to)
+        .maybeSingle()
+
+      if (memberError) {
+        console.error('PATCH activity membership error:', memberError)
+        return NextResponse.json({ error: 'Eroare la verificarea membrului' }, { status: 500 })
+      }
+      if (!membership) {
+        return NextResponse.json(
+          { error: 'Consultantul nu este membru al acestui proiect' },
+          { status: 400 }
+        )
+      }
     }
 
     const updateData: Record<string, any> = {}
