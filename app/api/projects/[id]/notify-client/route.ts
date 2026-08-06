@@ -4,16 +4,8 @@ import { Resend } from 'resend'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { escapeHtml, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
 
 function listSection(title: string, items: string[]) {
   if (items.length === 0) return ''
@@ -28,6 +20,13 @@ function listSection(title: string, items: string[]) {
 
 // POST /api/projects/[id]/notify-client
 // Trimite un singur email digest cu tot ce a fost publicat de la ultima notificare.
+//
+// Elementele sunt "revendicate" (client_notified_at setat) ÎNAINTE de trimitere,
+// cu un update condiționat pe `client_notified_at is null` — asta face revendicarea
+// atomică per rând la nivel de DB, deci două cereri concurente (dublu-click, două
+// tab-uri) nu pot revendica și trimite digest pentru aceleași elemente de două ori.
+// Dacă trimiterea email-ului eșuează, revendicarea e anulată explicit, ca elementele
+// să rămână "de notificat" pentru următoarea încercare.
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -93,20 +92,72 @@ export async function POST(
     }
 
     const phaseById = new Map(phaseList.map(p => [p.id, p]))
-    const activityById = new Map((activities ?? []).map(a => [a.id, { ...a, phase: phaseById.get(a.phase_id) }]))
+    const activitiesWithPhase = (activities ?? []).map(a => ({ ...a, phase: phaseById.get(a.phase_id) }))
+    const activityById = new Map(activitiesWithPhase.map(a => [a.id, a]))
 
-    const notifiablePhases = phaseList.filter(p => isClientVisiblePhase(p) && !p.client_notified_at)
-    const notifiableActivities = (activities ?? []).filter(
-      a => isClientVisibleActivity(activityById.get(a.id)) && !a.client_notified_at
-    )
-    const notifiableDocuments = (documents ?? []).filter(d => {
-      const activity = d.activity_id ? activityById.get(d.activity_id) : null
-      return isClientVisibleDocument({ ...d, activity }) && !d.client_notified_at
-    })
+    const candidatePhaseIds = phaseList
+      .filter(p => isClientVisiblePhase(p) && !p.client_notified_at)
+      .map(p => p.id)
+    const candidateActivityIds = activitiesWithPhase
+      .filter(a => isClientVisibleActivity(a) && !a.client_notified_at)
+      .map(a => a.id)
+    const candidateDocumentIds = (documents ?? [])
+      .filter(d => isClientVisibleDocument({ ...d, activity: d.activity_id ? activityById.get(d.activity_id) : null }) && !d.client_notified_at)
+      .map(d => d.id)
 
-    const totalCount = notifiablePhases.length + notifiableActivities.length + notifiableDocuments.length
-    if (totalCount === 0) {
+    if (candidatePhaseIds.length + candidateActivityIds.length + candidateDocumentIds.length === 0) {
       return NextResponse.json({ error: 'Nu există elemente noi de anunțat clientului' }, { status: 400 })
+    }
+
+    const notifiedAt = new Date().toISOString()
+
+    // Revendicare atomică: update-ul condiționat pe `client_notified_at is null`
+    // returnează doar rândurile pe care CHIAR le-am revendicat noi — dacă o cerere
+    // concurentă le-a luat deja, nu mai apar aici.
+    const [claimedPhasesRes, claimedActivitiesRes, claimedDocumentsRes] = await Promise.all([
+      candidatePhaseIds.length
+        ? admin.from('project_phases').update({ client_notified_at: notifiedAt }).in('id', candidatePhaseIds).is('client_notified_at', null).select('id, name')
+        : Promise.resolve({ data: [] as { id: string; name: string }[], error: null }),
+      candidateActivityIds.length
+        ? admin.from('project_activities').update({ client_notified_at: notifiedAt }).in('id', candidateActivityIds).is('client_notified_at', null).select('id, name, phase_id')
+        : Promise.resolve({ data: [] as { id: string; name: string; phase_id: string }[], error: null }),
+      candidateDocumentIds.length
+        ? admin.from('document_requirements').update({ client_notified_at: notifiedAt }).in('id', candidateDocumentIds).is('client_notified_at', null).select('id, name, is_outgoing')
+        : Promise.resolve({ data: [] as { id: string; name: string; is_outgoing: boolean }[], error: null }),
+    ])
+
+    const claimedPhases = claimedPhasesRes.data ?? []
+    const claimedActivities = claimedActivitiesRes.data ?? []
+    const claimedDocuments = claimedDocumentsRes.data ?? []
+
+    const rollbackClaim = async () => {
+      await Promise.all([
+        claimedPhases.length
+          ? admin.from('project_phases').update({ client_notified_at: null }).in('id', claimedPhases.map(p => p.id))
+          : null,
+        claimedActivities.length
+          ? admin.from('project_activities').update({ client_notified_at: null }).in('id', claimedActivities.map(a => a.id))
+          : null,
+        claimedDocuments.length
+          ? admin.from('document_requirements').update({ client_notified_at: null }).in('id', claimedDocuments.map(d => d.id))
+          : null,
+      ])
+    }
+
+    if (claimedPhasesRes.error || claimedActivitiesRes.error || claimedDocumentsRes.error) {
+      console.error('notify-client claim error:', {
+        phases: claimedPhasesRes.error,
+        activities: claimedActivitiesRes.error,
+        documents: claimedDocumentsRes.error,
+      })
+      await rollbackClaim()
+      return NextResponse.json({ error: 'Eroare la pregătirea notificării. Reîncearcă.' }, { status: 500 })
+    }
+
+    const totalClaimed = claimedPhases.length + claimedActivities.length + claimedDocuments.length
+    if (totalClaimed === 0) {
+      // Altcineva a revendicat deja aceleași elemente între timp (dublu-click / alt tab).
+      return NextResponse.json({ error: 'Clientul a fost deja anunțat despre aceste noutăți' }, { status: 409 })
     }
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
@@ -114,12 +165,12 @@ export async function POST(
     const safeProjectTitle = escapeHtml(project.title)
     const salut = client.full_name ? `Salut, ${escapeHtml(client.full_name)}!` : 'Salut!'
 
-    const phaseItems = notifiablePhases.map(p => escapeHtml(p.name))
-    const activityItems = notifiableActivities.map(a => {
+    const phaseItems = claimedPhases.map(p => escapeHtml(p.name))
+    const activityItems = claimedActivities.map(a => {
       const phaseName = phaseById.get(a.phase_id)?.name
       return phaseName ? `${escapeHtml(a.name)} <span style="color:#6b7280;">— fază: ${escapeHtml(phaseName)}</span>` : escapeHtml(a.name)
     })
-    const documentItems = notifiableDocuments.map(d => {
+    const documentItems = claimedDocuments.map(d => {
       const label = d.is_outgoing ? 'Document nou disponibil' : 'Cerere nouă de document'
       return `${escapeHtml(d.name)} <span style="color:#6b7280;">— ${label}</span>`
     })
@@ -163,39 +214,24 @@ export async function POST(
 </body>
 </html>`
 
-    const resend = new Resend(process.env.RESEND_API_KEY)
-    const { error: emailError } = await resend.emails.send({
-      from: process.env.RESEND_CLIENT_NOTIFICATION_FROM_EMAIL ?? 'notificari@vorbaretul.ro',
-      to: client.email,
-      subject: `Actualizări noi în proiectul „${project.title}”`,
-      html,
-    })
-
-    if (emailError) {
-      console.error('notify-client Resend error:', emailError)
-      return NextResponse.json({ error: 'Trimiterea emailului a eșuat. Reîncearcă.' }, { status: 502 })
-    }
-
-    const notifiedAt = new Date().toISOString()
-
-    const [phasesUpdate, activitiesUpdate, documentsUpdate] = await Promise.all([
-      notifiablePhases.length
-        ? admin.from('project_phases').update({ client_notified_at: notifiedAt }).in('id', notifiablePhases.map(p => p.id))
-        : Promise.resolve({ error: null }),
-      notifiableActivities.length
-        ? admin.from('project_activities').update({ client_notified_at: notifiedAt }).in('id', notifiableActivities.map(a => a.id))
-        : Promise.resolve({ error: null }),
-      notifiableDocuments.length
-        ? admin.from('document_requirements').update({ client_notified_at: notifiedAt }).in('id', notifiableDocuments.map(d => d.id))
-        : Promise.resolve({ error: null }),
-    ])
-
-    if (phasesUpdate.error || activitiesUpdate.error || documentsUpdate.error) {
-      console.error('notify-client mark-as-notified error:', {
-        phasesUpdate: phasesUpdate.error,
-        activitiesUpdate: activitiesUpdate.error,
-        documentsUpdate: documentsUpdate.error,
+    try {
+      const resend = new Resend(process.env.RESEND_API_KEY)
+      const { error: emailError } = await resend.emails.send({
+        from: process.env.RESEND_CLIENT_NOTIFICATION_FROM_EMAIL ?? 'notificari@vorbaretul.ro',
+        to: client.email,
+        subject: `Actualizări noi în proiectul „${sanitizeHeaderText(project.title)}”`,
+        html,
       })
+
+      if (emailError) {
+        console.error('notify-client Resend error:', emailError)
+        await rollbackClaim()
+        return NextResponse.json({ error: 'Trimiterea emailului a eșuat. Reîncearcă.' }, { status: 502 })
+      }
+    } catch (emailException) {
+      console.error('notify-client Resend exception:', emailException)
+      await rollbackClaim()
+      return NextResponse.json({ error: 'Trimiterea emailului a eșuat. Reîncearcă.' }, { status: 502 })
     }
 
     await logAction({
@@ -206,20 +242,20 @@ export async function POST(
       entityName: project.title,
       newValues: {
         client_email: client.email,
-        phases: notifiablePhases.map(p => p.id),
-        activities: notifiableActivities.map(a => a.id),
-        documents: notifiableDocuments.map(d => d.id),
+        phases: claimedPhases.map(p => p.id),
+        activities: claimedActivities.map(a => a.id),
+        documents: claimedDocuments.map(d => d.id),
       },
-      description: `${access.profile.email || 'User'} a anunțat clientul despre ${totalCount} noutăți publicate în proiectul "${project.title}"`,
+      description: `${access.profile.email || 'User'} a anunțat clientul despre ${totalClaimed} noutăți publicate în proiectul "${project.title}"`,
       request,
     })
 
     return NextResponse.json({
       ok: true,
       notified: {
-        phases: notifiablePhases.length,
-        activities: notifiableActivities.length,
-        documents: notifiableDocuments.length,
+        phases: claimedPhases.length,
+        activities: claimedActivities.length,
+        documents: claimedDocuments.length,
       },
     })
   } catch (e: any) {

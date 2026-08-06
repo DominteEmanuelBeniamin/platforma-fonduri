@@ -31,7 +31,7 @@ import ActionNeededPanel from '@/components/ActionNeededPanel'
 import PublishStatusControl from '@/components/PublishStatusControl'
 import UnifiedSearchDialog from '@/components/UnifiedSearchDialog'
 import { buildSearchIndex, type SearchResult } from '@/lib/projectSearch'
-import { isClientVisibleDocument } from '@/lib/client-visibility'
+import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 
@@ -99,11 +99,10 @@ function ProjectDetailsContent() {
 
   // Ceva publicat, dar neanunțat încă printr-un digest — activează butonul „Anunță clientul"
   const hasUnnotifiedUpdates = useMemo(() => {
-    const phaseIsVisible = (phase: ProjectPhase) => phase.visibility === 'published'
     for (const phase of phases) {
-      if (phaseIsVisible(phase) && !phase.client_notified_at) return true
+      if (isClientVisiblePhase(phase) && !phase.client_notified_at) return true
       for (const activity of phase.activities ?? []) {
-        if (phaseIsVisible(phase) && activity.visibility === 'published' && !activity.client_notified_at) return true
+        if (isClientVisibleActivity({ ...activity, phase }) && !activity.client_notified_at) return true
       }
     }
     return allDocRequests.some((req: any) => isClientVisibleDocument(req) && !req.client_notified_at)
