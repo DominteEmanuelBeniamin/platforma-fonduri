@@ -77,7 +77,7 @@ export const REMINDER_BADGE: Record<ReminderType, { bg: string; text: string; bo
 
 // ─── Formatare dată ───────────────────────────────────────────────────────────
 
-function formatDeadline(deadlineAt: string): string {
+export function formatDeadline(deadlineAt: string): string {
   return new Date(deadlineAt).toLocaleDateString('ro-RO', {
     weekday: 'long',
     day: 'numeric',
@@ -221,18 +221,4 @@ function buildSubject(ctx: ReminderContext, type: ReminderType): string {
     case 'overdue':
       return `Termen expirat: Document întârziat — ${ctx.requestName} [${ctx.projectTitle}]`
   }
-}
-
-// ─── Mailto link ──────────────────────────────────────────────────────────────
-
-/**
- * Generează un link mailto: cu recipient, subiect și corp completate automat.
- * Deschide clientul de email al utilizatorului cu draft-ul pregătit.
- */
-export function generateMailtoLink(ctx: ReminderContext, type: ReminderType): string {
-  const { subject, textBody } = generateReminderEmailContent(ctx, type)
-  // URLSearchParams codifică + în loc de %20 pentru spații — corectăm pentru mailto:
-  const params = new URLSearchParams({ subject, body: textBody })
-  const encoded = params.toString().replace(/\+/g, '%20')
-  return `mailto:${ctx.clientEmail}?${encoded}`
 }

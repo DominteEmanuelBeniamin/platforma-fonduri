@@ -67,6 +67,8 @@ export async function GET(
         status,
         visibility,
         client_notified_at,
+        reminder_sent_at,
+        reminder_type_sent,
         is_mandatory,
         is_outgoing,
         requirement_type,

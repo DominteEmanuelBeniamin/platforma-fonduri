@@ -107,10 +107,10 @@ export async function GET(request: Request) {
     const { data, error } = await admin
       .from('document_requirements')
       .select(`
-        id, project_id, activity_id, name, description, status, deadline_at,
+        id, project_id, activity_id, name, description, status, visibility, deadline_at,
         reminder_sent_at, reminder_type_sent, created_at,
         project:project_id(id, title, client:profiles!projects_client_id_fkey(full_name, email)),
-        activity:activity_id(id, name, phase:phase_id(id, name))
+        activity:activity_id(id, name, visibility, phase:phase_id(id, name, visibility))
       `)
       .in('project_id', projectIds)
       .in('status', ['pending', 'review'])
@@ -131,6 +131,9 @@ export async function GET(request: Request) {
         name: req.name,
         description: req.description ?? null,
         status: req.status,
+        // Vizibilitatea efectivă pentru client (lanțul fază→activitate→cerere) —
+        // pe ea se decide dacă are sens un reminder care trimite clientul în platformă.
+        client_visible: isClientVisibleDocument(req),
         deadline_at: req.deadline_at ?? null,
         reminder_sent_at: req.reminder_sent_at ?? null,
         reminder_type_sent: req.reminder_type_sent ?? null,

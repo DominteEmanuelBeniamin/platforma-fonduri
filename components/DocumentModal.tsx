@@ -23,8 +23,8 @@ import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file
 import { Mail } from 'lucide-react'
 import {
   getReminderType,
-  generateMailtoLink,
   REMINDER_LABELS,
+  type ReminderType,
 } from '@/lib/document-reminder'
 
 interface DocumentRequest {
@@ -43,6 +43,8 @@ interface DocumentRequest {
     order_index?: number
   }[]
   deadline_at: string | null
+  reminder_sent_at?: string | null
+  reminder_type_sent?: ReminderType | null
   created_by: string | null
   created_at: string
   assigned_to: string | null
@@ -87,6 +89,7 @@ export default function DocumentModal({
   clientEmail,
   clientName,
   projectTitle,
+  clientVisible = true,
 }: {
   request: DocumentRequest
   projectId: string
@@ -95,6 +98,9 @@ export default function DocumentModal({
   clientEmail?: string | null
   clientName?: string | null
   projectTitle?: string
+  /** Cererea e efectiv vizibilă clientului (lanțul fază→activitate→cerere publicat).
+   *  Calculat de părinte, ca regulile de vizibilitate să stea într-un singur loc. */
+  clientVisible?: boolean
 }) {
   const { apiFetch, profile } = useAuth()
   const { showToast, confirm } = useToast()
@@ -115,6 +121,10 @@ export default function DocumentModal({
   )
   const [savingDeadline, setSavingDeadline] = useState(false)
   const [localDeadline, setLocalDeadline] = useState<string | null>(request.deadline_at)
+  const [sendingReminder, setSendingReminder] = useState(false)
+  const sendingReminderLock = useRef(false)
+  const [localReminderSentAt, setLocalReminderSentAt] = useState<string | null>(request.reminder_sent_at ?? null)
+  const [localReminderTypeSent, setLocalReminderTypeSent] = useState<ReminderType | null>(request.reminder_type_sent ?? null)
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
   const requestAttachments = request.attachments?.length
@@ -126,7 +136,9 @@ export default function DocumentModal({
   useEffect(() => {
     setLocalAttachmentPath(request.attachment_path)
     setAttachmentMissing(!!request.attachment_missing_at)
-  }, [request.id, request.attachment_path, request.attachment_missing_at])
+    setLocalReminderSentAt(request.reminder_sent_at ?? null)
+    setLocalReminderTypeSent(request.reminder_type_sent ?? null)
+  }, [request.id, request.attachment_path, request.attachment_missing_at, request.reminder_sent_at, request.reminder_type_sent])
 
   const handleSaveDeadline = async () => {
     setSavingDeadline(true)
@@ -149,6 +161,34 @@ export default function DocumentModal({
       }
     } finally {
       setSavingDeadline(false)
+    }
+  }
+
+  const sendReminder = async () => {
+    if (sendingReminderLock.current) return
+    if (!await confirm({
+      title: 'Trimiți reminder clientului?',
+      description: `Se trimite acum un email real către client pentru „${request.name}”.`,
+      confirmText: 'Trimite email',
+    })) return
+    sendingReminderLock.current = true
+    setSendingReminder(true)
+    try {
+      const res = await apiFetch(`/api/document-requests/${request.id}/reminder`, { method: 'POST' })
+      const data = await res.json().catch(() => null)
+      if (res.ok) {
+        setLocalReminderSentAt(data?.reminder_sent_at ?? null)
+        setLocalReminderTypeSent(data?.reminder_type_sent ?? null)
+        onUpdate()
+        showToast(data?.warning || 'Reminder-ul a fost trimis clientului.', data?.warning ? 'warning' : 'success')
+      } else {
+        showToast(data?.error || 'Nu am putut trimite reminder-ul. Reîncearcă.', 'error')
+      }
+    } catch {
+      showToast('Nu am putut trimite reminder-ul. Reîncearcă.', 'error')
+    } finally {
+      sendingReminderLock.current = false
+      setSendingReminder(false)
     }
   }
 
@@ -602,38 +642,53 @@ export default function DocumentModal({
                   </button>
                 </>
               )}
-              {request.status === 'pending' && (
-                clientEmail ? (() => {
-                  const reminderType = getReminderType(localDeadline) ?? '1_week'
-                  const mailtoLink = generateMailtoLink(
-                    {
-                      requestName: request.name,
-                      requestDescription: request.description,
-                      deadlineAt: localDeadline,
-                      clientEmail,
-                      clientName: clientName ?? null,
-                      projectTitle: projectTitle ?? '',
-                      projectId,
-                    },
-                    reminderType
-                  )
+              {request.status === 'pending' && (() => {
+                // Reminder-ul are sens doar dacă avem unde trimite, clientul chiar
+                // vede cererea în platformă și există un termen de comunicat.
+                const reminderType = getReminderType(localDeadline)
+                const blockedReason = !clientEmail
+                  ? 'Reminder indisponibil'
+                  : !clientVisible
+                  ? 'Publică cererea întâi'
+                  : !reminderType
+                  ? 'Fără termen limită'
+                  : null
+                if (blockedReason !== null || !reminderType) {
                   return (
-                    <a
-                      href={mailtoLink}
-                      title={`Reminder: ${REMINDER_LABELS[reminderType]}`}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-semibold hover:bg-indigo-100 transition-colors"
+                    <span
+                      title={blockedReason ?? undefined}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 text-xs text-slate-400"
                     >
                       <Mail className="w-3.5 h-3.5" />
-                      Trimite reminder
-                    </a>
+                      {blockedReason ?? 'Reminder indisponibil'}
+                    </span>
                   )
-                })() : (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 text-xs text-slate-400">
-                    <Mail className="w-3.5 h-3.5" />
-                    Reminder indisponibil
-                  </span>
+                }
+
+                const alreadySent = !!localReminderSentAt && localReminderTypeSent === reminderType
+                return (
+                  <button
+                    type="button"
+                    onClick={sendReminder}
+                    disabled={sendingReminder}
+                    title={alreadySent
+                      ? `Trimis pe ${new Date(localReminderSentAt!).toLocaleDateString('ro-RO')} — apasă pentru a retrimite`
+                      : `Reminder: ${REMINDER_LABELS[reminderType]}`}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                      alreadySent
+                        ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                        : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+                    }`}
+                  >
+                    {sendingReminder
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : alreadySent
+                      ? <CheckCircle2 className="w-3.5 h-3.5" />
+                      : <Mail className="w-3.5 h-3.5" />}
+                    {sendingReminder ? 'Se trimite...' : alreadySent ? 'Reminder trimis' : 'Trimite reminder'}
+                  </button>
                 )
-              )}
+              })()}
             </div>
           )}
 

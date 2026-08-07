@@ -1,10 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { useToast } from '@/app/providers/ToastProvider'
 import {
   FileText,
   Clock,
@@ -12,11 +13,10 @@ import {
   Mail,
   ArrowLeft,
   CheckCircle2,
-  Check,
+  Loader2,
 } from 'lucide-react'
 import {
   getReminderType,
-  generateMailtoLink,
   REMINDER_LABELS,
   REMINDER_BADGE,
 } from '@/lib/document-reminder'
@@ -24,9 +24,11 @@ import {
 export default function MyRequestsPage() {
   const router = useRouter()
   const { loading: authLoading, token, apiFetch, profile } = useAuth()
+  const { showToast, confirm } = useToast()
   const [requests, setRequests] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [sendingId, setSendingId] = useState<string | null>(null)
+  const sendingLock = useRef(false)
 
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -44,19 +46,31 @@ export default function MyRequestsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, token, profile?.role])
 
-  const toggleReminder = async (reqId: string) => {
-    if (togglingId === reqId) return
-    setTogglingId(reqId)
+  const sendReminder = async (reqId: string, reqName: string) => {
+    if (sendingLock.current) return
+    if (!await confirm({
+      title: 'Trimiți reminder clientului?',
+      description: `Se trimite acum un email real către client pentru „${reqName}”.`,
+      confirmText: 'Trimite email',
+    })) return
+    sendingLock.current = true
+    setSendingId(reqId)
     try {
       const res = await apiFetch(`/api/document-requests/${reqId}/reminder`, { method: 'POST' })
-      const json = await res.json()
+      const json = await res.json().catch(() => null)
       if (res.ok) {
         setRequests(prev =>
           prev.map(r => r.id === reqId ? { ...r, reminder_sent_at: json.reminder_sent_at, reminder_type_sent: json.reminder_type_sent } : r)
         )
+        showToast(json?.warning || 'Reminder-ul a fost trimis clientului.', json?.warning ? 'warning' : 'success')
+      } else {
+        showToast(json?.error || 'Nu am putut trimite reminder-ul. Reîncearcă.', 'error')
       }
+    } catch {
+      showToast('Nu am putut trimite reminder-ul. Reîncearcă.', 'error')
     } finally {
-      setTogglingId(null)
+      sendingLock.current = false
+      setSendingId(null)
     }
   }
 
@@ -144,19 +158,17 @@ export default function MyRequestsPage() {
                   const reminderType = getReminderType(req.deadline_at) ?? '1_week'
                   const badge = REMINDER_BADGE[reminderType]
                   const canRemind = req.status === 'pending'
-                  const mailtoLink = canRemind && req.client_email
-                    ? generateMailtoLink(
-                        {
-                          requestName: req.name,
-                          requestDescription: req.description,
-                          deadlineAt: req.deadline_at,
-                          clientEmail: req.client_email,
-                          clientName: req.client_name,
-                          projectTitle: req.project_title ?? '',
-                          projectId: req.project_id,
-                        },
-                        reminderType
-                      )
+                  const isSending = sendingId === req.id
+
+                  // Reminder-ul trimite clientul în platformă, deci are sens doar dacă
+                  // cererea e publicată (altfel n-o găsește acolo) și are un termen de
+                  // comunicat. Motivul e afișat pe buton, ca să nu pară stricat.
+                  const reminderBlockedReason = !req.deadline_at
+                    ? 'Fără termen limită'
+                    : req.client_visible === false
+                    ? 'Cererea nu e publicată — clientul nu o vede încă'
+                    : !req.client_email
+                    ? 'Fără email client'
                     : null
 
                   const deadline = req.deadline_at ? new Date(req.deadline_at) : null
@@ -243,65 +255,50 @@ export default function MyRequestsPage() {
                       </span>
 
                       {canRemind && (
-                        mailtoLink ? (
-                          <a
-                            href={mailtoLink}
-                            title={REMINDER_LABELS[reminderType]}
-                            className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all hover:shadow-sm active:scale-95 ${badge.bg} ${badge.text} ${badge.border}`}
-                          >
-                            <Mail className="w-3.5 h-3.5" />
-                            Reminder
-                          </a>
-                        ) : (
+                        reminderBlockedReason ? (
                           <div
-                            title="Fără email client"
+                            title={reminderBlockedReason}
                             className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-slate-200 text-xs font-medium text-slate-300 cursor-not-allowed"
                           >
                             <Mail className="w-3.5 h-3.5" />
                             Reminder
                           </div>
-                        )
+                        ) : (() => {
+                          const isSent = req.reminder_sent_at && req.reminder_type_sent === reminderType
+                          const sentBefore = req.reminder_sent_at && !isSent
+                          const sentDate = req.reminder_sent_at
+                            ? new Date(req.reminder_sent_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })
+                            : null
+                          const tooltipTitle = isSent
+                            ? `Trimis pe ${sentDate} — apasă pentru a retrimite`
+                            : sentBefore
+                            ? `Urgența s-a schimbat · Ultimul trimis: ${sentDate}`
+                            : REMINDER_LABELS[reminderType]
+                          return (
+                            <button
+                              onClick={() => sendReminder(req.id, req.name)}
+                              disabled={!!sendingId}
+                              title={tooltipTitle}
+                              className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all hover:shadow-sm active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${
+                                isSent
+                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'
+                                  : sentBefore
+                                  ? 'bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100'
+                                  : `${badge.bg} ${badge.text} ${badge.border}`
+                              }`}
+                            >
+                              {isSending
+                                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                : isSent
+                                ? <CheckCircle2 className="w-3.5 h-3.5" />
+                                : <Mail className="w-3.5 h-3.5" />}
+                              <span className="hidden sm:inline">
+                                {isSending ? 'Se trimite...' : isSent ? `Trimis ${sentDate}` : sentBefore ? `Retrimite · ${sentDate}` : 'Reminder'}
+                              </span>
+                            </button>
+                          )
+                        })()
                       )}
-
-                      {canRemind && (() => {
-                        const isSent = req.reminder_sent_at && req.reminder_type_sent === reminderType
-                        const sentBefore = req.reminder_sent_at && !isSent
-                        const sentDate = req.reminder_sent_at
-                          ? new Date(req.reminder_sent_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })
-                          : null
-                        const tooltipTitle = isSent
-                          ? `Trimis pe ${sentDate} — apasă pentru a anula`
-                          : sentBefore
-                          ? `Urgența s-a schimbat · Ultimul trimis: ${sentDate}`
-                          : 'Marchează ca trimis'
-                        return (
-                          <button
-                            onClick={() => toggleReminder(req.id)}
-                            disabled={togglingId === req.id}
-                            title={tooltipTitle}
-                            className={`flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all active:scale-95 ${
-                              isSent
-                                ? 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'
-                                : sentBefore
-                                ? 'bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100'
-                                : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300 hover:text-slate-500'
-                            } ${togglingId === req.id ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                          >
-                            <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-all ${
-                              isSent
-                                ? 'bg-emerald-500 border-emerald-500'
-                                : sentBefore
-                                ? 'bg-amber-400 border-amber-400'
-                                : 'border-slate-300'
-                            }`}>
-                              {(isSent || sentBefore) && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
-                            </div>
-                            <span className="hidden sm:inline">
-                              {isSent ? 'Trimis' : sentBefore ? sentDate! : 'Trimis?'}
-                            </span>
-                          </button>
-                        )
-                      })()}
                     </div>
                   )
                 })}
