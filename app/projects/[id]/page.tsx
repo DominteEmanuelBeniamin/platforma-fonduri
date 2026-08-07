@@ -17,6 +17,7 @@ import {
   FolderOpen,
   Search,
   Plus,
+  Megaphone,
 } from 'lucide-react'
 
 import ProjectChatDrawer from '@/components/ProjectChatDrawer'
@@ -30,6 +31,7 @@ import ActionNeededPanel from '@/components/ActionNeededPanel'
 import PublishStatusControl from '@/components/PublishStatusControl'
 import UnifiedSearchDialog from '@/components/UnifiedSearchDialog'
 import { buildSearchIndex, type SearchResult } from '@/lib/projectSearch'
+import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 
@@ -73,6 +75,7 @@ function ProjectDetailsContent() {
 
   const [chatOpen, setChatOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+  const [notifyingClient, setNotifyingClient] = useState(false)
 
   const [activeView, setActiveView] = useState<'phases' | 'documents'>(targetView === 'documents' ? 'documents' : 'phases')
   const [landingView, setLandingView] = useState<'action-needed' | 'browse'>(hasUrlParams ? 'browse' : 'action-needed')
@@ -93,6 +96,17 @@ function ProjectDetailsContent() {
       return total + requestAttachmentCount + uploadedFilesCount
     }, 0)
   }, [allDocRequests])
+
+  // Ceva publicat, dar neanunțat încă printr-un digest — activează butonul „Anunță clientul"
+  const hasUnnotifiedUpdates = useMemo(() => {
+    for (const phase of phases) {
+      if (isClientVisiblePhase(phase) && !phase.client_notified_at) return true
+      for (const activity of phase.activities ?? []) {
+        if (isClientVisibleActivity({ ...activity, phase }) && !activity.client_notified_at) return true
+      }
+    }
+    return allDocRequests.some((req: any) => isClientVisibleDocument(req) && !req.client_notified_at)
+  }, [phases, allDocRequests])
 
   const handleOpenChat = () => {
     setChatOpen(true)
@@ -292,6 +306,29 @@ function ProjectDetailsContent() {
         showToast('Nu am putut publica elementul. Reîncearcă.', 'error')
       }
     } catch { showToast('Nu am putut publica elementul. Reîncearcă.', 'error') }
+  }
+
+  const handleNotifyClient = async () => {
+    if (!await confirm({
+      title: 'Anunță clientul?',
+      description: 'Se trimite un singur email către client cu tot ce a fost publicat de la ultima notificare.',
+      confirmText: 'Trimite email',
+    })) return
+    setNotifyingClient(true)
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/notify-client`, { method: 'POST' })
+      const data = await res.json().catch(() => null)
+      if (res.ok) {
+        await Promise.all([refreshPhases(), refreshDocs()])
+        showToast('Clientul a fost anunțat prin email.', 'success')
+      } else {
+        showToast(data?.error || 'Nu am putut anunța clientul. Reîncearcă.', 'error')
+      }
+    } catch {
+      showToast('Nu am putut anunța clientul. Reîncearcă.', 'error')
+    } finally {
+      setNotifyingClient(false)
+    }
   }
 
   const handleAssignGeneralConsultant = async (assignedTo: string | null) => {
@@ -615,6 +652,22 @@ function ProjectDetailsContent() {
                 </span>
               )}
             </button>
+
+            {canEdit && (
+              <button
+                onClick={handleNotifyClient}
+                disabled={!hasUnnotifiedUpdates || notifyingClient}
+                title={hasUnnotifiedUpdates ? 'Anunță clientul despre noutățile publicate' : 'Nimic nou de anunțat'}
+                className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                  hasUnnotifiedUpdates
+                    ? 'text-white bg-[var(--p-accent)] border-transparent hover:opacity-90'
+                    : 'text-[var(--p-ink-faint)] bg-[var(--p-surface)] border-[var(--p-border-strong)] opacity-60 cursor-not-allowed'
+                } disabled:cursor-not-allowed`}
+              >
+                {notifyingClient ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
+                <span className="hidden sm:block">Anunță clientul</span>
+              </button>
+            )}
 
             <span className="hidden sm:flex items-center gap-1.5 text-xs text-[var(--p-ink-soft)] bg-[var(--p-surface-2)] px-2.5 py-1 rounded-full">
               <Building2 className="w-3.5 h-3.5" />

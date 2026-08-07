@@ -27,6 +27,7 @@ export interface ProjectActivity {
   status: string
   order_index: number
   visibility?: 'draft' | 'published'
+  client_notified_at?: string | null
   deadline_at?: string | null
   assigned_to?: string | null
   assigned_user?: { id: string; full_name: string | null; email: string } | null
@@ -38,6 +39,7 @@ export interface ProjectPhase {
   status: string
   order_index: number
   visibility?: 'draft' | 'published'
+  client_notified_at?: string | null
   project_status_id: string
   project_status?: { id: string; name: string; color: string }
   activities?: ProjectActivity[]
