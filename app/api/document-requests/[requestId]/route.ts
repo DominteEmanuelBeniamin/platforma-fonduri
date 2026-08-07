@@ -4,6 +4,7 @@ import { Resend } from 'resend'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { isRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 
 // Inițializat în handler ca să preia env-ul la runtime, nu la cold-start
@@ -265,7 +266,9 @@ export async function PATCH(
         if (consultant?.email && project) {
           const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
           const projectUrl = `${appUrl}/projects/${project.id}`
-          const salut = consultant.full_name ? `Salut, ${consultant.full_name}!` : 'Salut!'
+          const safeProjectTitle = escapeHtml(project.title)
+          const safeRequestName = escapeHtml(req.name ?? '')
+          const salut = consultant.full_name ? `Salut, ${escapeHtml(consultant.full_name)}!` : 'Salut!'
           const deadline = req.deadline_at
             ? new Date(req.deadline_at).toLocaleDateString('ro-RO', {
                 day: 'numeric',
@@ -285,19 +288,19 @@ export async function PATCH(
 
     <div style="background:linear-gradient(135deg,#4f46e5,#6366f1);padding:32px 40px;">
       <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.3px;">Cerere nouă atribuită</h1>
-      <p style="margin:8px 0 0;color:#c7d2fe;font-size:14px;">${project.title}</p>
+      <p style="margin:8px 0 0;color:#c7d2fe;font-size:14px;">${safeProjectTitle}</p>
     </div>
 
     <div style="padding:32px 40px;">
       <p style="margin:0 0 20px;color:#374151;font-size:15px;">${salut}</p>
       <p style="margin:0 0 24px;color:#374151;font-size:15px;">
-        Ți-a fost atribuită o nouă cerere de document în proiectul <strong>${project.title}</strong>.
+        Ți-a fost atribuită o nouă cerere de document în proiectul <strong>${safeProjectTitle}</strong>.
       </p>
 
       <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin:0 0 28px;">
         <p style="margin:0 0 12px;color:#6b7280;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">Detalii cerere</p>
-        <p style="margin:0 0 8px;color:#111827;font-size:16px;font-weight:600;">${req.name}</p>
-        ${req.description ? `<p style="margin:0 0 10px;color:#4b5563;font-size:14px;line-height:1.6;">${req.description}</p>` : ''}
+        <p style="margin:0 0 8px;color:#111827;font-size:16px;font-weight:600;">${safeRequestName}</p>
+        ${req.description ? `<p style="margin:0 0 10px;color:#4b5563;font-size:14px;line-height:1.6;">${escapeHtml(req.description)}</p>` : ''}
         ${deadline ? `<p style="margin:0;color:#d97706;font-size:13px;font-weight:500;">⏱ Termen limită: ${deadline}</p>` : ''}
       </div>
 
@@ -318,9 +321,9 @@ export async function PATCH(
 
           const resend = new Resend(process.env.RESEND_API_KEY)
           const { error: emailError } = await resend.emails.send({
-            from: process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev',
+            from: resendFromAddress(),
             to: consultant.email,
-            subject: `Ți-a fost atribuită o cerere nouă — ${project.title}`,
+            subject: sanitizeHeaderText(`Ți-a fost atribuită o cerere nouă — ${project.title}`),
             html,
           })
           if (emailError) {
