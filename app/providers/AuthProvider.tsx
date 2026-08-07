@@ -56,7 +56,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const readJson = response.json.bind(response)
         Object.defineProperty(response, 'json', {
           value: async () => {
-            const body = await readJson()
+            const body = await readJson().catch(() => ({
+              error: userErrorMessage(response.status, 'Nu am putut finaliza acțiunea.'),
+            }))
             if (body && typeof body === 'object' && 'error' in body) {
               return { ...body, error: userErrorMessage(response.status, 'Nu am putut finaliza acțiunea.') }
             }
