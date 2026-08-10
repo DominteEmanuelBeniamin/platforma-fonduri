@@ -6,6 +6,7 @@ import { computeDiff, logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { isRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
+import { deadlineRequiredError, missingDeadlineForPublish } from '@/lib/publish-rules'
 
 // Inițializat în handler ca să preia env-ul la runtime, nu la cold-start
 
@@ -121,6 +122,19 @@ export async function PATCH(
 
     if (visibility === 'published' && req.visibility !== 'draft') {
       return NextResponse.json({ error: 'Document request is already published' }, { status: 400 })
+    }
+
+    // #70 — fără termen limită nu se publică. Verificarea stă înaintea oricărei
+    // scrieri, ca o publicare respinsă să nu modifice parțial rândul.
+    if (
+      visibility === 'published' &&
+      missingDeadlineForPublish({
+        isOutgoing: Boolean(req.is_outgoing),
+        currentDeadline: req.deadline_at,
+        incomingDeadline: deadline_at,
+      })
+    ) {
+      return NextResponse.json(deadlineRequiredError(), { status: 400 })
     }
 
     const { data: projectRow } = await admin

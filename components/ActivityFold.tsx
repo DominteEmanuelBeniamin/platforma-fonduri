@@ -24,6 +24,8 @@ interface ActivityFoldProps {
   visibility?: 'draft' | 'published'
   canPublish: boolean
   onPublish: () => void
+  publishDisabledReason?: string | null
+  onSetDeadline?: (value: string) => Promise<void> | void
   children: ReactNode
 }
 
@@ -46,6 +48,8 @@ export default function ActivityFold({
   visibility,
   canPublish,
   onPublish,
+  publishDisabledReason,
+  onSetDeadline,
   children,
 }: ActivityFoldProps) {
   const deadline = activity.deadline_at ? new Date(activity.deadline_at) : null
@@ -129,7 +133,14 @@ export default function ActivityFold({
         <div className="flex-1" />
 
         <div onClick={e => e.stopPropagation()} className="flex-shrink-0">
-          <PublishStatusControl status={visibility ?? 'draft'} canPublish={canPublish} onPublish={onPublish} size="sm" />
+          <PublishStatusControl
+            status={visibility ?? 'draft'}
+            canPublish={canPublish}
+            onPublish={onPublish}
+            disabledReason={publishDisabledReason}
+            onSetDeadline={onSetDeadline}
+            size="sm"
+          />
         </div>
 
         <ChevronRight

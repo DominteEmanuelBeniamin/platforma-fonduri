@@ -5,6 +5,7 @@ import { Resend } from 'resend'
 import { requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
+import { deadlineRequiredError, missingDeadlineForPublish } from '@/lib/publish-rules'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -189,6 +190,14 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (visibility === 'published') {
       if (before.visibility !== 'draft') {
         return NextResponse.json({ error: 'Activity is already published' }, { status: 400 })
+      }
+      // #70 — fără termen limită nu se publică. Verificarea stă înaintea oricărei
+      // scrieri, ca o publicare respinsă să nu modifice parțial rândul.
+      if (missingDeadlineForPublish({
+        currentDeadline: before.deadline_at,
+        incomingDeadline: deadline_at,
+      })) {
+        return NextResponse.json(deadlineRequiredError(), { status: 400 })
       }
       updateData.visibility = 'published'
     }

@@ -302,10 +302,29 @@ function ProjectDetailsContent() {
         await Promise.all([refreshPhases(), refreshDocs()])
         showToast('Elementul a fost publicat.', 'success')
       } else {
-        await res.json().catch(() => null)
-        showToast('Nu am putut publica elementul. Reîncearcă.', 'error')
+        // `message` poartă motivul real (ex: lipsa termenului limită); `error` e
+        // rescris generic de apiFetch pentru orice răspuns non-2xx.
+        const data = await res.json().catch(() => null)
+        showToast(data?.message || data?.error || 'Nu am putut publica elementul. Reîncearcă.', 'error')
       }
     } catch { showToast('Nu am putut publica elementul. Reîncearcă.', 'error') }
+  }
+
+  const saveActivityDeadline = async (phaseId: string, activityId: string, deadline: string) => {
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deadline_at: deadline }),
+      })
+      if (res.ok) {
+        await refreshPhases()
+        showToast('Termenul limită a fost salvat.', 'success')
+      } else {
+        const data = await res.json().catch(() => null)
+        showToast(data?.message || data?.error || 'Nu am putut salva termenul. Reîncearcă.', 'error')
+      }
+    } catch { showToast('Nu am putut salva termenul. Reîncearcă.', 'error') }
   }
 
   const handleNotifyClient = async () => {
@@ -838,6 +857,8 @@ function ProjectDetailsContent() {
                         onAssign={assignedTo => handleAssignActivity(phase.id, activity.id, assignedTo)}
                         visibility={activity.visibility}
                         canPublish={canEdit}
+                        publishDisabledReason={activity.deadline_at ? null : 'Fără termen limită'}
+                        onSetDeadline={date => saveActivityDeadline(phase.id, activity.id, date)}
                         onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, {
                           title: 'Publică activitatea?',
                           description: phase.visibility === 'published'
