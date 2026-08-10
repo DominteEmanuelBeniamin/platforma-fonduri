@@ -86,7 +86,7 @@ export async function GET(
         creator:created_by(full_name, email),
         assigned_to,
         assigned_consultant:assigned_to(id, full_name, email),
-        activity:activity_id(id, name, phase_id, visibility, phase:phase_id(id, name, visibility)),
+        activity:activity_id(id, name, phase_id, visibility, assigned_to, phase:phase_id(id, name, visibility)),
         files(
           id,
           storage_path,

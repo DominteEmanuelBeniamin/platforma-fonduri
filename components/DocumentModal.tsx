@@ -14,7 +14,8 @@ import {
   Eye,
   Package,
   Upload,
-  Trash2
+  Trash2,
+  UserRound
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
@@ -48,6 +49,7 @@ interface DocumentRequest {
   created_by: string | null
   created_at: string
   assigned_to: string | null
+  assigned_consultant?: { id: string; full_name: string | null; email: string } | null
   creator?: { full_name: string | null; email: string | null }
   files?: {
     id: string
@@ -90,9 +92,12 @@ export default function DocumentModal({
   clientName,
   projectTitle,
   clientVisible = true,
+  projectMembers = [],
 }: {
   request: DocumentRequest
   projectId: string
+  /** Consultanții proiectului, pentru atribuirea cererii */
+  projectMembers?: { id: string; full_name: string | null; email: string }[]
   onClose: () => void
   onUpdate: () => void
   clientEmail?: string | null
@@ -121,12 +126,25 @@ export default function DocumentModal({
   )
   const [savingDeadline, setSavingDeadline] = useState(false)
   const [localDeadline, setLocalDeadline] = useState<string | null>(request.deadline_at)
+
+  // Responsabilul cererii — condiție de publicare (#70), dar editabil oricând
+  const [editingAssignee, setEditingAssignee] = useState(false)
+  const [savingAssignee, setSavingAssignee] = useState(false)
+  const [localAssignee, setLocalAssignee] = useState<string | null>(request.assigned_to)
   const [sendingReminder, setSendingReminder] = useState(false)
   const sendingReminderLock = useRef(false)
   const [localReminderSentAt, setLocalReminderSentAt] = useState<string | null>(request.reminder_sent_at ?? null)
   const [localReminderTypeSent, setLocalReminderTypeSent] = useState<ReminderType | null>(request.reminder_type_sent ?? null)
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
+  // Numele responsabilului: din lista de membri, altfel din join-ul cererii
+  const assigneeLabel = localAssignee
+    ? projectMembers.find(member => member.id === localAssignee)?.full_name
+      || projectMembers.find(member => member.id === localAssignee)?.email
+      || request.assigned_consultant?.full_name
+      || request.assigned_consultant?.email
+      || 'consultant atribuit'
+    : null
   const requestAttachments = request.attachments?.length
     ? request.attachments
     : localAttachmentPath
@@ -138,7 +156,8 @@ export default function DocumentModal({
     setAttachmentMissing(!!request.attachment_missing_at)
     setLocalReminderSentAt(request.reminder_sent_at ?? null)
     setLocalReminderTypeSent(request.reminder_type_sent ?? null)
-  }, [request.id, request.attachment_path, request.attachment_missing_at, request.reminder_sent_at, request.reminder_type_sent])
+    setLocalAssignee(request.assigned_to)
+  }, [request.id, request.attachment_path, request.attachment_missing_at, request.reminder_sent_at, request.reminder_type_sent, request.assigned_to])
 
   const handleSaveDeadline = async () => {
     setSavingDeadline(true)
@@ -146,10 +165,9 @@ export default function DocumentModal({
       const res = await apiFetch(`/api/document-requests/${request.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          assigned_to: request.assigned_to ?? null,
-          deadline_at: deadlineValue || null,
-        }),
+        // Doar termenul: PATCH-ul e parțial, iar retrimiterea lui `assigned_to`
+        // ar rescrie o atribuire făcută între timp, cu valoarea veche.
+        body: JSON.stringify({ deadline_at: deadlineValue || null }),
       })
       if (res.ok) {
         setLocalDeadline(deadlineValue || null)
@@ -161,6 +179,29 @@ export default function DocumentModal({
       }
     } finally {
       setSavingDeadline(false)
+    }
+  }
+
+  const handleSaveAssignee = async (consultantId: string | null) => {
+    setSavingAssignee(true)
+    try {
+      const res = await apiFetch(`/api/document-requests/${request.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assigned_to: consultantId }),
+      })
+      if (res.ok) {
+        setLocalAssignee(consultantId)
+        setEditingAssignee(false)
+        onUpdate()
+      } else {
+        const data = await res.json().catch(() => null)
+        showToast(data?.message || data?.error || 'Nu am putut salva responsabilul. Reîncearcă.', 'error')
+      }
+    } catch {
+      showToast('Nu am putut salva responsabilul. Reîncearcă.', 'error')
+    } finally {
+      setSavingAssignee(false)
     }
   }
 
@@ -752,6 +793,51 @@ export default function DocumentModal({
               )}
             </div>
           )
+          )}
+
+          {/* Responsabilul cererii — condiție de publicare (#70) */}
+          {isAdminOrConsultant && (
+            editingAssignee ? (
+              <div className="flex items-center gap-2">
+                <UserRound className="w-4 h-4 flex-shrink-0 text-slate-400" />
+                <select
+                  autoFocus
+                  value={localAssignee ?? ''}
+                  disabled={savingAssignee}
+                  onChange={e => handleSaveAssignee(e.target.value || null)}
+                  aria-label="Consultant responsabil"
+                  className="text-sm px-2 py-1 border border-indigo-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                >
+                  <option value="">Fără responsabil</option>
+                  {projectMembers.map(member => (
+                    <option key={member.id} value={member.id}>{member.full_name || member.email}</option>
+                  ))}
+                </select>
+                {savingAssignee && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
+                <button
+                  onClick={() => setEditingAssignee(false)}
+                  disabled={savingAssignee}
+                  className="p-1.5 rounded-lg bg-slate-200 text-slate-500 hover:bg-slate-300 disabled:opacity-50 flex-shrink-0"
+                  aria-label="Renunță"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-slate-600">
+                <UserRound className="w-4 h-4 flex-shrink-0 text-slate-400" />
+                <span>
+                  Responsabil:{' '}
+                  <strong>{assigneeLabel ?? 'neatribuit'}</strong>
+                </span>
+                <button
+                  onClick={() => setEditingAssignee(true)}
+                  className="text-xs font-semibold text-indigo-600 hover:underline flex-shrink-0"
+                >
+                  {localAssignee ? 'Modifică' : 'Atribuie'}
+                </button>
+              </div>
+            )
           )}
 
           {/* Documente: model + răspunsuri client */}

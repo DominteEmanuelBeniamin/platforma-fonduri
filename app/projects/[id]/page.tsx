@@ -894,8 +894,10 @@ function ProjectDetailsContent() {
                           activityId={activity.id}
                           activityName={activity.name}
                           parentActivityVisibility={activity.visibility}
+                          parentActivityAssignee={activity.assigned_to}
                           parentPhaseName={phase.name}
                           parentPhaseVisibility={phase.visibility}
+                          projectMembers={projectMembers}
                           externalRequests={allDocRequests}
                           onRefresh={refreshDocs}
                           clientEmail={project?.profiles?.email ?? null}
@@ -986,6 +988,7 @@ function ProjectDetailsContent() {
                       projectId={projectId!}
                       activityId={null}
                       activityName="Cereri generale"
+                      projectMembers={projectMembers}
                       externalRequests={allDocRequests}
                       onRefresh={refreshDocs}
                       clientEmail={project?.profiles?.email ?? null}

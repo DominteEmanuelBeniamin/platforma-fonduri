@@ -101,7 +101,7 @@ export async function PATCH(
     // Obține cererea pentru a afla project_id și detalii email
     const { data: req, error: reqError } = await admin
       .from('document_requirements')
-      .select('id, project_id, name, description, deadline_at, requirement_type, is_mandatory, is_outgoing, visibility, assigned_to, attachment_path, attachment_original_name, attachment_missing_at, attachment_missing_checked_at, deleted_at, document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at, source_template_attachment_id, created_at)')
+      .select('id, project_id, activity_id, name, description, deadline_at, requirement_type, is_mandatory, is_outgoing, visibility, assigned_to, attachment_path, attachment_original_name, attachment_missing_at, attachment_missing_checked_at, deleted_at, activity:activity_id(id, assigned_to), document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at, source_template_attachment_id, created_at)')
       .eq('id', requestId)
       .is('deleted_at', null)
       .maybeSingle()
@@ -127,11 +127,16 @@ export async function PATCH(
     // #70 — nu se publică nimic incomplet. Verificarea stă înaintea oricărei
     // scrieri, ca o publicare respinsă să nu modifice parțial rândul.
     if (visibility === 'published') {
+      // Relația vine ca obiect sau ca listă, după cum o întoarce PostgREST.
+      const parentActivity = Array.isArray(req.activity) ? req.activity[0] : req.activity
       const blockers = publishBlockers({
         kind: 'document',
         isOutgoing: Boolean(req.is_outgoing),
         currentDeadline: req.deadline_at,
         incomingDeadline: deadline_at,
+        currentAssignee: req.assigned_to,
+        incomingAssignee: assigned_to,
+        parentAssignee: parentActivity?.assigned_to ?? null,
       })
       if (blockers.length > 0) {
         return NextResponse.json(publishBlockedError(blockers), { status: 400 })
@@ -270,8 +275,10 @@ export async function PATCH(
       request,
     })
 
-    // Trimite email consultantului atribuit (erorile de email nu blochează răspunsul)
-    if (assigned_to !== undefined && assigned_to !== null) {
+    // Trimite email consultantului atribuit, doar când atribuirea chiar se
+    // schimbă — altfel orice salvare care retrimite `assigned_to` îl anunță din
+    // nou. (Ca la activități, care compară deja cu valoarea dinainte.)
+    if (assigned_to !== undefined && assigned_to !== null && assigned_to !== req.assigned_to) {
       try {
         const [{ data: consultant }, { data: project }] = await Promise.all([
           admin.from('profiles').select('full_name, email').eq('id', assigned_to).maybeSingle(),

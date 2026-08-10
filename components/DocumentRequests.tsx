@@ -57,6 +57,7 @@ interface DocumentRequest {
     id: string
     name: string
     visibility?: 'draft' | 'published'
+    assigned_to?: string | null
     phase?: { id: string; name?: string | null; visibility?: 'draft' | 'published' } | null
   } | null
   order_index?: number
@@ -235,8 +236,12 @@ interface DocumentRequestsProps {
   /** Titlul activității afișat în header */
   activityName?: string
   parentActivityVisibility?: 'draft' | 'published'
+  /** Consultantul activității-părinte — acoperă cererile care nu au unul al lor (#70) */
+  parentActivityAssignee?: string | null
   parentPhaseName?: string
   parentPhaseVisibility?: 'draft' | 'published'
+  /** Consultanții proiectului, pentru atribuirea unei cereri */
+  projectMembers?: { id: string; full_name: string | null; email: string }[]
   /** Date externe de la pagina părinte (evită fetch duplicat) */
   externalRequests?: any[]
   /** Callback refresh pentru pagina părinte */
@@ -254,8 +259,10 @@ export default function DocumentRequests({
   activityId,
   activityName,
   parentActivityVisibility,
+  parentActivityAssignee,
   parentPhaseName,
   parentPhaseVisibility,
+  projectMembers = [],
   externalRequests,
   onRefresh,
   clientEmail,
@@ -401,17 +408,21 @@ export default function DocumentRequests({
     } catch { showToast('Nu am putut publica cererea. Reîncearcă.', 'error') }
   }
 
-  // Aruncă la eșec, după ce a arătat motivul: editorul deschis în controlul de
-  // publicare rămâne deschis, cu data deja tastată.
-  const saveRequestDeadline = async (requestId: string, deadline: string) => {
-    const fallback = 'Nu am putut salva termenul. Reîncearcă.'
-
+  // Un PATCH pe un câmp al cererii. Arată motivul real venit de la server
+  // (`message`, singurul câmp pe care apiFetch nu îl rescrie generic) și aruncă
+  // mai departe, ca editorul deschis pe loc să rămână deschis cu ce s-a tastat.
+  const patchRequestField = async (
+    requestId: string,
+    body: Record<string, unknown>,
+    fallback: string,
+    success: string,
+  ) => {
     let res: Response
     try {
       res = await apiFetch(`/api/document-requests/${requestId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deadline_at: deadline }),
+        body: JSON.stringify(body),
       })
     } catch {
       showToast(fallback, 'error')
@@ -425,8 +436,34 @@ export default function DocumentRequests({
     }
 
     await fetchRequests()
-    showToast('Termenul limită a fost salvat.', 'success')
+    showToast(success, 'success')
   }
+
+  const saveRequestDeadline = (requestId: string, deadline: string) =>
+    patchRequestField(
+      requestId,
+      { deadline_at: deadline },
+      'Nu am putut salva termenul. Reîncearcă.',
+      'Termenul limită a fost salvat.',
+    )
+
+  const assignRequest = (requestId: string, consultantId: string) =>
+    patchRequestField(
+      requestId,
+      { assigned_to: consultantId },
+      'Nu am putut atribui consultantul. Reîncearcă.',
+      'Consultantul a fost atribuit și anunțat pe email.',
+    )
+
+  // Responsabilul unei cereri: al ei sau, dacă atârnă de o activitate, cel al
+  // activității. Datele vin fie din join-ul cererii, fie din pagina-părinte.
+  const requestBlockers = (request: DocumentRequest) => publishBlockers({
+    kind: 'document',
+    isOutgoing: Boolean(request.is_outgoing),
+    currentDeadline: request.deadline_at,
+    currentAssignee: request.assigned_to,
+    parentAssignee: request.activity?.assigned_to ?? (request.activity_id ? parentActivityAssignee : null),
+  })
 
   const sendReminder = async (requestId: string, requestName: string) => {
     // Lock sincron (nu bazat pe state) — blochează click-uri duble foarte rapide
@@ -1553,12 +1590,10 @@ export default function DocumentRequests({
                             status={req.visibility ?? 'draft'}
                             canPublish={isAdminOrConsultant}
                             onPublish={() => publishRequest(req.id)}
-                            blockers={publishBlockers({
-                              kind: 'document',
-                              isOutgoing: Boolean(req.is_outgoing),
-                              currentDeadline: req.deadline_at,
-                            })}
+                            blockers={requestBlockers(req)}
                             onSetDeadline={date => saveRequestDeadline(req.id, date)}
+                            onAssign={consultantId => assignRequest(req.id, consultantId)}
+                            assignOptions={projectMembers.map(m => ({ id: m.id, label: m.full_name || m.email }))}
                             size="sm"
                           />
                         )}
@@ -1999,6 +2034,7 @@ export default function DocumentRequests({
           clientName={clientName}
           projectTitle={projectTitle}
           clientVisible={isRequestClientVisible(selectedRequest)}
+          projectMembers={projectMembers}
         />
       )}
 
