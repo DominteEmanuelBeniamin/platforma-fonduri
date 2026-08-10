@@ -5,7 +5,7 @@ import { Resend } from 'resend'
 import { requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
-import { deadlineRequiredError, missingDeadlineForPublish } from '@/lib/publish-rules'
+import { publishBlockedError, publishBlockers } from '@/lib/publish-rules'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -141,13 +141,21 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'assigned_to trebuie să fie un UUID sau null' }, { status: 400 })
     }
 
+    // Același tratament pentru deadline_at: o dată nevalidă trecea nefiltrată
+    // până în Postgres și ieșea ca 500.
+    if (deadline_at !== undefined && deadline_at !== null && deadline_at !== '') {
+      if (typeof deadline_at !== 'string' || Number.isNaN(Date.parse(deadline_at))) {
+        return NextResponse.json({ error: 'deadline_at trebuie să fie o dată validă sau null' }, { status: 400 })
+      }
+    }
+
     const updateData: Record<string, any> = {}
     if (name !== undefined) updateData.name = name
     if (description !== undefined) updateData.description = description
     if (order_index !== undefined) updateData.order_index = order_index
     if (status !== undefined) updateData.status = status
     if (assigned_to !== undefined) updateData.assigned_to = assigned_to
-    if (deadline_at !== undefined) updateData.deadline_at = deadline_at ?? null
+    if (deadline_at !== undefined) updateData.deadline_at = deadline_at || null
 
     const { data: before } = await supabaseAdmin
       .from('project_activities')
@@ -191,13 +199,18 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       if (before.visibility !== 'draft') {
         return NextResponse.json({ error: 'Activity is already published' }, { status: 400 })
       }
-      // #70 — fără termen limită nu se publică. Verificarea stă înaintea oricărei
-      // scrieri, ca o publicare respinsă să nu modifice parțial rândul.
-      if (missingDeadlineForPublish({
+      // #70 — o activitate se publică doar completă: cu termen limită și cu un
+      // consultant atribuit. Verificarea stă înaintea oricărei scrieri, ca o
+      // publicare respinsă să nu modifice parțial rândul.
+      const blockers = publishBlockers({
+        kind: 'activity',
         currentDeadline: before.deadline_at,
         incomingDeadline: deadline_at,
-      })) {
-        return NextResponse.json(deadlineRequiredError(), { status: 400 })
+        currentAssignee: before.assigned_to,
+        incomingAssignee: assigned_to,
+      })
+      if (blockers.length > 0) {
+        return NextResponse.json(publishBlockedError(blockers), { status: 400 })
       }
       updateData.visibility = 'published'
     }

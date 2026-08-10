@@ -24,8 +24,9 @@ interface ActivityFoldProps {
   visibility?: 'draft' | 'published'
   canPublish: boolean
   onPublish: () => void
-  publishDisabledReason?: string | null
+  publishBlockers?: string[]
   onSetDeadline?: (value: string) => Promise<void> | void
+  onAssignConsultant?: (consultantId: string) => Promise<void> | void
   children: ReactNode
 }
 
@@ -48,8 +49,9 @@ export default function ActivityFold({
   visibility,
   canPublish,
   onPublish,
-  publishDisabledReason,
+  publishBlockers,
   onSetDeadline,
+  onAssignConsultant,
   children,
 }: ActivityFoldProps) {
   const deadline = activity.deadline_at ? new Date(activity.deadline_at) : null
@@ -71,16 +73,12 @@ export default function ActivityFold({
           : 'border-[var(--p-border)]/60 shadow-[0_1px_2px_rgba(15,23,42,0.03)]'
       }`}
     >
+      {/* Rândul rămâne clicabil în întregime, dar nu mai e `role="button"`:
+          înăuntru stau acum select-uri și câmpuri (vezi PublishStatusControl),
+          pe care semantica de buton le-ar ascunde de cititoarele de ecran, iar
+          Enter/Space le-ar fura. Deschiderea de la tastatură stă pe chevron. */}
       <div
-        role="button"
-        tabIndex={0}
         onClick={onOpenChange}
-        onKeyDown={e => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onOpenChange()
-          }
-        }}
         className="flex items-center gap-2.5 px-3.5 py-3 cursor-pointer hover:bg-[var(--p-surface-2)] transition-colors"
       >
         <div className="min-w-0 flex items-center gap-2.5 text-left">
@@ -137,17 +135,25 @@ export default function ActivityFold({
             status={visibility ?? 'draft'}
             canPublish={canPublish}
             onPublish={onPublish}
-            disabledReason={publishDisabledReason}
+            blockers={publishBlockers}
             onSetDeadline={onSetDeadline}
+            onAssign={onAssignConsultant}
+            assignOptions={projectMembers.map(m => ({ id: m.id, label: m.full_name || m.email }))}
             size="sm"
           />
         </div>
 
-        <ChevronRight
-          className={`w-3.5 h-3.5 text-[var(--p-ink-faint)] flex-shrink-0 transition-transform duration-200 ${
-            open ? 'rotate-90' : ''
-          }`}
-        />
+        <button
+          type="button"
+          onClick={e => { e.stopPropagation(); onOpenChange() }}
+          aria-expanded={open}
+          aria-label={open ? `Restrânge activitatea ${activity.name}` : `Extinde activitatea ${activity.name}`}
+          className="flex-shrink-0 rounded p-0.5 text-[var(--p-ink-faint)] hover:bg-[var(--p-surface-2)]"
+        >
+          <ChevronRight
+            className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+          />
+        </button>
       </div>
       <Collapsible.Content>
         <div className="border-t border-[var(--p-border)]">{children}</div>

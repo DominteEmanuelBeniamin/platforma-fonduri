@@ -32,6 +32,7 @@ import PublishStatusControl from '@/components/PublishStatusControl'
 import UnifiedSearchDialog from '@/components/UnifiedSearchDialog'
 import { buildSearchIndex, type SearchResult } from '@/lib/projectSearch'
 import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
+import { publishBlockers } from '@/lib/publish-rules'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 
@@ -246,16 +247,49 @@ function ProjectDetailsContent() {
     } finally { setSaving(false) }
   }
 
-  const handleAssignActivity = async (phaseId: string, activityId: string, assignedTo: string | null) => {
+  // Un PATCH pe un câmp, cu reîmprospătare. Arată motivul real venit de la
+  // server (`message`, singurul câmp pe care apiFetch nu îl rescrie generic) și
+  // aruncă mai departe, ca editorul deschis pe loc să rămână deschis cu ce a
+  // apucat omul să completeze.
+  const patchActivityField = async (
+    phaseId: string,
+    activityId: string,
+    body: Record<string, unknown>,
+    fallback: string,
+    success?: string,
+  ) => {
+    const fail = () => { showToast(fallback, 'error'); throw new Error(fallback) }
+
+    let res: Response
     try {
-      const res = await apiFetch(
-        `/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`,
-        { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assigned_to: assignedTo }) }
-      )
-      if (res.ok) fetchAll()
-      else { showToast('Nu am putut atribui consultantul. Reîncearcă.', 'error') }
-    } catch { showToast('Nu am putut atribui consultantul. Reîncearcă.', 'error') }
+      res = await apiFetch(`/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    } catch { return fail() }
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => null)
+      showToast(data?.message || data?.error || fallback, 'error')
+      throw new Error(fallback)
+    }
+
+    await fetchAll()
+    if (success) showToast(success, 'success')
   }
+
+  const handleAssignActivity = (phaseId: string, activityId: string, assignedTo: string | null) =>
+    patchActivityField(phaseId, activityId, { assigned_to: assignedTo }, 'Nu am putut atribui consultantul. Reîncearcă.')
+
+  const saveActivityDeadline = (phaseId: string, activityId: string, deadline: string) =>
+    patchActivityField(
+      phaseId,
+      activityId,
+      { deadline_at: deadline },
+      'Nu am putut salva termenul. Reîncearcă.',
+      'Termenul limită a fost salvat.',
+    )
 
   const handleAddActivity = async (phaseId: string) => {
     const name = (newActivityName[phaseId] || '').trim()
@@ -310,22 +344,6 @@ function ProjectDetailsContent() {
     } catch { showToast('Nu am putut publica elementul. Reîncearcă.', 'error') }
   }
 
-  const saveActivityDeadline = async (phaseId: string, activityId: string, deadline: string) => {
-    try {
-      const res = await apiFetch(`/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deadline_at: deadline }),
-      })
-      if (res.ok) {
-        await refreshPhases()
-        showToast('Termenul limită a fost salvat.', 'success')
-      } else {
-        const data = await res.json().catch(() => null)
-        showToast(data?.message || data?.error || 'Nu am putut salva termenul. Reîncearcă.', 'error')
-      }
-    } catch { showToast('Nu am putut salva termenul. Reîncearcă.', 'error') }
-  }
 
   const handleNotifyClient = async () => {
     if (!await confirm({
@@ -854,11 +872,16 @@ function ProjectDetailsContent() {
                         highlighted={highlightActivityId === activity.id}
                         isAdmin={isAdmin}
                         projectMembers={projectMembers}
-                        onAssign={assignedTo => handleAssignActivity(phase.id, activity.id, assignedTo)}
+                        onAssign={assignedTo => { handleAssignActivity(phase.id, activity.id, assignedTo).catch(() => {}) }}
                         visibility={activity.visibility}
                         canPublish={canEdit}
-                        publishDisabledReason={activity.deadline_at ? null : 'Fără termen limită'}
+                        publishBlockers={publishBlockers({
+                          kind: 'activity',
+                          currentDeadline: activity.deadline_at,
+                          currentAssignee: activity.assigned_to,
+                        })}
                         onSetDeadline={date => saveActivityDeadline(phase.id, activity.id, date)}
+                        onAssignConsultant={consultantId => handleAssignActivity(phase.id, activity.id, consultantId)}
                         onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, {
                           title: 'Publică activitatea?',
                           description: phase.visibility === 'published'

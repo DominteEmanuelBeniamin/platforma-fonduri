@@ -35,6 +35,7 @@ import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { buildPreviewPageUrl, isPreviewableFile, openInNewTab } from '@/lib/file-preview'
+import { publishBlockers } from '@/lib/publish-rules'
 import {
   getReminderType,
   REMINDER_LABELS,
@@ -400,21 +401,31 @@ export default function DocumentRequests({
     } catch { showToast('Nu am putut publica cererea. Reîncearcă.', 'error') }
   }
 
+  // Aruncă la eșec, după ce a arătat motivul: editorul deschis în controlul de
+  // publicare rămâne deschis, cu data deja tastată.
   const saveRequestDeadline = async (requestId: string, deadline: string) => {
+    const fallback = 'Nu am putut salva termenul. Reîncearcă.'
+
+    let res: Response
     try {
-      const res = await apiFetch(`/api/document-requests/${requestId}`, {
+      res = await apiFetch(`/api/document-requests/${requestId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ deadline_at: deadline }),
       })
-      if (res.ok) {
-        await fetchRequests()
-        showToast('Termenul limită a fost salvat.', 'success')
-      } else {
-        const data = await res.json().catch(() => null)
-        showToast(data?.message || data?.error || 'Nu am putut salva termenul. Reîncearcă.', 'error')
-      }
-    } catch { showToast('Nu am putut salva termenul. Reîncearcă.', 'error') }
+    } catch {
+      showToast(fallback, 'error')
+      throw new Error(fallback)
+    }
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => null)
+      showToast(data?.message || data?.error || fallback, 'error')
+      throw new Error(fallback)
+    }
+
+    await fetchRequests()
+    showToast('Termenul limită a fost salvat.', 'success')
   }
 
   const sendReminder = async (requestId: string, requestName: string) => {
@@ -1542,7 +1553,11 @@ export default function DocumentRequests({
                             status={req.visibility ?? 'draft'}
                             canPublish={isAdminOrConsultant}
                             onPublish={() => publishRequest(req.id)}
-                            disabledReason={req.deadline_at ? null : 'Fără termen limită'}
+                            blockers={publishBlockers({
+                              kind: 'document',
+                              isOutgoing: Boolean(req.is_outgoing),
+                              currentDeadline: req.deadline_at,
+                            })}
                             onSetDeadline={date => saveRequestDeadline(req.id, date)}
                             size="sm"
                           />
