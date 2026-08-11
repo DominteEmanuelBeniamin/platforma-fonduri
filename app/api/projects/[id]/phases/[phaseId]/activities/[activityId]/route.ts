@@ -5,7 +5,7 @@ import { Resend } from 'resend'
 import { requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
-import { publishBlockedError, publishBlockers } from '@/lib/publish-rules'
+import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -199,24 +199,28 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Activity is already published' }, { status: 400 })
     }
 
-    // #70 — o activitate publicată are termen limită și consultant atribuit.
-    // Verificăm și la publicare, și la orice modificare a unei activități deja
-    // publicate: altfel regula ar ține doar în clipa publicării, iar golirea
-    // termenului de a doua zi ar lăsa-o publică și incompletă. Verificarea stă
-    // înaintea oricărei scrieri, ca o cerere respinsă să nu modifice parțial
-    // rândul.
-    const staysPublished = visibility === 'published' || before.visibility === 'published'
-    if (staysPublished) {
-      const blockers = publishBlockers({
-        kind: 'activity',
-        currentDeadline: before.deadline_at,
-        incomingDeadline: deadline_at,
-        currentAssignee: before.assigned_to,
-        incomingAssignee: assigned_to,
-      })
+    // #70 — o activitate se publică doar completă. Verificarea stă înaintea
+    // oricărei scrieri, ca o cerere respinsă să nu modifice parțial rândul.
+    const publishState = {
+      kind: 'activity' as const,
+      currentDeadline: before.deadline_at,
+      incomingDeadline: deadline_at,
+      currentAssignee: before.assigned_to,
+      incomingAssignee: assigned_to,
+    }
+
+    if (visibility === 'published') {
+      const blockers = publishBlockers(publishState)
       if (blockers.length > 0) {
+        return NextResponse.json(publishBlockedError(blockers), { status: 400 })
+      }
+    } else if (before.visibility === 'published') {
+      // Deja publicată: regula nu se cere retroactiv — cele publicate înainte
+      // de #70 rămân editabile — dar ce e completat nu poate fi golit.
+      const removed = blockersIntroducedBy(publishState)
+      if (removed.length > 0) {
         return NextResponse.json(
-          publishBlockedError(blockers, { alreadyPublished: visibility !== 'published' }),
+          publishBlockedError(removed, { alreadyPublished: true }),
           { status: 400 },
         )
       }

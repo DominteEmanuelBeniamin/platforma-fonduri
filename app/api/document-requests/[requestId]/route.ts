@@ -6,7 +6,7 @@ import { computeDiff, logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { isRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
-import { publishBlockedError, publishBlockers } from '@/lib/publish-rules'
+import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
 
 // Inițializat în handler ca să preia env-ul la runtime, nu la cold-start
 
@@ -151,32 +151,37 @@ export async function PATCH(
       if (generalMembership) generalConsultantId = projectRow.general_consultant_id
     }
 
-    // #70 — o cerere publicată are termen limită și un responsabil. Verificăm
-    // și la publicare, și la orice modificare a uneia deja publicate: altfel
-    // regula ar ține doar în clipa publicării, iar golirea termenului de a doua
-    // zi ar lăsa-o publică și incompletă. Verificarea stă înaintea oricărei
+    // #70 — nu se publică nimic incomplet. Verificarea stă înaintea oricărei
     // scrieri, ca o cerere respinsă să nu modifice parțial rândul.
-    const staysPublished = visibility === 'published' || req.visibility === 'published'
-    if (staysPublished) {
-      // Relația vine ca obiect sau ca listă, după cum o întoarce PostgREST.
-      const parentActivity = Array.isArray(req.activity) ? req.activity[0] : req.activity
-      const blockers = publishBlockers({
-        kind: 'document',
-        isOutgoing: Boolean(req.is_outgoing),
-        currentDeadline: req.deadline_at,
-        incomingDeadline: deadline_at,
-        currentAssignee: req.assigned_to,
-        incomingAssignee: assigned_to,
-        // O cerere din activitate răspunde de consultantul activității; una
-        // generală, de consultantul general al proiectului — exact persoana
-        // aleasă din selectul secțiunii „Cereri generale".
-        parentAssignee: req.activity_id
-          ? parentActivity?.assigned_to ?? null
-          : generalConsultantId,
-      })
+    // Relația vine ca obiect sau ca listă, după cum o întoarce PostgREST.
+    const parentActivity = Array.isArray(req.activity) ? req.activity[0] : req.activity
+    const publishState = {
+      kind: 'document' as const,
+      isOutgoing: Boolean(req.is_outgoing),
+      currentDeadline: req.deadline_at,
+      incomingDeadline: deadline_at,
+      currentAssignee: req.assigned_to,
+      incomingAssignee: assigned_to,
+      // O cerere din activitate răspunde de consultantul activității; una
+      // generală, de consultantul general al proiectului — exact persoana
+      // aleasă din selectul secțiunii „Cereri generale".
+      parentAssignee: req.activity_id
+        ? parentActivity?.assigned_to ?? null
+        : generalConsultantId,
+    }
+
+    if (visibility === 'published') {
+      const blockers = publishBlockers(publishState)
       if (blockers.length > 0) {
+        return NextResponse.json(publishBlockedError(blockers), { status: 400 })
+      }
+    } else if (req.visibility === 'published') {
+      // Deja publicată: regula nu se cere retroactiv — cele publicate înainte
+      // de #70 rămân editabile — dar ce e completat nu poate fi golit.
+      const removed = blockersIntroducedBy(publishState)
+      if (removed.length > 0) {
         return NextResponse.json(
-          publishBlockedError(blockers, { alreadyPublished: visibility !== 'published' }),
+          publishBlockedError(removed, { alreadyPublished: true }),
           { status: 400 },
         )
       }
