@@ -131,7 +131,9 @@ export default function ActivityFold({
 
         <div className="flex-1" />
 
-        <div onClick={e => e.stopPropagation()} className="flex-shrink-0">
+        {/* Controlul își oprește singur propagarea pe ramurile interactive;
+            pe cea pasivă, clickul trebuie să ajungă la rând. */}
+        <div className="flex-shrink-0">
           <PublishStatusControl
             status={visibility ?? 'draft'}
             canPublish={canPublish}

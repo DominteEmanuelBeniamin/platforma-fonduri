@@ -41,16 +41,21 @@ export default function PublishStatusControl({
 
   const isDraft = status === 'draft'
   const textClass = size === 'sm' ? 'text-xs' : 'text-[13px]'
-  const colorClass = isDraft ? 'text-slate-500' : 'text-emerald-600'
 
   if (!canPublish || !isDraft) {
     return (
-      <span className={`inline-flex items-center gap-1.5 flex-shrink-0 ${textClass} ${colorClass}`}>
+      <span className={`inline-flex items-center gap-1.5 flex-shrink-0 ${textClass} ${
+        isDraft ? 'text-slate-500' : 'text-emerald-600'
+      }`}>
         <span className="w-1.5 h-1.5 rounded-full bg-current" />
         {isDraft ? 'În pregătire' : 'Public'}
       </span>
     )
   }
+
+  // Sub acest punct elementul e sigur „În pregătire" și poate fi publicat:
+  // restul componentei arată doar comutatorul de dinaintea publicării.
+  const draftClass = 'text-slate-500'
 
   const toggleVisual = (
     <span className="relative inline-flex h-4 w-7 flex-shrink-0 items-center rounded-full bg-slate-300 transition-colors">
@@ -69,7 +74,7 @@ export default function PublishStatusControl({
         className={`inline-flex items-center gap-2 flex-shrink-0 ${textClass}`}
       >
         {toggleVisual}
-        <span className={colorClass}>În pregătire</span>
+        <span className={draftClass}>În pregătire</span>
       </button>
     )
   }
@@ -109,7 +114,7 @@ export default function PublishStatusControl({
         className="inline-flex items-center gap-2 opacity-60 cursor-not-allowed"
       >
         {toggleVisual}
-        <span className={colorClass}>În pregătire</span>
+        <span className={draftClass}>În pregătire</span>
       </span>
 
       <span className="inline-flex flex-wrap items-center gap-1 text-[11px] leading-tight text-slate-400">

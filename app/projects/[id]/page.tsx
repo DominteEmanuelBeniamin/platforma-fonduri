@@ -35,6 +35,7 @@ import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase 
 import { publishBlockers } from '@/lib/publish-rules'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
+import { usePatchField } from '@/hooks/usePatchField'
 
 // Secțiunea distinctă „Cereri generale" (documente fără fază/activitate)
 const GENERAL_ID = '__general__'
@@ -57,6 +58,7 @@ function ProjectDetailsContent() {
 
   const { loading: authLoading, token, apiFetch, profile } = useAuth()
   const { showToast, confirm } = useToast()
+  const patchField = usePatchField()
 
   const [project, setProject] = useState<any>(null)
   const [phases, setPhases] = useState<ProjectPhase[]>([])
@@ -247,37 +249,24 @@ function ProjectDetailsContent() {
     } finally { setSaving(false) }
   }
 
-  // Un PATCH pe un câmp, cu reîmprospătare. Arată motivul real venit de la
-  // server (`message`, singurul câmp pe care apiFetch nu îl rescrie generic) și
-  // aruncă mai departe, ca editorul deschis pe loc să rămână deschis cu ce a
-  // apucat omul să completeze.
-  const patchActivityField = async (
+  // Reîmprospătăm tăcut, nu prin `fetchAll`: aceasta aprinde spinnerul de
+  // pagină și demontează tot arborele, adică și editorul deschis pe loc, și
+  // cererile pliate, și dialogul de adăugare pe jumătate completat. Cererile
+  // se reîncarcă odată cu fazele fiindcă poartă în join responsabilul
+  // activității, de care atârnă chipurile lor de publicare.
+  const refreshContent = async () => { await Promise.all([refreshPhases(), refreshDocs()]) }
+
+  const patchActivityField = (
     phaseId: string,
     activityId: string,
     body: Record<string, unknown>,
     fallback: string,
     success?: string,
-  ) => {
-    const fail = () => { showToast(fallback, 'error'); throw new Error(fallback) }
-
-    let res: Response
-    try {
-      res = await apiFetch(`/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-    } catch { return fail() }
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => null)
-      showToast(data?.message || data?.error || fallback, 'error')
-      throw new Error(fallback)
-    }
-
-    await fetchAll()
-    if (success) showToast(success, 'success')
-  }
+  ) => patchField(
+    `/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`,
+    body,
+    { fallback, success, refresh: refreshContent },
+  )
 
   const handleAssignActivity = (phaseId: string, activityId: string, assignedTo: string | null) =>
     patchActivityField(phaseId, activityId, { assigned_to: assignedTo }, 'Nu am putut atribui consultantul. Reîncearcă.')
@@ -326,22 +315,15 @@ function ProjectDetailsContent() {
       description: copy.description || 'Elementul va deveni vizibil clientului.',
       confirmText: 'Publică',
     })) return
+    // `patchField` a arătat deja motivul și aruncă mai departe; aici nu mai e
+    // nimic de făcut cu eroarea.
     try {
-      const res = await apiFetch(url, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ visibility: 'published' }),
+      await patchField(url, { visibility: 'published' }, {
+        fallback: 'Nu am putut publica elementul. Reîncearcă.',
+        success: 'Elementul a fost publicat.',
+        refresh: refreshContent,
       })
-      if (res.ok) {
-        await Promise.all([refreshPhases(), refreshDocs()])
-        showToast('Elementul a fost publicat.', 'success')
-      } else {
-        // `message` poartă motivul real (ex: lipsa termenului limită); `error` e
-        // rescris generic de apiFetch pentru orice răspuns non-2xx.
-        const data = await res.json().catch(() => null)
-        showToast(data?.message || data?.error || 'Nu am putut publica elementul. Reîncearcă.', 'error')
-      }
-    } catch { showToast('Nu am putut publica elementul. Reîncearcă.', 'error') }
+    } catch { /* mesajul e pe ecran */ }
   }
 
 
@@ -987,6 +969,13 @@ function ProjectDetailsContent() {
                       projectId={projectId!}
                       activityId={null}
                       activityName="Cereri generale"
+                      generalConsultantId={
+                        // Doar dacă e membru — aceeași condiție pe care o pune
+                        // serverul; altfel chipul ar arăta publicabil degeaba.
+                        projectMembers.some(m => m.id === project?.general_consultant_id)
+                          ? project.general_consultant_id
+                          : null
+                      }
                       projectMembers={projectMembers}
                       externalRequests={allDocRequests}
                       onRefresh={refreshDocs}

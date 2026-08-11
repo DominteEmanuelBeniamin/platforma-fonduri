@@ -15,7 +15,8 @@ import {
   Package,
   Upload,
   Trash2,
-  UserRound
+  UserRound,
+  Check
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
@@ -45,6 +46,7 @@ interface DocumentRequest {
     order_index?: number
   }[]
   deadline_at: string | null
+  visibility?: 'draft' | 'published'
   reminder_sent_at?: string | null
   reminder_type_sent?: ReminderType | null
   created_by: string | null
@@ -129,16 +131,25 @@ export default function DocumentModal({
   const [editingAssignee, setEditingAssignee] = useState(false)
   const [savingAssignee, setSavingAssignee] = useState(false)
   const [localAssignee, setLocalAssignee] = useState<string | null>(request.assigned_to)
+  // Selecția se confirmă explicit: atribuirea trimite un email consultantului,
+  // iar pe un select cu focus o singură săgeată ar fi declanșat-o.
+  const [assigneeDraft, setAssigneeDraft] = useState('')
   const [sendingReminder, setSendingReminder] = useState(false)
   const sendingReminderLock = useRef(false)
   const [localReminderSentAt, setLocalReminderSentAt] = useState<string | null>(request.reminder_sent_at ?? null)
   const [localReminderTypeSent, setLocalReminderTypeSent] = useState<ReminderType | null>(request.reminder_type_sent ?? null)
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
+  // O cerere publicată nu poate rămâne fără termen sau fără responsabil (#70),
+  // deci golirea se oferă doar cât e „În pregătire". Serverul respinge oricum.
+  const canEmptyRequiredFields = request.visibility !== 'published'
   // Numele responsabilului: din lista de membri, altfel din join-ul cererii
+  const assignedMember = localAssignee
+    ? projectMembers.find(member => member.id === localAssignee)
+    : undefined
   const assigneeLabel = localAssignee
-    ? projectMembers.find(member => member.id === localAssignee)?.full_name
-      || projectMembers.find(member => member.id === localAssignee)?.email
+    ? assignedMember?.full_name
+      || assignedMember?.email
       || request.assigned_consultant?.full_name
       || request.assigned_consultant?.email
       || 'consultant atribuit'
@@ -175,6 +186,8 @@ export default function DocumentModal({
         const data = await res.json().catch(() => null)
         showToast(data?.message || data?.error || 'Nu am putut salva termenul-limită. Reîncearcă.', 'error')
       }
+    } catch {
+      showToast('Nu am putut salva termenul-limită. Reîncearcă.', 'error')
     } finally {
       setSavingDeadline(false)
     }
@@ -731,7 +744,21 @@ export default function DocumentModal({
             </div>
           )}
 
-          {/* Bara de termen — doar când există termen sau se editează */}
+          {/* Bara de termen. Fără termen, cei care pot edita văd în locul ei
+              cum se adaugă unul — altfel un termen șters n-ar mai avea drum
+              înapoi. */}
+          {!localDeadline && !editingDeadline && isAdminOrConsultant && (
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <Clock className="w-4 h-4 flex-shrink-0 text-slate-400" />
+              <span>Fără termen limită</span>
+              <button
+                onClick={() => setEditingDeadline(true)}
+                className="text-xs font-semibold text-indigo-600 hover:underline flex-shrink-0"
+              >
+                Adaugă
+              </button>
+            </div>
+          )}
           {(localDeadline || editingDeadline) && (
           editingDeadline ? (
             <div className="flex items-center gap-2">
@@ -739,6 +766,7 @@ export default function DocumentModal({
               <InlineDateEditor
                 value={localDeadline}
                 saving={savingDeadline}
+                allowClear={canEmptyRequiredFields}
                 onSave={handleSaveDeadline}
                 onCancel={() => setEditingDeadline(false)}
               />
@@ -775,18 +803,28 @@ export default function DocumentModal({
                 <UserRound className="w-4 h-4 flex-shrink-0 text-slate-400" />
                 <select
                   autoFocus
-                  value={localAssignee ?? ''}
+                  value={assigneeDraft}
                   disabled={savingAssignee}
-                  onChange={e => handleSaveAssignee(e.target.value || null)}
+                  onChange={e => setAssigneeDraft(e.target.value)}
                   aria-label="Consultant responsabil"
                   className="text-sm px-2 py-1 border border-indigo-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
                 >
-                  <option value="">Fără responsabil</option>
+                  <option value="" disabled={!canEmptyRequiredFields}>Fără responsabil</option>
                   {projectMembers.map(member => (
                     <option key={member.id} value={member.id}>{member.full_name || member.email}</option>
                   ))}
                 </select>
-                {savingAssignee && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
+                <button
+                  onClick={() => handleSaveAssignee(assigneeDraft || null)}
+                  disabled={savingAssignee || assigneeDraft === (localAssignee ?? '')}
+                  className="p-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-40 flex-shrink-0"
+                  title="Salvează responsabilul"
+                  aria-label="Salvează responsabilul"
+                >
+                  {savingAssignee
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <Check className="w-3.5 h-3.5" />}
+                </button>
                 <button
                   onClick={() => setEditingAssignee(false)}
                   disabled={savingAssignee}
@@ -804,7 +842,7 @@ export default function DocumentModal({
                   <strong>{assigneeLabel ?? 'neatribuit'}</strong>
                 </span>
                 <button
-                  onClick={() => setEditingAssignee(true)}
+                  onClick={() => { setAssigneeDraft(localAssignee ?? ''); setEditingAssignee(true) }}
                   className="text-xs font-semibold text-indigo-600 hover:underline flex-shrink-0"
                 >
                   {localAssignee ? 'Modifică' : 'Atribuie'}

@@ -280,6 +280,8 @@ export default function ProjectPhasesSidebar({
       )
       if (res.ok) { setEditingDeadline(null); onRefresh() }
       else { showToast('Nu am putut salva modificarea. Reîncearcă.', 'error') }
+    } catch {
+      showToast('Nu am putut salva modificarea. Reîncearcă.', 'error')
     } finally { setSavingDeadline(null) }
   }
 
@@ -573,6 +575,9 @@ export default function ProjectPhasesSidebar({
                             <InlineDateEditor
                               size="sm"
                               value={currentDeadline}
+                              // O activitate publicată nu poate rămâne fără
+                              // termen (#70); serverul respinge oricum.
+                              allowClear={act.visibility !== 'published'}
                               saving={savingDeadline === act.id}
                               onSave={value => handleSaveDeadline(phase.id, act.id, value)}
                               onCancel={() => setEditingDeadline(null)}
