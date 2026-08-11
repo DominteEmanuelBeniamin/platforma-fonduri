@@ -46,7 +46,7 @@ export function usePatchField() {
 
     if (!res.ok) {
       const data = await res.json().catch(() => null)
-      showToast(data?.message || fallback, 'error')
+      showToast(data?.message || data?.error || fallback, 'error')
       throw new Error(fallback)
     }
 

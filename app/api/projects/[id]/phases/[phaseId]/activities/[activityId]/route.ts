@@ -195,13 +195,18 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       }
     }
 
-    if (visibility === 'published') {
-      if (before.visibility !== 'draft') {
-        return NextResponse.json({ error: 'Activity is already published' }, { status: 400 })
-      }
-      // #70 — o activitate se publică doar completă: cu termen limită și cu un
-      // consultant atribuit. Verificarea stă înaintea oricărei scrieri, ca o
-      // publicare respinsă să nu modifice parțial rândul.
+    if (visibility === 'published' && before.visibility !== 'draft') {
+      return NextResponse.json({ error: 'Activity is already published' }, { status: 400 })
+    }
+
+    // #70 — o activitate publicată are termen limită și consultant atribuit.
+    // Verificăm și la publicare, și la orice modificare a unei activități deja
+    // publicate: altfel regula ar ține doar în clipa publicării, iar golirea
+    // termenului de a doua zi ar lăsa-o publică și incompletă. Verificarea stă
+    // înaintea oricărei scrieri, ca o cerere respinsă să nu modifice parțial
+    // rândul.
+    const staysPublished = visibility === 'published' || before.visibility === 'published'
+    if (staysPublished) {
       const blockers = publishBlockers({
         kind: 'activity',
         currentDeadline: before.deadline_at,
@@ -210,10 +215,13 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         incomingAssignee: assigned_to,
       })
       if (blockers.length > 0) {
-        return NextResponse.json(publishBlockedError(blockers), { status: 400 })
+        return NextResponse.json(
+          publishBlockedError(blockers, { alreadyPublished: visibility !== 'published' }),
+          { status: 400 },
+        )
       }
-      updateData.visibility = 'published'
     }
+    if (visibility === 'published') updateData.visibility = 'published'
 
     const { data: activity, error } = await supabaseAdmin
       .from('project_activities')
