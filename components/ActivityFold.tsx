@@ -18,7 +18,8 @@ interface ActivityFoldProps {
   open: boolean
   onOpenChange: () => void
   highlighted?: boolean
-  isAdmin: boolean
+  /** Cine poate publica poate și atribui — regula #70 cere un responsabil */
+  canAssign: boolean
   projectMembers: Member[]
   onAssign: (assignedTo: string | null) => void
   visibility?: 'draft' | 'published'
@@ -26,7 +27,6 @@ interface ActivityFoldProps {
   onPublish: () => void
   publishBlockers?: string[]
   onSetDeadline?: (value: string) => Promise<void> | void
-  onAssignConsultant?: (consultantId: string) => Promise<void> | void
   children: ReactNode
 }
 
@@ -43,7 +43,7 @@ export default function ActivityFold({
   open,
   onOpenChange,
   highlighted,
-  isAdmin,
+  canAssign,
   projectMembers,
   onAssign,
   visibility,
@@ -51,7 +51,6 @@ export default function ActivityFold({
   onPublish,
   publishBlockers,
   onSetDeadline,
-  onAssignConsultant,
   children,
 }: ActivityFoldProps) {
   const deadline = activity.deadline_at ? new Date(activity.deadline_at) : null
@@ -100,8 +99,10 @@ export default function ActivityFold({
           )}
         </div>
 
-        <div className="hidden sm:flex items-center flex-shrink-0">
-          {isAdmin ? (
+        {/* Vizibil și pe telefon: responsabilul e condiție de publicare (#70),
+            iar selectul de aici e singurul loc din care se atribuie. */}
+        <div className="flex items-center flex-shrink-0">
+          {canAssign ? (
             <select
               value={activity.assigned_to ?? ''}
               onClick={e => e.stopPropagation()}
@@ -137,8 +138,6 @@ export default function ActivityFold({
             onPublish={onPublish}
             blockers={publishBlockers}
             onSetDeadline={onSetDeadline}
-            onAssign={onAssignConsultant}
-            assignOptions={projectMembers.map(m => ({ id: m.id, label: m.full_name || m.email }))}
             size="sm"
           />
         </div>

@@ -870,7 +870,7 @@ function ProjectDetailsContent() {
                         open={expandedActivityIds.has(activity.id)}
                         onOpenChange={() => handleToggleActivity(activity.id)}
                         highlighted={highlightActivityId === activity.id}
-                        isAdmin={isAdmin}
+                        canAssign={canEdit}
                         projectMembers={projectMembers}
                         onAssign={assignedTo => { handleAssignActivity(phase.id, activity.id, assignedTo).catch(() => {}) }}
                         visibility={activity.visibility}
@@ -881,7 +881,6 @@ function ProjectDetailsContent() {
                           currentAssignee: activity.assigned_to,
                         })}
                         onSetDeadline={date => saveActivityDeadline(phase.id, activity.id, date)}
-                        onAssignConsultant={consultantId => handleAssignActivity(phase.id, activity.id, consultantId)}
                         onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, {
                           title: 'Publică activitatea?',
                           description: phase.visibility === 'published'

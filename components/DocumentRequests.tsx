@@ -447,14 +447,6 @@ export default function DocumentRequests({
       'Termenul limită a fost salvat.',
     )
 
-  const assignRequest = (requestId: string, consultantId: string) =>
-    patchRequestField(
-      requestId,
-      { assigned_to: consultantId },
-      'Nu am putut atribui consultantul. Reîncearcă.',
-      'Consultantul a fost atribuit și anunțat pe email.',
-    )
-
   // Responsabilul unei cereri: al ei sau, dacă atârnă de o activitate, cel al
   // activității. Datele vin fie din join-ul cererii, fie din pagina-părinte.
   const requestBlockers = (request: DocumentRequest) => publishBlockers({
@@ -1592,8 +1584,6 @@ export default function DocumentRequests({
                             onPublish={() => publishRequest(req.id)}
                             blockers={requestBlockers(req)}
                             onSetDeadline={date => saveRequestDeadline(req.id, date)}
-                            onAssign={consultantId => assignRequest(req.id, consultantId)}
-                            assignOptions={projectMembers.map(m => ({ id: m.id, label: m.full_name || m.email }))}
                             size="sm"
                           />
                         )}

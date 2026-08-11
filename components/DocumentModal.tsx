@@ -21,6 +21,7 @@ import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { downloadFilesArchive } from '@/app/api/_utils/download-files-archive'
 import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
+import InlineDateEditor from '@/components/InlineDateEditor'
 import { Mail } from 'lucide-react'
 import {
   getReminderType,
@@ -119,11 +120,8 @@ export default function DocumentModal({
   const attachmentInputRef = useRef<HTMLInputElement | null>(null)
   const handleApproveRef = useRef<(() => Promise<void>) | null>(null)
 
-  // Deadline edit state
+  // Deadline edit state — valoarea tastată stă în InlineDateEditor
   const [editingDeadline, setEditingDeadline] = useState(false)
-  const [deadlineValue, setDeadlineValue] = useState(
-    request.deadline_at ? request.deadline_at.slice(0, 10) : ''
-  )
   const [savingDeadline, setSavingDeadline] = useState(false)
   const [localDeadline, setLocalDeadline] = useState<string | null>(request.deadline_at)
 
@@ -159,7 +157,7 @@ export default function DocumentModal({
     setLocalAssignee(request.assigned_to)
   }, [request.id, request.attachment_path, request.attachment_missing_at, request.reminder_sent_at, request.reminder_type_sent, request.assigned_to])
 
-  const handleSaveDeadline = async () => {
+  const handleSaveDeadline = async (deadline: string) => {
     setSavingDeadline(true)
     try {
       const res = await apiFetch(`/api/document-requests/${request.id}`, {
@@ -167,15 +165,15 @@ export default function DocumentModal({
         headers: { 'Content-Type': 'application/json' },
         // Doar termenul: PATCH-ul e parțial, iar retrimiterea lui `assigned_to`
         // ar rescrie o atribuire făcută între timp, cu valoarea veche.
-        body: JSON.stringify({ deadline_at: deadlineValue || null }),
+        body: JSON.stringify({ deadline_at: deadline || null }),
       })
       if (res.ok) {
-        setLocalDeadline(deadlineValue || null)
+        setLocalDeadline(deadline || null)
         setEditingDeadline(false)
         onUpdate()
       } else {
-        await res.json().catch(() => null)
-        showToast('Nu am putut salva termenul-limită. Reîncearcă.', 'error')
+        const data = await res.json().catch(() => null)
+        showToast(data?.message || data?.error || 'Nu am putut salva termenul-limită. Reîncearcă.', 'error')
       }
     } finally {
       setSavingDeadline(false)
@@ -655,7 +653,7 @@ export default function DocumentModal({
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               {!localDeadline && !editingDeadline && (
                 <button
-                  onClick={() => { setDeadlineValue(''); setEditingDeadline(true) }}
+                  onClick={() => setEditingDeadline(true)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-semibold hover:bg-indigo-100 transition-colors"
                 >
                   <Clock className="w-3.5 h-3.5" />
@@ -738,34 +736,12 @@ export default function DocumentModal({
           editingDeadline ? (
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 flex-shrink-0 text-slate-400" />
-              <input
-                type="date"
-                value={deadlineValue}
-                onChange={e => setDeadlineValue(e.target.value)}
-                autoFocus
-                disabled={savingDeadline}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') handleSaveDeadline()
-                  if (e.key === 'Escape') setEditingDeadline(false)
-                }}
-                className="text-sm px-2 py-1 border border-indigo-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-slate-800 disabled:opacity-50"
+              <InlineDateEditor
+                value={localDeadline}
+                saving={savingDeadline}
+                onSave={handleSaveDeadline}
+                onCancel={() => setEditingDeadline(false)}
               />
-              <button
-                onClick={handleSaveDeadline}
-                disabled={savingDeadline}
-                className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 disabled:opacity-50 flex-shrink-0"
-              >
-                {savingDeadline
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  : <CheckCircle2 className="w-3.5 h-3.5" />
-                }
-              </button>
-              <button
-                onClick={() => setEditingDeadline(false)}
-                className="p-1.5 rounded-lg bg-slate-200 text-slate-500 hover:bg-slate-300 flex-shrink-0"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
             </div>
           ) : (
             <div className={`flex items-center gap-2 text-sm ${isOverdue ? 'text-red-600' : 'text-slate-600'}`}>
@@ -782,10 +758,7 @@ export default function DocumentModal({
               </span>
               {isAdminOrConsultant && (
                 <button
-                  onClick={() => {
-                    setDeadlineValue(localDeadline ? localDeadline.slice(0, 10) : '')
-                    setEditingDeadline(true)
-                  }}
+                  onClick={() => setEditingDeadline(true)}
                   className="text-xs font-semibold text-indigo-600 hover:underline flex-shrink-0"
                 >
                   Modifică
