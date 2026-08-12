@@ -5,6 +5,7 @@ import { logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { normalizeRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 import { isClientVisibleDocument } from '@/lib/client-visibility'
+import { filterFilesForClient } from '@/lib/document-versions'
 
 type LatestRejection = {
   reason: string
@@ -118,7 +119,9 @@ export async function GET(
     const requests = rows.map((row: any) => ({
       ...row,
       latest_rejection: latestRejections.get(row.id) ?? null,
-      files: (row.files ?? []).filter((file: any) => !file.deleted_at),
+      files: access.profile.role === 'client'
+        ? filterFilesForClient(row.files)
+        : (row.files ?? []).filter((file: any) => !file.deleted_at),
     }))
 
     return NextResponse.json({ requests })

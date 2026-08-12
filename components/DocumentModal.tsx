@@ -35,6 +35,7 @@ interface DocumentRequest {
   name: string
   description: string | null
   status: 'pending' | 'review' | 'approved' | 'rejected'
+  is_outgoing?: boolean
   attachment_path: string | null
   attachment_missing_at?: string | null
   attachment_missing_checked_at?: string | null
@@ -112,6 +113,7 @@ export default function DocumentModal({
 }) {
   const { apiFetch, profile } = useAuth()
   const { showToast, confirm } = useToast()
+  const isOutgoing = Boolean(request.is_outgoing)
   const [notes, setNotes] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -272,8 +274,16 @@ export default function DocumentModal({
         label: 'Respins',
       }
     }
+    if (isOutgoing) {
+      return {
+        bg: 'bg-emerald-50',
+        text: 'text-emerald-700',
+        icon: FileCheck,
+        label: 'Trimis clientului',
+      }
+    }
     return configs[request.status] || configs.pending
-  }, [request.status, isAdminOrConsultant])
+  }, [isAdminOrConsultant, isOutgoing, request.status])
 
   // Check if deadline is overdue
   const isOverdue = useMemo(() => {
@@ -662,7 +672,7 @@ export default function DocumentModal({
             (!localDeadline && !editingDeadline) ||
             (!localAttachmentPath && !attachmentMissing) ||
             request.status === 'pending'
-          ) && isAdminOrConsultant && (
+          ) && isAdminOrConsultant && !isOutgoing && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               {!localDeadline && !editingDeadline && (
                 <button
@@ -747,7 +757,7 @@ export default function DocumentModal({
           {/* Bara de termen. Fără termen, cei care pot edita văd în locul ei
               cum se adaugă unul — altfel un termen șters n-ar mai avea drum
               înapoi. */}
-          {!localDeadline && !editingDeadline && isAdminOrConsultant && (
+          {!localDeadline && !editingDeadline && isAdminOrConsultant && !isOutgoing && (
             <div className="flex items-center gap-2 text-sm text-slate-500">
               <Clock className="w-4 h-4 flex-shrink-0 text-slate-400" />
               <span>Fără termen limită</span>
@@ -759,7 +769,7 @@ export default function DocumentModal({
               </button>
             </div>
           )}
-          {(localDeadline || editingDeadline) && (
+          {!isOutgoing && (localDeadline || editingDeadline) && (
           editingDeadline ? (
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 flex-shrink-0 text-slate-400" />
@@ -797,7 +807,7 @@ export default function DocumentModal({
           )}
 
           {/* Responsabilul cererii — condiție de publicare (#70) */}
-          {isAdminOrConsultant && (
+          {isAdminOrConsultant && !isOutgoing && (
             editingAssignee ? (
               <div className="flex items-center gap-2">
                 <UserRound className="w-4 h-4 flex-shrink-0 text-slate-400" />
@@ -858,7 +868,9 @@ export default function DocumentModal({
               {requestAttachments.length > 0 && !attachmentMissing && (
                 <div>
                   <h3 className="text-sm font-semibold text-slate-900 mb-2">
-                    {requestAttachments.length > 1 ? `Modele de completat (${requestAttachments.length})` : 'Modelul de completat'}
+                    {isOutgoing
+                      ? requestAttachments.length > 1 ? `Documente trimise clientului (${requestAttachments.length})` : 'Document trimis clientului'
+                      : requestAttachments.length > 1 ? `Modele de completat (${requestAttachments.length})` : 'Modelul de completat'}
                   </h3>
                   <div className="space-y-2">
                     {requestAttachments.map((attachment, index) => {
@@ -881,7 +893,9 @@ export default function DocumentModal({
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-semibold text-slate-900 truncate">{fileName}</p>
-                              <p className="text-xs text-slate-500">Se descarcă, se completează și se trimite înapoi</p>
+                              <p className="text-xs text-slate-500">
+                                {isOutgoing ? 'Doar pentru informare — nu necesită completare sau răspuns.' : 'Se descarcă, se completează și se trimite înapoi'}
+                              </p>
                             </div>
                           </div>
                           <div className="flex items-center gap-0.5 flex-shrink-0">
@@ -918,10 +932,16 @@ export default function DocumentModal({
                     <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-amber-900 mb-1">
-                        {isAdminOrConsultant ? 'Model indisponibil' : 'Model indisponibil momentan'}
+                        {isOutgoing
+                          ? isAdminOrConsultant ? 'Document indisponibil' : 'Document indisponibil momentan'
+                          : isAdminOrConsultant ? 'Model indisponibil' : 'Model indisponibil momentan'}
                       </p>
                       <p className="text-sm text-amber-800 leading-relaxed">
-                        {isAdminOrConsultant
+                        {isOutgoing
+                          ? isAdminOrConsultant
+                            ? 'Fișierul documentului trimis nu mai există în storage. Reîncarcă documentul sau elimină-l din proiect.'
+                            : 'Documentul trimis clientului este momentan indisponibil.'
+                          : isAdminOrConsultant
                           ? 'Fișierul model nu mai există în storage. Reîncarcă modelul sau elimină-l din cerere.'
                           : 'Modelul pentru această cerere este momentan indisponibil. Echipa îl va atașa când este disponibil; așteaptă actualizarea cererii înainte de completare.'}
                       </p>
@@ -942,7 +962,7 @@ export default function DocumentModal({
                             className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 disabled:opacity-50"
                           >
                             {attachmentActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                            Reîncarcă model
+                            {isOutgoing ? 'Reîncarcă documentul' : 'Reîncarcă model'}
                           </button>
                           <button
                             type="button"
@@ -951,7 +971,7 @@ export default function DocumentModal({
                             className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-amber-300 text-amber-900 text-xs font-bold hover:bg-amber-100 disabled:opacity-50"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
-                            Elimină modelul
+                            {isOutgoing ? 'Elimină documentul' : 'Elimină modelul'}
                           </button>
                         </div>
                       )}
@@ -960,7 +980,7 @@ export default function DocumentModal({
                 </div>
               )}
 
-              {/* Fișierele trimise de client */}
+              {!isOutgoing && (
               <div>
                 <h3 className="text-sm font-semibold text-slate-900 mb-2">Fișierele trimise de client</h3>
 
@@ -1066,6 +1086,7 @@ export default function DocumentModal({
                   )
                 })()}
               </div>
+              )}
 
             </div>
           </div>

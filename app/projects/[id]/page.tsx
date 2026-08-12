@@ -24,6 +24,7 @@ import ProjectChatDrawer from '@/components/ProjectChatDrawer'
 import ProjectPhasesSidebar from '@/components/ProjectPhasesSidebar'
 import type { ProjectPhase } from '@/components/ProjectPhasesSidebar'
 import DocumentRequests from '@/components/DocumentRequests'
+import DocumentModal from '@/components/DocumentModal'
 import ProjectDocumentsView from '@/components/ProjectDocumentsView'
 import PhaseAccordionSection from '@/components/PhaseAccordionSection'
 import ActivityFold from '@/components/ActivityFold'
@@ -50,6 +51,7 @@ function ProjectDetailsContent() {
   const targetActivityId = searchParams.get('activity')
   const targetDocumentId = searchParams.get('document')
   const targetView = searchParams.get('view')
+  const targetFolderId = searchParams.get('folder')
   const hasUrlParams = searchParams.toString().length > 0
   const projectId = useMemo(() => {
     const id = (params as any)?.id
@@ -63,7 +65,10 @@ function ProjectDetailsContent() {
   const [project, setProject] = useState<any>(null)
   const [phases, setPhases] = useState<ProjectPhase[]>([])
   const [allDocRequests, setAllDocRequests] = useState<any[]>([])
+  const [selectedDocumentRequest, setSelectedDocumentRequest] = useState<any | null>(null)
   const [loading, setLoading] = useState(true)
+  const [documentsLoading, setDocumentsLoading] = useState(true)
+  const [documentsError, setDocumentsError] = useState<string | null>(null)
   const [projectMembers, setProjectMembers] = useState<{ id: string; full_name: string | null; email: string }[]>([])
 
   const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set())
@@ -93,11 +98,12 @@ function ProjectDetailsContent() {
   const [addingActivity, setAddingActivity] = useState<Record<string, boolean>>({})
 
   const documentEntriesCount = useMemo(() => {
-    return allDocRequests.reduce((total, req) => {
-      const requestAttachmentCount = req.attachment_path && !req.attachment_missing_at ? 1 : 0
-      const uploadedFilesCount = (req.files ?? []).filter((file: any) => !file.deleted_at).length
-      return total + requestAttachmentCount + uploadedFilesCount
-    }, 0)
+    return allDocRequests.filter(req => {
+      const hasAttachment = req.attachments?.some((attachment: any) => !attachment.missing_at)
+        || (req.attachment_path && !req.attachment_missing_at)
+      const hasFile = (req.files ?? []).some((file: any) => !file.deleted_at)
+      return hasAttachment || hasFile
+    }).length
   }, [allDocRequests])
 
   // Ceva publicat, dar neanunțat încă printr-un digest — activează butonul „Anunță clientul"
@@ -125,6 +131,8 @@ function ProjectDetailsContent() {
   const fetchAll = async () => {
     if (!projectId) return
     setLoading(true)
+    setDocumentsLoading(true)
+    setDocumentsError(null)
     try {
       const [projRes, phasesRes, docsRes] = await Promise.all([
         apiFetch(`/api/projects/${projectId}`),
@@ -172,9 +180,15 @@ function ProjectDetailsContent() {
 
       if (docsRes.ok) {
         setAllDocRequests((await docsRes.json()).requests || [])
+      } else {
+        setDocumentsError('Reîncearcă încărcarea proiectului.')
       }
+    } catch (error) {
+      console.error('Project data load error:', error)
+      setDocumentsError('Reîncearcă încărcarea documentelor.')
     } finally {
       setLoading(false)
+      setDocumentsLoading(false)
     }
   }
 
@@ -182,8 +196,16 @@ function ProjectDetailsContent() {
     if (!projectId) return
     try {
       const res = await apiFetch(`/api/projects/${projectId}/document-requests`)
-      if (res.ok) setAllDocRequests((await res.json()).requests || [])
-    } catch (e) { console.error(e) }
+      if (res.ok) {
+        setAllDocRequests((await res.json()).requests || [])
+        setDocumentsError(null)
+      } else {
+        setDocumentsError('Reîncearcă încărcarea documentelor.')
+      }
+    } catch (e) {
+      console.error(e)
+      setDocumentsError('Reîncearcă încărcarea documentelor.')
+    }
   }
 
   // Refresh silențios după reordonare — fără spinner și fără resetarea fazei active
@@ -215,6 +237,10 @@ function ProjectDetailsContent() {
     if (!token) { router.replace('/login'); return }
     fetchAll()
   }, [authLoading, token, projectId])
+
+  useEffect(() => {
+    setActiveView(targetView === 'documents' ? 'documents' : 'phases')
+  }, [targetView])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -502,6 +528,25 @@ function ProjectDetailsContent() {
     }, 120)
   }
 
+  const setProjectView = (view: 'phases' | 'documents') => {
+    setActiveView(view)
+    const params = new URLSearchParams(searchParams.toString())
+    if (view === 'documents') params.set('view', 'documents')
+    else {
+      params.delete('view')
+      params.delete('folder')
+    }
+    router.replace(`/projects/${projectId}?${params.toString()}`, { scroll: false })
+  }
+
+  const setDriveFolder = (folderId: string | null) => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('view', 'documents')
+    if (folderId) params.set('folder', folderId)
+    else params.delete('folder')
+    router.replace(`/projects/${projectId}?${params.toString()}`, { scroll: false })
+  }
+
   // ─── Derived ──────────────────────────────────────────────────────────────
 
   const phaseNameById = useMemo(
@@ -728,7 +773,7 @@ function ProjectDetailsContent() {
           <div className="sticky top-14 z-10 h-12 bg-[var(--p-surface)] border-b border-[var(--p-border)] px-4 sm:px-6">
             <div className="flex h-full gap-1 -mb-px">
               <button
-                onClick={() => setActiveView('phases')}
+                onClick={() => setProjectView('phases')}
                 className={`flex h-full items-center gap-2 px-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   activeView === 'phases'
                     ? 'border-indigo-600 text-indigo-600'
@@ -739,7 +784,7 @@ function ProjectDetailsContent() {
                 Faze & Activități
               </button>
               <button
-                onClick={() => setActiveView('documents')}
+                onClick={() => setProjectView('documents')}
                 className={`flex h-full items-center gap-2 px-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   activeView === 'documents'
                     ? 'border-indigo-600 text-indigo-600'
@@ -763,6 +808,13 @@ function ProjectDetailsContent() {
               projectId={projectId!}
               requests={allDocRequests}
               phases={phases}
+              loading={documentsLoading}
+              error={documentsError}
+              activeFolderId={targetFolderId}
+              onFolderChange={setDriveFolder}
+              onOpenRequest={request => {
+                setSelectedDocumentRequest(request)
+              }}
             />
           ) : (
             <>
@@ -1010,6 +1062,20 @@ function ProjectDetailsContent() {
         index={searchIndex}
         onSelect={handleSearchSelect}
       />
+
+      {selectedDocumentRequest && (
+        <DocumentModal
+          request={selectedDocumentRequest}
+          projectId={projectId!}
+          onClose={() => setSelectedDocumentRequest(null)}
+          onUpdate={refreshDocs}
+          clientEmail={project?.profiles?.email ?? null}
+          clientName={project?.profiles?.full_name ?? null}
+          projectTitle={project?.title}
+          clientVisible={isClientVisibleDocument(selectedDocumentRequest)}
+          projectMembers={projectMembers}
+        />
+      )}
 
     </div>
   )

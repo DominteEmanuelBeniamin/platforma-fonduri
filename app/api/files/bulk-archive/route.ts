@@ -7,6 +7,7 @@ import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { logAction } from '@/app/api/_utils/audit'
 import { isClientVisibleDocument } from '@/lib/client-visibility'
+import { latestVersionNumber } from '@/lib/document-versions'
 
 const BUCKET = 'project-files'
 const SIGNED_URL_EXPIRES_IN = 60 * 10 // 10 minute
@@ -26,6 +27,8 @@ const BulkArchiveSchema = z.object({
 // și înlocuiește flatMap cu map mai jos. Eroarea TypeScript originală confirma array.
 type FileProjectRow = {
   id: string
+  requirement_id: string
+  version_number: number
   document_requirements: {
     project_id: string | null
     deleted_at?: string | null
@@ -272,7 +275,7 @@ export async function POST(request: Request) {
      */
     const { data: fileProjectRows, error: projectLookupError } = await admin
       .from('files')
-      .select('id, document_requirements!inner(project_id, deleted_at, activity_id, visibility, activity:activity_id(visibility, phase:phase_id(visibility)))')
+      .select('id, requirement_id, version_number, document_requirements!inner(project_id, deleted_at, activity_id, visibility, activity:activity_id(visibility, phase:phase_id(visibility)))')
       .in('id', fileIds)
       .is('deleted_at', null)
       .is('document_requirements.deleted_at', null)
@@ -331,6 +334,41 @@ export async function POST(request: Request) {
       typedProjectRows.some(file => !isClientVisibleDocument(file.document_requirements))
     ) {
       return NextResponse.json({ error: 'Some files were not found' }, { status: 404 })
+    }
+
+    if (access.profile.role === 'client') {
+      const requirementIds = Array.from(new Set(typedProjectRows.map(file => file.requirement_id)))
+      const { data: versionRows, error: versionError } = await admin
+        .from('files')
+        .select('requirement_id, version_number')
+        .in('requirement_id', requirementIds)
+        .is('deleted_at', null)
+
+      if (versionError) {
+        console.error('bulk-archive: failed to validate file versions', {
+          error: versionError,
+          requirementIds,
+        })
+        return NextResponse.json({ error: 'Failed to validate files' }, { status: 500 })
+      }
+
+      const versionsByRequirement = new Map<string, number[]>()
+      for (const row of versionRows ?? []) {
+        const versions = versionsByRequirement.get(row.requirement_id) ?? []
+        versions.push(row.version_number)
+        versionsByRequirement.set(row.requirement_id, versions)
+      }
+
+      const hasOldVersion = typedProjectRows.some(file => {
+        const latest = latestVersionNumber(
+          (versionsByRequirement.get(file.requirement_id) ?? []).map(version_number => ({ version_number }))
+        )
+        return latest === null || file.version_number !== latest
+      })
+
+      if (hasOldVersion) {
+        return NextResponse.json({ error: 'Some files were not found' }, { status: 404 })
+      }
     }
 
     /**
