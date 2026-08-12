@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 
 import TeamManager from '@/components/TeamManager'
+import InlineDateEditor from '@/components/InlineDateEditor'
 import { useToast } from '@/app/providers/ToastProvider'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -279,6 +280,8 @@ export default function ProjectPhasesSidebar({
       )
       if (res.ok) { setEditingDeadline(null); onRefresh() }
       else { showToast('Nu am putut salva modificarea. Reîncearcă.', 'error') }
+    } catch {
+      showToast('Nu am putut salva modificarea. Reîncearcă.', 'error')
     } finally { setSavingDeadline(null) }
   }
 
@@ -568,42 +571,17 @@ export default function ProjectPhasesSidebar({
 
                         {/* Date picker inline */}
                         {isEditingThisDeadline && canEdit && (
-                          <div
-                            className="flex items-center gap-1 mt-0.5"
-                            onClick={e => e.stopPropagation()}
-                          >
-                            <input
-                              type="date"
-                              defaultValue={currentDeadline}
-                              disabled={savingDeadline === act.id}
-                              autoFocus
-                              className="flex-1 text-[11px] px-1.5 py-1 border border-[var(--p-accent)]/40 rounded-md focus:outline-none focus:ring-1 focus:ring-[var(--p-accent)] bg-[var(--p-surface)] text-[var(--p-ink)]"
-                              onKeyDown={e => {
-                                if (e.key === 'Escape') setEditingDeadline(null)
-                                if (e.key === 'Enter') {
-                                  handleSaveDeadline(phase.id, act.id, (e.target as HTMLInputElement).value)
-                                }
-                              }}
+                          <div className="mt-0.5">
+                            <InlineDateEditor
+                              size="sm"
+                              value={currentDeadline}
+                              // O activitate publicată nu poate rămâne fără
+                              // termen (#70); serverul respinge oricum.
+                              allowClear={act.visibility !== 'published'}
+                              saving={savingDeadline === act.id}
+                              onSave={value => handleSaveDeadline(phase.id, act.id, value)}
+                              onCancel={() => setEditingDeadline(null)}
                             />
-                            <button
-                              onClick={e => {
-                                const input = e.currentTarget.previousElementSibling as HTMLInputElement
-                                handleSaveDeadline(phase.id, act.id, input.value)
-                              }}
-                              disabled={savingDeadline === act.id}
-                              className="p-1 rounded bg-[var(--p-success-soft)] text-[var(--p-success)] hover:opacity-80 disabled:opacity-40 flex-shrink-0"
-                            >
-                              {savingDeadline === act.id
-                                ? <Loader2 className="w-3 h-3 animate-spin" />
-                                : <Check className="w-3 h-3" />
-                              }
-                            </button>
-                            <button
-                              onClick={() => setEditingDeadline(null)}
-                              className="p-1 rounded bg-[var(--p-surface-2)] text-[var(--p-ink-soft)] hover:opacity-80 flex-shrink-0"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
                           </div>
                         )}
                       </div>

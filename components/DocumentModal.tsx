@@ -14,12 +14,15 @@ import {
   Eye,
   Package,
   Upload,
-  Trash2
+  Trash2,
+  UserRound,
+  Check
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { downloadFilesArchive } from '@/app/api/_utils/download-files-archive'
 import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
+import InlineDateEditor from '@/components/InlineDateEditor'
 import { Mail } from 'lucide-react'
 import {
   getReminderType,
@@ -43,11 +46,13 @@ interface DocumentRequest {
     order_index?: number
   }[]
   deadline_at: string | null
+  visibility?: 'draft' | 'published'
   reminder_sent_at?: string | null
   reminder_type_sent?: ReminderType | null
   created_by: string | null
   created_at: string
   assigned_to: string | null
+  assigned_consultant?: { id: string; full_name: string | null; email: string } | null
   creator?: { full_name: string | null; email: string | null }
   files?: {
     id: string
@@ -90,9 +95,12 @@ export default function DocumentModal({
   clientName,
   projectTitle,
   clientVisible = true,
+  projectMembers = [],
 }: {
   request: DocumentRequest
   projectId: string
+  /** Consultanții proiectului, pentru atribuirea cererii */
+  projectMembers?: { id: string; full_name: string | null; email: string }[]
   onClose: () => void
   onUpdate: () => void
   clientEmail?: string | null
@@ -114,19 +122,38 @@ export default function DocumentModal({
   const attachmentInputRef = useRef<HTMLInputElement | null>(null)
   const handleApproveRef = useRef<(() => Promise<void>) | null>(null)
 
-  // Deadline edit state
+  // Deadline edit state — valoarea tastată stă în InlineDateEditor
   const [editingDeadline, setEditingDeadline] = useState(false)
-  const [deadlineValue, setDeadlineValue] = useState(
-    request.deadline_at ? request.deadline_at.slice(0, 10) : ''
-  )
   const [savingDeadline, setSavingDeadline] = useState(false)
   const [localDeadline, setLocalDeadline] = useState<string | null>(request.deadline_at)
+
+  // Responsabilul cererii — condiție de publicare (#70), dar editabil oricând
+  const [editingAssignee, setEditingAssignee] = useState(false)
+  const [savingAssignee, setSavingAssignee] = useState(false)
+  const [localAssignee, setLocalAssignee] = useState<string | null>(request.assigned_to)
+  // Selecția se confirmă explicit: atribuirea trimite un email consultantului,
+  // iar pe un select cu focus o singură săgeată ar fi declanșat-o.
+  const [assigneeDraft, setAssigneeDraft] = useState('')
   const [sendingReminder, setSendingReminder] = useState(false)
   const sendingReminderLock = useRef(false)
   const [localReminderSentAt, setLocalReminderSentAt] = useState<string | null>(request.reminder_sent_at ?? null)
   const [localReminderTypeSent, setLocalReminderTypeSent] = useState<ReminderType | null>(request.reminder_type_sent ?? null)
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
+  // O cerere publicată nu poate rămâne fără termen sau fără responsabil (#70),
+  // deci golirea se oferă doar cât e „În pregătire". Serverul respinge oricum.
+  const canEmptyRequiredFields = request.visibility !== 'published'
+  // Numele responsabilului: din lista de membri, altfel din join-ul cererii
+  const assignedMember = localAssignee
+    ? projectMembers.find(member => member.id === localAssignee)
+    : undefined
+  const assigneeLabel = localAssignee
+    ? assignedMember?.full_name
+      || assignedMember?.email
+      || request.assigned_consultant?.full_name
+      || request.assigned_consultant?.email
+      || 'consultant atribuit'
+    : null
   const requestAttachments = request.attachments?.length
     ? request.attachments
     : localAttachmentPath
@@ -138,29 +165,54 @@ export default function DocumentModal({
     setAttachmentMissing(!!request.attachment_missing_at)
     setLocalReminderSentAt(request.reminder_sent_at ?? null)
     setLocalReminderTypeSent(request.reminder_type_sent ?? null)
-  }, [request.id, request.attachment_path, request.attachment_missing_at, request.reminder_sent_at, request.reminder_type_sent])
+    setLocalAssignee(request.assigned_to)
+  }, [request.id, request.attachment_path, request.attachment_missing_at, request.reminder_sent_at, request.reminder_type_sent, request.assigned_to])
 
-  const handleSaveDeadline = async () => {
+  const handleSaveDeadline = async (deadline: string) => {
     setSavingDeadline(true)
     try {
       const res = await apiFetch(`/api/document-requests/${request.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          assigned_to: request.assigned_to ?? null,
-          deadline_at: deadlineValue || null,
-        }),
+        // Doar termenul: PATCH-ul e parțial, iar retrimiterea lui `assigned_to`
+        // ar rescrie o atribuire făcută între timp, cu valoarea veche.
+        body: JSON.stringify({ deadline_at: deadline || null }),
       })
       if (res.ok) {
-        setLocalDeadline(deadlineValue || null)
+        setLocalDeadline(deadline || null)
         setEditingDeadline(false)
         onUpdate()
       } else {
-        await res.json().catch(() => null)
-        showToast('Nu am putut salva termenul-limită. Reîncearcă.', 'error')
+        const data = await res.json().catch(() => null)
+        showToast(data?.message || data?.error || 'Nu am putut salva termenul-limită. Reîncearcă.', 'error')
       }
+    } catch {
+      showToast('Nu am putut salva termenul-limită. Reîncearcă.', 'error')
     } finally {
       setSavingDeadline(false)
+    }
+  }
+
+  const handleSaveAssignee = async (consultantId: string | null) => {
+    setSavingAssignee(true)
+    try {
+      const res = await apiFetch(`/api/document-requests/${request.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assigned_to: consultantId }),
+      })
+      if (res.ok) {
+        setLocalAssignee(consultantId)
+        setEditingAssignee(false)
+        onUpdate()
+      } else {
+        const data = await res.json().catch(() => null)
+        showToast(data?.message || data?.error || 'Nu am putut salva responsabilul. Reîncearcă.', 'error')
+      }
+    } catch {
+      showToast('Nu am putut salva responsabilul. Reîncearcă.', 'error')
+    } finally {
+      setSavingAssignee(false)
     }
   }
 
@@ -614,7 +666,7 @@ export default function DocumentModal({
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               {!localDeadline && !editingDeadline && (
                 <button
-                  onClick={() => { setDeadlineValue(''); setEditingDeadline(true) }}
+                  onClick={() => setEditingDeadline(true)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-semibold hover:bg-indigo-100 transition-colors"
                 >
                   <Clock className="w-3.5 h-3.5" />
@@ -692,39 +744,32 @@ export default function DocumentModal({
             </div>
           )}
 
-          {/* Bara de termen — doar când există termen sau se editează */}
+          {/* Bara de termen. Fără termen, cei care pot edita văd în locul ei
+              cum se adaugă unul — altfel un termen șters n-ar mai avea drum
+              înapoi. */}
+          {!localDeadline && !editingDeadline && isAdminOrConsultant && (
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <Clock className="w-4 h-4 flex-shrink-0 text-slate-400" />
+              <span>Fără termen limită</span>
+              <button
+                onClick={() => setEditingDeadline(true)}
+                className="text-xs font-semibold text-indigo-600 hover:underline flex-shrink-0"
+              >
+                Adaugă
+              </button>
+            </div>
+          )}
           {(localDeadline || editingDeadline) && (
           editingDeadline ? (
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 flex-shrink-0 text-slate-400" />
-              <input
-                type="date"
-                value={deadlineValue}
-                onChange={e => setDeadlineValue(e.target.value)}
-                autoFocus
-                disabled={savingDeadline}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') handleSaveDeadline()
-                  if (e.key === 'Escape') setEditingDeadline(false)
-                }}
-                className="text-sm px-2 py-1 border border-indigo-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-slate-800 disabled:opacity-50"
+              <InlineDateEditor
+                value={localDeadline}
+                saving={savingDeadline}
+                allowClear={canEmptyRequiredFields}
+                onSave={handleSaveDeadline}
+                onCancel={() => setEditingDeadline(false)}
               />
-              <button
-                onClick={handleSaveDeadline}
-                disabled={savingDeadline}
-                className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 disabled:opacity-50 flex-shrink-0"
-              >
-                {savingDeadline
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  : <CheckCircle2 className="w-3.5 h-3.5" />
-                }
-              </button>
-              <button
-                onClick={() => setEditingDeadline(false)}
-                className="p-1.5 rounded-lg bg-slate-200 text-slate-500 hover:bg-slate-300 flex-shrink-0"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
             </div>
           ) : (
             <div className={`flex items-center gap-2 text-sm ${isOverdue ? 'text-red-600' : 'text-slate-600'}`}>
@@ -741,10 +786,7 @@ export default function DocumentModal({
               </span>
               {isAdminOrConsultant && (
                 <button
-                  onClick={() => {
-                    setDeadlineValue(localDeadline ? localDeadline.slice(0, 10) : '')
-                    setEditingDeadline(true)
-                  }}
+                  onClick={() => setEditingDeadline(true)}
                   className="text-xs font-semibold text-indigo-600 hover:underline flex-shrink-0"
                 >
                   Modifică
@@ -752,6 +794,61 @@ export default function DocumentModal({
               )}
             </div>
           )
+          )}
+
+          {/* Responsabilul cererii — condiție de publicare (#70) */}
+          {isAdminOrConsultant && (
+            editingAssignee ? (
+              <div className="flex items-center gap-2">
+                <UserRound className="w-4 h-4 flex-shrink-0 text-slate-400" />
+                <select
+                  autoFocus
+                  value={assigneeDraft}
+                  disabled={savingAssignee}
+                  onChange={e => setAssigneeDraft(e.target.value)}
+                  aria-label="Consultant responsabil"
+                  className="text-sm px-2 py-1 border border-indigo-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                >
+                  <option value="" disabled={!canEmptyRequiredFields}>Fără responsabil</option>
+                  {projectMembers.map(member => (
+                    <option key={member.id} value={member.id}>{member.full_name || member.email}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => handleSaveAssignee(assigneeDraft || null)}
+                  disabled={savingAssignee || assigneeDraft === (localAssignee ?? '')}
+                  className="p-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-40 flex-shrink-0"
+                  title="Salvează responsabilul"
+                  aria-label="Salvează responsabilul"
+                >
+                  {savingAssignee
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <Check className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  onClick={() => setEditingAssignee(false)}
+                  disabled={savingAssignee}
+                  className="p-1.5 rounded-lg bg-slate-200 text-slate-500 hover:bg-slate-300 disabled:opacity-50 flex-shrink-0"
+                  aria-label="Renunță"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-slate-600">
+                <UserRound className="w-4 h-4 flex-shrink-0 text-slate-400" />
+                <span>
+                  Responsabil:{' '}
+                  <strong>{assigneeLabel ?? 'neatribuit'}</strong>
+                </span>
+                <button
+                  onClick={() => { setAssigneeDraft(localAssignee ?? ''); setEditingAssignee(true) }}
+                  className="text-xs font-semibold text-indigo-600 hover:underline flex-shrink-0"
+                >
+                  {localAssignee ? 'Modifică' : 'Atribuie'}
+                </button>
+              </div>
+            )
           )}
 
           {/* Documente: model + răspunsuri client */}

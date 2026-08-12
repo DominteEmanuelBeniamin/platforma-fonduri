@@ -33,8 +33,10 @@ import ConfirmDeleteModal from './ConfirmDeleteModal'
 import PublishStatusControl from './PublishStatusControl'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
+import { usePatchField } from '@/hooks/usePatchField'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { buildPreviewPageUrl, isPreviewableFile, openInNewTab } from '@/lib/file-preview'
+import { publishBlockers } from '@/lib/publish-rules'
 import {
   getReminderType,
   REMINDER_LABELS,
@@ -56,6 +58,7 @@ interface DocumentRequest {
     id: string
     name: string
     visibility?: 'draft' | 'published'
+    assigned_to?: string | null
     phase?: { id: string; name?: string | null; visibility?: 'draft' | 'published' } | null
   } | null
   order_index?: number
@@ -234,8 +237,14 @@ interface DocumentRequestsProps {
   /** Titlul activității afișat în header */
   activityName?: string
   parentActivityVisibility?: 'draft' | 'published'
+  /** Consultantul activității-părinte — acoperă cererile care nu au unul al lor (#70) */
+  parentActivityAssignee?: string | null
+  /** Consultantul general al proiectului — același rol, pentru cererile generale */
+  generalConsultantId?: string | null
   parentPhaseName?: string
   parentPhaseVisibility?: 'draft' | 'published'
+  /** Consultanții proiectului, pentru atribuirea unei cereri */
+  projectMembers?: { id: string; full_name: string | null; email: string }[]
   /** Date externe de la pagina părinte (evită fetch duplicat) */
   externalRequests?: any[]
   /** Callback refresh pentru pagina părinte */
@@ -253,8 +262,11 @@ export default function DocumentRequests({
   activityId,
   activityName,
   parentActivityVisibility,
+  parentActivityAssignee,
+  generalConsultantId,
   parentPhaseName,
   parentPhaseVisibility,
+  projectMembers = [],
   externalRequests,
   onRefresh,
   clientEmail,
@@ -264,6 +276,7 @@ export default function DocumentRequests({
 }: DocumentRequestsProps) {
   const { loading: authLoading, token, profile, apiFetch } = useAuth()
   const { showToast, confirm } = useToast()
+  const patchField = usePatchField()
 
   const [internalRequests, setInternalRequests] = useState<DocumentRequest[]>([])
   const [loading, setLoading] = useState(!externalRequests)
@@ -380,23 +393,41 @@ export default function DocumentRequests({
       description: copy.description,
       confirmText: 'Publică',
     })) return
+    // `patchField` a arătat deja motivul și aruncă mai departe; aici nu mai e
+    // nimic de făcut cu eroarea.
     try {
-      const res = await apiFetch(`/api/document-requests/${requestId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ visibility: 'published' }),
+      await patchField(`/api/document-requests/${requestId}`, { visibility: 'published' }, {
+        fallback: 'Nu am putut publica cererea. Reîncearcă.',
+        success: 'Cererea a fost publicată.',
+        refresh: fetchRequests,
       })
-      if (res.ok) {
-        setSelectedOutgoingDoc(prev => prev?.id === requestId ? { ...prev, visibility: 'published' } : prev)
-        await fetchRequests()
-        showToast('Cererea a fost publicată.', 'success')
-      }
-      else {
-        await res.json().catch(() => null)
-        showToast('Nu am putut publica cererea. Reîncearcă.', 'error')
-      }
-    } catch { showToast('Nu am putut publica cererea. Reîncearcă.', 'error') }
+      setSelectedOutgoingDoc(prev => prev?.id === requestId ? { ...prev, visibility: 'published' } : prev)
+    } catch { /* mesajul e pe ecran */ }
   }
+
+  const saveRequestDeadline = (requestId: string, deadline: string) =>
+    patchField(
+      `/api/document-requests/${requestId}`,
+      { deadline_at: deadline },
+      {
+        fallback: 'Nu am putut salva termenul. Reîncearcă.',
+        success: 'Termenul limită a fost salvat.',
+        refresh: fetchRequests,
+      },
+    )
+
+  // Responsabilul unei cereri: al ei sau, în lipsă, cel al părintelui —
+  // consultantul activității, respectiv consultantul general al proiectului
+  // pentru cererile generale. Aceeași regulă ca pe server.
+  const requestBlockers = (request: DocumentRequest) => publishBlockers({
+    kind: 'document',
+    isOutgoing: Boolean(request.is_outgoing),
+    currentDeadline: request.deadline_at,
+    currentAssignee: request.assigned_to,
+    parentAssignee: request.activity_id
+      ? request.activity?.assigned_to ?? parentActivityAssignee ?? null
+      : generalConsultantId ?? null,
+  })
 
   const sendReminder = async (requestId: string, requestName: string) => {
     // Lock sincron (nu bazat pe state) — blochează click-uri duble foarte rapide
@@ -1523,6 +1554,8 @@ export default function DocumentRequests({
                             status={req.visibility ?? 'draft'}
                             canPublish={isAdminOrConsultant}
                             onPublish={() => publishRequest(req.id)}
+                            blockers={requestBlockers(req)}
+                            onSetDeadline={date => saveRequestDeadline(req.id, date)}
                             size="sm"
                           />
                         )}
@@ -1963,6 +1996,7 @@ export default function DocumentRequests({
           clientName={clientName}
           projectTitle={projectTitle}
           clientVisible={isRequestClientVisible(selectedRequest)}
+          projectMembers={projectMembers}
         />
       )}
 

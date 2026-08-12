@@ -32,8 +32,10 @@ import PublishStatusControl from '@/components/PublishStatusControl'
 import UnifiedSearchDialog from '@/components/UnifiedSearchDialog'
 import { buildSearchIndex, type SearchResult } from '@/lib/projectSearch'
 import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
+import { publishBlockers } from '@/lib/publish-rules'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
+import { usePatchField } from '@/hooks/usePatchField'
 
 // Secțiunea distinctă „Cereri generale" (documente fără fază/activitate)
 const GENERAL_ID = '__general__'
@@ -56,6 +58,7 @@ function ProjectDetailsContent() {
 
   const { loading: authLoading, token, apiFetch, profile } = useAuth()
   const { showToast, confirm } = useToast()
+  const patchField = usePatchField()
 
   const [project, setProject] = useState<any>(null)
   const [phases, setPhases] = useState<ProjectPhase[]>([])
@@ -246,16 +249,36 @@ function ProjectDetailsContent() {
     } finally { setSaving(false) }
   }
 
-  const handleAssignActivity = async (phaseId: string, activityId: string, assignedTo: string | null) => {
-    try {
-      const res = await apiFetch(
-        `/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`,
-        { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assigned_to: assignedTo }) }
-      )
-      if (res.ok) fetchAll()
-      else { showToast('Nu am putut atribui consultantul. Reîncearcă.', 'error') }
-    } catch { showToast('Nu am putut atribui consultantul. Reîncearcă.', 'error') }
-  }
+  // Reîmprospătăm tăcut, nu prin `fetchAll`: aceasta aprinde spinnerul de
+  // pagină și demontează tot arborele, adică și editorul deschis pe loc, și
+  // cererile pliate, și dialogul de adăugare pe jumătate completat. Cererile
+  // se reîncarcă odată cu fazele fiindcă poartă în join responsabilul
+  // activității, de care atârnă chipurile lor de publicare.
+  const refreshContent = async () => { await Promise.all([refreshPhases(), refreshDocs()]) }
+
+  const patchActivityField = (
+    phaseId: string,
+    activityId: string,
+    body: Record<string, unknown>,
+    fallback: string,
+    success?: string,
+  ) => patchField(
+    `/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`,
+    body,
+    { fallback, success, refresh: refreshContent },
+  )
+
+  const handleAssignActivity = (phaseId: string, activityId: string, assignedTo: string | null) =>
+    patchActivityField(phaseId, activityId, { assigned_to: assignedTo }, 'Nu am putut atribui consultantul. Reîncearcă.')
+
+  const saveActivityDeadline = (phaseId: string, activityId: string, deadline: string) =>
+    patchActivityField(
+      phaseId,
+      activityId,
+      { deadline_at: deadline },
+      'Nu am putut salva termenul. Reîncearcă.',
+      'Termenul limită a fost salvat.',
+    )
 
   const handleAddActivity = async (phaseId: string) => {
     const name = (newActivityName[phaseId] || '').trim()
@@ -292,21 +315,17 @@ function ProjectDetailsContent() {
       description: copy.description || 'Elementul va deveni vizibil clientului.',
       confirmText: 'Publică',
     })) return
+    // `patchField` a arătat deja motivul și aruncă mai departe; aici nu mai e
+    // nimic de făcut cu eroarea.
     try {
-      const res = await apiFetch(url, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ visibility: 'published' }),
+      await patchField(url, { visibility: 'published' }, {
+        fallback: 'Nu am putut publica elementul. Reîncearcă.',
+        success: 'Elementul a fost publicat.',
+        refresh: refreshContent,
       })
-      if (res.ok) {
-        await Promise.all([refreshPhases(), refreshDocs()])
-        showToast('Elementul a fost publicat.', 'success')
-      } else {
-        await res.json().catch(() => null)
-        showToast('Nu am putut publica elementul. Reîncearcă.', 'error')
-      }
-    } catch { showToast('Nu am putut publica elementul. Reîncearcă.', 'error') }
+    } catch { /* mesajul e pe ecran */ }
   }
+
 
   const handleNotifyClient = async () => {
     if (!await confirm({
@@ -833,11 +852,17 @@ function ProjectDetailsContent() {
                         open={expandedActivityIds.has(activity.id)}
                         onOpenChange={() => handleToggleActivity(activity.id)}
                         highlighted={highlightActivityId === activity.id}
-                        isAdmin={isAdmin}
+                        canAssign={canEdit}
                         projectMembers={projectMembers}
-                        onAssign={assignedTo => handleAssignActivity(phase.id, activity.id, assignedTo)}
+                        onAssign={assignedTo => { handleAssignActivity(phase.id, activity.id, assignedTo).catch(() => {}) }}
                         visibility={activity.visibility}
                         canPublish={canEdit}
+                        publishBlockers={publishBlockers({
+                          kind: 'activity',
+                          currentDeadline: activity.deadline_at,
+                          currentAssignee: activity.assigned_to,
+                        })}
+                        onSetDeadline={date => saveActivityDeadline(phase.id, activity.id, date)}
                         onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, {
                           title: 'Publică activitatea?',
                           description: phase.visibility === 'published'
@@ -850,8 +875,10 @@ function ProjectDetailsContent() {
                           activityId={activity.id}
                           activityName={activity.name}
                           parentActivityVisibility={activity.visibility}
+                          parentActivityAssignee={activity.assigned_to}
                           parentPhaseName={phase.name}
                           parentPhaseVisibility={phase.visibility}
+                          projectMembers={projectMembers}
                           externalRequests={allDocRequests}
                           onRefresh={refreshDocs}
                           clientEmail={project?.profiles?.email ?? null}
@@ -942,6 +969,14 @@ function ProjectDetailsContent() {
                       projectId={projectId!}
                       activityId={null}
                       activityName="Cereri generale"
+                      generalConsultantId={
+                        // Doar dacă e membru — aceeași condiție pe care o pune
+                        // serverul; altfel chipul ar arăta publicabil degeaba.
+                        projectMembers.some(m => m.id === project?.general_consultant_id)
+                          ? project.general_consultant_id
+                          : null
+                      }
+                      projectMembers={projectMembers}
                       externalRequests={allDocRequests}
                       onRefresh={refreshDocs}
                       clientEmail={project?.profiles?.email ?? null}

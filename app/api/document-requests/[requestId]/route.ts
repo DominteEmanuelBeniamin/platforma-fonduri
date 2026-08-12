@@ -6,6 +6,7 @@ import { computeDiff, logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { isRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
+import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
 
 // Inițializat în handler ca să preia env-ul la runtime, nu la cold-start
 
@@ -62,16 +63,22 @@ export async function PATCH(
     }
     const assigned_to: string | null | undefined = rawAssigned === undefined ? undefined : rawAssigned
 
-    // deadline_at — string ISO sau null (undefined = nu se modifică)
+    // deadline_at — string ISO sau null (undefined = nu se modifică). O dată
+    // nevalidă trecea nefiltrată și ajungea eroare de Postgres, adică 500 în
+    // loc de 400; același tratament ca pe ruta de activități.
     const rawDeadline = (body as any).deadline_at
+    if (
+      rawDeadline !== undefined && rawDeadline !== null && rawDeadline !== '' &&
+      (typeof rawDeadline !== 'string' || Number.isNaN(Date.parse(rawDeadline)))
+    ) {
+      return NextResponse.json({ error: 'deadline_at trebuie să fie o dată validă sau null' }, { status: 400 })
+    }
     const deadline_at: string | null | undefined =
       rawDeadline === undefined
         ? undefined
         : rawDeadline === null || rawDeadline === ''
         ? null
-        : typeof rawDeadline === 'string'
-        ? rawDeadline
-        : undefined
+        : (rawDeadline as string)
 
     const rawAttachmentPath = (body as any).attachment_path
     const attachment_path: string | null | undefined =
@@ -100,7 +107,7 @@ export async function PATCH(
     // Obține cererea pentru a afla project_id și detalii email
     const { data: req, error: reqError } = await admin
       .from('document_requirements')
-      .select('id, project_id, name, description, deadline_at, requirement_type, is_mandatory, is_outgoing, visibility, assigned_to, attachment_path, attachment_original_name, attachment_missing_at, attachment_missing_checked_at, deleted_at, document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at, source_template_attachment_id, created_at)')
+      .select('id, project_id, activity_id, name, description, deadline_at, requirement_type, is_mandatory, is_outgoing, visibility, assigned_to, attachment_path, attachment_original_name, attachment_missing_at, attachment_missing_checked_at, deleted_at, activity:activity_id(id, assigned_to), document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at, source_template_attachment_id, created_at)')
       .eq('id', requestId)
       .is('deleted_at', null)
       .maybeSingle()
@@ -125,10 +132,60 @@ export async function PATCH(
 
     const { data: projectRow } = await admin
       .from('projects')
-      .select('title')
+      .select('title, general_consultant_id')
       .eq('id', req.project_id)
       .maybeSingle()
     const projectTitle = projectRow?.title ?? req.project_id
+
+    // `general_consultant_id` se scrie fără nicio verificare de apartenență
+    // (app/api/projects/[id]/route.ts), deci îl acceptăm drept responsabil doar
+    // dacă persoana chiar e membru — aceeași condiție ca pentru `assigned_to`.
+    let generalConsultantId: string | null = null
+    if (!req.activity_id && projectRow?.general_consultant_id) {
+      const { data: generalMembership } = await admin
+        .from('project_members')
+        .select('id')
+        .eq('project_id', req.project_id)
+        .eq('consultant_id', projectRow.general_consultant_id)
+        .maybeSingle()
+      if (generalMembership) generalConsultantId = projectRow.general_consultant_id
+    }
+
+    // #70 — nu se publică nimic incomplet. Verificarea stă înaintea oricărei
+    // scrieri, ca o cerere respinsă să nu modifice parțial rândul.
+    // Relația vine ca obiect sau ca listă, după cum o întoarce PostgREST.
+    const parentActivity = Array.isArray(req.activity) ? req.activity[0] : req.activity
+    const publishState = {
+      kind: 'document' as const,
+      isOutgoing: Boolean(req.is_outgoing),
+      currentDeadline: req.deadline_at,
+      incomingDeadline: deadline_at,
+      currentAssignee: req.assigned_to,
+      incomingAssignee: assigned_to,
+      // O cerere din activitate răspunde de consultantul activității; una
+      // generală, de consultantul general al proiectului — exact persoana
+      // aleasă din selectul secțiunii „Cereri generale".
+      parentAssignee: req.activity_id
+        ? parentActivity?.assigned_to ?? null
+        : generalConsultantId,
+    }
+
+    if (visibility === 'published') {
+      const blockers = publishBlockers(publishState)
+      if (blockers.length > 0) {
+        return NextResponse.json(publishBlockedError(blockers), { status: 400 })
+      }
+    } else if (req.visibility === 'published') {
+      // Deja publicată: regula nu se cere retroactiv — cele publicate înainte
+      // de #70 rămân editabile — dar ce e completat nu poate fi golit.
+      const removed = blockersIntroducedBy(publishState)
+      if (removed.length > 0) {
+        return NextResponse.json(
+          publishBlockedError(removed, { alreadyPublished: true }),
+          { status: 400 },
+        )
+      }
+    }
 
     // Dacă se atribuie cuiva, verifică că este consultant membru al proiectului
     if (assigned_to !== undefined && assigned_to !== null) {
@@ -255,18 +312,19 @@ export async function PATCH(
       request,
     })
 
-    // Trimite email consultantului atribuit (erorile de email nu blochează răspunsul)
-    if (assigned_to !== undefined && assigned_to !== null) {
+    // Trimite email consultantului atribuit, doar când atribuirea chiar se
+    // schimbă — altfel orice salvare care retrimite `assigned_to` îl anunță din
+    // nou. (Ca la activități, care compară deja cu valoarea dinainte.)
+    if (assigned_to !== undefined && assigned_to !== null && assigned_to !== req.assigned_to) {
       try {
-        const [{ data: consultant }, { data: project }] = await Promise.all([
-          admin.from('profiles').select('full_name, email').eq('id', assigned_to).maybeSingle(),
-          admin.from('projects').select('id, title').eq('id', req.project_id).maybeSingle(),
-        ])
+        // Proiectul e deja citit mai sus, în `projectRow`/`projectTitle`.
+        const { data: consultant } = await admin
+          .from('profiles').select('full_name, email').eq('id', assigned_to).maybeSingle()
 
-        if (consultant?.email && project) {
+        if (consultant?.email) {
           const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
-          const projectUrl = `${appUrl}/projects/${project.id}`
-          const safeProjectTitle = escapeHtml(project.title)
+          const projectUrl = `${appUrl}/projects/${req.project_id}`
+          const safeProjectTitle = escapeHtml(projectTitle)
           const safeRequestName = escapeHtml(req.name ?? '')
           const salut = consultant.full_name ? `Salut, ${escapeHtml(consultant.full_name)}!` : 'Salut!'
           const deadline = req.deadline_at
@@ -323,7 +381,7 @@ export async function PATCH(
           const { error: emailError } = await resend.emails.send({
             from: resendFromAddress(),
             to: consultant.email,
-            subject: sanitizeHeaderText(`Ți-a fost atribuită o cerere nouă — ${project.title}`),
+            subject: sanitizeHeaderText(`Ți-a fost atribuită o cerere nouă — ${projectTitle}`),
             html,
           })
           if (emailError) {

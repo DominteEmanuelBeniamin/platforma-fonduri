@@ -18,12 +18,15 @@ interface ActivityFoldProps {
   open: boolean
   onOpenChange: () => void
   highlighted?: boolean
-  isAdmin: boolean
+  /** Cine poate publica poate și atribui — regula #70 cere un responsabil */
+  canAssign: boolean
   projectMembers: Member[]
   onAssign: (assignedTo: string | null) => void
   visibility?: 'draft' | 'published'
   canPublish: boolean
   onPublish: () => void
+  publishBlockers?: string[]
+  onSetDeadline?: (value: string) => Promise<void> | void
   children: ReactNode
 }
 
@@ -40,12 +43,14 @@ export default function ActivityFold({
   open,
   onOpenChange,
   highlighted,
-  isAdmin,
+  canAssign,
   projectMembers,
   onAssign,
   visibility,
   canPublish,
   onPublish,
+  publishBlockers,
+  onSetDeadline,
   children,
 }: ActivityFoldProps) {
   const deadline = activity.deadline_at ? new Date(activity.deadline_at) : null
@@ -67,16 +72,12 @@ export default function ActivityFold({
           : 'border-[var(--p-border)]/60 shadow-[0_1px_2px_rgba(15,23,42,0.03)]'
       }`}
     >
+      {/* Rândul rămâne clicabil în întregime, dar nu mai e `role="button"`:
+          înăuntru stau acum select-uri și câmpuri (vezi PublishStatusControl),
+          pe care semantica de buton le-ar ascunde de cititoarele de ecran, iar
+          Enter/Space le-ar fura. Deschiderea de la tastatură stă pe chevron. */}
       <div
-        role="button"
-        tabIndex={0}
         onClick={onOpenChange}
-        onKeyDown={e => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onOpenChange()
-          }
-        }}
         className="flex items-center gap-2.5 px-3.5 py-3 cursor-pointer hover:bg-[var(--p-surface-2)] transition-colors"
       >
         <div className="min-w-0 flex items-center gap-2.5 text-left">
@@ -98,8 +99,10 @@ export default function ActivityFold({
           )}
         </div>
 
-        <div className="hidden sm:flex items-center flex-shrink-0">
-          {isAdmin ? (
+        {/* Vizibil și pe telefon: responsabilul e condiție de publicare (#70),
+            iar selectul de aici e singurul loc din care se atribuie. */}
+        <div className="flex items-center flex-shrink-0">
+          {canAssign ? (
             <select
               value={activity.assigned_to ?? ''}
               onClick={e => e.stopPropagation()}
@@ -128,15 +131,30 @@ export default function ActivityFold({
 
         <div className="flex-1" />
 
-        <div onClick={e => e.stopPropagation()} className="flex-shrink-0">
-          <PublishStatusControl status={visibility ?? 'draft'} canPublish={canPublish} onPublish={onPublish} size="sm" />
+        {/* Controlul își oprește singur propagarea pe ramurile interactive;
+            pe cea pasivă, clickul trebuie să ajungă la rând. */}
+        <div className="flex-shrink-0">
+          <PublishStatusControl
+            status={visibility ?? 'draft'}
+            canPublish={canPublish}
+            onPublish={onPublish}
+            blockers={publishBlockers}
+            onSetDeadline={onSetDeadline}
+            size="sm"
+          />
         </div>
 
-        <ChevronRight
-          className={`w-3.5 h-3.5 text-[var(--p-ink-faint)] flex-shrink-0 transition-transform duration-200 ${
-            open ? 'rotate-90' : ''
-          }`}
-        />
+        <button
+          type="button"
+          onClick={e => { e.stopPropagation(); onOpenChange() }}
+          aria-expanded={open}
+          aria-label={open ? `Restrânge activitatea ${activity.name}` : `Extinde activitatea ${activity.name}`}
+          className="flex-shrink-0 rounded p-0.5 text-[var(--p-ink-faint)] hover:bg-[var(--p-surface-2)]"
+        >
+          <ChevronRight
+            className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+          />
+        </button>
       </div>
       <Collapsible.Content>
         <div className="border-t border-[var(--p-border)]">{children}</div>
