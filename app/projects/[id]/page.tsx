@@ -18,6 +18,7 @@ import {
   Search,
   Plus,
   Megaphone,
+  CalendarDays,
 } from 'lucide-react'
 
 import ProjectChatDrawer from '@/components/ProjectChatDrawer'
@@ -30,15 +31,28 @@ import ActivityFold from '@/components/ActivityFold'
 import ActionNeededPanel from '@/components/ActionNeededPanel'
 import PublishStatusControl from '@/components/PublishStatusControl'
 import UnifiedSearchDialog from '@/components/UnifiedSearchDialog'
+import CalendarSurface from '@/components/calendar/CalendarSurface'
 import { buildSearchIndex, type SearchResult } from '@/lib/projectSearch'
 import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
 import { publishBlockers } from '@/lib/publish-rules'
+import {
+  GENERAL_PHASE_ID,
+  clearCalendarParams,
+  isActivityDone,
+  isRequestDone,
+  isUrgentDeadline,
+} from '@/lib/calendar'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { usePatchField } from '@/hooks/usePatchField'
 
-// Secțiunea distinctă „Cereri generale" (documente fără fază/activitate)
-const GENERAL_ID = '__general__'
+// Secțiunea distinctă „Cereri generale" (documente fără fază/activitate).
+// Aceeași valoare ajunge în `?phase=` din deep-linkurile calendarului.
+const GENERAL_ID = GENERAL_PHASE_ID
+
+// Tabul curent. Se reflectă în `?view=`, ca vederea să poată fi trimisă mai
+// departe ca link; „phases" e implicitul, deci nu ajunge în URL.
+type ProjectView = 'phases' | 'documents' | 'calendar'
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -80,7 +94,9 @@ function ProjectDetailsContent() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [notifyingClient, setNotifyingClient] = useState(false)
 
-  const [activeView, setActiveView] = useState<'phases' | 'documents'>(targetView === 'documents' ? 'documents' : 'phases')
+  const [activeView, setActiveView] = useState<ProjectView>(
+    targetView === 'documents' || targetView === 'calendar' ? targetView : 'phases'
+  )
   const [landingView, setLandingView] = useState<'action-needed' | 'browse'>(hasUrlParams ? 'browse' : 'action-needed')
   const [landingViewInitialized, setLandingViewInitialized] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -100,6 +116,23 @@ function ProjectDetailsContent() {
     }, 0)
   }, [allDocRequests])
 
+  // Indicatorul de pe tabul „Calendar": termene depășite sau din următoarele 7
+  // zile. Se calculează din datele deja încărcate — filtrate de vizibilitate pe
+  // server — ca badge-ul să fie corect fără o a treia cerere.
+  const calendarUrgentCount = useMemo(() => {
+    let count = 0
+    for (const phase of phases) {
+      for (const activity of phase.activities ?? []) {
+        if (isUrgentDeadline(activity.deadline_at ?? null, isActivityDone(activity))) count++
+      }
+    }
+    for (const req of allDocRequests) {
+      if (req.is_outgoing || req.deleted_at) continue
+      if (isUrgentDeadline(req.deadline_at ?? null, isRequestDone(req))) count++
+    }
+    return count
+  }, [phases, allDocRequests])
+
   // Ceva publicat, dar neanunțat încă printr-un digest — activează butonul „Anunță clientul"
   const hasUnnotifiedUpdates = useMemo(() => {
     for (const phase of phases) {
@@ -113,6 +146,20 @@ function ProjectDetailsContent() {
 
   const handleOpenChat = () => {
     setChatOpen(true)
+  }
+
+  // Tabul curent trăiește și în URL, ca vederea să poată fi trimisă ca link.
+  // La ieșirea din calendar îi ștergem filtrele: n-au ce căuta pe un link
+  // către faze sau documente.
+  const selectView = (view: ProjectView) => {
+    setActiveView(view)
+    if (!projectId) return
+    const params = new URLSearchParams(searchParams.toString())
+    if (view === 'phases') params.delete('view')
+    else params.set('view', view)
+    if (view !== 'calendar') clearCalendarParams(params)
+    const query = params.toString()
+    router.replace(query ? `/projects/${projectId}?${query}` : `/projects/${projectId}`, { scroll: false })
   }
 
   const isAdmin = profile?.role === 'admin'
@@ -389,7 +436,7 @@ function ProjectDetailsContent() {
   }
 
   const handleSelectPhase = (phaseId: string) => {
-    setActiveView('phases')
+    selectView('phases')
     setLandingView('browse')
     setActivePhaseId(phaseId)
     setExpandedPhases(new Set([phaseId]))
@@ -398,7 +445,7 @@ function ProjectDetailsContent() {
   }
 
   const handleSelectGeneral = () => {
-    setActiveView('phases')
+    selectView('phases')
     setLandingView('browse')
     setActivePhaseId(GENERAL_ID)
     setExpandedPhases(new Set([GENERAL_ID]))
@@ -427,6 +474,18 @@ function ProjectDetailsContent() {
       return s
     })
   }
+
+  // Un deep-link ales din tabul „Calendar" schimbă doar parametrii aceleiași
+  // rute, deci pagina nu se remontează și `fetchAll` nu mai rulează: tabul și
+  // faza activă trebuie mutate aici, altfel selectarea unui eveniment n-ar
+  // părea să facă nimic.
+  useEffect(() => {
+    if (!targetPhaseId) return
+    setActiveView('phases')
+    setLandingView('browse')
+    setActivePhaseId(targetPhaseId)
+    setExpandedPhases(prev => (prev.has(targetPhaseId) ? prev : new Set(prev).add(targetPhaseId)))
+  }, [targetPhaseId, targetActivityId, targetDocumentId])
 
   // ─── Deep-link: scroll + highlight zona țintă din URL ───────────────────────
   useEffect(() => {
@@ -471,7 +530,7 @@ function ProjectDetailsContent() {
   // Cu requestId, deschide direct fișa cererii — zero click-uri suplimentare
   // pentru client între "ce am de făcut" și zona de încărcare.
   const jumpToActivity = (phaseId: string | null, activityId: string | null, requestId?: string) => {
-    setActiveView('phases')
+    selectView('phases')
     setLandingView('browse')
     if (activityId && phaseId) {
       // Document legat de o activitate dintr-o fază
@@ -550,7 +609,7 @@ function ProjectDetailsContent() {
 
   const handleSearchSelect = (result: SearchResult) => {
     if (result.type === 'phase') {
-      setActiveView('phases')
+      selectView('phases')
       setLandingView('browse')
       setExpandedPhases(new Set([result.id]))
       setTimeout(() => {
@@ -699,7 +758,7 @@ function ProjectDetailsContent() {
       {/* ── Body: sidebar + main ── */}
       <div className="flex flex-1 w-full px-4 sm:px-6">
 
-        {/* ══ SIDEBAR — ascuns în view documente ══ */}
+        {/* ══ SIDEBAR — ascuns în vederile Documente și Calendar ══ */}
         {activeView === 'phases' && (
           <ProjectPhasesSidebar
             phases={phases}
@@ -726,39 +785,59 @@ function ProjectDetailsContent() {
 
           {/* ── Tab switcher ── */}
           <div className="sticky top-14 z-10 h-12 bg-[var(--p-surface)] border-b border-[var(--p-border)] px-4 sm:px-6">
-            <div className="flex h-full gap-1 -mb-px">
-              <button
-                onClick={() => setActiveView('phases')}
-                className={`flex h-full items-center gap-2 px-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  activeView === 'phases'
-                    ? 'border-indigo-600 text-indigo-600'
-                    : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <Layers className="w-4 h-4" />
-                Faze & Activități
-              </button>
-              <button
-                onClick={() => setActiveView('documents')}
-                className={`flex h-full items-center gap-2 px-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  activeView === 'documents'
-                    ? 'border-indigo-600 text-indigo-600'
-                    : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <FolderOpen className="w-4 h-4" />
-                Documente
-                {documentEntriesCount > 0 && (
-                  <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full font-medium">
-                    {documentEntriesCount}
-                  </span>
-                )}
-              </button>
+            <div className="flex h-full gap-1 -mb-px overflow-x-auto">
+              {([
+                { view: 'phases', label: 'Faze & Activități', Icon: Layers, count: 0, urgent: false, hint: '' },
+                {
+                  view: 'documents',
+                  label: 'Documente',
+                  Icon: FolderOpen,
+                  count: documentEntriesCount,
+                  urgent: false,
+                  hint: `${documentEntriesCount} fișiere`,
+                },
+                {
+                  view: 'calendar',
+                  label: 'Calendar',
+                  Icon: CalendarDays,
+                  count: calendarUrgentCount,
+                  urgent: true,
+                  hint: `${calendarUrgentCount} termene depășite sau în următoarele 7 zile`,
+                },
+              ] as const).map(({ view, label, Icon, count, urgent, hint }) => (
+                <button
+                  key={view}
+                  onClick={() => selectView(view)}
+                  aria-current={activeView === view ? 'page' : undefined}
+                  className={`flex h-full items-center gap-2 px-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                    activeView === view
+                      ? 'border-indigo-600 text-indigo-600'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {label}
+                  {count > 0 && (
+                    <span
+                      aria-label={hint}
+                      className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                        urgent ? 'bg-[var(--p-danger-soft)] text-[var(--p-danger)]' : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </button>
+              ))}
             </div>
           </div>
 
           {/* ── Content ── */}
-          {activeView === 'documents' ? (
+          {activeView === 'calendar' ? (
+            <div className="p-4 sm:p-6 max-w-5xl mx-auto">
+              <CalendarSurface projectId={projectId!} />
+            </div>
+          ) : activeView === 'documents' ? (
             <ProjectDocumentsView
               projectId={projectId!}
               requests={allDocRequests}

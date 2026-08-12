@@ -11,7 +11,10 @@ export default function Navbar() {
   const pathname = usePathname()
   const router = useRouter()
   const isLoggedIn = !authLoading && !!user
-  const canUsePrivateChat = profile?.role === 'admin' || profile?.role === 'consultant'
+  // Chatul privat, calendarul general și șabloanele sunt suprafețe de echipă:
+  // clientul nu are acces la niciuna.
+  const isTeamMember = profile?.role === 'admin' || profile?.role === 'consultant'
+  const canUsePrivateChat = isTeamMember
   const {
     hasUnread: hasPrivateChatUnread,
     unreadConversationCount,
@@ -79,7 +82,15 @@ export default function Navbar() {
                 )}
               </Link>
             )}
-            {(profile?.role === 'admin' || profile?.role === 'consultant') && (
+            {isTeamMember && (
+              <Link
+                href="/calendar"
+                className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/calendar')}`}
+              >
+                Calendar
+              </Link>
+            )}
+            {isTeamMember && (
               <Link
                 href={profile?.role === 'admin' ? '/admin' : '/admin/templates'}
                 className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive(profile?.role === 'admin' ? '/admin' : '/admin/templates')}`}
