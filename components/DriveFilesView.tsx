@@ -46,7 +46,6 @@ export interface DriveAsset {
   displayName?: string
   versionNumber?: number
   uploadedAt: string
-  entryType?: DriveRow['entryType']
   entryLabel?: string
 }
 
@@ -76,7 +75,6 @@ export interface DriveDocument {
 export interface DriveFolder {
   id: string
   name: string
-  orderIndex: number
   documentCount: number
 }
 
@@ -84,7 +82,6 @@ interface DriveFilesViewProps {
   rows: DriveRow[]
   documents?: DriveDocument[]
   folders?: DriveFolder[]
-  logicalMode?: 'folders' | 'flat'
   storageKey?: string
   activeFolderId?: string | null
   onFolderChange?: (folderId: string | null) => void
@@ -172,7 +169,7 @@ function FilePreview({ path, previewUrl, size = 'md' }: { path: string; previewU
 function StatusPill({ status, label }: { status: DriveRow['docStatus']; label?: string }) {
   if (!status) {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full"
+      <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs font-medium px-2.5 py-1 rounded-full"
         style={{ backgroundColor: '#f1f3f4', color: '#5f6368' }}>
         {label || 'Fără status'}
       </span>
@@ -188,7 +185,7 @@ function StatusPill({ status, label }: { status: DriveRow['docStatus']; label?: 
   }
   const c = map[status] ?? map.pending
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full"
+    <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs font-medium px-2.5 py-1 rounded-full"
       style={{ backgroundColor: c.bg, color: c.text }}>
       <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: c.dot }} />
       {c.label}
@@ -201,7 +198,7 @@ function PublicationPill({ reason }: { reason?: string }) {
     <span
       title={reason || 'Documentul nu este publicat'}
       aria-label={reason || 'Documentul nu este publicat'}
-      className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700"
+      className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700"
     >
       Nepublicat
     </span>
@@ -224,15 +221,14 @@ function LogicalDriveFilesView({
   documents,
   folders,
   apiFetch,
-  logicalMode = 'folders',
   storageKey,
   activeFolderId,
   onFolderChange,
   loading = false,
   error = null,
-}: Pick<DriveFilesViewProps, 'documents' | 'folders' | 'apiFetch' | 'storageKey' | 'activeFolderId' | 'onFolderChange' | 'loading' | 'error'> & { logicalMode?: 'folders' | 'flat' }) {
+}: Pick<DriveFilesViewProps, 'documents' | 'folders' | 'apiFetch' | 'storageKey' | 'activeFolderId' | 'onFolderChange' | 'loading' | 'error'>) {
   const { showToast } = useToast()
-  const [browseMode, setBrowseMode] = useState<'folders' | 'flat'>(logicalMode)
+  const [browseMode, setBrowseMode] = useState<'folders' | 'flat'>('folders')
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [sortKey, setSortKey] = useState<SortKey>('date')
@@ -300,7 +296,11 @@ function LogicalDriveFilesView({
     return source.filter(document => {
       if (filterStatus !== 'all' && document.docStatus !== filterStatus) return false
       if (!query) return true
-      return `${document.docName} ${document.folderName} ${document.activityName || ''}`
+      const assetNames = [
+        ...document.attachments,
+        ...document.versions.flatMap(version => version.assets),
+      ].map(getAssetDisplayName).join(' ')
+      return `${document.docName} ${document.folderName} ${document.activityName || ''} ${assetNames}`
         .toLowerCase()
         .includes(query)
     })
@@ -376,20 +376,22 @@ function LogicalDriveFilesView({
     return next
   })
 
-  const renderAsset = (asset: DriveAsset) => {
+  const renderAsset = (asset: DriveAsset, compact = false) => {
     const actionId = assetActionId(asset)
     const previewable = isPreviewableFile({ fileName: getAssetDisplayName(asset) })
     return (
-      <div key={asset.id} className="flex items-center gap-3 px-3 py-2 border-t border-slate-100">
-        <FilePreview path={asset.storagePath} previewUrl={asset.fileId ? previewUrls[asset.fileId] : undefined} size="sm" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-slate-800">{getAssetDisplayName(asset)}</p>
-          <p className="truncate text-xs text-slate-400">
-            {asset.entryLabel || (asset.downloadKind === 'requestAttachment' ? 'Atașament' : 'Fișier încărcat')}
-            {asset.versionNumber ? ` · v${asset.versionNumber}` : ''}
-          </p>
+      <div key={asset.id} className={`border-t border-slate-100 px-3 py-2 ${compact ? 'space-y-2' : 'flex items-center gap-3'}`}>
+        <div className={`flex min-w-0 items-center gap-2 ${compact ? '' : 'flex-1 gap-3'}`}>
+          <FilePreview path={asset.storagePath} previewUrl={asset.fileId ? previewUrls[asset.fileId] : undefined} size="sm" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-slate-800">{getAssetDisplayName(asset)}</p>
+            <p className="truncate text-xs text-slate-400">
+              {asset.entryLabel || (asset.downloadKind === 'requestAttachment' ? 'Atașament' : 'Fișier încărcat')}
+              {asset.versionNumber ? ` · v${asset.versionNumber}` : ''}
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className={`flex items-center gap-1 ${compact ? 'justify-end' : ''}`}>
           {previewable && (
             <button type="button" onClick={() => openAsset(asset)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600" title="Deschide" aria-label={`Deschide ${getAssetDisplayName(asset)}`}>
               <Eye className="h-4 w-4" />
@@ -407,51 +409,55 @@ function LogicalDriveFilesView({
     document.onRowClick?.()
   }
 
-  const renderDocument = (document: DriveDocument) => {
+  const renderDocument = (document: DriveDocument, compact = false) => {
     const currentVersion = document.versions[0]
     const currentAssets = [...document.attachments, ...(currentVersion?.assets ?? [])]
     const hasHistory = document.versions.length > 1
     const expanded = expandedIds.has(document.id)
     const totalAssetCount = document.attachments.length + document.versions.reduce((count, version) => count + version.assets.length, 0)
-    const historyVersionCount = document.versions.length - 1
 
     return (
-      <article key={document.id} className="rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center gap-3 p-3">
-          <FilePreview
-            path={currentAssets[0]?.storagePath || 'document'}
-            previewUrl={currentAssets[0]?.fileId ? previewUrls[currentAssets[0].fileId] : undefined}
-            size="sm"
-          />
-          <div className="min-w-0 flex-1">
-            <button type="button" onClick={() => selectDocument(document)} className="block max-w-full cursor-pointer text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600" aria-label={`Deschide cererea ${document.docName}`} title="Deschide cererea de document">
-              <p className="truncate text-sm font-semibold text-slate-900 hover:text-indigo-700 hover:underline">{document.docName}</p>
-            </button>
-            <div className="flex min-w-0 items-center gap-1 truncate text-xs text-slate-500">
-              <span className="truncate">{document.folderName}</span>
-              {document.activityName && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span className="truncate">{document.activityName}</span>
-                </>
-              )}
-              {currentVersion?.version ? <><span aria-hidden="true">·</span><span>v{currentVersion.version}</span></> : null}
+      <article key={document.id} className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-start gap-3 p-3 sm:items-center">
+          <div className="flex min-w-0 flex-1 basis-full items-start gap-3 sm:basis-auto sm:items-center">
+            <FilePreview
+              path={currentAssets[0]?.storagePath || 'document'}
+              previewUrl={currentAssets[0]?.fileId ? previewUrls[currentAssets[0].fileId] : undefined}
+              size="sm"
+            />
+            <div className="min-w-0 flex-1">
+              <button type="button" onClick={() => selectDocument(document)} className="block w-full cursor-pointer text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600" aria-label={`Deschide cererea ${document.docName}`} title="Deschide cererea de document">
+                <p className="break-words text-sm font-semibold text-slate-900 hover:text-indigo-700 hover:underline sm:truncate">{document.docName}</p>
+              </button>
+              <div className="flex min-w-0 items-center gap-1 truncate text-xs text-slate-500">
+                <span className="truncate">{document.folderName}</span>
+                {document.activityName && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span className="truncate">{document.activityName}</span>
+                  </>
+                )}
+                {currentVersion?.version ? <><span aria-hidden="true">·</span><span>v{currentVersion.version}</span></> : null}
+              </div>
             </div>
           </div>
-          {document.publicationStatus === 'unpublished' && <PublicationPill reason={document.publicationReason} />}
-          <StatusPill status={document.docStatus} />
-          {hasHistory && (
-            <button type="button" onClick={() => toggleExpanded(document.id)} className="rounded-lg px-2 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600" aria-expanded={expanded} aria-controls={`drive-document-${document.id}`}>
-              {expanded ? 'Ascunde istoricul' : `Vezi istoricul · ${document.versions.length} versiuni / ${totalAssetCount} fișiere`}
-            </button>
-          )}
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
+            {document.publicationStatus === 'unpublished' && <PublicationPill reason={document.publicationReason} />}
+            <StatusPill status={document.docStatus} />
+            {hasHistory && (
+              <button type="button" onClick={() => toggleExpanded(document.id)} className="max-w-full rounded-lg px-2 py-1 text-left text-xs font-semibold text-indigo-600 hover:bg-indigo-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600" aria-expanded={expanded} aria-controls={`drive-document-${document.id}`} aria-label={expanded ? 'Ascunde istoricul' : `Vezi istoricul: ${document.versions.length} versiuni, ${totalAssetCount} fișiere`}>
+                <span className="sm:hidden">{expanded ? 'Ascunde istoricul' : `Istoric (${document.versions.length})`}</span>
+                <span className="hidden sm:inline">{expanded ? 'Ascunde istoricul' : `Vezi istoricul · ${document.versions.length} versiuni / ${totalAssetCount} fișiere`}</span>
+              </button>
+            )}
+          </div>
         </div>
         <div id={`drive-document-${document.id}`}>
-          {currentAssets.map(renderAsset)}
+          {currentAssets.map(asset => renderAsset(asset, compact))}
           {expanded && hasHistory && document.versions.slice(1).map(version => (
             <div key={version.version} className="border-t border-slate-200 bg-slate-50">
               <p className="px-3 py-2 text-xs font-semibold text-slate-500">Varianta {version.version}</p>
-              {version.assets.map(renderAsset)}
+              {version.assets.map(asset => renderAsset(asset, compact))}
             </div>
           ))}
         </div>
@@ -492,7 +498,7 @@ function LogicalDriveFilesView({
         </button>
         <span className="flex-1" />
         <span className="text-xs text-slate-500">{sortedDocuments.length} {sortedDocuments.length === 1 ? 'document' : 'documente'}</span>
-        <div className="flex overflow-hidden rounded-full border border-slate-200">
+        <div className="hidden overflow-hidden rounded-full border border-slate-200 sm:flex">
           {(['list', 'grid'] as ViewMode[]).map(mode => <button type="button" key={mode} onClick={() => setViewMode(mode)} className={`p-1.5 ${viewMode === mode ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400'} focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600`} aria-label={mode === 'list' ? 'Vedere listă' : 'Vedere grilă'} aria-pressed={viewMode === mode}>{mode === 'list' ? <List className="h-4 w-4" /> : <Grid3X3 className="h-4 w-4" />}</button>)}
         </div>
       </div>
@@ -531,9 +537,9 @@ function LogicalDriveFilesView({
         ) : noResults ? (
           <div className="flex flex-col items-center justify-center py-24 text-center"><FolderOpen className="mb-4 h-16 w-16 text-slate-200" /><p className="font-semibold text-slate-700">{hasSearch || filterStatus !== 'all' ? 'Niciun rezultat' : 'Folder gol'}</p><p className="text-sm text-slate-500">{hasSearch || filterStatus !== 'all' ? 'Încearcă să modifici filtrele.' : 'Fișierele vor apărea aici când vor fi încărcate.'}</p></div>
         ) : viewMode === 'grid' ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{sortedDocuments.map(renderDocument)}</div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{sortedDocuments.map(document => renderDocument(document, true))}</div>
         ) : (
-          <div className="space-y-3">{sortedDocuments.map(renderDocument)}</div>
+          <div className="space-y-3">{sortedDocuments.map(document => renderDocument(document))}</div>
         )}
       </div>
     </div>
@@ -542,21 +548,13 @@ function LogicalDriveFilesView({
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function DriveFilesView({
+function FlatDriveFilesView({
   rows,
-  documents,
-  folders,
-  logicalMode = 'folders',
-  storageKey,
-  activeFolderId,
-  onFolderChange,
-  loading = false,
-  error = null,
   secondaryColumnLabel = 'Info',
   apiFetch,
   emptyText = 'Niciun document',
   standalone = false,
-}: DriveFilesViewProps) {
+}: Pick<DriveFilesViewProps, 'rows' | 'secondaryColumnLabel' | 'apiFetch' | 'emptyText' | 'standalone'>) {
   const { showToast } = useToast()
   const [search, setSearch]               = useState('')
   const [filterStatus, setFilterStatus]   = useState('all')
@@ -704,22 +702,6 @@ export default function DriveFilesView({
   const outerCls  = standalone ? 'flex flex-col bg-white' : 'flex flex-col h-full bg-white'
   const contentCls = standalone ? '' : 'flex-1 overflow-y-auto min-h-0'
 
-  if (documents) {
-    return (
-      <LogicalDriveFilesView
-        documents={documents}
-        folders={folders}
-        apiFetch={apiFetch}
-        logicalMode={logicalMode}
-        storageKey={storageKey}
-        activeFolderId={activeFolderId}
-        onFolderChange={onFolderChange}
-        loading={loading}
-        error={error}
-      />
-    )
-  }
-
   return (
     <div className={outerCls} style={{ fontFamily: "'Google Sans', Roboto, Arial, sans-serif" }}>
 
@@ -793,7 +775,7 @@ export default function DriveFilesView({
           </span>
 
           {/* View toggle */}
-          <div className="flex items-center rounded-full border overflow-hidden" style={{ borderColor: '#dadce0' }}>
+          <div className="hidden items-center rounded-full border overflow-hidden sm:flex" style={{ borderColor: '#dadce0' }}>
             {(['list', 'grid'] as ViewMode[]).map(mode => (
               <button key={mode} onClick={() => setViewMode(mode)} className="p-1.5 transition-colors"
                 style={{
@@ -1045,5 +1027,32 @@ export default function DriveFilesView({
         </div>
       )}
     </div>
+  )
+}
+
+export default function DriveFilesView(props: DriveFilesViewProps) {
+  if (props.documents !== undefined) {
+    return (
+      <LogicalDriveFilesView
+        documents={props.documents}
+        folders={props.folders}
+        apiFetch={props.apiFetch}
+        storageKey={props.storageKey}
+        activeFolderId={props.activeFolderId}
+        onFolderChange={props.onFolderChange}
+        loading={props.loading}
+        error={props.error}
+      />
+    )
+  }
+
+  return (
+    <FlatDriveFilesView
+      rows={props.rows}
+      secondaryColumnLabel={props.secondaryColumnLabel}
+      apiFetch={props.apiFetch}
+      emptyText={props.emptyText}
+      standalone={props.standalone}
+    />
   )
 }

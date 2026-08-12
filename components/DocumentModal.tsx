@@ -642,7 +642,7 @@ export default function DocumentModal({
         <div className="px-5 sm:px-6 pt-4 pb-3 border-b border-slate-100 flex-shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1 flex items-center gap-2.5 flex-wrap">
-              <h2 className="text-xl font-bold text-slate-900 leading-tight">
+              <h2 className="min-w-0 break-words text-xl font-bold leading-tight text-slate-900">
                 {request.name}
               </h2>
               <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${statusConfig.bg} ${statusConfig.text}`}>

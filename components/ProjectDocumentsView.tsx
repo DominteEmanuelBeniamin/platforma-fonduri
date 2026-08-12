@@ -89,7 +89,6 @@ export default function ProjectDocumentsView({
       rows={[]}
       documents={documents}
       folders={folders}
-      logicalMode="folders"
       storageKey={projectId}
       activeFolderId={activeFolderId}
       onFolderChange={onFolderChange}
