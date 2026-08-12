@@ -300,11 +300,7 @@ function LogicalDriveFilesView({
     return source.filter(document => {
       if (filterStatus !== 'all' && document.docStatus !== filterStatus) return false
       if (!query) return true
-      const assetText = [
-        ...document.attachments,
-        ...document.versions.flatMap(version => version.assets),
-      ].map(asset => `${asset.displayName || ''} ${asset.storagePath}`).join(' ')
-      return `${document.docName} ${document.folderName} ${document.activityName || ''} ${assetText}`
+      return `${document.docName} ${document.folderName} ${document.activityName || ''}`
         .toLowerCase()
         .includes(query)
     })
