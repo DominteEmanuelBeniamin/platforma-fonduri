@@ -104,6 +104,27 @@ export const isActivityDone = (row: { status?: string | null; completed_at?: str
 export const isRequestDone = (row: { status?: string | null }): boolean => row.status === 'approved'
 
 /**
+ * Responsabilul efectiv al unei cereri: al ei, cu revenire la consultantul
+ * activității-părinte și, pentru cererile generale, la consultantul de proiect
+ * — exact lanțul din regula de publicare (#70).
+ *
+ * Îl folosesc și ruta de calendar, și indicatorul numeric din pagina
+ * proiectului: dacă badge-ul ar număra altfel decât filtrează calendarul,
+ * consultantul ar vedea un „7" roșu care deschide o vedere goală.
+ */
+export function requestOwnerId(request: {
+  assigned_to?: string | null
+  activity_id?: string | null
+  activity?: { assigned_to?: string | null } | null
+  generalOwnerId?: string | null
+}): string | null {
+  if (request.assigned_to) return request.assigned_to
+  if (request.activity?.assigned_to) return request.activity.assigned_to
+  if (!request.activity_id) return request.generalOwnerId ?? null
+  return null
+}
+
+/**
  * Termen care cere atenție acum: depășit sau în următoarele 7 zile, pe un
  * element nefinalizat. Sursa indicatorului numeric de pe tabul „Calendar".
  */

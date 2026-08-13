@@ -11,6 +11,7 @@ import {
   eventProgress,
   filterEvents,
   formatMonthTitle,
+  monthKey,
   readFiltersFromParams,
   readMonth,
   readViewMode,
@@ -150,7 +151,7 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
   )
 
   const inMonthCount = useMemo(() => {
-    const prefix = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`
+    const prefix = monthKey(month)
     return visible.filter(event => deadlineKey(event.deadline_at)?.startsWith(prefix)).length
   }, [visible, month])
 
@@ -161,19 +162,23 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
 
   // ─── Stări de excepție ──────────────────────────────────────────────────────
 
+  const retry = (
+    <button
+      type="button"
+      onClick={load}
+      className="rounded-lg bg-[var(--p-accent)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+    >
+      Reîncearcă
+    </button>
+  )
+
   if (loading || !payload || !filters || !defaults) {
     if (error) {
       return (
         <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
           <AlertCircle className="h-8 w-8 text-[var(--p-danger)]" />
           <p className="text-sm font-semibold text-[var(--p-ink)]">{error}</p>
-          <button
-            type="button"
-            onClick={load}
-            className="rounded-lg bg-[var(--p-accent)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
-          >
-            Reîncearcă
-          </button>
+          {retry}
         </div>
       )
     }
@@ -192,6 +197,19 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
 
   return (
     <div className="space-y-3">
+      {/* O reîncărcare eșuată nu are voie să treacă tăcut: datele de pe ecran
+          rămân, dar cu spus pe față că sunt cele vechi. */}
+      {error && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--p-danger)]/30 bg-[var(--p-danger-soft)] px-3 py-2 text-xs text-[var(--p-danger)]"
+        >
+          <AlertCircle className="h-4 w-4 flex-shrink-0" aria-hidden />
+          <span className="flex-1">{error} Termenele afișate pot fi neactualizate.</span>
+          {retry}
+        </div>
+      )}
+
       {/* ── Bara de vedere ── */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1">

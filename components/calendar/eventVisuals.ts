@@ -13,6 +13,7 @@
 import type { CSSProperties } from 'react'
 import { FolderOpen, Layers } from 'lucide-react'
 import { getAvatarColor } from '@/lib/avatar'
+import { LIGHT_INK, readableInk } from '@/lib/contrast'
 import {
   KIND_LABELS,
   PROGRESS_LABELS,
@@ -41,20 +42,6 @@ export function ownerColor(event: Pick<CalendarEvent, 'assignee_id' | 'assignee_
   return getAvatarColor(event.assignee_name || event.assignee_id)
 }
 
-/**
- * Alb sau cerneală închisă, după cât de deschisă e culoarea persoanei. Paleta
- * de avatare merge de la indigo la chihlimbar, iar albul pe chihlimbar n-ar fi
- * lizibil.
- */
-export function readableInk(hex: string): string {
-  const value = hex.replace('#', '')
-  const r = parseInt(value.slice(0, 2), 16) / 255
-  const g = parseInt(value.slice(2, 4), 16) / 255
-  const b = parseInt(value.slice(4, 6), 16) / 255
-  const channel = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
-  const luminance = 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
-  return luminance > 0.45 ? '#1F2937' : '#FFFFFF'
-}
 
 export function eventSurfaceStyle(
   event: Pick<CalendarEvent, 'assignee_id' | 'assignee_name' | 'visibility'>,
@@ -68,7 +55,7 @@ export function eventSurfaceStyle(
     borderStyle: event.visibility === 'draft' ? 'dashed' : 'solid',
     borderColor: progress === 'overdue'
       ? OVERDUE_BORDER
-      : ink === '#FFFFFF'
+      : ink === LIGHT_INK
       ? 'rgba(255,255,255,0.5)'
       : 'rgba(31,41,55,0.35)',
   }

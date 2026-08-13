@@ -23,7 +23,10 @@ function GeneralCalendarContent() {
     if (profile?.role === 'client') router.replace('/')
   }, [authLoading, token, profile?.role, router])
 
-  if (authLoading || !token || profile?.role === 'client') {
+  // `!profile` face parte din gardă: cât profilul se încarcă, rolul e
+  // necunoscut, iar fără el clientul ar apuca să monteze calendarul și ar vedea
+  // eroarea de 403 licărind înainte de redirect.
+  if (authLoading || !token || !profile || profile.role === 'client') {
     return (
       <div className="flex items-center justify-center gap-2 py-24 text-sm text-slate-500">
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden />

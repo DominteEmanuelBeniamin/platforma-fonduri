@@ -41,6 +41,7 @@ import {
   isActivityDone,
   isRequestDone,
   isUrgentDeadline,
+  requestOwnerId,
 } from '@/lib/calendar'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
@@ -64,7 +65,10 @@ function ProjectDetailsContent() {
   const targetActivityId = searchParams.get('activity')
   const targetDocumentId = searchParams.get('document')
   const targetView = searchParams.get('view')
-  const hasUrlParams = searchParams.toString().length > 0
+  // Doar un deep-link duce direct în „Fazele proiectului"; `?view=` singur nu.
+  // Altfel, o dată deschis tabul Documente sau Calendar, reîncărcarea ar fi
+  // scos pentru totdeauna ecranul „Ce ai de făcut" — cel implicit al clientului.
+  const hasDeepLink = !!(targetPhaseId || targetActivityId || targetDocumentId)
   const projectId = useMemo(() => {
     const id = (params as any)?.id
     return typeof id === 'string' && id.trim().length > 0 ? id : null
@@ -97,7 +101,7 @@ function ProjectDetailsContent() {
   const [activeView, setActiveView] = useState<ProjectView>(
     targetView === 'documents' || targetView === 'calendar' ? targetView : 'phases'
   )
-  const [landingView, setLandingView] = useState<'action-needed' | 'browse'>(hasUrlParams ? 'browse' : 'action-needed')
+  const [landingView, setLandingView] = useState<'action-needed' | 'browse'>(hasDeepLink ? 'browse' : 'action-needed')
   const [landingViewInitialized, setLandingViewInitialized] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [autoOpenRequestId, setAutoOpenRequestId] = useState<string | null>(null)
@@ -119,19 +123,36 @@ function ProjectDetailsContent() {
   // Indicatorul de pe tabul „Calendar": termene depășite sau din următoarele 7
   // zile. Se calculează din datele deja încărcate — filtrate de vizibilitate pe
   // server — ca badge-ul să fie corect fără o a treia cerere.
+  //
+  // Consultantul se numără doar pe el, fiindcă exact așa se deschide și
+  // calendarul: altfel ar fi văzut un „7" roșu care duce într-o vedere cu un
+  // singur element, sau chiar goală.
   const calendarUrgentCount = useMemo(() => {
+    const mineOnly = profile?.role === 'consultant' ? profile.id : null
+    const generalOwnerId = projectMembers.some(m => m.id === project?.general_consultant_id)
+      ? project?.general_consultant_id ?? null
+      : null
+    const counts = (deadline: string | null, done: boolean, ownerId: string | null) =>
+      isUrgentDeadline(deadline, done) && (!mineOnly || ownerId === mineOnly)
+
     let count = 0
     for (const phase of phases) {
       for (const activity of phase.activities ?? []) {
-        if (isUrgentDeadline(activity.deadline_at ?? null, isActivityDone(activity))) count++
+        if (counts(activity.deadline_at ?? null, isActivityDone(activity), activity.assigned_to ?? null)) count++
       }
     }
     for (const req of allDocRequests) {
       if (req.is_outgoing || req.deleted_at) continue
-      if (isUrgentDeadline(req.deadline_at ?? null, isRequestDone(req))) count++
+      const ownerId = requestOwnerId({
+        assigned_to: req.assigned_to,
+        activity_id: req.activity_id,
+        activity: req.activity,
+        generalOwnerId,
+      })
+      if (counts(req.deadline_at ?? null, isRequestDone(req), ownerId)) count++
     }
     return count
-  }, [phases, allDocRequests])
+  }, [phases, allDocRequests, profile?.role, profile?.id, project?.general_consultant_id, projectMembers])
 
   // Ceva publicat, dar neanunțat încă printr-un digest — activează butonul „Anunță clientul"
   const hasUnnotifiedUpdates = useMemo(() => {
@@ -149,8 +170,12 @@ function ProjectDetailsContent() {
   }
 
   // Tabul curent trăiește și în URL, ca vederea să poată fi trimisă ca link.
-  // La ieșirea din calendar îi ștergem filtrele: n-au ce căuta pe un link
-  // către faze sau documente.
+  //
+  // Schimbarea tabului șterge deep-linkul rămas în URL: el descrie un element
+  // spre care s-a derulat cândva, nu vederea de acum. Lăsat pe loc, ar fi făcut
+  // două rele — la reîncărcare ar fi tras înapoi în „Faze & Activități", iar
+  // reselectarea aceluiași eveniment din calendar n-ar mai fi schimbat niciun
+  // parametru, deci n-ar fi părut să facă nimic.
   const selectView = (view: ProjectView) => {
     setActiveView(view)
     if (!projectId) return
@@ -158,6 +183,7 @@ function ProjectDetailsContent() {
     if (view === 'phases') params.delete('view')
     else params.set('view', view)
     if (view !== 'calendar') clearCalendarParams(params)
+    for (const key of ['phase', 'activity', 'document']) params.delete(key)
     const query = params.toString()
     router.replace(query ? `/projects/${projectId}?${query}` : `/projects/${projectId}`, { scroll: false })
   }
@@ -196,7 +222,7 @@ function ProjectDetailsContent() {
           return next.size === prev.size ? prev : next
         })
 
-        if (!hasUrlParams) {
+        if (!hasDeepLink) {
           setActivePhaseId(null)
           if (isFirstLoad) setExpandedPhases(new Set())
         } else if (targetPhaseId === GENERAL_ID) {
@@ -481,11 +507,17 @@ function ProjectDetailsContent() {
   // părea să facă nimic.
   useEffect(() => {
     if (!targetPhaseId) return
+    // Numai pe o fază care chiar există: la prima încărcare fazele încă nu-s
+    // aici și de asta se ocupă `fetchAll`, care face aceeași verificare. Un
+    // link vechi, către o fază ștearsă între timp, nu trebuie să lase faza
+    // activă pe un id inexistent.
+    const known = targetPhaseId === GENERAL_ID || phases.some(phase => phase.id === targetPhaseId)
+    if (!known) return
     setActiveView('phases')
     setLandingView('browse')
     setActivePhaseId(targetPhaseId)
     setExpandedPhases(prev => (prev.has(targetPhaseId) ? prev : new Set(prev).add(targetPhaseId)))
-  }, [targetPhaseId, targetActivityId, targetDocumentId])
+  }, [targetPhaseId, targetActivityId, targetDocumentId, phases])
 
   // ─── Deep-link: scroll + highlight zona țintă din URL ───────────────────────
   useEffect(() => {
@@ -601,9 +633,9 @@ function ProjectDetailsContent() {
   // Fără params deschidem mereu "Ce ai de făcut"; params expliciți duc la browse.
   useEffect(() => {
     if (loading || landingViewInitialized) return
-    setLandingView(hasUrlParams ? 'browse' : 'action-needed')
+    setLandingView(hasDeepLink ? 'browse' : 'action-needed')
     setLandingViewInitialized(true)
-  }, [loading, landingViewInitialized, hasUrlParams])
+  }, [loading, landingViewInitialized, hasDeepLink])
 
   const searchIndex = useMemo(() => buildSearchIndex(phases, allDocRequests), [phases, allDocRequests])
 

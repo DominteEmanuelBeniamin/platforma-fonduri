@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import Link from 'next/link'
 import { CalendarOff } from 'lucide-react'
 import {
@@ -44,18 +45,34 @@ export default function DeadlineList({
   withProject = false,
   emptyMessage = 'Niciun termen de afișat.',
 }: DeadlineListProps) {
-  const dated = events.filter(event => deadlineKey(event.deadline_at) !== null)
-  const undated = events.filter(event => deadlineKey(event.deadline_at) === null).sort(compareEvents)
+  // O singură trecere prin evenimente, memoizată: componenta se re-randează la
+  // fiecare filtru comutat și la fiecare deschidere de zi.
+  const { dated, undated, days } = useMemo(() => {
+    const withDeadline: CalendarEvent[] = []
+    const withoutDeadline: CalendarEvent[] = []
+    const byDay = new Map<string, CalendarEvent[]>()
 
-  const byDay = new Map<string, CalendarEvent[]>()
-  for (const event of dated) {
-    const key = deadlineKey(event.deadline_at)!
-    const bucket = byDay.get(key)
-    if (bucket) bucket.push(event)
-    else byDay.set(key, [event])
-  }
-  const days = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b))
-  for (const [, bucket] of days) bucket.sort(compareEvents)
+    for (const event of events) {
+      const key = deadlineKey(event.deadline_at)
+      if (key === null) {
+        withoutDeadline.push(event)
+        continue
+      }
+      withDeadline.push(event)
+      const bucket = byDay.get(key)
+      if (bucket) bucket.push(event)
+      else byDay.set(key, [event])
+    }
+
+    const buckets = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b))
+    for (const [, bucket] of buckets) bucket.sort(compareEvents)
+
+    return {
+      dated: [...withDeadline].sort(compareEvents),
+      undated: withoutDeadline.sort(compareEvents),
+      days: buckets,
+    }
+  }, [events])
 
   if (events.length === 0) {
     return <p className="px-4 py-8 text-center text-sm text-[var(--p-ink-faint)]">{emptyMessage}</p>
@@ -67,7 +84,7 @@ export default function DeadlineList({
     </ul>
   )
 
-  if (!grouped) return rows([...dated.sort(compareEvents), ...undated])
+  if (!grouped) return rows([...dated, ...undated])
 
   return (
     <div className="space-y-4">

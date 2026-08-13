@@ -13,6 +13,7 @@ import {
   GENERAL_PHASE_ID,
   isActivityDone,
   isRequestDone,
+  requestOwnerId,
   type CalendarEvent,
   type CalendarPayload,
 } from '@/lib/calendar'
@@ -23,25 +24,48 @@ type Admin = ReturnType<typeof createSupabaseServiceClient>
 const one = <T,>(relation: T | T[] | null | undefined): T | null =>
   (Array.isArray(relation) ? relation[0] : relation) ?? null
 
-/** Proiectele pe care utilizatorul le poate vedea în calendarul general. */
+/** Plafonul implicit de rânduri al PostgREST pe acest proiect Supabase. */
+const PAGE_SIZE = 1000
+
+/**
+ * Citește toate rândurile, pagină cu pagină.
+ *
+ * PostgREST taie tăcut la `PAGE_SIZE`: nu întoarce eroare, doar mai puține
+ * rânduri. Pe un calendar, un termen lipsă nu arată ca o defecțiune, ci ca
+ * „elementul n-are termen" — adică exact ca ceva ce nu trebuie urmărit. Deci
+ * paginăm, în loc să ne bazăm pe faptul că azi încă încap toate.
+ */
+async function fetchAllRows<T>(
+  label: string,
+  page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const rows: T[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await page(from, from + PAGE_SIZE - 1)
+    if (error) throw new Error(`${label}: ${error.message}`)
+    const batch = data ?? []
+    rows.push(...batch)
+    if (batch.length < PAGE_SIZE) return rows
+  }
+}
+
+/**
+ * Proiectele care intră în calendarul general. `null` = toate, pentru
+ * administrator: e mai ieftin și mai sigur decât să trimitem înapoi în URL o
+ * listă cu toate id-urile de proiect.
+ */
 async function accessibleProjectIds(
   admin: Admin,
   profile: { id: string; role: 'admin' | 'consultant' | 'client' },
-): Promise<string[]> {
-  if (profile.role === 'admin') {
-    const { data, error } = await admin.from('projects').select('id')
-    if (error) throw error
-    return (data ?? []).map((row: any) => row.id)
-  }
+): Promise<string[] | null> {
+  if (profile.role === 'admin') return null
 
   // Apartenența consultantului stă în `project_members`. `general_consultant_id`
-  // nu e sursă de acces — e gol pe toate proiectele existente.
-  const { data, error } = await admin
-    .from('project_members')
-    .select('project_id')
-    .eq('consultant_id', profile.id)
-  if (error) throw error
-  return [...new Set((data ?? []).map((row: any) => row.project_id))]
+  // nu e sursă de acces — e gol pe aproape toate proiectele existente.
+  const rows = await fetchAllRows<{ project_id: string }>('project_members', (from, to) =>
+    admin.from('project_members').select('project_id').eq('consultant_id', profile.id).range(from, to)
+  )
+  return [...new Set(rows.map(row => row.project_id))]
 }
 
 const displayName = (profile?: { full_name?: string | null; email?: string | null } | null) =>
@@ -57,8 +81,8 @@ export async function GET(request: Request) {
     const role = ctx.profile.role
     const admin = createSupabaseServiceClient()
 
-    // ── Ce proiecte intră în calendar ────────────────────────────────────────
-    let projectIds: string[]
+    // ── Ce proiecte intră în calendar. `null` = toate ────────────────────────
+    let projectIds: string[] | null
     if (projectId) {
       const access = await requireProjectAccess(request, projectId)
       if (!access.ok) return guardToResponse(access)
@@ -76,64 +100,65 @@ export async function GET(request: Request) {
     }
 
     const empty: CalendarPayload = { events: [], projects: [], phases: [], role, user_id: ctx.profile.id }
-    if (projectIds.length === 0) return NextResponse.json(empty)
+    if (projectIds !== null && projectIds.length === 0) return NextResponse.json(empty)
+
+    // Filtrul pe proiect se aplică doar când lista e restrânsă; pentru
+    // administratorul care vede tot, absența lui e și mai ieftină.
+    // `any`: tipurile generice ale builderului Supabase se instanțiază la
+    // adâncime nefinită dacă trec printr-un helper generic.
+    const scoped = (query: any, column: string): any =>
+      projectIds === null ? query : query.in(column, projectIds)
 
     // ── Surse ────────────────────────────────────────────────────────────────
-    const [projectsRes, phasesRes, requestsRes, membersRes] = await Promise.all([
-      admin
-        .from('projects')
-        .select('id, title, client_id, general_consultant_id, client:profiles!projects_client_id_fkey(id, full_name, email)')
-        .in('id', projectIds),
-      admin
-        .from('project_phases')
-        .select('id, name, order_index, visibility, project_id')
-        .in('project_id', projectIds)
-        .order('order_index', { ascending: true }),
-      admin
-        .from('document_requirements')
-        .select('id, name, status, deadline_at, visibility, assigned_to, activity_id, project_id, activity:activity_id(id, name, phase_id, visibility, assigned_to, phase:phase_id(id, name, visibility))')
-        .in('project_id', projectIds)
-        .is('deleted_at', null)
-        .eq('is_outgoing', false),
-      admin
-        .from('project_members')
-        .select('project_id, consultant_id')
-        .in('project_id', projectIds),
+    const [projects, phases, requests, members] = await Promise.all([
+      fetchAllRows<any>('projects', (from, to) =>
+        scoped(
+          admin
+            .from('projects')
+            .select('id, title, client_id, general_consultant_id, client:profiles!projects_client_id_fkey(id, full_name, email)'),
+          'id',
+        ).range(from, to)
+      ),
+      fetchAllRows<any>('project_phases', (from, to) =>
+        scoped(
+          admin.from('project_phases').select('id, name, order_index, visibility, project_id'),
+          'project_id',
+        ).order('order_index', { ascending: true }).range(from, to)
+      ),
+      fetchAllRows<any>('document_requirements', (from, to) =>
+        scoped(
+          admin
+            .from('document_requirements')
+            .select('id, name, status, deadline_at, visibility, assigned_to, activity_id, project_id, activity:activity_id(id, name, phase_id, visibility, assigned_to, phase:phase_id(id, name, visibility))'),
+          'project_id',
+        )
+          .is('deleted_at', null)
+          .eq('is_outgoing', false)
+          .range(from, to)
+      ),
+      fetchAllRows<any>('project_members', (from, to) =>
+        scoped(admin.from('project_members').select('project_id, consultant_id'), 'project_id').range(from, to)
+      ),
     ])
 
-    for (const res of [projectsRes, phasesRes, requestsRes, membersRes]) {
-      if (res.error) {
-        console.error('GET calendar source error:', res.error)
-        return NextResponse.json({ error: 'Failed to load calendar' }, { status: 500 })
-      }
-    }
-
-    const phases = (phasesRes.data ?? []) as any[]
     const phaseById = new Map(phases.map(phase => [phase.id, phase]))
 
-    let activities: any[] = []
-    if (phases.length > 0) {
-      const { data, error } = await admin
-        .from('project_activities')
-        .select('id, name, status, completed_at, deadline_at, visibility, assigned_to, phase_id')
-        .in('phase_id', phases.map(phase => phase.id))
-        .order('order_index', { ascending: true })
-      if (error) {
-        console.error('GET calendar activities error:', error)
-        return NextResponse.json({ error: 'Failed to load calendar' }, { status: 500 })
-      }
-      activities = data ?? []
-    }
+    // Filtrarea prin resursa imbricată, nu printr-o listă de `phase_id`: lista
+    // ar fi ajuns în URL-ul cererii și ar fi crescut cu fiecare fază.
+    const activities = await fetchAllRows<any>('project_activities', (from, to) =>
+      scoped(
+        admin
+          .from('project_activities')
+          .select('id, name, status, completed_at, deadline_at, visibility, assigned_to, phase_id, phase:phase_id!inner(project_id)'),
+        'phase.project_id',
+      ).order('order_index', { ascending: true }).range(from, to)
+    )
 
-    const projects = (projectsRes.data ?? []) as any[]
-    const requests = (requestsRes.data ?? []) as any[]
     const projectById = new Map(projects.map(project => [project.id, project]))
 
     // Consultantul general al proiectului contează ca responsabil doar dacă e
     // membru — aceeași condiție pe care o pune și publicarea (#70).
-    const memberKeys = new Set(
-      (membersRes.data ?? []).map((row: any) => `${row.project_id}:${row.consultant_id}`)
-    )
+    const memberKeys = new Set(members.map((row: any) => `${row.project_id}:${row.consultant_id}`))
     const generalOwnerOf = (project: any): string | null => {
       const candidate = project?.general_consultant_id ?? null
       if (!candidate) return null
@@ -141,28 +166,27 @@ export async function GET(request: Request) {
     }
 
     // ── Nume de responsabili, dintr-o singură interogare ──────────────────────
+    const ownerOf = (req: any): string | null =>
+      requestOwnerId({
+        assigned_to: req.assigned_to,
+        activity_id: req.activity_id,
+        activity: one<any>(req.activity),
+        generalOwnerId: generalOwnerOf(projectById.get(req.project_id)),
+      })
+
     const ownerIds = new Set<string>()
     for (const activity of activities) if (activity.assigned_to) ownerIds.add(activity.assigned_to)
     for (const req of requests) {
-      const own = req.assigned_to ?? one<any>(req.activity)?.assigned_to ?? null
-      if (own) ownerIds.add(own)
-      if (!req.activity_id) {
-        const general = generalOwnerOf(projectById.get(req.project_id))
-        if (general) ownerIds.add(general)
-      }
+      const owner = ownerOf(req)
+      if (owner) ownerIds.add(owner)
     }
 
     const ownerById = new Map<string, { full_name: string | null; email: string | null }>()
     if (ownerIds.size > 0) {
-      const { data: owners, error: ownersError } = await admin
-        .from('profiles')
-        .select('id, full_name, email')
-        .in('id', [...ownerIds])
-      if (ownersError) {
-        console.error('GET calendar owners error:', ownersError)
-        return NextResponse.json({ error: 'Failed to load calendar' }, { status: 500 })
-      }
-      for (const owner of owners ?? []) ownerById.set(owner.id, owner)
+      const owners = await fetchAllRows<any>('profiles', (from, to) =>
+        admin.from('profiles').select('id, full_name, email').in('id', [...ownerIds]).range(from, to)
+      )
+      for (const owner of owners) ownerById.set(owner.id, owner)
     }
 
     // ── Evenimente ───────────────────────────────────────────────────────────
@@ -205,12 +229,7 @@ export async function GET(request: Request) {
       const project = projectOf(req.project_id)
       const activity = one<any>(req.activity)
       const phase = one<any>(activity?.phase)
-      // Responsabilul cererii, cu revenire la activitatea-părinte și, pentru
-      // cererile generale, la consultantul de proiect (#70).
-      const ownerId = req.assigned_to
-        ?? activity?.assigned_to
-        ?? (activity ? null : generalOwnerOf(project))
-        ?? null
+      const ownerId = ownerOf(req)
 
       const href = activity
         ? `/projects/${req.project_id}?phase=${activity.phase_id}&activity=${activity.id}&document=${req.id}`
