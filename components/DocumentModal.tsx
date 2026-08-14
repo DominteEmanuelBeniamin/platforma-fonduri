@@ -667,14 +667,17 @@ export default function DocumentModal({
               {request.description}
             </p>
           )}
-          {/* Acțiuni rapide, atunci când nu există încă termen și/sau model — pe același rând */}
+          {/* Acțiuni rapide, atunci când nu există încă termen și/sau model — pe același rând.
+              Termenul și reminderul n-au sens la un document trimis clientului, dar
+              reatașarea da: altfel, odată eliminat documentul, cererea rămâne fără
+              nicio cale de a primi altul și dispare și din Drive. */}
           {(
-            (!localDeadline && !editingDeadline) ||
+            (!isOutgoing && !localDeadline && !editingDeadline) ||
             (!localAttachmentPath && !attachmentMissing) ||
-            request.status === 'pending'
-          ) && isAdminOrConsultant && !isOutgoing && (
+            (!isOutgoing && request.status === 'pending')
+          ) && isAdminOrConsultant && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              {!localDeadline && !editingDeadline && (
+              {!isOutgoing && !localDeadline && !editingDeadline && (
                 <button
                   onClick={() => setEditingDeadline(true)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-semibold hover:bg-indigo-100 transition-colors"
@@ -700,11 +703,11 @@ export default function DocumentModal({
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-semibold hover:bg-indigo-100 transition-colors disabled:opacity-50"
                   >
                     {attachmentActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                    Atașează model
+                    {isOutgoing ? 'Atașează documentul' : 'Atașează model'}
                   </button>
                 </>
               )}
-              {request.status === 'pending' && (() => {
+              {!isOutgoing && request.status === 'pending' && (() => {
                 // Reminder-ul are sens doar dacă avem unde trimite, clientul chiar
                 // vede cererea în platformă și există un termen de comunicat.
                 const reminderType = getReminderType(localDeadline)

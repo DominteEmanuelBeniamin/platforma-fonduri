@@ -7,7 +7,7 @@ import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { logAction } from '@/app/api/_utils/audit'
 import { isClientVisibleDocument } from '@/lib/client-visibility'
-import { latestVersionNumber } from '@/lib/document-versions'
+import { isLatestFileVersion } from '@/lib/document-versions'
 
 const BUCKET = 'project-files'
 const SIGNED_URL_EXPIRES_IN = 60 * 10 // 10 minute
@@ -338,11 +338,17 @@ export async function POST(request: Request) {
 
     if (access.profile.role === 'client') {
       const requirementIds = Array.from(new Set(typedProjectRows.map(file => file.requirement_id)))
+      // Ordonat pe (requirement_id, version_number desc), ca indexul: dacă
+      // plafonul de rânduri al PostgREST taie ceva, taie cereri întregi de la
+      // coadă, nu versiunea maximă a uneia — iar o cerere fără rânduri pică pe
+      // ramura de refuz de mai jos, nu pe una permisivă.
       const { data: versionRows, error: versionError } = await admin
         .from('files')
         .select('requirement_id, version_number')
         .in('requirement_id', requirementIds)
         .is('deleted_at', null)
+        .order('requirement_id', { ascending: true })
+        .order('version_number', { ascending: false })
 
       if (versionError) {
         console.error('bulk-archive: failed to validate file versions', {
@@ -359,12 +365,10 @@ export async function POST(request: Request) {
         versionsByRequirement.set(row.requirement_id, versions)
       }
 
-      const hasOldVersion = typedProjectRows.some(file => {
-        const latest = latestVersionNumber(
-          (versionsByRequirement.get(file.requirement_id) ?? []).map(version_number => ({ version_number }))
-        )
-        return latest === null || file.version_number !== latest
-      })
+      const hasOldVersion = typedProjectRows.some(file => !isLatestFileVersion(
+        file,
+        (versionsByRequirement.get(file.requirement_id) ?? []).map(version_number => ({ version_number })),
+      ))
 
       if (hasOldVersion) {
         return NextResponse.json({ error: 'Some files were not found' }, { status: 404 })

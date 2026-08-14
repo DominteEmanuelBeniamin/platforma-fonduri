@@ -10,43 +10,38 @@ import {
   type DriveSourcePhase,
   type DriveSourceRequest,
 } from '@/lib/drive-grouping'
-import DriveFilesView from './DriveFilesView'
+import DriveFilesView, { type DriveFolderChange } from './DriveFilesView'
 
 interface ProjectDocumentsViewProps {
   projectId: string
   requests: DriveSourceRequest[]
   phases: DriveSourcePhase[]
-  loading?: boolean
   error?: string | null
+  onRetry?: () => void
   activeFolderId?: string | null
-  onFolderChange?: (folderId: string | null) => void
-  onOpenRequest?: (request: DriveSourceRequest) => void
+  onFolderChange?: DriveFolderChange
+  /** Lipsă = rândurile nu se deschid (clientul n-are ce face în fișa cererii). */
+  onOpenRequest?: (requestId: string) => void
 }
 
 export default function ProjectDocumentsView({
   projectId,
   requests,
   phases,
-  loading = false,
   error = null,
+  onRetry,
   activeFolderId = null,
   onFolderChange,
   onOpenRequest,
 }: ProjectDocumentsViewProps) {
   const { apiFetch } = useAuth()
 
-  const documents = useMemo((): DriveDocument[] => {
-    const requestById = new Map(requests.map(request => [request.id, request]))
-    return buildDriveDocuments(requests, phases).map(document => ({
+  const documents = useMemo((): DriveDocument[] => (
+    buildDriveDocuments(requests, phases).map(document => ({
       ...document,
-      onRowClick: onOpenRequest
-        ? () => {
-            const request = requestById.get(document.requestId)
-            if (request) onOpenRequest(request)
-          }
-        : undefined,
+      onRowClick: onOpenRequest ? () => onOpenRequest(document.requestId) : undefined,
     }))
-  }, [onOpenRequest, phases, requests])
+  ), [onOpenRequest, phases, requests])
 
   const folders = useMemo((): DriveFolder[] => buildDriveFolders(documents, phases), [documents, phases])
 
@@ -57,8 +52,8 @@ export default function ProjectDocumentsView({
       storageKey={projectId}
       activeFolderId={activeFolderId}
       onFolderChange={onFolderChange}
-      loading={loading}
       error={error}
+      onRetry={onRetry}
       apiFetch={apiFetch}
     />
   )

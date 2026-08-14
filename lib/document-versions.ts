@@ -9,20 +9,27 @@ export function activeFiles<T extends VersionedFile>(files?: T[] | null): T[] {
   return (files || []).filter(file => !file?.deleted_at)
 }
 
-export function latestVersionNumber(files?: VersionedFile[] | null): number | null {
-  const active = activeFiles(files)
-  if (active.length === 0) return null
+/** Numărul de versiune, sau null dacă lipsește ori nu e numeric. */
+function versionOf(file: VersionedFile | null | undefined): number | null {
+  if (file?.version_number === null || file?.version_number === undefined) return null
+  const version = Number(file.version_number)
+  return Number.isFinite(version) ? version : null
+}
 
-  return active.reduce((latest, file) => {
-    const version = Number(file?.version_number)
-    return Number.isFinite(version) && version > latest ? version : latest
-  }, 0)
+export function latestVersionNumber(files?: VersionedFile[] | null): number | null {
+  let latest: number | null = null
+  for (const file of activeFiles(files)) {
+    const version = versionOf(file)
+    if (version === null) continue
+    if (latest === null || version > latest) latest = version
+  }
+  return latest
 }
 
 export function filterFilesForClient<T extends VersionedFile>(files?: T[] | null): T[] {
   const active = activeFiles(files)
   const latest = latestVersionNumber(active)
-  return latest === null ? [] : active.filter(file => file.version_number === latest)
+  return latest === null ? [] : active.filter(file => versionOf(file) === latest)
 }
 
 export function isLatestFileVersion(
@@ -30,5 +37,6 @@ export function isLatestFileVersion(
   allFiles?: VersionedFile[] | null,
 ): boolean {
   const latest = latestVersionNumber(allFiles)
-  return latest !== null && file?.version_number === latest
+  const version = versionOf(file)
+  return latest !== null && version !== null && version === latest
 }

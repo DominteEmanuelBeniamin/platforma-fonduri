@@ -65,9 +65,8 @@ function ProjectDetailsContent() {
   const [project, setProject] = useState<any>(null)
   const [phases, setPhases] = useState<ProjectPhase[]>([])
   const [allDocRequests, setAllDocRequests] = useState<any[]>([])
-  const [selectedDocumentRequest, setSelectedDocumentRequest] = useState<any | null>(null)
+  const [selectedDocumentRequestId, setSelectedDocumentRequestId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [documentsLoading, setDocumentsLoading] = useState(true)
   const [documentsError, setDocumentsError] = useState<string | null>(null)
   const [projectMembers, setProjectMembers] = useState<{ id: string; full_name: string | null; email: string }[]>([])
 
@@ -97,14 +96,25 @@ function ProjectDetailsContent() {
   const [newActivityName, setNewActivityName] = useState<Record<string, string>>({})
   const [addingActivity, setAddingActivity] = useState<Record<string, boolean>>({})
 
+  // Aceeași regulă ca `buildDriveDocuments`: dacă există rânduri în
+  // `attachments`, doar ele contează — altfel badge-ul ar număra un atașament
+  // legacy pe care Drive-ul nu-l arată, și cifrele n-ar mai corespunde.
   const documentEntriesCount = useMemo(() => {
     return allDocRequests.filter(req => {
-      const hasAttachment = req.attachments?.some((attachment: any) => !attachment.missing_at)
-        || (req.attachment_path && !req.attachment_missing_at)
+      const hasAttachment = req.attachments?.length
+        ? req.attachments.some((attachment: any) => !attachment.missing_at)
+        : Boolean(req.attachment_path && !req.attachment_missing_at)
       const hasFile = (req.files ?? []).some((file: any) => !file.deleted_at)
       return hasAttachment || hasFile
     }).length
   }, [allDocRequests])
+
+  // Derivat, nu snapshot: după `refreshDocs` modalul trebuie să vadă datele noi,
+  // nu obiectul capturat la click. Dacă cererea dispare, modalul se închide.
+  const selectedDocumentRequest = useMemo(
+    () => allDocRequests.find(req => req.id === selectedDocumentRequestId) ?? null,
+    [allDocRequests, selectedDocumentRequestId],
+  )
 
   // Ceva publicat, dar neanunțat încă printr-un digest — activează butonul „Anunță clientul"
   const hasUnnotifiedUpdates = useMemo(() => {
@@ -131,7 +141,6 @@ function ProjectDetailsContent() {
   const fetchAll = async () => {
     if (!projectId) return
     setLoading(true)
-    setDocumentsLoading(true)
     setDocumentsError(null)
     try {
       const [projRes, phasesRes, docsRes] = await Promise.all([
@@ -181,14 +190,13 @@ function ProjectDetailsContent() {
       if (docsRes.ok) {
         setAllDocRequests((await docsRes.json()).requests || [])
       } else {
-        setDocumentsError('Reîncearcă încărcarea proiectului.')
+        setDocumentsError('Reîncearcă încărcarea documentelor.')
       }
     } catch (error) {
       console.error('Project data load error:', error)
       setDocumentsError('Reîncearcă încărcarea documentelor.')
     } finally {
       setLoading(false)
-      setDocumentsLoading(false)
     }
   }
 
@@ -415,7 +423,7 @@ function ProjectDetailsContent() {
   }
 
   const handleSelectPhase = (phaseId: string) => {
-    setActiveView('phases')
+    setProjectView('phases')
     setLandingView('browse')
     setActivePhaseId(phaseId)
     setExpandedPhases(new Set([phaseId]))
@@ -424,7 +432,7 @@ function ProjectDetailsContent() {
   }
 
   const handleSelectGeneral = () => {
-    setActiveView('phases')
+    setProjectView('phases')
     setLandingView('browse')
     setActivePhaseId(GENERAL_ID)
     setExpandedPhases(new Set([GENERAL_ID]))
@@ -497,7 +505,7 @@ function ProjectDetailsContent() {
   // Cu requestId, deschide direct fișa cererii — zero click-uri suplimentare
   // pentru client între "ce am de făcut" și zona de încărcare.
   const jumpToActivity = (phaseId: string | null, activityId: string | null, requestId?: string) => {
-    setActiveView('phases')
+    setProjectView('phases')
     setLandingView('browse')
     if (activityId && phaseId) {
       // Document legat de o activitate dintr-o fază
@@ -541,18 +549,23 @@ function ProjectDetailsContent() {
 
   // Stabil între rendere: altfel `documents`/`folders` din Drive se reconstruiesc
   // la fiecare render al paginii.
-  const handleOpenDocumentRequest = useCallback((request: any) => {
-    setSelectedDocumentRequest(request)
+  const handleOpenDocumentRequest = useCallback((requestId: string) => {
+    setSelectedDocumentRequestId(requestId)
   }, [])
 
-  // push, nu replace: intrarea într-un dosar e o navigare, deci butonul de back
-  // al browserului (și gestul de back de pe telefon) trebuie să scoată din el.
-  const setDriveFolder = (folderId: string | null) => {
+  // `push` doar când utilizatorul chiar navighează — atunci butonul de back al
+  // browserului (și gestul de back de pe telefon) trebuie să-l scoată din dosar.
+  // Corectarea unui folder inexistent din URL folosește `replace`: cu `push` ar
+  // adăuga o intrare în istoric, iar Back ar reveni pe URL-ul invalid, care s-ar
+  // corecta din nou — o capcană din care back-ul n-ar mai ieși.
+  const setDriveFolder = (folderId: string | null, mode: 'navigate' | 'correct' = 'navigate') => {
     const params = new URLSearchParams(searchParams.toString())
     params.set('view', 'documents')
     if (folderId) params.set('folder', folderId)
     else params.delete('folder')
-    router.push(`/projects/${projectId}?${params.toString()}`, { scroll: false })
+    const url = `/projects/${projectId}?${params.toString()}`
+    if (mode === 'correct') router.replace(url, { scroll: false })
+    else router.push(url, { scroll: false })
   }
 
   // ─── Derived ──────────────────────────────────────────────────────────────
@@ -603,7 +616,7 @@ function ProjectDetailsContent() {
 
   const handleSearchSelect = (result: SearchResult) => {
     if (result.type === 'phase') {
-      setActiveView('phases')
+      setProjectView('phases')
       setLandingView('browse')
       setExpandedPhases(new Set([result.id]))
       setTimeout(() => {
@@ -816,11 +829,13 @@ function ProjectDetailsContent() {
               projectId={projectId!}
               requests={allDocRequests}
               phases={phases}
-              loading={documentsLoading}
               error={documentsError}
+              onRetry={refreshDocs}
               activeFolderId={targetFolderId}
               onFolderChange={setDriveFolder}
-              onOpenRequest={handleOpenDocumentRequest}
+              // Clientul n-are ce face în fișa cererii — încărcarea trăiește în
+              // „Faze & Activități", nu în modal. Fără handler, rândul nu se deschide.
+              onOpenRequest={canEdit ? handleOpenDocumentRequest : undefined}
             />
           ) : (
             <>
@@ -1073,7 +1088,7 @@ function ProjectDetailsContent() {
         <DocumentModal
           request={selectedDocumentRequest}
           projectId={projectId!}
-          onClose={() => setSelectedDocumentRequest(null)}
+          onClose={() => setSelectedDocumentRequestId(null)}
           onUpdate={refreshDocs}
           clientEmail={project?.profiles?.email ?? null}
           clientName={project?.profiles?.full_name ?? null}

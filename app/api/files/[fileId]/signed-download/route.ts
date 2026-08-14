@@ -69,18 +69,24 @@ export async function POST(
     }
 
     if (access.profile.role === 'client') {
-      const { data: requirementFiles, error: versionError } = await admin
+      // Doar rândul cu versiunea maximă, nu toate rândurile cererii: pe un
+      // requirement cu multe fișiere, plafonul de rânduri al PostgREST ar putea
+      // tăia tocmai versiunea curentă și i-am refuza clientului propriul document.
+      const { data: latestFile, error: versionError } = await admin
         .from('files')
         .select('version_number')
         .eq('requirement_id', typedFileRow.requirement_id)
         .is('deleted_at', null)
+        .order('version_number', { ascending: false })
+        .limit(1)
+        .maybeSingle()
 
       if (versionError) {
         console.error('latest file version lookup error:', versionError)
         return NextResponse.json({ error: 'Failed to validate file access' }, { status: 500 })
       }
 
-      if (!isLatestFileVersion(typedFileRow, requirementFiles)) {
+      if (!isLatestFileVersion(typedFileRow, latestFile ? [latestFile] : [])) {
         return NextResponse.json({ error: 'File not found' }, { status: 404 })
       }
     }

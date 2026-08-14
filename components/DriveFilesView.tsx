@@ -3,7 +3,7 @@
 import { useMemo, useState, useRef, useEffect } from 'react'
 import {
   FileText, FileSpreadsheet, Image as ImageIcon,
-  Download, Eye, ArrowLeft,
+  Download, Eye, ArrowLeft, RefreshCw,
   Search, FolderOpen, ChevronDown, Grid3X3, List,
 } from 'lucide-react'
 import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
@@ -29,7 +29,6 @@ export interface DriveRow {
   id: string           // unique row key
   fileId?: string      // used for file download + image preview API
   requestId?: string   // used for request attachment download
-  attachmentId?: string // identifies one attachment when a request has multiple
   downloadKind?: 'file' | 'requestAttachment'
   storagePath: string  // determines file type icon + image detection
   displayName?: string
@@ -37,7 +36,6 @@ export interface DriveRow {
   uploadedAt: string
 
   docName: string
-  entryType?: 'submission_file' | 'request_attachment' | 'outgoing_document'
   entryLabel?: string
   docStatus: DriveDocStatus
 
@@ -50,25 +48,59 @@ export interface DriveRow {
   onRowClick?: () => void
 }
 
-interface DriveFilesViewProps {
-  /** Vederea plată (pagina de user/admin). Ignorat când se dau `documents`. */
-  rows?: DriveRow[]
-  documents?: DriveDocument[]
-  folders?: DriveFolder[]
+/**
+ * `folderId === null` înseamnă „ieși din dosar".
+ * `mode: 'correct'` e navigare corectivă (folder inexistent în URL) și trebuie
+ * să folosească `replace`, ca să nu bage o intrare în istoric peste care Back
+ * s-ar întoarce la loc.
+ */
+export type DriveFolderChange = (folderId: string | null, mode?: 'navigate' | 'correct') => void
+
+interface DriveCommonProps {
+  apiFetch: (url: string, opts?: RequestInit) => Promise<Response>
+}
+
+/** Vederea pe dosare, folosită în pagina de proiect. */
+interface DriveLogicalProps extends DriveCommonProps {
+  documents: DriveDocument[]
+  folders: DriveFolder[]
   storageKey?: string
   activeFolderId?: string | null
-  onFolderChange?: (folderId: string | null) => void
-  loading?: boolean
+  onFolderChange?: DriveFolderChange
   error?: string | null
+  onRetry?: () => void
+
+  rows?: never
+  secondaryColumnLabel?: never
+  emptyText?: never
+  standalone?: never
+}
+
+/** Vederea plată, folosită în pagina de utilizator. */
+interface DriveFlatProps extends DriveCommonProps {
+  rows: DriveRow[]
   secondaryColumnLabel?: string
-  apiFetch: (url: string, opts?: RequestInit) => Promise<Response>
   emptyText?: string
   /**
    * standalone=true  → no fixed height, page-level scroll (user page)
    * standalone=false → flex h-full with internal overflow (panel inside project)
    */
   standalone?: boolean
+
+  documents?: never
+  folders?: never
+  storageKey?: never
+  activeFolderId?: never
+  onFolderChange?: never
+  error?: never
+  onRetry?: never
 }
+
+/**
+ * Union discriminat pe `documents`: props-urile unei ramuri nu mai pot fi
+ * pasate celeilalte, unde ar fi fost ignorate în tăcere.
+ */
+type DriveFilesViewProps = DriveLogicalProps | DriveFlatProps
 
 // ── Internal types ────────────────────────────────────────────────────────────
 
@@ -197,9 +229,9 @@ function LogicalDriveFilesView({
   storageKey,
   activeFolderId,
   onFolderChange,
-  loading = false,
   error = null,
-}: Pick<DriveFilesViewProps, 'documents' | 'folders' | 'apiFetch' | 'storageKey' | 'activeFolderId' | 'onFolderChange' | 'loading' | 'error'>) {
+  onRetry,
+}: Omit<DriveLogicalProps, 'rows' | 'secondaryColumnLabel' | 'emptyText' | 'standalone'>) {
   const { showToast } = useToast()
   const [browseMode, setBrowseMode] = useState<'folders' | 'flat'>('folders')
   const [search, setSearch] = useState('')
@@ -219,7 +251,7 @@ function LogicalDriveFilesView({
     } catch { /* sessionStorage can be unavailable in privacy modes */ }
   }, [storageKey])
 
-  const allAssets = useMemo(() => (documents ?? []).flatMap(document => [
+  const allAssets = useMemo(() => documents.flatMap(document => [
     ...document.attachments,
     ...document.versions.flatMap(version => version.assets),
   ]), [documents])
@@ -251,22 +283,23 @@ function LogicalDriveFilesView({
     }
   }
 
-  const selectedFolder = folders?.find(folder => folder.id === activeFolderId) ?? null
+  const selectedFolder = folders.find(folder => folder.id === activeFolderId) ?? null
   const effectiveFolderId = selectedFolder ? activeFolderId : null
   const hasSearch = search.trim().length > 0
 
-  // Curățăm din URL doar folderele care chiar nu există. Cât timp datele încă
-  // se încarcă, lista de foldere e goală și un deep-link valid ar fi șters.
+  // Curățăm din URL doar folderele care chiar nu există — și doar după ce avem
+  // ce compara. Cât timp lista de foldere e goală (datele încă se încarcă) un
+  // deep-link valid ar fi șters. Corectarea e `replace`, nu `push`.
   useEffect(() => {
-    if (loading || !folders?.length) return
-    if (activeFolderId && !selectedFolder) onFolderChange?.(null)
-  }, [activeFolderId, folders, loading, onFolderChange, selectedFolder])
+    if (folders.length === 0) return
+    if (activeFolderId && !selectedFolder) onFolderChange?.(null, 'correct')
+  }, [activeFolderId, folders, onFolderChange, selectedFolder])
 
   const filteredDocuments = useMemo(() => {
     const query = search.trim().toLowerCase()
     const source = !hasSearch && browseMode === 'folders' && effectiveFolderId
-      ? (documents ?? []).filter(document => document.folderId === effectiveFolderId)
-      : documents ?? []
+      ? documents.filter(document => document.folderId === effectiveFolderId)
+      : documents
 
     return source.filter(document => {
       if (filterStatus !== 'all' && document.docStatus !== filterStatus) return false
@@ -501,11 +534,26 @@ function LogicalDriveFilesView({
     </div>
   )
 
-  if (loading) {
-    return <div className="flex h-full items-center justify-center p-8 text-sm text-slate-500">Se încarcă documentele…</div>
-  }
-  if (error) {
-    return <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center"><p className="font-semibold text-slate-800">Documentele nu au putut fi încărcate</p><p className="text-sm text-slate-500">{error}</p></div>
+  // Ecranul plin de eroare doar când chiar n-avem ce arăta. Dacă documentele
+  // sunt deja încărcate, un refresh eșuat nu trebuie să le ascundă — altfel
+  // singura ieșire era reîncărcarea paginii.
+  if (error && documents.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+        <p className="font-semibold text-slate-800">Documentele nu au putut fi încărcate</p>
+        <p className="text-sm text-slate-500">{error}</p>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600"
+          >
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+            Reîncearcă
+          </button>
+        )}
+      </div>
+    )
   }
 
   const showFolders = browseMode === 'folders' && !effectiveFolderId && !hasSearch
@@ -514,6 +562,23 @@ function LogicalDriveFilesView({
   return (
     <div className="flex h-full min-h-0 flex-col bg-white" style={{ fontFamily: "'Google Sans', Roboto, Arial, sans-serif" }}>
       {renderToolbar()}
+      {error && (
+        <div role="status" className="mx-4 mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+          <p className="min-w-0 flex-1 text-xs text-amber-800">
+            Lista poate fi neactualizată. {error}
+          </p>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="inline-flex min-h-8 flex-shrink-0 items-center gap-1.5 rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-600"
+            >
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+              Reîncearcă
+            </button>
+          )}
+        </div>
+      )}
       {browseMode === 'folders' && (effectiveFolderId || hasSearch) && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pb-3 text-sm">
           <button
@@ -534,11 +599,11 @@ function LogicalDriveFilesView({
       )}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
         {showFolders ? (
-          (folders ?? []).length === 0 ? (
+          folders.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-24 text-center"><FolderOpen className="mb-4 h-16 w-16 text-slate-200" /><p className="font-semibold text-slate-700">Nu există foldere</p><p className="text-sm text-slate-500">Documentele vor apărea aici când vor fi disponibile.</p></div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {(folders ?? []).map(folder => <button type="button" key={folder.id} onClick={() => onFolderChange?.(folder.id)} className="flex items-center gap-3 rounded-xl border border-slate-200 p-4 text-left transition hover:border-indigo-300 hover:bg-indigo-50/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600"><FolderOpen className="h-8 w-8 flex-shrink-0 text-indigo-500" /><span className="min-w-0 flex-1"><span className="block truncate font-semibold text-slate-800">{folder.name}</span><span className="text-xs text-slate-500">{folder.documentCount} {folder.documentCount === 1 ? 'document' : 'documente'}</span></span><span className="text-slate-300">›</span></button>)}
+              {folders.map(folder => <button type="button" key={folder.id} onClick={() => onFolderChange?.(folder.id)} className="flex items-center gap-3 rounded-xl border border-slate-200 p-4 text-left transition hover:border-indigo-300 hover:bg-indigo-50/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600"><FolderOpen className="h-8 w-8 flex-shrink-0 text-indigo-500" /><span className="min-w-0 flex-1"><span className="block truncate font-semibold text-slate-800">{folder.name}</span><span className="text-xs text-slate-500">{folder.documentCount} {folder.documentCount === 1 ? 'document' : 'documente'}</span></span><span className="text-slate-300">›</span></button>)}
             </div>
           )
         ) : noResults ? (
@@ -597,7 +662,7 @@ function FlatDriveFilesView({
 
   function rowActionId(row: DriveRow) {
     return row.downloadKind === 'requestAttachment'
-      ? `attachment-${row.requestId}-${row.attachmentId || row.id}`
+      ? `attachment-${row.requestId}-${row.id}`
       : row.fileId!
   }
 
@@ -615,7 +680,6 @@ function FlatDriveFilesView({
       body: JSON.stringify({
         expiresIn: 300,
         ...(disposition ? { disposition } : {}),
-        ...(row.attachmentId ? { attachment_id: row.attachmentId } : {}),
       }),
     })
     const data = await res.json().catch(() => ({}))
@@ -648,7 +712,6 @@ function FlatDriveFilesView({
       type: row.downloadKind === 'requestAttachment' ? 'attachment' : 'file',
       id: row.downloadKind === 'requestAttachment' ? row.requestId! : row.fileId!,
       name: getDisplayName(row),
-      attachmentId: row.attachmentId,
     }))
   }
 
@@ -1036,8 +1099,8 @@ export default function DriveFilesView(props: DriveFilesViewProps) {
         storageKey={props.storageKey}
         activeFolderId={props.activeFolderId}
         onFolderChange={props.onFolderChange}
-        loading={props.loading}
         error={props.error}
+        onRetry={props.onRetry}
       />
     )
   }
