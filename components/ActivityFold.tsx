@@ -5,8 +5,6 @@ import { ChevronRight, Clock } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { ProjectActivity } from '@/components/ProjectPhasesSidebar'
 import PublishStatusControl from '@/components/PublishStatusControl'
-import type { ReminderEntityState } from '@/lib/reminder-state'
-import ReminderStatus from '@/components/ReminderStatus'
 
 interface Member {
   id: string
@@ -29,8 +27,6 @@ interface ActivityFoldProps {
   onPublish: () => void
   publishBlockers?: string[]
   onSetDeadline?: (value: string) => Promise<void> | void
-  reminderState?: ReminderEntityState
-  reminderStateLoading?: boolean
   children: ReactNode
 }
 
@@ -55,8 +51,6 @@ export default function ActivityFold({
   onPublish,
   publishBlockers,
   onSetDeadline,
-  reminderState,
-  reminderStateLoading = false,
   children,
 }: ActivityFoldProps) {
   const deadline = activity.deadline_at ? new Date(activity.deadline_at) : null
@@ -67,8 +61,6 @@ export default function ActivityFold({
   const deadlineLabel = deadline
     ? deadline.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })
     : null
-  const reminderThreshold = reminderState?.current_threshold
-
   return (
     <Collapsible.Root
       id={`activity-${activity.id}`}
@@ -85,10 +77,10 @@ export default function ActivityFold({
           Enter/Space le-ar fura. Deschiderea de la tastatură stă pe chevron. */}
       <div
         onClick={onOpenChange}
-        className="flex items-center gap-2.5 px-3.5 py-3 cursor-pointer hover:bg-[var(--p-surface-2)] transition-colors"
+        className="grid grid-cols-[minmax(0,1fr)_auto] sm:flex sm:items-center gap-x-2.5 gap-y-2 px-3.5 py-3 cursor-pointer hover:bg-[var(--p-surface-2)] transition-colors"
       >
-        <div className="min-w-0 flex items-center gap-2.5 text-left">
-          <span className="text-sm font-semibold text-[var(--p-ink)] truncate">{activity.name}</span>
+        <div className="min-w-0 flex flex-wrap items-center gap-2.5 text-left">
+          <span className="basis-full sm:basis-auto text-sm font-semibold text-[var(--p-ink)] break-words">{activity.name}</span>
           {deadlineLabel && (
             <span
               className={`hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold px-1.5 py-0.5 rounded-md flex-shrink-0 ${
@@ -104,17 +96,21 @@ export default function ActivityFold({
               {requestCount} cerer{requestCount === 1 ? 'e' : 'i'}
             </span>
           )}
-          {visibility === 'published' && <span className="hidden md:inline-flex flex-shrink-0">
-            <ReminderStatus
-              state={reminderState}
-              threshold={reminderThreshold ?? null}
-              loading={reminderStateLoading}
-              summary={reminderState?.recipient_summary}
-              compact
-            />
-          </span>}
         </div>
 
+        <button
+          type="button"
+          onClick={e => { e.stopPropagation(); onOpenChange() }}
+          aria-expanded={open}
+          aria-label={open ? `Restrânge activitatea ${activity.name}` : `Extinde activitatea ${activity.name}`}
+          className="sm:order-last flex-shrink-0 rounded p-0.5 text-[var(--p-ink-faint)] hover:bg-[var(--p-surface-2)]"
+        >
+          <ChevronRight
+            className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+          />
+        </button>
+
+        <div className="col-span-2 flex flex-wrap items-center gap-2 sm:contents">
         {/* Vizibil și pe telefon: responsabilul e condiție de publicare (#70),
             iar selectul de aici e singurul loc din care se atribuie. */}
         <div className="flex items-center flex-shrink-0">
@@ -145,7 +141,7 @@ export default function ActivityFold({
           )}
         </div>
 
-        <div className="flex-1" />
+        <div className="hidden sm:block flex-1" />
 
         {/* Controlul își oprește singur propagarea pe ramurile interactive;
             pe cea pasivă, clickul trebuie să ajungă la rând. */}
@@ -159,18 +155,7 @@ export default function ActivityFold({
             size="sm"
           />
         </div>
-
-        <button
-          type="button"
-          onClick={e => { e.stopPropagation(); onOpenChange() }}
-          aria-expanded={open}
-          aria-label={open ? `Restrânge activitatea ${activity.name}` : `Extinde activitatea ${activity.name}`}
-          className="flex-shrink-0 rounded p-0.5 text-[var(--p-ink-faint)] hover:bg-[var(--p-surface-2)]"
-        >
-          <ChevronRight
-            className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
-          />
-        </button>
+        </div>
       </div>
       <Collapsible.Content>
         <div className="border-t border-[var(--p-border)]">{children}</div>

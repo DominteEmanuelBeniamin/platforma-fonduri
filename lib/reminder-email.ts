@@ -1,4 +1,4 @@
-import { formatDeadline, REMINDER_LABELS, type ReminderType } from './document-reminder.ts'
+import { formatDeadline, type ReminderType } from './document-reminder.ts'
 
 export type ReminderEmailAudience = 'client' | 'consultant'
 
@@ -79,7 +79,7 @@ function sortItems(items: ReminderEmailItem[]) {
 function itemText(item: ReminderEmailItem) {
   const details = [
     `- ${item.name} — ${item.projectTitle}`,
-    `  ${REMINDER_LABELS[item.threshold]} · ${urgencyText(item)}`,
+    `  ${urgencyText(item)}`,
     `  Termen: ${formatDeadline(item.deadlineAt)}`,
     item.description ? `  Detalii: ${item.description}` : null,
     `  Deschide: ${item.url}`,
@@ -93,7 +93,7 @@ function itemHtml(item: ReminderEmailItem) {
     : ''
   return '<li style="margin:0 0 14px;padding:14px 16px;border:1px solid #e2e8f0;border-radius:8px;list-style-position:inside;">' +
     `<a href="${escapeHtml(item.url)}" style="color:#4f46e5;font-weight:600;text-decoration:none;">${escapeHtml(item.name)}</a>` +
-    `<div style="margin-top:5px;color:#475569;font-size:13px;">${escapeHtml(item.projectTitle)} · ${escapeHtml(REMINDER_LABELS[item.threshold])} · ${escapeHtml(urgencyText(item))}</div>` +
+    `<div style="margin-top:5px;color:#475569;font-size:13px;">${escapeHtml(item.projectTitle)} · ${escapeHtml(urgencyText(item))}</div>` +
     `<div style="margin-top:5px;color:#64748b;font-size:13px;">Termen: ${escapeHtml(formatDeadline(item.deadlineAt))}</div>` +
     description +
     '</li>'

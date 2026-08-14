@@ -31,11 +31,13 @@ import {
 } from '@/lib/document-reminder'
 import type { ReminderEntityState } from '@/lib/reminder-state'
 import ReminderStatus, { getReminderDisplayStatus } from '@/components/ReminderStatus'
+import { REQUIREMENT_LABELS, type RequirementType } from '@/lib/requirement-type'
 
 interface DocumentRequest {
   id: string
   name: string
   description: string | null
+  requirement_type?: RequirementType
   status: 'pending' | 'review' | 'approved' | 'rejected'
   attachment_path: string | null
   attachment_missing_at?: string | null
@@ -612,6 +614,12 @@ export default function DocumentModal({
   if (!mounted) return null
 
   const StatusIcon = statusConfig.icon
+  const requirementType = request.requirement_type ?? 'obligatoriu'
+  const requirementStyle = requirementType === 'obligatoriu'
+    ? 'bg-rose-50 text-rose-700'
+    : requirementType === 'daca_e_cazul'
+    ? 'bg-violet-50 text-violet-700'
+    : 'bg-slate-100 text-slate-600'
 
   const modalContent = (
     <div
@@ -637,6 +645,9 @@ export default function DocumentModal({
               <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${statusConfig.bg} ${statusConfig.text}`}>
                 <StatusIcon className="w-3.5 h-3.5" />
                 {statusConfig.label}
+              </span>
+              <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${requirementStyle}`}>
+                {REQUIREMENT_LABELS[requirementType]}
               </span>
             </div>
             <button
@@ -727,11 +738,10 @@ export default function DocumentModal({
                 const badge = REMINDER_BADGE[threshold]
                 return (
                   <div className="flex flex-wrap items-center gap-2">
-                    <ReminderStatus state={reminderState} threshold={threshold} loading={reminderStateLoading} compact />
-                    {!reminderStateLoading && <button
+                    <button
                       type="button"
                       onClick={sendReminder}
-                      disabled={sendingReminder || claimed}
+                      disabled={sendingReminder || claimed || reminderStateLoading}
                       title={alreadySent
                         ? `Trimis pe ${sentAt ? new Date(sentAt).toLocaleDateString('ro-RO') : 'recent'} — apasă pentru a retrimite`
                         : 'Trimite emailul de reminder către client'}
@@ -746,10 +756,10 @@ export default function DocumentModal({
                       : alreadySent || skipped
                         ? <CheckCircle2 className="w-3 h-3" />
                         : <Mail className="w-3 h-3" />}
-                      {sendingReminder ? 'Se trimite...' : claimed ? 'Reminder în curs' : alreadySent || skipped ? 'Trimite din nou' : 'Trimite reminder clientului'}
+                      {sendingReminder ? 'Se trimite...' : reminderStateLoading || claimed ? 'Se verifică...' : alreadySent || skipped ? 'Trimite din nou' : 'Trimite reminder clientului'}
                       <span className="mx-0.5 opacity-50">·</span>
                       {REMINDER_LABELS[threshold]}
-                    </button>}
+                    </button>
                   </div>
                 )
               })()}
@@ -809,11 +819,7 @@ export default function DocumentModal({
           )}
 
           {isAdminOrConsultant && (
-            <ReminderStatus
-              state={reminderState}
-              threshold={reminderState?.current_threshold ?? getManualReminderType(localDeadline)}
-              loading={reminderStateLoading}
-            />
+            <ReminderStatus state={reminderState} />
           )}
 
           {/* Responsabilul cererii — condiție de publicare (#70) */}

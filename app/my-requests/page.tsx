@@ -21,7 +21,7 @@ import {
   REMINDER_BADGE,
 } from '@/lib/document-reminder'
 import { useReminderStates } from '@/hooks/useReminderStates'
-import ReminderStatus, { getReminderDisplayStatus } from '@/components/ReminderStatus'
+import { getReminderDisplayStatus } from '@/components/ReminderStatus'
 
 export default function MyRequestsPage() {
   const router = useRouter()
@@ -276,7 +276,9 @@ export default function MyRequestsPage() {
                             Reminder
                           </div>
                         ) : reminderStatesLoading ? (
-                          <ReminderStatus state={state} threshold={threshold} loading compact />
+                          <div className="flex-shrink-0 p-2 text-slate-300" aria-label="Se verifică reminderul">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          </div>
                         ) : (() => {
                           const sentAt = thresholdState?.sent_at ?? null
                           const isSent = displayStatus === 'sent'
@@ -289,30 +291,27 @@ export default function MyRequestsPage() {
                             ? `Trimis pe ${sentDate} — apasă pentru a retrimite`
                             : REMINDER_LABELS[threshold]
                           return (
-                            <div className="flex flex-col items-end gap-1">
-                              <ReminderStatus state={state} threshold={threshold} compact />
-                              <button
-                                onClick={() => sendReminder(req.id, req.name)}
-                                disabled={!!sendingId || isClaimed}
-                                title={tooltipTitle}
-                                className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all hover:shadow-sm active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${
-                                  isSent
-                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'
-                                    : isSkipped
-                                    ? 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
-                                    : `${badge.bg} ${badge.text} ${badge.border}`
-                                }`}
-                              >
-                                {isSending
-                                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  : isSent || isSkipped
-                                  ? <CheckCircle2 className="w-3.5 h-3.5" />
-                                  : <Mail className="w-3.5 h-3.5" />}
-                                <span className="hidden sm:inline">
-                                  {isSending ? 'Se trimite...' : isClaimed ? 'În curs' : isSent || isSkipped ? 'Trimite din nou' : 'Reminder'}
-                                </span>
-                              </button>
-                            </div>
+                            <button
+                              onClick={() => sendReminder(req.id, req.name)}
+                              disabled={!!sendingId || isClaimed}
+                              title={tooltipTitle}
+                              className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all hover:shadow-sm active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${
+                                isSent
+                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'
+                                  : isSkipped
+                                  ? 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                                  : `${badge.bg} ${badge.text} ${badge.border}`
+                              }`}
+                            >
+                              {isSending
+                                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                : isSent || isSkipped
+                                ? <CheckCircle2 className="w-3.5 h-3.5" />
+                                : <Mail className="w-3.5 h-3.5" />}
+                              <span className="hidden sm:inline">
+                                {isSending ? 'Se trimite...' : isClaimed ? 'În curs' : isSent || isSkipped ? 'Trimite din nou' : 'Reminder'}
+                              </span>
+                            </button>
                           )
                         })()
                       )}
