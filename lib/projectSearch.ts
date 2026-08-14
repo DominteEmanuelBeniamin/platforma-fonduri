@@ -1,3 +1,5 @@
+import type { ProjectPhase } from '@/components/ProjectPhasesSidebar'
+
 export type SearchResultType = 'phase' | 'activity' | 'document_request'
 
 export interface SearchResult {
@@ -12,13 +14,28 @@ export interface SearchResult {
   status: string | null
 }
 
+interface SearchDocumentRequest {
+  id: string
+  name: string
+  description?: string | null
+  is_outgoing?: boolean
+  deleted_at?: string | null
+  activity_id?: string | null
+  status?: string | null
+  activity?: {
+    id?: string | null
+    name?: string | null
+    phase_id?: string | null
+  } | null
+}
+
 /**
  * Construiește indexul de căutare din datele deja încărcate în pagina proiectului
  * (fazele cu activitățile lor + toate cererile de documente) — fără fetch nou.
  */
-export function buildSearchIndex(phases: any[], allDocRequests: any[]): SearchResult[] {
+export function buildSearchIndex(phases: ProjectPhase[], allDocRequests: SearchDocumentRequest[]): SearchResult[] {
   const results: SearchResult[] = []
-  const phaseNameById = new Map(phases.map((p: any) => [p.id, p.name]))
+  const phaseNameById = new Map(phases.map(phase => [phase.id, phase.name]))
 
   for (const phase of phases) {
     results.push({
