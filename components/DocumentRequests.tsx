@@ -34,14 +34,15 @@ import PublishStatusControl from './PublishStatusControl'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { usePatchField } from '@/hooks/usePatchField'
+import { useReminderStates } from '@/hooks/useReminderStates'
+import ReminderStatus, { getReminderDisplayStatus } from '@/components/ReminderStatus'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { buildPreviewPageUrl, isPreviewableFile, openInNewTab } from '@/lib/file-preview'
 import { publishBlockers } from '@/lib/publish-rules'
 import {
-  getReminderType,
+  getManualReminderType,
   REMINDER_LABELS,
   REMINDER_BADGE,
-  type ReminderType,
 } from '@/lib/document-reminder'
 import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS } from '@/lib/requirement-type'
 
@@ -77,8 +78,6 @@ interface DocumentRequest {
     missing_checked_at?: string | null
   }[]
   deadline_at: string | null
-  reminder_sent_at?: string | null
-  reminder_type_sent?: ReminderType | null
   created_by: string | null
   created_at: string
   deleted_at?: string | null
@@ -412,7 +411,10 @@ export default function DocumentRequests({
       {
         fallback: 'Nu am putut salva termenul. Reîncearcă.',
         success: 'Termenul limită a fost salvat.',
-        refresh: fetchRequests,
+        refresh: async () => {
+          await fetchRequests()
+          await refreshReminderStates()
+        },
       },
     )
 
@@ -445,6 +447,7 @@ export default function DocumentRequests({
       const data = await res.json().catch(() => null)
       if (res.ok) {
         await fetchRequests()
+        await refreshReminderStates()
         showToast(data?.warning || 'Reminder-ul a fost trimis clientului.', data?.warning ? 'warning' : 'success')
       } else {
         showToast(data?.error || 'Nu am putut trimite reminder-ul. Reîncearcă.', 'error')
@@ -464,6 +467,14 @@ export default function DocumentRequests({
     }
     return src
   }, [externalRequests, internalRequests, activityId])
+
+  const reminderIds = useMemo(() => requests.map(request => request.id), [requests])
+  const { states: reminderStates, refresh: refreshReminderStates, loading: reminderStatesLoading } = useReminderStates(
+    apiFetch,
+    'request',
+    reminderIds,
+    profile?.role === 'admin' || profile?.role === 'consultant',
+  )
 
   // Documente trimise de consultant CĂTRE client (informative) — nivel proiect
   const outgoingDocs = useMemo(() => {
@@ -1601,25 +1612,33 @@ export default function DocumentRequests({
                           </div>
 
                           {/* ── Buton reminder client ── */}
-                          {isAdminOrConsultant && clientEmail && req.status === 'pending' && (() => {
-                            const reminderType = getReminderType(req.deadline_at)
+                          {isAdminOrConsultant && clientEmail && (req.status === 'pending' || req.status === 'rejected') && (() => {
+                            const reminderType = getManualReminderType(req.deadline_at)
                             if (!reminderType) return null
                             // Reminder-ul trimite clientul spre platformă — dacă cererea e
                             // încă draft, acolo nu găsește nimic. Publicarea vine prima.
                             if (!isRequestClientVisible(req)) return null
-                            const badge = REMINDER_BADGE[reminderType]
+                            const state = reminderStates[req.id]
+                            const threshold = state?.current_threshold ?? reminderType
+                            const thresholdState = state?.thresholds[threshold]
+                            const sentAt = thresholdState?.sent_at ?? null
+                            const badge = REMINDER_BADGE[threshold]
                             const isSending = sendingReminderId === req.id
-                            const alreadySent = !!req.reminder_sent_at && req.reminder_type_sent === reminderType
+                            const displayStatus = getReminderDisplayStatus(state, threshold)
+                            const alreadySent = displayStatus === 'sent'
+                            const skipped = displayStatus === 'skipped'
+                            const claimed = displayStatus === 'claimed'
                             return (
                               <div className="mt-3" onClick={(e) => e.stopPropagation()}>
-                                <button
+                                <ReminderStatus state={state} threshold={threshold} loading={reminderStatesLoading} compact />
+                                {!reminderStatesLoading && <button
                                   type="button"
                                   onClick={() => sendReminder(req.id, req.name)}
-                                  disabled={!!sendingReminderId}
+                                  disabled={!!sendingReminderId || claimed}
                                   title={alreadySent
-                                    ? `Trimis pe ${new Date(req.reminder_sent_at!).toLocaleDateString('ro-RO')} — apasă pentru a retrimite`
+                                    ? `Trimis pe ${sentAt ? new Date(sentAt).toLocaleDateString('ro-RO') : 'recent'} — apasă pentru a retrimite`
                                     : 'Trimite emailul de reminder către client'}
-                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-opacity hover:opacity-75 disabled:opacity-60 disabled:cursor-not-allowed ${
+                                  className={`mt-1 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-opacity hover:opacity-75 disabled:opacity-60 disabled:cursor-not-allowed ${
                                     alreadySent
                                       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                       : `${badge.bg} ${badge.text} ${badge.border}`
@@ -1627,13 +1646,13 @@ export default function DocumentRequests({
                                 >
                                   {isSending
                                     ? <Loader2 className="w-3 h-3 animate-spin" />
-                                    : alreadySent
+                                    : alreadySent || skipped
                                     ? <CheckCircle2 className="w-3 h-3" />
                                     : <Mail className="w-3 h-3" />}
-                                  {isSending ? 'Se trimite...' : alreadySent ? 'Reminder trimis' : 'Trimite reminder clientului'}
+                                  {isSending ? 'Se trimite...' : claimed ? 'Reminder în curs' : alreadySent || skipped ? 'Trimite din nou' : 'Trimite reminder clientului'}
                                   <span className="mx-0.5 opacity-50">·</span>
-                                  {REMINDER_LABELS[reminderType]}
-                                </button>
+                                  {REMINDER_LABELS[threshold]}
+                                </button>}
                               </div>
                             )
                           })()}
@@ -1991,11 +2010,16 @@ export default function DocumentRequests({
           request={selectedRequest}
           projectId={projectId}
           onClose={() => setSelectedRequest(null)}
-          onUpdate={fetchRequests}
+          onUpdate={async () => {
+            await fetchRequests()
+            await refreshReminderStates()
+          }}
           clientEmail={clientEmail}
           clientName={clientName}
           projectTitle={projectTitle}
           clientVisible={isRequestClientVisible(selectedRequest)}
+          reminderState={reminderStates[selectedRequest.id]}
+          reminderStateLoading={reminderStatesLoading}
           projectMembers={projectMembers}
         />
       )}

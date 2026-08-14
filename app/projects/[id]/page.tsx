@@ -36,6 +36,7 @@ import { publishBlockers } from '@/lib/publish-rules'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { usePatchField } from '@/hooks/usePatchField'
+import { useReminderStates } from '@/hooks/useReminderStates'
 
 // Secțiunea distinctă „Cereri generale" (documente fără fază/activitate)
 const GENERAL_ID = '__general__'
@@ -65,6 +66,16 @@ function ProjectDetailsContent() {
   const [allDocRequests, setAllDocRequests] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [projectMembers, setProjectMembers] = useState<{ id: string; full_name: string | null; email: string }[]>([])
+  const activityIds = useMemo(
+    () => phases.flatMap(phase => (phase.activities ?? []).map(activity => activity.id)),
+    [phases],
+  )
+  const { states: activityReminderStates, refresh: refreshActivityReminderStates, loading: activityReminderStatesLoading } = useReminderStates(
+    apiFetch,
+    'activity',
+    activityIds,
+    profile?.role === 'admin' || profile?.role === 'consultant',
+  )
 
   const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set())
   const [expandedActivityIds, setExpandedActivityIds] = useState<Set<string>>(new Set())
@@ -271,14 +282,16 @@ function ProjectDetailsContent() {
   const handleAssignActivity = (phaseId: string, activityId: string, assignedTo: string | null) =>
     patchActivityField(phaseId, activityId, { assigned_to: assignedTo }, 'Nu am putut atribui consultantul. Reîncearcă.')
 
-  const saveActivityDeadline = (phaseId: string, activityId: string, deadline: string) =>
-    patchActivityField(
+  const saveActivityDeadline = async (phaseId: string, activityId: string, deadline: string) => {
+    await patchActivityField(
       phaseId,
       activityId,
       { deadline_at: deadline },
       'Nu am putut salva termenul. Reîncearcă.',
       'Termenul limită a fost salvat.',
     )
+    await refreshActivityReminderStates()
+  }
 
   const handleAddActivity = async (phaseId: string) => {
     const name = (newActivityName[phaseId] || '').trim()
@@ -711,7 +724,10 @@ function ProjectDetailsContent() {
             onSelectPhase={handleSelectPhase}
             onSelectGeneral={handleSelectGeneral}
             onToggleExpand={handleToggleExpand}
-            onRefresh={fetchAll}
+            onRefresh={async () => {
+              await fetchAll()
+              await refreshActivityReminderStates()
+            }}
             onReorderRefresh={refreshPhases}
             onTeamChange={fetchProjectMembers}
             apiFetch={apiFetch}
@@ -863,6 +879,8 @@ function ProjectDetailsContent() {
                           currentAssignee: activity.assigned_to,
                         })}
                         onSetDeadline={date => saveActivityDeadline(phase.id, activity.id, date)}
+                        reminderState={activityReminderStates[activity.id]}
+                        reminderStateLoading={activityReminderStatesLoading}
                         onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, {
                           title: 'Publică activitatea?',
                           description: phase.visibility === 'published'

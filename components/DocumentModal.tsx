@@ -25,10 +25,12 @@ import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file
 import InlineDateEditor from '@/components/InlineDateEditor'
 import { Mail } from 'lucide-react'
 import {
-  getReminderType,
+  getManualReminderType,
   REMINDER_LABELS,
-  type ReminderType,
+  REMINDER_BADGE,
 } from '@/lib/document-reminder'
+import type { ReminderEntityState } from '@/lib/reminder-state'
+import ReminderStatus, { getReminderDisplayStatus } from '@/components/ReminderStatus'
 
 interface DocumentRequest {
   id: string
@@ -47,8 +49,6 @@ interface DocumentRequest {
   }[]
   deadline_at: string | null
   visibility?: 'draft' | 'published'
-  reminder_sent_at?: string | null
-  reminder_type_sent?: ReminderType | null
   created_by: string | null
   created_at: string
   assigned_to: string | null
@@ -95,6 +95,8 @@ export default function DocumentModal({
   clientName,
   projectTitle,
   clientVisible = true,
+  reminderState,
+  reminderStateLoading = false,
   projectMembers = [],
 }: {
   request: DocumentRequest
@@ -106,6 +108,8 @@ export default function DocumentModal({
   clientEmail?: string | null
   clientName?: string | null
   projectTitle?: string
+  reminderState?: ReminderEntityState
+  reminderStateLoading?: boolean
   /** Cererea e efectiv vizibilă clientului (lanțul fază→activitate→cerere publicat).
    *  Calculat de părinte, ca regulile de vizibilitate să stea într-un singur loc. */
   clientVisible?: boolean
@@ -136,8 +140,6 @@ export default function DocumentModal({
   const [assigneeDraft, setAssigneeDraft] = useState('')
   const [sendingReminder, setSendingReminder] = useState(false)
   const sendingReminderLock = useRef(false)
-  const [localReminderSentAt, setLocalReminderSentAt] = useState<string | null>(request.reminder_sent_at ?? null)
-  const [localReminderTypeSent, setLocalReminderTypeSent] = useState<ReminderType | null>(request.reminder_type_sent ?? null)
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
   // O cerere publicată nu poate rămâne fără termen sau fără responsabil (#70),
@@ -163,10 +165,9 @@ export default function DocumentModal({
   useEffect(() => {
     setLocalAttachmentPath(request.attachment_path)
     setAttachmentMissing(!!request.attachment_missing_at)
-    setLocalReminderSentAt(request.reminder_sent_at ?? null)
-    setLocalReminderTypeSent(request.reminder_type_sent ?? null)
+    setLocalDeadline(request.deadline_at)
     setLocalAssignee(request.assigned_to)
-  }, [request.id, request.attachment_path, request.attachment_missing_at, request.reminder_sent_at, request.reminder_type_sent, request.assigned_to])
+  }, [request.id, request.attachment_path, request.attachment_missing_at, request.deadline_at, request.assigned_to])
 
   const handleSaveDeadline = async (deadline: string) => {
     setSavingDeadline(true)
@@ -181,7 +182,7 @@ export default function DocumentModal({
       if (res.ok) {
         setLocalDeadline(deadline || null)
         setEditingDeadline(false)
-        onUpdate()
+        await onUpdate()
       } else {
         const data = await res.json().catch(() => null)
         showToast(data?.message || data?.error || 'Nu am putut salva termenul-limită. Reîncearcă.', 'error')
@@ -229,9 +230,7 @@ export default function DocumentModal({
       const res = await apiFetch(`/api/document-requests/${request.id}/reminder`, { method: 'POST' })
       const data = await res.json().catch(() => null)
       if (res.ok) {
-        setLocalReminderSentAt(data?.reminder_sent_at ?? null)
-        setLocalReminderTypeSent(data?.reminder_type_sent ?? null)
-        onUpdate()
+        await onUpdate()
         showToast(data?.warning || 'Reminder-ul a fost trimis clientului.', data?.warning ? 'warning' : 'success')
       } else {
         showToast(data?.error || 'Nu am putut trimite reminder-ul. Reîncearcă.', 'error')
@@ -661,7 +660,8 @@ export default function DocumentModal({
           {(
             (!localDeadline && !editingDeadline) ||
             (!localAttachmentPath && !attachmentMissing) ||
-            request.status === 'pending'
+            request.status === 'pending' ||
+            request.status === 'rejected'
           ) && isAdminOrConsultant && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               {!localDeadline && !editingDeadline && (
@@ -694,10 +694,10 @@ export default function DocumentModal({
                   </button>
                 </>
               )}
-              {request.status === 'pending' && (() => {
+              {(request.status === 'pending' || request.status === 'rejected') && (() => {
                 // Reminder-ul are sens doar dacă avem unde trimite, clientul chiar
                 // vede cererea în platformă și există un termen de comunicat.
-                const reminderType = getReminderType(localDeadline)
+                const reminderType = getManualReminderType(localDeadline)
                 const blockedReason = !clientEmail
                   ? 'Reminder indisponibil'
                   : !clientVisible
@@ -717,28 +717,40 @@ export default function DocumentModal({
                   )
                 }
 
-                const alreadySent = !!localReminderSentAt && localReminderTypeSent === reminderType
+                const threshold = reminderState?.current_threshold ?? reminderType
+                const thresholdState = reminderState?.thresholds[threshold]
+                const sentAt = thresholdState?.sent_at ?? null
+                const displayStatus = getReminderDisplayStatus(reminderState, threshold)
+                const alreadySent = displayStatus === 'sent'
+                const skipped = displayStatus === 'skipped'
+                const claimed = displayStatus === 'claimed'
+                const badge = REMINDER_BADGE[threshold]
                 return (
-                  <button
-                    type="button"
-                    onClick={sendReminder}
-                    disabled={sendingReminder}
-                    title={alreadySent
-                      ? `Trimis pe ${new Date(localReminderSentAt!).toLocaleDateString('ro-RO')} — apasă pentru a retrimite`
-                      : `Reminder: ${REMINDER_LABELS[reminderType]}`}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
-                      alreadySent
-                        ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                        : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
-                    }`}
-                  >
-                    {sendingReminder
-                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      : alreadySent
-                      ? <CheckCircle2 className="w-3.5 h-3.5" />
-                      : <Mail className="w-3.5 h-3.5" />}
-                    {sendingReminder ? 'Se trimite...' : alreadySent ? 'Reminder trimis' : 'Trimite reminder'}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <ReminderStatus state={reminderState} threshold={threshold} loading={reminderStateLoading} compact />
+                    {!reminderStateLoading && <button
+                      type="button"
+                      onClick={sendReminder}
+                      disabled={sendingReminder || claimed}
+                      title={alreadySent
+                        ? `Trimis pe ${sentAt ? new Date(sentAt).toLocaleDateString('ro-RO') : 'recent'} — apasă pentru a retrimite`
+                        : 'Trimite emailul de reminder către client'}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-opacity hover:opacity-75 disabled:opacity-60 disabled:cursor-not-allowed ${
+                        alreadySent
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : `${badge.bg} ${badge.text} ${badge.border}`
+                      }`}
+                    >
+                      {sendingReminder
+                        ? <Loader2 className="w-3 h-3 animate-spin" />
+                      : alreadySent || skipped
+                        ? <CheckCircle2 className="w-3 h-3" />
+                        : <Mail className="w-3 h-3" />}
+                      {sendingReminder ? 'Se trimite...' : claimed ? 'Reminder în curs' : alreadySent || skipped ? 'Trimite din nou' : 'Trimite reminder clientului'}
+                      <span className="mx-0.5 opacity-50">·</span>
+                      {REMINDER_LABELS[threshold]}
+                    </button>}
+                  </div>
                 )
               })()}
             </div>
@@ -794,6 +806,14 @@ export default function DocumentModal({
               )}
             </div>
           )
+          )}
+
+          {isAdminOrConsultant && (
+            <ReminderStatus
+              state={reminderState}
+              threshold={reminderState?.current_threshold ?? getManualReminderType(localDeadline)}
+              loading={reminderStateLoading}
+            />
           )}
 
           {/* Responsabilul cererii — condiție de publicare (#70) */}

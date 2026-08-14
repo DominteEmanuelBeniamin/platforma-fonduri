@@ -5,6 +5,8 @@ import { ChevronRight, Clock } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { ProjectActivity } from '@/components/ProjectPhasesSidebar'
 import PublishStatusControl from '@/components/PublishStatusControl'
+import type { ReminderEntityState } from '@/lib/reminder-state'
+import ReminderStatus from '@/components/ReminderStatus'
 
 interface Member {
   id: string
@@ -27,6 +29,8 @@ interface ActivityFoldProps {
   onPublish: () => void
   publishBlockers?: string[]
   onSetDeadline?: (value: string) => Promise<void> | void
+  reminderState?: ReminderEntityState
+  reminderStateLoading?: boolean
   children: ReactNode
 }
 
@@ -51,6 +55,8 @@ export default function ActivityFold({
   onPublish,
   publishBlockers,
   onSetDeadline,
+  reminderState,
+  reminderStateLoading = false,
   children,
 }: ActivityFoldProps) {
   const deadline = activity.deadline_at ? new Date(activity.deadline_at) : null
@@ -61,6 +67,7 @@ export default function ActivityFold({
   const deadlineLabel = deadline
     ? deadline.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })
     : null
+  const reminderThreshold = reminderState?.current_threshold
 
   return (
     <Collapsible.Root
@@ -97,6 +104,15 @@ export default function ActivityFold({
               {requestCount} cerer{requestCount === 1 ? 'e' : 'i'}
             </span>
           )}
+          {visibility === 'published' && <span className="hidden md:inline-flex flex-shrink-0">
+            <ReminderStatus
+              state={reminderState}
+              threshold={reminderThreshold ?? null}
+              loading={reminderStateLoading}
+              summary={reminderState?.recipient_summary}
+              compact
+            />
+          </span>}
         </div>
 
         {/* Vizibil și pe telefon: responsabilul e condiție de publicare (#70),

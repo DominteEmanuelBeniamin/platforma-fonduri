@@ -15,14 +15,41 @@ export type SessionStatus = 'upcoming' | 'open' | 'closed' | 'evaluation' | 'com
 export type DocumentRequirementStatus = 'pending' | 'uploaded' | 'review' | 'approved' | 'rejected';
 export type ProjectItemVisibility = 'draft' | 'published';
 export type FileReviewStatus = 'pending' | 'approved' | 'rejected';
-export type AuditActionType = 'create' | 'update' | 'delete' | 'login' | 'logout';
-export type AuditEntityType = 'project' | 'document' | 'user' | 'file' | 'team_member' | 'phase' | 'activity' | 'template';
+export type ReminderLogStatus = 'claimed' | 'sent' | 'skipped';
+export type ReminderLogSource = 'cron' | 'manual' | 'legacy';
+export type ReminderThreshold = '1_week' | '3_days' | '1_day' | 'same_day' | 'overdue';
+export type AuditActionType = 'create' | 'update' | 'delete' | 'login' | 'logout' | 'deadline_reminder_digest';
+export type AuditEntityType = 'project' | 'document' | 'user' | 'file' | 'team_member' | 'phase' | 'activity' | 'template' | 'deadline_reminder_digest';
 
 export type NotificationType = 
   | 'document_requested' | 'document_uploaded' | 'document_approved' | 'document_rejected'
   | 'project_status_changed' | 'project_created'
   | 'team_added' | 'team_removed'
   | 'deadline_approaching' | 'phase_completed' | 'activity_completed' | 'mention';
+
+export interface ReminderLog {
+  id: string;
+  entity_type: 'request' | 'activity';
+  entity_id: string;
+  project_id: string;
+  recipient_id: string | null;
+  recipient_email: string | null;
+  recipient_kind: 'client' | 'consultant';
+  threshold: ReminderThreshold;
+  deadline_at: string;
+  status: ReminderLogStatus;
+  source: ReminderLogSource;
+  triggered_by: string | null;
+  run_id: string | null;
+  provider_id: string | null;
+  send_index: number;
+  claim_token: string | null;
+  claimed_at: string | null;
+  claim_expires_at: string | null;
+  skip_reason: string | null;
+  created_at: string;
+  sent_at: string | null;
+}
 
 
 // =====================================================
@@ -955,6 +982,8 @@ export interface Database {
       program_measures: { Row: ProgramMeasure; Insert: MeasureCreate; Update: Partial<MeasureCreate> & { is_active?: boolean } };
       measure_sessions: { Row: MeasureSession; Insert: SessionCreate; Update: Partial<SessionCreate> & { status?: SessionStatus } };
       projects: { Row: Project; Insert: ProjectCreate; Update: ProjectUpdate };
+      reminder_log: { Row: ReminderLog; Insert: Omit<ReminderLog, 'id' | 'created_at'>; Update: never };
+      reminder_run_lease: { Row: { lease_name: string; owner_id: string; acquired_at: string; expires_at: string }; Insert: never; Update: never };
       
       // NOU: Statusuri globale
       project_statuses: { Row: ProjectStatus; Insert: ProjectStatusCreate; Update: ProjectStatusUpdate };
@@ -996,6 +1025,26 @@ export interface Database {
       log_audit: { Args: { p_action_type: AuditActionType; p_entity_type: AuditEntityType; p_entity_id: string; p_entity_name?: string; p_old_values?: Record<string, unknown>; p_new_values?: Record<string, unknown>; p_description?: string }; Returns: string };
       create_notification: { Args: { p_user_id: string; p_type: NotificationType; p_title: string; p_message?: string; p_entity_type?: string; p_entity_id?: string }; Returns: string };
       is_admin: { Args: Record<string, never>; Returns: boolean };
+      claim_reminder_slot: {
+        Args: {
+          p_entity_type: 'request' | 'activity';
+          p_entity_id: string;
+          p_project_id: string;
+          p_recipient_id: string;
+          p_recipient_email: string;
+          p_recipient_kind: 'client' | 'consultant';
+          p_threshold: ReminderThreshold;
+          p_deadline_at: string;
+          p_source: 'cron' | 'manual';
+          p_triggered_by?: string;
+          p_run_id?: string;
+        };
+        Returns: { claimed: boolean; log_id: string | null; send_index: number | null; claim_token: string | null; claim_expires_at: string | null; reason: string }[];
+      };
+      finalize_reminder_claim: { Args: { p_log_id: string; p_claim_token: string; p_provider_id?: string | null }; Returns: { finalized: boolean; skipped_count: number }[] };
+      release_reminder_claim: { Args: { p_log_id: string; p_claim_token: string }; Returns: boolean };
+      acquire_reminder_run_lease: { Args: { p_lease_name: string; p_owner_id: string; p_lease_seconds?: number }; Returns: { acquired: boolean; expires_at: string | null }[] };
+      release_reminder_run_lease: { Args: { p_lease_name: string; p_owner_id: string }; Returns: boolean };
     };
   };
 }
