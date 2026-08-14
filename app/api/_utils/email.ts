@@ -1,4 +1,7 @@
 // app/api/_utils/email.ts
+import { isValidReminderEmail } from '@/lib/reminder-email'
+
+export { isValidReminderEmail }
 
 export function escapeHtml(value: string) {
   return value
@@ -26,4 +29,72 @@ export function resendFromAddress(audience: 'client' | 'internal' = 'internal') 
     return process.env.RESEND_CLIENT_NOTIFICATION_FROM_EMAIL
   }
   return process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
+}
+
+export type ReminderDelivery = {
+  intendedEmail: string
+  deliveryEmail: string
+  overridden: boolean
+}
+
+export type ReminderDeliveryError = {
+  code: 'invalid_email' | 'configuration'
+  message: string
+}
+
+function isProductionEnvironment() {
+  const vercelEnvironment = process.env.VERCEL_ENV?.trim().toLowerCase()
+  if (vercelEnvironment) return vercelEnvironment === 'production'
+  return process.env.NODE_ENV === 'production'
+}
+
+export function resolveReminderDelivery(
+  intendedEmail: unknown,
+): { ok: true; data: ReminderDelivery } | { ok: false; error: ReminderDeliveryError } {
+  const override = process.env.REMINDER_EMAIL_OVERRIDE_TO?.trim() ?? ''
+  if (override && isProductionEnvironment()) {
+    return {
+      ok: false,
+      error: {
+        code: 'configuration',
+        message: 'REMINDER_EMAIL_OVERRIDE_TO nu este permis în producție.',
+      },
+    }
+  }
+  if (override && !isValidReminderEmail(override)) {
+    return {
+      ok: false,
+      error: {
+        code: 'configuration',
+        message: 'REMINDER_EMAIL_OVERRIDE_TO nu este un email valid.',
+      },
+    }
+  }
+  if (!override && !isProductionEnvironment()) {
+    return {
+      ok: false,
+      error: {
+        code: 'configuration',
+        message: 'REMINDER_EMAIL_OVERRIDE_TO este obligatoriu în development și preview.',
+      },
+    }
+  }
+  if (!isValidReminderEmail(intendedEmail)) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid_email',
+        message: 'Destinatarul nu are un email valid.',
+      },
+    }
+  }
+  const normalizedIntendedEmail = intendedEmail.trim()
+  return {
+    ok: true,
+    data: {
+      intendedEmail: normalizedIntendedEmail,
+      deliveryEmail: override || normalizedIntendedEmail,
+      overridden: Boolean(override),
+    },
+  }
 }

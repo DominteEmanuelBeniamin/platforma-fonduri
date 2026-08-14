@@ -28,6 +28,7 @@ import {
   Users,
   Briefcase,
   MessageSquare,
+  Mail,
   Lock,
   CheckSquare,
   ListOrdered,
@@ -89,6 +90,7 @@ const ACTION_CONFIG: Record<string, ActionConfig> = {
   propagate: { label: 'Propagare', color: 'text-purple-700', bgColor: 'bg-purple-50', borderColor: 'border-purple-200', icon: Share2 },
   delete: { label: 'Stergere', color: 'text-red-700', bgColor: 'bg-red-50', borderColor: 'border-red-200', icon: Trash2 },
   download: { label: 'Descarcare', color: 'text-violet-700', bgColor: 'bg-violet-50', borderColor: 'border-violet-200', icon: Download },
+  deadline_reminder_digest: { label: 'Digest reminder', color: 'text-indigo-700', bgColor: 'bg-indigo-50', borderColor: 'border-indigo-200', icon: Mail },
 }
 
 const DEFAULT_ACTION: ActionConfig = {
@@ -120,6 +122,7 @@ const ENTITY_CONFIG: Record<string, EntityConfig> = {
   private_message: { label: 'Mesaj privat', icon: Lock },
   file_access: { label: 'Acces fisier', icon: HardDrive },
   audit_log: { label: 'Jurnal audit', icon: Shield },
+  deadline_reminder_digest: { label: 'Digest reminder', icon: Mail },
 }
 
 const DEFAULT_ENTITY: EntityConfig = { label: '', icon: FileText }
@@ -691,6 +694,7 @@ function LogRow({
   const ActionIcon = action.icon
   const EntityIcon = entity.icon
   const hasDetails = log.old_values || log.new_values
+  const isSystem = !log.user_id
 
   return (
     <div
@@ -707,11 +711,11 @@ function LogRow({
 
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-xs font-semibold text-slate-600">
-              {(log.user?.full_name?.[0] || log.user?.email?.[0] || '?').toUpperCase()}
+              {(isSystem ? 'S' : (log.user?.full_name?.[0] || log.user?.email?.[0] || '?')).toUpperCase()}
             </div>
             <div>
-              <p className="text-sm font-medium text-slate-900">{log.user?.full_name || 'Necunoscut'}</p>
-              {log.user?.email && <p className="text-xs text-slate-400">{log.user.email}</p>}
+              <p className="text-sm font-medium text-slate-900">{isSystem ? 'Sistem' : log.user?.full_name || 'Necunoscut'}</p>
+              {!isSystem && log.user?.email && <p className="text-xs text-slate-400">{log.user.email}</p>}
             </div>
           </div>
 

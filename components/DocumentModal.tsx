@@ -25,16 +25,21 @@ import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file
 import InlineDateEditor from '@/components/InlineDateEditor'
 import { Mail } from 'lucide-react'
 import {
-  getReminderType,
+  getManualReminderType,
   REMINDER_LABELS,
-  type ReminderType,
+  REMINDER_BADGE,
 } from '@/lib/document-reminder'
+import type { ReminderEntityState } from '@/lib/reminder-state'
+import ReminderStatus, { getReminderDisplayStatus } from '@/components/ReminderStatus'
+import { REQUIREMENT_LABELS, type RequirementType } from '@/lib/requirement-type'
 
 interface DocumentRequest {
   id: string
   name: string
   description: string | null
+  requirement_type?: RequirementType
   status: 'pending' | 'review' | 'approved' | 'rejected'
+  is_outgoing?: boolean
   attachment_path: string | null
   attachment_missing_at?: string | null
   attachment_missing_checked_at?: string | null
@@ -47,8 +52,6 @@ interface DocumentRequest {
   }[]
   deadline_at: string | null
   visibility?: 'draft' | 'published'
-  reminder_sent_at?: string | null
-  reminder_type_sent?: ReminderType | null
   created_by: string | null
   created_at: string
   assigned_to: string | null
@@ -95,6 +98,8 @@ export default function DocumentModal({
   clientName,
   projectTitle,
   clientVisible = true,
+  reminderState,
+  reminderStateLoading = false,
   projectMembers = [],
 }: {
   request: DocumentRequest
@@ -106,12 +111,15 @@ export default function DocumentModal({
   clientEmail?: string | null
   clientName?: string | null
   projectTitle?: string
+  reminderState?: ReminderEntityState
+  reminderStateLoading?: boolean
   /** Cererea e efectiv vizibilă clientului (lanțul fază→activitate→cerere publicat).
    *  Calculat de părinte, ca regulile de vizibilitate să stea într-un singur loc. */
   clientVisible?: boolean
 }) {
   const { apiFetch, profile } = useAuth()
   const { showToast, confirm } = useToast()
+  const isOutgoing = Boolean(request.is_outgoing)
   const [notes, setNotes] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -136,8 +144,6 @@ export default function DocumentModal({
   const [assigneeDraft, setAssigneeDraft] = useState('')
   const [sendingReminder, setSendingReminder] = useState(false)
   const sendingReminderLock = useRef(false)
-  const [localReminderSentAt, setLocalReminderSentAt] = useState<string | null>(request.reminder_sent_at ?? null)
-  const [localReminderTypeSent, setLocalReminderTypeSent] = useState<ReminderType | null>(request.reminder_type_sent ?? null)
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
   // O cerere publicată nu poate rămâne fără termen sau fără responsabil (#70),
@@ -163,10 +169,9 @@ export default function DocumentModal({
   useEffect(() => {
     setLocalAttachmentPath(request.attachment_path)
     setAttachmentMissing(!!request.attachment_missing_at)
-    setLocalReminderSentAt(request.reminder_sent_at ?? null)
-    setLocalReminderTypeSent(request.reminder_type_sent ?? null)
+    setLocalDeadline(request.deadline_at)
     setLocalAssignee(request.assigned_to)
-  }, [request.id, request.attachment_path, request.attachment_missing_at, request.reminder_sent_at, request.reminder_type_sent, request.assigned_to])
+  }, [request.id, request.attachment_path, request.attachment_missing_at, request.deadline_at, request.assigned_to])
 
   const handleSaveDeadline = async (deadline: string) => {
     setSavingDeadline(true)
@@ -181,7 +186,7 @@ export default function DocumentModal({
       if (res.ok) {
         setLocalDeadline(deadline || null)
         setEditingDeadline(false)
-        onUpdate()
+        await onUpdate()
       } else {
         const data = await res.json().catch(() => null)
         showToast(data?.message || data?.error || 'Nu am putut salva termenul-limită. Reîncearcă.', 'error')
@@ -229,9 +234,7 @@ export default function DocumentModal({
       const res = await apiFetch(`/api/document-requests/${request.id}/reminder`, { method: 'POST' })
       const data = await res.json().catch(() => null)
       if (res.ok) {
-        setLocalReminderSentAt(data?.reminder_sent_at ?? null)
-        setLocalReminderTypeSent(data?.reminder_type_sent ?? null)
-        onUpdate()
+        await onUpdate()
         showToast(data?.warning || 'Reminder-ul a fost trimis clientului.', data?.warning ? 'warning' : 'success')
       } else {
         showToast(data?.error || 'Nu am putut trimite reminder-ul. Reîncearcă.', 'error')
@@ -272,8 +275,16 @@ export default function DocumentModal({
         label: 'Respins',
       }
     }
+    if (isOutgoing) {
+      return {
+        bg: 'bg-emerald-50',
+        text: 'text-emerald-700',
+        icon: FileCheck,
+        label: 'Trimis clientului',
+      }
+    }
     return configs[request.status] || configs.pending
-  }, [request.status, isAdminOrConsultant])
+  }, [isAdminOrConsultant, isOutgoing, request.status])
 
   // Check if deadline is overdue
   const isOverdue = useMemo(() => {
@@ -613,6 +624,12 @@ export default function DocumentModal({
   if (!mounted) return null
 
   const StatusIcon = statusConfig.icon
+  const requirementType = request.requirement_type ?? 'obligatoriu'
+  const requirementStyle = requirementType === 'obligatoriu'
+    ? 'bg-rose-50 text-rose-700'
+    : requirementType === 'daca_e_cazul'
+    ? 'bg-violet-50 text-violet-700'
+    : 'bg-slate-100 text-slate-600'
 
   const modalContent = (
     <div
@@ -632,12 +649,15 @@ export default function DocumentModal({
         <div className="px-5 sm:px-6 pt-4 pb-3 border-b border-slate-100 flex-shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1 flex items-center gap-2.5 flex-wrap">
-              <h2 className="text-xl font-bold text-slate-900 leading-tight">
+              <h2 className="min-w-0 break-words text-xl font-bold leading-tight text-slate-900">
                 {request.name}
               </h2>
               <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${statusConfig.bg} ${statusConfig.text}`}>
                 <StatusIcon className="w-3.5 h-3.5" />
                 {statusConfig.label}
+              </span>
+              <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${requirementStyle}`}>
+                {REQUIREMENT_LABELS[requirementType]}
               </span>
             </div>
             <button
@@ -657,14 +677,17 @@ export default function DocumentModal({
               {request.description}
             </p>
           )}
-          {/* Acțiuni rapide, atunci când nu există încă termen și/sau model — pe același rând */}
+          {/* Acțiuni rapide, atunci când nu există încă termen și/sau model — pe același rând.
+              Termenul și reminderul n-au sens la un document trimis clientului, dar
+              reatașarea da: altfel, odată eliminat documentul, cererea rămâne fără
+              nicio cale de a primi altul și dispare și din Drive. */}
           {(
-            (!localDeadline && !editingDeadline) ||
+            (!isOutgoing && !localDeadline && !editingDeadline) ||
             (!localAttachmentPath && !attachmentMissing) ||
-            request.status === 'pending'
+            (!isOutgoing && (request.status === 'pending' || request.status === 'rejected'))
           ) && isAdminOrConsultant && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              {!localDeadline && !editingDeadline && (
+              {!isOutgoing && !localDeadline && !editingDeadline && (
                 <button
                   onClick={() => setEditingDeadline(true)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-semibold hover:bg-indigo-100 transition-colors"
@@ -690,14 +713,14 @@ export default function DocumentModal({
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-semibold hover:bg-indigo-100 transition-colors disabled:opacity-50"
                   >
                     {attachmentActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                    Atașează model
+                    {isOutgoing ? 'Atașează documentul' : 'Atașează model'}
                   </button>
                 </>
               )}
-              {request.status === 'pending' && (() => {
+              {!isOutgoing && (request.status === 'pending' || request.status === 'rejected') && (() => {
                 // Reminder-ul are sens doar dacă avem unde trimite, clientul chiar
                 // vede cererea în platformă și există un termen de comunicat.
-                const reminderType = getReminderType(localDeadline)
+                const reminderType = getManualReminderType(localDeadline)
                 const blockedReason = !clientEmail
                   ? 'Reminder indisponibil'
                   : !clientVisible
@@ -717,28 +740,39 @@ export default function DocumentModal({
                   )
                 }
 
-                const alreadySent = !!localReminderSentAt && localReminderTypeSent === reminderType
+                const threshold = reminderState?.current_threshold ?? reminderType
+                const thresholdState = reminderState?.thresholds[threshold]
+                const sentAt = thresholdState?.sent_at ?? null
+                const displayStatus = getReminderDisplayStatus(reminderState, threshold)
+                const alreadySent = displayStatus === 'sent'
+                const skipped = displayStatus === 'skipped'
+                const claimed = displayStatus === 'claimed'
+                const badge = REMINDER_BADGE[threshold]
                 return (
-                  <button
-                    type="button"
-                    onClick={sendReminder}
-                    disabled={sendingReminder}
-                    title={alreadySent
-                      ? `Trimis pe ${new Date(localReminderSentAt!).toLocaleDateString('ro-RO')} — apasă pentru a retrimite`
-                      : `Reminder: ${REMINDER_LABELS[reminderType]}`}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
-                      alreadySent
-                        ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                        : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
-                    }`}
-                  >
-                    {sendingReminder
-                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      : alreadySent
-                      ? <CheckCircle2 className="w-3.5 h-3.5" />
-                      : <Mail className="w-3.5 h-3.5" />}
-                    {sendingReminder ? 'Se trimite...' : alreadySent ? 'Reminder trimis' : 'Trimite reminder'}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={sendReminder}
+                      disabled={sendingReminder || claimed || reminderStateLoading}
+                      title={alreadySent
+                        ? `Trimis pe ${sentAt ? new Date(sentAt).toLocaleDateString('ro-RO') : 'recent'} — apasă pentru a retrimite`
+                        : 'Trimite emailul de reminder către client'}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-opacity hover:opacity-75 disabled:opacity-60 disabled:cursor-not-allowed ${
+                        alreadySent
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : `${badge.bg} ${badge.text} ${badge.border}`
+                      }`}
+                    >
+                      {sendingReminder
+                        ? <Loader2 className="w-3 h-3 animate-spin" />
+                      : alreadySent || skipped
+                        ? <CheckCircle2 className="w-3 h-3" />
+                        : <Mail className="w-3 h-3" />}
+                      {sendingReminder ? 'Se trimite...' : reminderStateLoading || claimed ? 'Se verifică...' : alreadySent || skipped ? 'Trimite din nou' : 'Trimite reminder clientului'}
+                      <span className="mx-0.5 opacity-50">·</span>
+                      {REMINDER_LABELS[threshold]}
+                    </button>
+                  </div>
                 )
               })()}
             </div>
@@ -747,7 +781,7 @@ export default function DocumentModal({
           {/* Bara de termen. Fără termen, cei care pot edita văd în locul ei
               cum se adaugă unul — altfel un termen șters n-ar mai avea drum
               înapoi. */}
-          {!localDeadline && !editingDeadline && isAdminOrConsultant && (
+          {!localDeadline && !editingDeadline && isAdminOrConsultant && !isOutgoing && (
             <div className="flex items-center gap-2 text-sm text-slate-500">
               <Clock className="w-4 h-4 flex-shrink-0 text-slate-400" />
               <span>Fără termen limită</span>
@@ -759,7 +793,7 @@ export default function DocumentModal({
               </button>
             </div>
           )}
-          {(localDeadline || editingDeadline) && (
+          {!isOutgoing && (localDeadline || editingDeadline) && (
           editingDeadline ? (
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 flex-shrink-0 text-slate-400" />
@@ -796,8 +830,12 @@ export default function DocumentModal({
           )
           )}
 
+          {isAdminOrConsultant && !isOutgoing && (
+            <ReminderStatus state={reminderState} />
+          )}
+
           {/* Responsabilul cererii — condiție de publicare (#70) */}
-          {isAdminOrConsultant && (
+          {isAdminOrConsultant && !isOutgoing && (
             editingAssignee ? (
               <div className="flex items-center gap-2">
                 <UserRound className="w-4 h-4 flex-shrink-0 text-slate-400" />
@@ -858,7 +896,9 @@ export default function DocumentModal({
               {requestAttachments.length > 0 && !attachmentMissing && (
                 <div>
                   <h3 className="text-sm font-semibold text-slate-900 mb-2">
-                    {requestAttachments.length > 1 ? `Modele de completat (${requestAttachments.length})` : 'Modelul de completat'}
+                    {isOutgoing
+                      ? requestAttachments.length > 1 ? `Documente trimise clientului (${requestAttachments.length})` : 'Document trimis clientului'
+                      : requestAttachments.length > 1 ? `Modele de completat (${requestAttachments.length})` : 'Modelul de completat'}
                   </h3>
                   <div className="space-y-2">
                     {requestAttachments.map((attachment, index) => {
@@ -881,7 +921,9 @@ export default function DocumentModal({
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-semibold text-slate-900 truncate">{fileName}</p>
-                              <p className="text-xs text-slate-500">Se descarcă, se completează și se trimite înapoi</p>
+                              <p className="text-xs text-slate-500">
+                                {isOutgoing ? 'Doar pentru informare — nu necesită completare sau răspuns.' : 'Se descarcă, se completează și se trimite înapoi'}
+                              </p>
                             </div>
                           </div>
                           <div className="flex items-center gap-0.5 flex-shrink-0">
@@ -918,10 +960,16 @@ export default function DocumentModal({
                     <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-amber-900 mb-1">
-                        {isAdminOrConsultant ? 'Model indisponibil' : 'Model indisponibil momentan'}
+                        {isOutgoing
+                          ? isAdminOrConsultant ? 'Document indisponibil' : 'Document indisponibil momentan'
+                          : isAdminOrConsultant ? 'Model indisponibil' : 'Model indisponibil momentan'}
                       </p>
                       <p className="text-sm text-amber-800 leading-relaxed">
-                        {isAdminOrConsultant
+                        {isOutgoing
+                          ? isAdminOrConsultant
+                            ? 'Fișierul documentului trimis nu mai există în storage. Reîncarcă documentul sau elimină-l din proiect.'
+                            : 'Documentul trimis clientului este momentan indisponibil.'
+                          : isAdminOrConsultant
                           ? 'Fișierul model nu mai există în storage. Reîncarcă modelul sau elimină-l din cerere.'
                           : 'Modelul pentru această cerere este momentan indisponibil. Echipa îl va atașa când este disponibil; așteaptă actualizarea cererii înainte de completare.'}
                       </p>
@@ -942,7 +990,7 @@ export default function DocumentModal({
                             className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 disabled:opacity-50"
                           >
                             {attachmentActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                            Reîncarcă model
+                            {isOutgoing ? 'Reîncarcă documentul' : 'Reîncarcă model'}
                           </button>
                           <button
                             type="button"
@@ -951,7 +999,7 @@ export default function DocumentModal({
                             className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-amber-300 text-amber-900 text-xs font-bold hover:bg-amber-100 disabled:opacity-50"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
-                            Elimină modelul
+                            {isOutgoing ? 'Elimină documentul' : 'Elimină modelul'}
                           </button>
                         </div>
                       )}
@@ -960,7 +1008,7 @@ export default function DocumentModal({
                 </div>
               )}
 
-              {/* Fișierele trimise de client */}
+              {!isOutgoing && (
               <div>
                 <h3 className="text-sm font-semibold text-slate-900 mb-2">Fișierele trimise de client</h3>
 
@@ -1066,6 +1114,7 @@ export default function DocumentModal({
                   )
                 })()}
               </div>
+              )}
 
             </div>
           </div>

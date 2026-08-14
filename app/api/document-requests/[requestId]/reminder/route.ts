@@ -6,12 +6,9 @@ import { logAction } from '@/app/api/_utils/audit'
 import { sendDocumentReminder } from '@/app/api/_utils/document-reminder'
 import { REMINDER_LABELS } from '@/lib/document-reminder'
 
-// POST /api/document-requests/[requestId]/reminder
-// Trimite real (prin Resend) reminder-ul de termen limită către client și
-// marchează automat reminder_sent_at / reminder_type_sent — nu mai e un toggle manual.
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ requestId: string }> }
+  { params }: { params: Promise<{ requestId: string }> },
 ) {
   try {
     const { requestId } = await params
@@ -19,7 +16,6 @@ export async function POST(
     if (!ctx.ok) return guardToResponse(ctx)
 
     const admin = createSupabaseServiceClient()
-
     const { data: reqRow, error: reqError } = await admin
       .from('document_requirements')
       .select('id, project_id, deleted_at')
@@ -28,14 +24,11 @@ export async function POST(
       .maybeSingle()
 
     if (reqError) {
-      console.error('POST reminder fetch error:', reqError)
+      console.error('POST reminder fetch error:', { requestId, code: 'request_query_failed' })
       return NextResponse.json({ error: 'Eroare la încărcarea cererii' }, { status: 500 })
     }
-    if (!reqRow) {
-      return NextResponse.json({ error: 'Cererea nu a fost găsită' }, { status: 404 })
-    }
+    if (!reqRow) return NextResponse.json({ error: 'Cererea nu a fost găsită' }, { status: 404 })
 
-    // Consultantul trebuie să fie admin sau membru al proiectului
     if (ctx.profile.role !== 'admin') {
       const { data: membership } = await admin
         .from('project_members')
@@ -43,16 +36,11 @@ export async function POST(
         .eq('project_id', reqRow.project_id)
         .eq('consultant_id', ctx.profile.id)
         .maybeSingle()
-
-      if (!membership) {
-        return NextResponse.json({ error: 'Acces interzis' }, { status: 403 })
-      }
+      if (!membership) return NextResponse.json({ error: 'Acces interzis' }, { status: 403 })
     }
 
-    const result = await sendDocumentReminder(admin, requestId)
-    if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: result.status })
-    }
+    const result = await sendDocumentReminder(admin, requestId, { triggeredBy: ctx.user.id })
+    if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
 
     await logAction({
       actorId: ctx.user.id,
@@ -63,26 +51,33 @@ export async function POST(
       newValues: {
         project_id: result.projectId,
         project_title: result.projectTitle,
-        client_email: result.clientEmail,
-        reminder_type_sent: result.reminderType,
-        reminder_sent_at: result.sentAt,
-        ...(result.stateSaveFailed ? { state_save_failed: true } : {}),
+        threshold: result.reminderType,
+        source: result.source,
+        sent_at: result.sentAt,
+        reminder_log_id: result.reminderLogId,
+        provider_id: result.providerId,
+        delivery_overridden: result.deliveryOverridden,
+        ...(result.journalSaveFailed ? { journal_save_failed: true } : {}),
       },
-      description: result.stateSaveFailed
-        ? `${ctx.profile.email || 'User'} a trimis „${REMINDER_LABELS[result.reminderType]}” pentru cererea "${result.requestName}" din proiectul "${result.projectTitle}" — ATENȚIE: salvarea reminder_sent_at a eșuat, verifică manual`
-        : `${ctx.profile.email || 'User'} a trimis „${REMINDER_LABELS[result.reminderType]}” pentru cererea "${result.requestName}" din proiectul "${result.projectTitle}"`,
+      description: result.journalSaveFailed
+        ? `Utilizatorul a trimis „${REMINDER_LABELS[result.reminderType]}” pentru cererea "${result.requestName}" din proiectul "${result.projectTitle}" — jurnalul reminderului nu a putut fi finalizat, verifică manual`
+        : `Utilizatorul a trimis „${REMINDER_LABELS[result.reminderType]}” pentru cererea "${result.requestName}" din proiectul "${result.projectTitle}"`,
       request,
     })
 
     return NextResponse.json({
-      reminder_sent_at: result.sentAt,
-      reminder_type_sent: result.reminderType,
-      ...(result.stateSaveFailed
-        ? { warning: 'Emailul a fost trimis, dar actualizarea stării a eșuat. Reîmprospătează pagina pentru starea reală.' }
+      reminder_log_id: result.reminderLogId,
+      threshold: result.reminderType,
+      source: result.source,
+      sent_at: result.sentAt,
+      provider_id: result.providerId,
+      delivery_overridden: result.deliveryOverridden,
+      ...(result.journalSaveFailed
+        ? { warning: 'Emailul a fost trimis, dar jurnalul reminderului nu a putut fi finalizat. Reîmprospătează pagina pentru starea reală.' }
         : {}),
     })
-  } catch (e: any) {
-    console.error('POST reminder exception:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+  } catch (error: any) {
+    console.error('POST reminder exception:', { code: 'route_failed', message: error?.message })
+    return NextResponse.json({ error: error?.message ?? 'Server error' }, { status: 500 })
   }
 }

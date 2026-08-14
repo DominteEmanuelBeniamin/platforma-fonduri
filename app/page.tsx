@@ -36,7 +36,7 @@ const SORT_OPTIONS: { key: string; label: string }[] = [
 ]
 
 const ATTENTION_OPTIONS: { key: string; label: string; dot: string }[] = [
-  { key: 'overdue', label: 'Expirate', dot: 'bg-red-400' },
+  { key: 'overdue', label: 'Depășite', dot: 'bg-red-400' },
   { key: 'todo', label: 'De rezolvat', dot: 'bg-amber-400' },
   { key: 'unread', label: 'Chat necitit', dot: 'bg-rose-400' },
   { key: 'clean', label: 'La zi', dot: 'bg-emerald-400' },
@@ -71,7 +71,7 @@ function Tick({ on }: { on: boolean }) {
 function buildBadges(att: Att, isClient: boolean): any[] {
   const badges: any[] = []
   if (att.overdue > 0) {
-    badges.push({ key: 'overdue', cls: 'bg-red-50 text-red-600 ring-red-100', icon: <AlertTriangle className="w-3 h-3" />, label: `${att.overdue} expirate`, title: `${att.overdue} cereri cu termen depășit` })
+    badges.push({ key: 'overdue', cls: 'bg-red-50 text-red-600 ring-red-100', icon: <AlertTriangle className="w-3 h-3" />, label: `${att.overdue} depășite`, title: `${att.overdue} cereri cu termen depășit` })
   }
   if (isClient) {
     if (att.total > 0) badges.push({ key: 'todo', cls: 'bg-amber-50 text-amber-700 ring-amber-100', icon: <FileText className="w-3 h-3" />, label: `${att.total} de încărcat`, title: `${att.total} documente de încărcat` })
@@ -562,14 +562,20 @@ export default function Dashboard() {
   const fetchMyProjects = useCallback(async () => {
     const res = await apiFetch('/api/projects')
     const json = await res.json()
-    if (!res.ok) throw new Error(json?.error || 'Failed to load projects')
+    if (!res.ok) {
+      if (res.status === 401) return
+      throw new Error(json?.error || 'Failed to load projects')
+    }
     setProjects(json.projects ?? [])
   }, [apiFetch])
 
   const fetchCurrentUser = useCallback(async () => {
     const res = await apiFetch('/api/me')
     const json = await res.json()
-    if (!res.ok) throw new Error(json?.error || 'Failed to load current user')
+    if (!res.ok) {
+      if (res.status === 401) return
+      throw new Error(json?.error || 'Failed to load current user')
+    }
     setCurrentUser(json.profile)
   }, [apiFetch])
 
@@ -616,6 +622,7 @@ export default function Dashboard() {
     if (!token) { router.push('/login'); return }
     setLoading(true)
     Promise.all([fetchMyProjects(), fetchCurrentUser()])
+      .catch(error => console.error('Failed to load dashboard:', error))
       .finally(() => setLoading(false))
   }, [authLoading, token, router, fetchMyProjects, fetchCurrentUser])
 
@@ -658,7 +665,7 @@ export default function Dashboard() {
   const btnBase = 'inline-flex items-center gap-2 h-10 px-3.5 rounded-xl border text-sm font-medium transition-colors'
 
   const legendItems = [
-    { dot: 'bg-red-400', label: 'Expirate', desc: 'termen depășit' },
+    { dot: 'bg-red-400', label: 'Depășite', desc: 'termen depășit' },
     isClient
       ? { dot: 'bg-amber-400', label: 'De încărcat', desc: 'documente cerute' }
       : { dot: 'bg-blue-400', label: 'De verificat', desc: 'așteaptă verificarea ta' },

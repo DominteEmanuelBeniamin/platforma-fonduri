@@ -24,7 +24,6 @@ import {
   Loader2,
   Image as ImageIcon,
   File,
-  Mail,
   Trash2,
   Pencil,
 } from 'lucide-react'
@@ -34,15 +33,10 @@ import PublishStatusControl from './PublishStatusControl'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { usePatchField } from '@/hooks/usePatchField'
+import { useReminderStates } from '@/hooks/useReminderStates'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { buildPreviewPageUrl, isPreviewableFile, openInNewTab } from '@/lib/file-preview'
 import { publishBlockers } from '@/lib/publish-rules'
-import {
-  getReminderType,
-  REMINDER_LABELS,
-  REMINDER_BADGE,
-  type ReminderType,
-} from '@/lib/document-reminder'
 import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS } from '@/lib/requirement-type'
 
 interface DocumentRequest {
@@ -77,8 +71,6 @@ interface DocumentRequest {
     missing_checked_at?: string | null
   }[]
   deadline_at: string | null
-  reminder_sent_at?: string | null
-  reminder_type_sent?: ReminderType | null
   created_by: string | null
   created_at: string
   deleted_at?: string | null
@@ -326,8 +318,6 @@ export default function DocumentRequests({
   const [showFilePreview, setShowFilePreview] = useState(false)
   const [requestToDelete, setRequestToDelete] = useState<DocumentRequest | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
-  const [sendingReminderId, setSendingReminderId] = useState<string | null>(null)
-  const sendingReminderLock = useRef(false)
   const [missingAttachments, setMissingAttachments] = useState<Set<string>>(() => new Set())
 
   // Pliere per-cerere — set de „închise" (implicit deschis), ca cererile nou create
@@ -429,30 +419,6 @@ export default function DocumentRequests({
       : generalConsultantId ?? null,
   })
 
-  const sendReminder = async (requestId: string, requestName: string) => {
-    // Lock sincron (nu bazat pe state) — blochează click-uri duble foarte rapide
-    // înainte ca React să apuce să re-randeze `disabled` pe buton.
-    if (sendingReminderLock.current) return
-    if (!await confirm({
-      title: 'Trimiți reminder clientului?',
-      description: `Se trimite acum un email real către client pentru „${requestName}”.`,
-      confirmText: 'Trimite email',
-    })) return
-    sendingReminderLock.current = true
-    setSendingReminderId(requestId)
-    try {
-      const res = await apiFetch(`/api/document-requests/${requestId}/reminder`, { method: 'POST' })
-      const data = await res.json().catch(() => null)
-      if (res.ok) {
-        await fetchRequests()
-        showToast(data?.warning || 'Reminder-ul a fost trimis clientului.', data?.warning ? 'warning' : 'success')
-      } else {
-        showToast(data?.error || 'Nu am putut trimite reminder-ul. Reîncearcă.', 'error')
-      }
-    } catch { showToast('Nu am putut trimite reminder-ul. Reîncearcă.', 'error') }
-    finally { sendingReminderLock.current = false; setSendingReminderId(null) }
-  }
-
   // Requests derivate: externe filtrate sau interne
   const requests = useMemo(() => {
     const src = (externalRequests ?? internalRequests).filter((r: any) => !r.is_outgoing)
@@ -464,6 +430,14 @@ export default function DocumentRequests({
     }
     return src
   }, [externalRequests, internalRequests, activityId])
+
+  const reminderIds = selectedRequest ? [selectedRequest.id] : []
+  const { states: reminderStates, refresh: refreshReminderStates, loading: reminderStatesLoading } = useReminderStates(
+    apiFetch,
+    'request',
+    reminderIds,
+    profile?.role === 'admin' || profile?.role === 'consultant',
+  )
 
   // Documente trimise de consultant CĂTRE client (informative) — nivel proiect
   const outgoingDocs = useMemo(() => {
@@ -1178,11 +1152,11 @@ export default function DocumentRequests({
   }, [requests])
 
 
-  const statusConfig: Record<string, { label: string; dot: string }> = {
-    pending: { label: isClient ? 'De încărcat' : 'Așteaptă răspuns', dot: 'bg-amber-400' },
-    review: { label: 'În verificare', dot: 'bg-blue-400' },
-    approved: { label: 'Aprobat', dot: 'bg-emerald-400' },
-    rejected: { label: 'Respins', dot: 'bg-red-400' },
+  const statusConfig: Record<string, { label: string; dot: string; icon: string }> = {
+    pending: { label: isClient ? 'De încărcat' : 'Așteaptă răspuns', dot: 'bg-amber-400', icon: 'bg-amber-50 text-amber-600' },
+    review: { label: 'În verificare', dot: 'bg-blue-400', icon: 'bg-blue-50 text-blue-600' },
+    approved: { label: 'Aprobat', dot: 'bg-emerald-400', icon: 'bg-emerald-50 text-emerald-600' },
+    rejected: { label: 'Respins', dot: 'bg-red-400', icon: 'bg-red-50 text-red-600' },
   }
   const isEmbedded = activityId !== undefined
 
@@ -1473,7 +1447,7 @@ export default function DocumentRequests({
                 <div
                   key={req.id}
                   onDragOver={e => handleReqDragOver(e, req.id)}
-                  className={`group p-4 sm:p-5 transition-all cursor-pointer hover:bg-slate-50/80 ${
+                  className={`group px-4 py-4 sm:px-5 transition-colors cursor-pointer hover:bg-slate-50/80 ${
                     draggedReqId === req.id ? 'opacity-50' : ''
                   }`}
                   onClick={() => setSelectedRequest(req)}
@@ -1491,13 +1465,13 @@ export default function DocumentRequests({
                         <GripVertical className="w-4 h-4" />
                       </span>
                     )}
-                    <div className="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center flex-shrink-0 text-slate-400">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${status.icon}`}>
                       <FileText className="w-4 h-4" />
                     </div>
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start gap-2">
-                        <h3 className="flex-1 min-w-0 font-semibold text-slate-900 text-sm sm:text-base leading-snug line-clamp-2">{req.name}</h3>
+                        <h3 className="flex-1 min-w-0 font-semibold text-slate-900 text-sm sm:text-base leading-snug break-words">{req.name}</h3>
                         <div className="flex items-center gap-0.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
                           {!isFolded && isAdminOrConsultant && (
                             <>
@@ -1533,22 +1507,11 @@ export default function DocumentRequests({
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-3 mt-1">
-                        <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2 py-1 text-xs text-slate-600">
                           <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
                           {status.label}
                         </span>
-                        {!isFolded && (() => {
-                          const rt = req.requirement_type as RequirementType | undefined
-                          if (!rt) return null
-                          const dot = rt === 'obligatoriu' ? 'bg-red-400' : rt === 'daca_e_cazul' ? 'bg-amber-400' : 'bg-slate-300'
-                          return (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
-                              <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
-                              {REQUIREMENT_LABELS[rt]}
-                            </span>
-                          )
-                        })()}
                         {!isFolded && (
                           <PublishStatusControl
                             status={req.visibility ?? 'draft'}
@@ -1559,84 +1522,22 @@ export default function DocumentRequests({
                             size="sm"
                           />
                         )}
+                        {!isFolded && req.deadline_at && (
+                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs ${
+                            isOverdue ? 'bg-red-50 text-red-600 font-medium' : 'bg-slate-50 text-slate-600'
+                          }`}>
+                            <Clock className="w-3.5 h-3.5" />
+                            Termen: {new Date(req.deadline_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </span>
+                        )}
                       </div>
 
                       {!isFolded && (
                         <>
 
 
-                          {req.description && <p className="text-sm text-slate-600 mb-3 line-clamp-2">{req.description}</p>}
+                          {req.description && <p className="mt-3 text-sm text-slate-600 leading-6 line-clamp-2">{req.description}</p>}
 
-                          <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-xs text-slate-500">
-                            {req.deadline_at && (
-                              <span className={`flex items-center gap-1.5 ${isOverdue ? 'text-red-600 font-medium' : 'text-amber-600'}`}>
-                                <Clock className="w-3.5 h-3.5" />
-                                Termen: {new Date(req.deadline_at).toLocaleDateString('ro-RO')}
-                              </span>
-                            )}
-
-                            {(requestMeta.get(req.id)?.responseCount ?? 0) > 0 ? (
-                              <span className="flex items-center gap-1.5 text-emerald-600">
-                                <Upload className="w-3.5 h-3.5" />
-                                {requestMeta.get(req.id)!.responseCount}{' '}
-                                {requestMeta.get(req.id)!.responseCount === 1 ? 'răspuns' : 'răspunsuri'}
-                              </span>
-                            ) : null}
-
-
-                            {(() => {
-                              const attachments = getRequestAttachments(req)
-                              if (attachments.length === 0) return null
-                              const missingCount = attachments.filter(attachment => attachment.missing_at || missingAttachments.has(req.id)).length
-
-                              return (
-                                <span className={`flex items-center gap-1.5 ${missingCount > 0 ? 'text-amber-700' : 'text-indigo-600'}`}>
-                                  {missingCount > 0 ? <AlertCircle className="w-3.5 h-3.5" /> : <Paperclip className="w-3.5 h-3.5" />}
-                                  {missingCount === attachments.length
-                                    ? attachments.length === 1 ? 'Model indisponibil' : `${attachments.length} modele indisponibile`
-                                    : attachments.length === 1 ? '1 model de descărcat' : `${attachments.length} modele de descărcat`}
-                                </span>
-                              )
-                            })()}
-                          </div>
-
-                          {/* ── Buton reminder client ── */}
-                          {isAdminOrConsultant && clientEmail && req.status === 'pending' && (() => {
-                            const reminderType = getReminderType(req.deadline_at)
-                            if (!reminderType) return null
-                            // Reminder-ul trimite clientul spre platformă — dacă cererea e
-                            // încă draft, acolo nu găsește nimic. Publicarea vine prima.
-                            if (!isRequestClientVisible(req)) return null
-                            const badge = REMINDER_BADGE[reminderType]
-                            const isSending = sendingReminderId === req.id
-                            const alreadySent = !!req.reminder_sent_at && req.reminder_type_sent === reminderType
-                            return (
-                              <div className="mt-3" onClick={(e) => e.stopPropagation()}>
-                                <button
-                                  type="button"
-                                  onClick={() => sendReminder(req.id, req.name)}
-                                  disabled={!!sendingReminderId}
-                                  title={alreadySent
-                                    ? `Trimis pe ${new Date(req.reminder_sent_at!).toLocaleDateString('ro-RO')} — apasă pentru a retrimite`
-                                    : 'Trimite emailul de reminder către client'}
-                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-opacity hover:opacity-75 disabled:opacity-60 disabled:cursor-not-allowed ${
-                                    alreadySent
-                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                      : `${badge.bg} ${badge.text} ${badge.border}`
-                                  }`}
-                                >
-                                  {isSending
-                                    ? <Loader2 className="w-3 h-3 animate-spin" />
-                                    : alreadySent
-                                    ? <CheckCircle2 className="w-3 h-3" />
-                                    : <Mail className="w-3 h-3" />}
-                                  {isSending ? 'Se trimite...' : alreadySent ? 'Reminder trimis' : 'Trimite reminder clientului'}
-                                  <span className="mx-0.5 opacity-50">·</span>
-                                  {REMINDER_LABELS[reminderType]}
-                                </button>
-                              </div>
-                            )
-                          })()}
                         </>
                       )}
 
@@ -1991,11 +1892,16 @@ export default function DocumentRequests({
           request={selectedRequest}
           projectId={projectId}
           onClose={() => setSelectedRequest(null)}
-          onUpdate={fetchRequests}
+          onUpdate={async () => {
+            await fetchRequests()
+            await refreshReminderStates()
+          }}
           clientEmail={clientEmail}
           clientName={clientName}
           projectTitle={projectTitle}
           clientVisible={isRequestClientVisible(selectedRequest)}
+          reminderState={reminderStates[selectedRequest.id]}
+          reminderStateLoading={reminderStatesLoading}
           projectMembers={projectMembers}
         />
       )}

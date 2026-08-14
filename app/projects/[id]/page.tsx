@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 'use client'
 
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft,
@@ -25,6 +25,7 @@ import ProjectChatDrawer from '@/components/ProjectChatDrawer'
 import ProjectPhasesSidebar from '@/components/ProjectPhasesSidebar'
 import type { ProjectPhase } from '@/components/ProjectPhasesSidebar'
 import DocumentRequests from '@/components/DocumentRequests'
+import DocumentModal from '@/components/DocumentModal'
 import ProjectDocumentsView from '@/components/ProjectDocumentsView'
 import PhaseAccordionSection from '@/components/PhaseAccordionSection'
 import ActivityFold from '@/components/ActivityFold'
@@ -69,6 +70,7 @@ function ProjectDetailsContent() {
   // Altfel, o dată deschis tabul Documente sau Calendar, reîncărcarea ar fi
   // scos pentru totdeauna ecranul „Ce ai de făcut" — cel implicit al clientului.
   const hasDeepLink = !!(targetPhaseId || targetActivityId || targetDocumentId)
+  const targetFolderId = searchParams.get('folder')
   const projectId = useMemo(() => {
     const id = (params as any)?.id
     return typeof id === 'string' && id.trim().length > 0 ? id : null
@@ -81,9 +83,10 @@ function ProjectDetailsContent() {
   const [project, setProject] = useState<any>(null)
   const [phases, setPhases] = useState<ProjectPhase[]>([])
   const [allDocRequests, setAllDocRequests] = useState<any[]>([])
+  const [selectedDocumentRequestId, setSelectedDocumentRequestId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [documentsError, setDocumentsError] = useState<string | null>(null)
   const [projectMembers, setProjectMembers] = useState<{ id: string; full_name: string | null; email: string }[]>([])
-
   const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set())
   const [expandedActivityIds, setExpandedActivityIds] = useState<Set<string>>(new Set())
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
@@ -116,12 +119,17 @@ function ProjectDetailsContent() {
   const [newActivityName, setNewActivityName] = useState<Record<string, string>>({})
   const [addingActivity, setAddingActivity] = useState<Record<string, boolean>>({})
 
+  // Aceeași regulă ca `buildDriveDocuments`: dacă există rânduri în
+  // `attachments`, doar ele contează — altfel badge-ul ar număra un atașament
+  // legacy pe care Drive-ul nu-l arată, și cifrele n-ar mai corespunde.
   const documentEntriesCount = useMemo(() => {
-    return allDocRequests.reduce((total, req) => {
-      const requestAttachmentCount = req.attachment_path && !req.attachment_missing_at ? 1 : 0
-      const uploadedFilesCount = (req.files ?? []).filter((file: any) => !file.deleted_at).length
-      return total + requestAttachmentCount + uploadedFilesCount
-    }, 0)
+    return allDocRequests.filter(req => {
+      const hasAttachment = req.attachments?.length
+        ? req.attachments.some((attachment: any) => !attachment.missing_at)
+        : Boolean(req.attachment_path && !req.attachment_missing_at)
+      const hasFile = (req.files ?? []).some((file: any) => !file.deleted_at)
+      return hasAttachment || hasFile
+    }).length
   }, [allDocRequests])
 
   // Indicatorul de pe tabul „Calendar": termene depășite sau din următoarele 7
@@ -157,6 +165,12 @@ function ProjectDetailsContent() {
     }
     return count
   }, [phases, allDocRequests, profile?.role, profile?.id, project?.general_consultant_id, projectMembers])
+  // Derivat, nu snapshot: după `refreshDocs` modalul trebuie să vadă datele noi,
+  // nu obiectul capturat la click. Dacă cererea dispare, modalul se închide.
+  const selectedDocumentRequest = useMemo(
+    () => allDocRequests.find(req => req.id === selectedDocumentRequestId) ?? null,
+    [allDocRequests, selectedDocumentRequestId],
+  )
 
   // Ceva publicat, dar neanunțat încă printr-un digest — activează butonul „Anunță clientul"
   const hasUnnotifiedUpdates = useMemo(() => {
@@ -184,8 +198,13 @@ function ProjectDetailsContent() {
     setActiveView(view)
     if (!projectId) return
     const params = new URLSearchParams(searchParams.toString())
-    if (view === 'phases') params.delete('view')
-    else params.set('view', view)
+    if (view === 'phases') {
+      params.delete('view')
+      params.delete('folder')
+    } else {
+      params.set('view', view)
+      if (view === 'calendar') params.delete('folder')
+    }
     if (view !== 'calendar') clearCalendarParams(params)
     for (const key of ['phase', 'activity', 'document']) params.delete(key)
     const query = params.toString()
@@ -202,6 +221,7 @@ function ProjectDetailsContent() {
   const fetchAll = async () => {
     if (!projectId) return
     setLoading(true)
+    setDocumentsError(null)
     try {
       const [projRes, phasesRes, docsRes] = await Promise.all([
         apiFetch(`/api/projects/${projectId}`),
@@ -249,7 +269,12 @@ function ProjectDetailsContent() {
 
       if (docsRes.ok) {
         setAllDocRequests((await docsRes.json()).requests || [])
+      } else {
+        setDocumentsError('Reîncearcă încărcarea documentelor.')
       }
+    } catch (error) {
+      console.error('Project data load error:', error)
+      setDocumentsError('Reîncearcă încărcarea documentelor.')
     } finally {
       setLoading(false)
     }
@@ -259,8 +284,16 @@ function ProjectDetailsContent() {
     if (!projectId) return
     try {
       const res = await apiFetch(`/api/projects/${projectId}/document-requests`)
-      if (res.ok) setAllDocRequests((await res.json()).requests || [])
-    } catch (e) { console.error(e) }
+      if (res.ok) {
+        setAllDocRequests((await res.json()).requests || [])
+        setDocumentsError(null)
+      } else {
+        setDocumentsError('Reîncearcă încărcarea documentelor.')
+      }
+    } catch (e) {
+      console.error(e)
+      setDocumentsError('Reîncearcă încărcarea documentelor.')
+    }
   }
 
   // Refresh silențios după reordonare — fără spinner și fără resetarea fazei active
@@ -292,6 +325,10 @@ function ProjectDetailsContent() {
     if (!token) { router.replace('/login'); return }
     fetchAll()
   }, [authLoading, token, projectId])
+
+  useEffect(() => {
+    setActiveView(targetView === 'documents' ? 'documents' : 'phases')
+  }, [targetView])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -348,14 +385,15 @@ function ProjectDetailsContent() {
   const handleAssignActivity = (phaseId: string, activityId: string, assignedTo: string | null) =>
     patchActivityField(phaseId, activityId, { assigned_to: assignedTo }, 'Nu am putut atribui consultantul. Reîncearcă.')
 
-  const saveActivityDeadline = (phaseId: string, activityId: string, deadline: string) =>
-    patchActivityField(
+  const saveActivityDeadline = async (phaseId: string, activityId: string, deadline: string) => {
+    await patchActivityField(
       phaseId,
       activityId,
       { deadline_at: deadline },
       'Nu am putut salva termenul. Reîncearcă.',
       'Termenul limită a fost salvat.',
     )
+  }
 
   const handleAddActivity = async (phaseId: string) => {
     const name = (newActivityName[phaseId] || '').trim()
@@ -619,6 +657,27 @@ function ProjectDetailsContent() {
         setTimeout(() => setHighlightGeneralRequests(false), 2500)
       }
     }, 120)
+  }
+
+  // Stabil între rendere: altfel `documents`/`folders` din Drive se reconstruiesc
+  // la fiecare render al paginii.
+  const handleOpenDocumentRequest = useCallback((requestId: string) => {
+    setSelectedDocumentRequestId(requestId)
+  }, [])
+
+  // `push` doar când utilizatorul chiar navighează — atunci butonul de back al
+  // browserului (și gestul de back de pe telefon) trebuie să-l scoată din dosar.
+  // Corectarea unui folder inexistent din URL folosește `replace`: cu `push` ar
+  // adăuga o intrare în istoric, iar Back ar reveni pe URL-ul invalid, care s-ar
+  // corecta din nou — o capcană din care back-ul n-ar mai ieși.
+  const setDriveFolder = (folderId: string | null, mode: 'navigate' | 'correct' = 'navigate') => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('view', 'documents')
+    if (folderId) params.set('folder', folderId)
+    else params.delete('folder')
+    const url = `/projects/${projectId}?${params.toString()}`
+    if (mode === 'correct') router.replace(url, { scroll: false })
+    else router.push(url, { scroll: false })
   }
 
   // ─── Derived ──────────────────────────────────────────────────────────────
@@ -912,6 +971,13 @@ function ProjectDetailsContent() {
               projectId={projectId}
               requests={allDocRequests}
               phases={phases}
+              error={documentsError}
+              onRetry={refreshDocs}
+              activeFolderId={targetFolderId}
+              onFolderChange={setDriveFolder}
+              // Clientul n-are ce face în fișa cererii — încărcarea trăiește în
+              // „Faze & Activități", nu în modal. Fără handler, rândul nu se deschide.
+              onOpenRequest={canEdit ? handleOpenDocumentRequest : undefined}
             />
           ) : (
             <>
@@ -1159,6 +1225,20 @@ function ProjectDetailsContent() {
         index={searchIndex}
         onSelect={handleSearchSelect}
       />
+
+      {selectedDocumentRequest && (
+        <DocumentModal
+          request={selectedDocumentRequest}
+          projectId={projectId!}
+          onClose={() => setSelectedDocumentRequestId(null)}
+          onUpdate={refreshDocs}
+          clientEmail={project?.profiles?.email ?? null}
+          clientName={project?.profiles?.full_name ?? null}
+          projectTitle={project?.title}
+          clientVisible={isClientVisibleDocument(selectedDocumentRequest)}
+          projectMembers={projectMembers}
+        />
+      )}
 
     </div>
   )

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test lib/*.test.mjs"
+    "test": "node --experimental-strip-types --test lib/*.test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.85.0",
