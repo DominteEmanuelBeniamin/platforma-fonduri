@@ -11,6 +11,9 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
+    // Permite `./modul.ts` în import. Necesar ca modulele TypeScript cu logică
+    // pură să poată fi rulate direct de `node --test`, ca cele în .js.
+    "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
