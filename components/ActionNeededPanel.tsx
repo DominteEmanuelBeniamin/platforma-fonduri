@@ -116,7 +116,7 @@ export default function ActionNeededPanel({ items, waitingItems = [], isClient, 
             </h3>
             <p className="text-[11px] text-[var(--p-ink-soft)] mt-0.5">
               {overdueCount > 0 && (
-                <span className="text-[var(--p-danger)] font-semibold">{overdueCount} expirate · </span>
+                <span className="text-[var(--p-danger)] font-semibold">{overdueCount} depășite · </span>
               )}
               {items.length} document{items.length === 1 ? '' : 'e'} · apasă pentru a {isClient ? 'sări la etapă' : 'deschide și aprobă/respinge'}
             </p>

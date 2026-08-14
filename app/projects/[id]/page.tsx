@@ -69,7 +69,6 @@ function ProjectDetailsContent() {
   const [loading, setLoading] = useState(true)
   const [documentsError, setDocumentsError] = useState<string | null>(null)
   const [projectMembers, setProjectMembers] = useState<{ id: string; full_name: string | null; email: string }[]>([])
-
   const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set())
   const [expandedActivityIds, setExpandedActivityIds] = useState<Set<string>>(new Set())
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
@@ -305,14 +304,15 @@ function ProjectDetailsContent() {
   const handleAssignActivity = (phaseId: string, activityId: string, assignedTo: string | null) =>
     patchActivityField(phaseId, activityId, { assigned_to: assignedTo }, 'Nu am putut atribui consultantul. Reîncearcă.')
 
-  const saveActivityDeadline = (phaseId: string, activityId: string, deadline: string) =>
-    patchActivityField(
+  const saveActivityDeadline = async (phaseId: string, activityId: string, deadline: string) => {
+    await patchActivityField(
       phaseId,
       activityId,
       { deadline_at: deadline },
       'Nu am putut salva termenul. Reîncearcă.',
       'Termenul limită a fost salvat.',
     )
+  }
 
   const handleAddActivity = async (phaseId: string) => {
     const name = (newActivityName[phaseId] || '').trim()

@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { userErrorMessage } from '@/lib/user-error'
@@ -34,6 +34,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<unknown | null>(null)
   const [profile, setProfile] = useState<Profile>(null)
   const [loading, setLoading] = useState(true)
+  const sessionFailureHandled = useRef(false)
+
+  const expireSession = useCallback(() => {
+    if (sessionFailureHandled.current) return
+    sessionFailureHandled.current = true
+    setToken(null)
+    setUserId(null)
+    setUser(null)
+    setProfile(null)
+    void supabase.auth.signOut({ scope: 'local' }).catch(() => undefined)
+    router.replace('/login')
+  }, [router])
 
   // apiFetch: toate requesturile către API routes cu Bearer token
   const apiFetch = useCallback(async (input: RequestInfo, init?: RequestInit) => {
@@ -52,6 +64,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const response = await fetch(input, { ...init, headers })
 
+      if (response.status === 401) expireSession()
+
       if (!response.ok) {
         const readJson = response.json.bind(response)
         Object.defineProperty(response, 'json', {
@@ -68,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       return response
-  }, [token])
+  }, [expireSession, token])
 
   // 1) Inițializare: citim sesiunea și ne abonăm la schimbări
   useEffect(() => {
@@ -90,6 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
+      sessionFailureHandled.current = false
       setToken(t)
       setUserId(session?.user?.id ?? null)
       setUser(session?.user ?? null)
@@ -102,6 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!mounted) return
 
       const t = session?.access_token ?? null
+      if (t) sessionFailureHandled.current = false
       setToken(t)
       setUserId(session?.user?.id ?? null)
       setUser(session?.user ?? null)
@@ -136,7 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (!res.ok) {
           // Token invalid / expiră / alte erori -> logout "soft"
-          console.warn('Failed to load /api/me:', json)
+          if (res.status !== 401) console.warn('Failed to load /api/me:', json)
           setProfile(null)
           return
         }
