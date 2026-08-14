@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 'use client'
 
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft,
@@ -539,12 +539,20 @@ function ProjectDetailsContent() {
     router.replace(`/projects/${projectId}?${params.toString()}`, { scroll: false })
   }
 
+  // Stabil între rendere: altfel `documents`/`folders` din Drive se reconstruiesc
+  // la fiecare render al paginii.
+  const handleOpenDocumentRequest = useCallback((request: any) => {
+    setSelectedDocumentRequest(request)
+  }, [])
+
+  // push, nu replace: intrarea într-un dosar e o navigare, deci butonul de back
+  // al browserului (și gestul de back de pe telefon) trebuie să scoată din el.
   const setDriveFolder = (folderId: string | null) => {
     const params = new URLSearchParams(searchParams.toString())
     params.set('view', 'documents')
     if (folderId) params.set('folder', folderId)
     else params.delete('folder')
-    router.replace(`/projects/${projectId}?${params.toString()}`, { scroll: false })
+    router.push(`/projects/${projectId}?${params.toString()}`, { scroll: false })
   }
 
   // ─── Derived ──────────────────────────────────────────────────────────────
@@ -812,9 +820,7 @@ function ProjectDetailsContent() {
               error={documentsError}
               activeFolderId={targetFolderId}
               onFolderChange={setDriveFolder}
-              onOpenRequest={request => {
-                setSelectedDocumentRequest(request)
-              }}
+              onOpenRequest={handleOpenDocumentRequest}
             />
           ) : (
             <>

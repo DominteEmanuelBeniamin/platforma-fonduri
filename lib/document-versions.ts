@@ -1,8 +1,15 @@
-function activeFiles(files) {
+// Clientul vede o singură versiune a unui document: cea mai recentă nearhivată.
+
+export interface VersionedFile {
+  version_number?: number | null
+  deleted_at?: string | null
+}
+
+export function activeFiles<T extends VersionedFile>(files?: T[] | null): T[] {
   return (files || []).filter(file => !file?.deleted_at)
 }
 
-function latestVersionNumber(files) {
+export function latestVersionNumber(files?: VersionedFile[] | null): number | null {
   const active = activeFiles(files)
   if (active.length === 0) return null
 
@@ -12,20 +19,16 @@ function latestVersionNumber(files) {
   }, 0)
 }
 
-function filterFilesForClient(files) {
+export function filterFilesForClient<T extends VersionedFile>(files?: T[] | null): T[] {
   const active = activeFiles(files)
   const latest = latestVersionNumber(active)
   return latest === null ? [] : active.filter(file => file.version_number === latest)
 }
 
-function isLatestFileVersion(file, allFiles) {
+export function isLatestFileVersion(
+  file: VersionedFile | null | undefined,
+  allFiles?: VersionedFile[] | null,
+): boolean {
   const latest = latestVersionNumber(allFiles)
   return latest !== null && file?.version_number === latest
-}
-
-module.exports = {
-  activeFiles,
-  latestVersionNumber,
-  filterFilesForClient,
-  isLatestFileVersion,
 }

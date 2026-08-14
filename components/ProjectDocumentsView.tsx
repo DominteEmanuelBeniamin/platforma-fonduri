@@ -2,57 +2,25 @@
 
 import { useMemo } from 'react'
 import { useAuth } from '@/app/providers/AuthProvider'
-import { buildDriveDocuments, buildDriveFolders } from '@/lib/drive-grouping'
-import DriveFilesView, {
-  DriveDocument,
-  DriveFolder,
-} from './DriveFilesView'
-
-interface DocAttachment {
-  id: string
-  storage_path: string
-  original_name: string | null
-  missing_at?: string | null
-}
-
-interface DocRequest {
-  id: string
-  name: string
-  status: 'pending' | 'review' | 'approved' | 'rejected'
-  is_outgoing?: boolean
-  attachment_path: string | null
-  attachment_original_name?: string | null
-  attachment_missing_at?: string | null
-  attachments?: DocAttachment[]
-  created_at: string
-  activity?: { id: string; name: string; phase_id: string } | null
-  activity_id?: string | null
-  files?: Array<{
-    id: string
-    storage_path: string
-    original_name: string
-    version_number: number
-    created_at: string
-    deleted_at?: string | null
-  }>
-}
-
-interface Phase {
-  id: string
-  name: string
-  order_index: number
-  activities?: Array<{ id: string; name: string; phase_id?: string; order_index?: number }>
-}
+import {
+  buildDriveDocuments,
+  buildDriveFolders,
+  type DriveDocument,
+  type DriveFolder,
+  type DriveSourcePhase,
+  type DriveSourceRequest,
+} from '@/lib/drive-grouping'
+import DriveFilesView from './DriveFilesView'
 
 interface ProjectDocumentsViewProps {
   projectId: string
-  requests: DocRequest[]
-  phases: Phase[]
+  requests: DriveSourceRequest[]
+  phases: DriveSourcePhase[]
   loading?: boolean
   error?: string | null
   activeFolderId?: string | null
   onFolderChange?: (folderId: string | null) => void
-  onOpenRequest?: (request: DocRequest) => void
+  onOpenRequest?: (request: DriveSourceRequest) => void
 }
 
 export default function ProjectDocumentsView({
@@ -69,7 +37,7 @@ export default function ProjectDocumentsView({
 
   const documents = useMemo((): DriveDocument[] => {
     const requestById = new Map(requests.map(request => [request.id, request]))
-    return (buildDriveDocuments(requests, phases) as DriveDocument[]).map(document => ({
+    return buildDriveDocuments(requests, phases).map(document => ({
       ...document,
       onRowClick: onOpenRequest
         ? () => {
@@ -80,13 +48,10 @@ export default function ProjectDocumentsView({
     }))
   }, [onOpenRequest, phases, requests])
 
-  const folders = useMemo((): DriveFolder[] => {
-    return buildDriveFolders(documents, phases) as DriveFolder[]
-  }, [documents, phases])
+  const folders = useMemo((): DriveFolder[] => buildDriveFolders(documents, phases), [documents, phases])
 
   return (
     <DriveFilesView
-      rows={[]}
       documents={documents}
       folders={folders}
       storageKey={projectId}
@@ -94,7 +59,6 @@ export default function ProjectDocumentsView({
       onFolderChange={onFolderChange}
       loading={loading}
       error={error}
-      secondaryColumnLabel="Fază / Activitate"
       apiFetch={apiFetch}
     />
   )

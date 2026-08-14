@@ -3,13 +3,27 @@
 import { useMemo, useState, useRef, useEffect } from 'react'
 import {
   FileText, FileSpreadsheet, Image as ImageIcon,
-  Download, Eye,
+  Download, Eye, ArrowLeft,
   Search, FolderOpen, ChevronDown, Grid3X3, List,
 } from 'lucide-react'
 import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
 import { useToast } from '@/app/providers/ToastProvider'
+import type {
+  DriveAsset,
+  DriveDocStatus,
+  DriveDocument,
+  DriveFolder,
+} from '@/lib/drive-grouping'
 
 // ── Public types ──────────────────────────────────────────────────────────────
+
+export type {
+  DriveAsset,
+  DriveDocStatus,
+  DriveDocument,
+  DriveFolder,
+  DriveVersion,
+} from '@/lib/drive-grouping'
 
 export interface DriveRow {
   id: string           // unique row key
@@ -25,7 +39,7 @@ export interface DriveRow {
   docName: string
   entryType?: 'submission_file' | 'request_attachment' | 'outgoing_document'
   entryLabel?: string
-  docStatus: 'pending' | 'review' | 'approved' | 'rejected' | 'sent' | null
+  docStatus: DriveDocStatus
 
   // optional secondary column (phase or project)
   secondaryMain?: string      // bold line
@@ -36,50 +50,9 @@ export interface DriveRow {
   onRowClick?: () => void
 }
 
-export interface DriveAsset {
-  id: string
-  fileId?: string
-  requestId?: string
-  attachmentId?: string
-  downloadKind: 'file' | 'requestAttachment'
-  storagePath: string
-  displayName?: string
-  versionNumber?: number
-  uploadedAt: string
-  entryLabel?: string
-}
-
-export interface DriveVersion {
-  version: number
-  assets: DriveAsset[]
-  createdAt: string
-}
-
-export interface DriveDocument {
-  id: string
-  requestId: string
-  docName: string
-  docStatus: DriveRow['docStatus']
-  folderId: string
-  folderName: string
-  folderOrderIndex: number
-  activityName?: string
-  uploadedAt: string
-  attachments: DriveAsset[]
-  versions: DriveVersion[]
-  publicationStatus?: 'published' | 'unpublished'
-  publicationReason?: string
-  onRowClick?: () => void
-}
-
-export interface DriveFolder {
-  id: string
-  name: string
-  documentCount: number
-}
-
 interface DriveFilesViewProps {
-  rows: DriveRow[]
+  /** Vederea plată (pagina de user/admin). Ignorat când se dau `documents`. */
+  rows?: DriveRow[]
   documents?: DriveDocument[]
   folders?: DriveFolder[]
   storageKey?: string
@@ -233,7 +206,6 @@ function LogicalDriveFilesView({
   const [filterStatus, setFilterStatus] = useState('all')
   const [sortKey, setSortKey] = useState<SortKey>('date')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
-  const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [downloading, setDownloading] = useState<string | null>(null)
   const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({})
@@ -283,9 +255,12 @@ function LogicalDriveFilesView({
   const effectiveFolderId = selectedFolder ? activeFolderId : null
   const hasSearch = search.trim().length > 0
 
+  // Curățăm din URL doar folderele care chiar nu există. Cât timp datele încă
+  // se încarcă, lista de foldere e goală și un deep-link valid ar fi șters.
   useEffect(() => {
+    if (loading || !folders?.length) return
     if (activeFolderId && !selectedFolder) onFolderChange?.(null)
-  }, [activeFolderId, onFolderChange, selectedFolder])
+  }, [activeFolderId, folders, loading, onFolderChange, selectedFolder])
 
   const filteredDocuments = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -317,9 +292,10 @@ function LogicalDriveFilesView({
     return sortDir === 'asc' ? comparison : -comparison
   }), [filteredDocuments, sortDir, sortKey])
 
-  const changeSort = (key: SortKey) => {
-    if (sortKey === key) setSortDir(previous => previous === 'asc' ? 'desc' : 'asc')
-    else { setSortKey(key); setSortDir('asc') }
+  // Un singur pas înapoi: întâi ieșim din căutare, apoi din folder.
+  const goBack = () => {
+    if (hasSearch) setSearch('')
+    else onFolderChange?.(null)
   }
 
   const fetchSignedUrl = async (asset: DriveAsset, disposition?: 'inline') => {
@@ -376,12 +352,12 @@ function LogicalDriveFilesView({
     return next
   })
 
-  const renderAsset = (asset: DriveAsset, compact = false) => {
+  const renderAsset = (asset: DriveAsset) => {
     const actionId = assetActionId(asset)
     const previewable = isPreviewableFile({ fileName: getAssetDisplayName(asset) })
     return (
-      <div key={asset.id} className={`border-t border-slate-100 px-3 py-2 ${compact ? 'space-y-2' : 'flex items-center gap-3'}`}>
-        <div className={`flex min-w-0 items-center gap-2 ${compact ? '' : 'flex-1 gap-3'}`}>
+      <div key={asset.id} className="flex items-center gap-3 border-t border-slate-100 px-3 py-2">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <FilePreview path={asset.storagePath} previewUrl={asset.fileId ? previewUrls[asset.fileId] : undefined} size="sm" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-slate-800">{getAssetDisplayName(asset)}</p>
@@ -391,13 +367,13 @@ function LogicalDriveFilesView({
             </p>
           </div>
         </div>
-        <div className={`flex items-center gap-1 ${compact ? 'justify-end' : ''}`}>
+        <div className="flex flex-shrink-0 items-center gap-1">
           {previewable && (
-            <button type="button" onClick={() => openAsset(asset)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600" title="Deschide" aria-label={`Deschide ${getAssetDisplayName(asset)}`}>
+            <button type="button" onClick={() => openAsset(asset)} className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-indigo-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600" title="Deschide" aria-label={`Deschide ${getAssetDisplayName(asset)}`}>
               <Eye className="h-4 w-4" />
             </button>
           )}
-          <button type="button" onClick={() => downloadAsset(asset)} disabled={downloading === actionId} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 disabled:opacity-50" title="Descarcă" aria-label={`Descarcă ${getAssetDisplayName(asset)}`}>
+          <button type="button" onClick={() => downloadAsset(asset)} disabled={downloading === actionId} className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-indigo-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 disabled:opacity-50" title="Descarcă" aria-label={`Descarcă ${getAssetDisplayName(asset)}`}>
             {downloading === actionId ? <span className="block h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-indigo-600" /> : <Download className="h-4 w-4" />}
           </button>
         </div>
@@ -409,7 +385,7 @@ function LogicalDriveFilesView({
     document.onRowClick?.()
   }
 
-  const renderDocument = (document: DriveDocument, compact = false) => {
+  const renderDocument = (document: DriveDocument) => {
     const currentVersion = document.versions[0]
     const currentAssets = [...document.attachments, ...(currentVersion?.assets ?? [])]
     const hasHistory = document.versions.length > 1
@@ -438,6 +414,8 @@ function LogicalDriveFilesView({
                   </>
                 )}
                 {currentVersion?.version ? <><span aria-hidden="true">·</span><span>v{currentVersion.version}</span></> : null}
+                <span aria-hidden="true">·</span>
+                <span className="whitespace-nowrap">{formatDate(document.uploadedAt)}</span>
               </div>
             </div>
           </div>
@@ -453,11 +431,11 @@ function LogicalDriveFilesView({
           </div>
         </div>
         <div id={`drive-document-${document.id}`}>
-          {currentAssets.map(asset => renderAsset(asset, compact))}
+          {currentAssets.map(asset => renderAsset(asset))}
           {expanded && hasHistory && document.versions.slice(1).map(version => (
             <div key={version.version} className="border-t border-slate-200 bg-slate-50">
               <p className="px-3 py-2 text-xs font-semibold text-slate-500">Varianta {version.version}</p>
-              {version.assets.map(asset => renderAsset(asset, compact))}
+              {version.assets.map(asset => renderAsset(asset))}
             </div>
           ))}
         </div>
@@ -473,34 +451,52 @@ function LogicalDriveFilesView({
         {search && <button type="button" onClick={() => setSearch('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" aria-label="Golește căutarea">×</button>}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {browseMode === 'folders' && (
-          <button type="button" onClick={() => setMode('flat')} className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600">Listă plată</button>
-        )}
-        {browseMode === 'flat' && (
-          <button type="button" onClick={() => setMode('folders')} className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600">Dosare</button>
-        )}
-        <select value={filterStatus} onChange={event => setFilterStatus(event.target.value)} aria-label="Filtrează după status" className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 outline-none focus:ring-2 focus:ring-indigo-200">
-          <option value="all">Status</option>
+        <div className="inline-flex overflow-hidden rounded-full border border-slate-200" role="group" aria-label="Mod de afișare">
+          {([
+            { mode: 'folders' as const, label: 'Dosare', Icon: FolderOpen },
+            { mode: 'flat' as const, label: 'Listă', Icon: List },
+          ]).map(({ mode, label, Icon }) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setMode(mode)}
+              aria-pressed={browseMode === mode}
+              className={`inline-flex min-h-9 items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 ${
+                browseMode === mode ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+              {label}
+            </button>
+          ))}
+        </div>
+        <select value={filterStatus} onChange={event => setFilterStatus(event.target.value)} aria-label="Filtrează după status" className="min-h-9 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 outline-none focus:ring-2 focus:ring-indigo-200">
+          <option value="all">Toate statusurile</option>
           <option value="pending">În așteptare</option>
           <option value="review">În verificare</option>
           <option value="approved">Aprobate</option>
           <option value="rejected">Respinse</option>
           <option value="sent">Trimise clientului</option>
         </select>
-        <select value={sortKey} onChange={event => changeSort(event.target.value as SortKey)} aria-label="Sortează documentele" className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 outline-none focus:ring-2 focus:ring-indigo-200">
-          <option value="name">Nume</option>
-          <option value="secondary">Folder</option>
-          <option value="status">Status</option>
-          <option value="date">Dată</option>
+        <select
+          value={`${sortKey}:${sortDir}`}
+          onChange={event => {
+            const [key, direction] = event.target.value.split(':')
+            setSortKey(key as SortKey)
+            setSortDir(direction as SortDir)
+          }}
+          aria-label="Sortează documentele"
+          className="min-h-9 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 outline-none focus:ring-2 focus:ring-indigo-200"
+        >
+          <option value="date:desc">Cele mai noi</option>
+          <option value="date:asc">Cele mai vechi</option>
+          <option value="name:asc">Nume A → Z</option>
+          <option value="name:desc">Nume Z → A</option>
+          <option value="secondary:asc">După dosar</option>
+          <option value="status:asc">După status</option>
         </select>
-        <button type="button" onClick={() => changeSort(sortKey)} className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600" aria-label={`Ordine ${sortDir === 'asc' ? 'crescătoare' : 'descrescătoare'}`}>
-          {sortDir === 'asc' ? '↑' : '↓'}
-        </button>
         <span className="flex-1" />
         <span className="text-xs text-slate-500">{sortedDocuments.length} {sortedDocuments.length === 1 ? 'document' : 'documente'}</span>
-        <div className="hidden overflow-hidden rounded-full border border-slate-200 sm:flex">
-          {(['list', 'grid'] as ViewMode[]).map(mode => <button type="button" key={mode} onClick={() => setViewMode(mode)} className={`p-1.5 ${viewMode === mode ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400'} focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600`} aria-label={mode === 'list' ? 'Vedere listă' : 'Vedere grilă'} aria-pressed={viewMode === mode}>{mode === 'list' ? <List className="h-4 w-4" /> : <Grid3X3 className="h-4 w-4" />}</button>)}
-        </div>
       </div>
     </div>
   )
@@ -519,10 +515,21 @@ function LogicalDriveFilesView({
     <div className="flex h-full min-h-0 flex-col bg-white" style={{ fontFamily: "'Google Sans', Roboto, Arial, sans-serif" }}>
       {renderToolbar()}
       {browseMode === 'folders' && (effectiveFolderId || hasSearch) && (
-        <div className="flex items-center gap-2 px-4 pb-3 text-sm">
-          <button type="button" onClick={() => onFolderChange?.(null)} className="font-semibold text-indigo-600 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600">Drive</button>
-          {selectedFolder && <><span className="text-slate-400">/</span><span className="font-semibold text-slate-700">{selectedFolder.name}</span></>}
-          {hasSearch && <span className="text-xs text-slate-400">· rezultate în tot proiectul</span>}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pb-3 text-sm">
+          <button
+            type="button"
+            onClick={goBack}
+            className="inline-flex min-h-9 flex-shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600"
+            aria-label={hasSearch ? 'Înapoi — golește căutarea' : 'Înapoi la lista de dosare'}
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            Înapoi
+          </button>
+          <nav aria-label="Cale documente" className="flex min-w-0 items-center gap-2">
+            <button type="button" onClick={() => onFolderChange?.(null)} className="font-semibold text-indigo-600 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600">Drive</button>
+            {selectedFolder && <><span className="text-slate-400" aria-hidden="true">/</span><span className="truncate font-semibold text-slate-700">{selectedFolder.name}</span></>}
+            {hasSearch && <span className="whitespace-nowrap text-xs text-slate-400">· rezultate în tot proiectul</span>}
+          </nav>
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
@@ -536,8 +543,6 @@ function LogicalDriveFilesView({
           )
         ) : noResults ? (
           <div className="flex flex-col items-center justify-center py-24 text-center"><FolderOpen className="mb-4 h-16 w-16 text-slate-200" /><p className="font-semibold text-slate-700">{hasSearch || filterStatus !== 'all' ? 'Niciun rezultat' : 'Folder gol'}</p><p className="text-sm text-slate-500">{hasSearch || filterStatus !== 'all' ? 'Încearcă să modifici filtrele.' : 'Fișierele vor apărea aici când vor fi încărcate.'}</p></div>
-        ) : viewMode === 'grid' ? (
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{sortedDocuments.map(document => renderDocument(document, true))}</div>
         ) : (
           <div className="space-y-3">{sortedDocuments.map(document => renderDocument(document))}</div>
         )}
@@ -549,7 +554,7 @@ function LogicalDriveFilesView({
 // ── Component ─────────────────────────────────────────────────────────────────
 
 function FlatDriveFilesView({
-  rows,
+  rows = [],
   secondaryColumnLabel = 'Info',
   apiFetch,
   emptyText = 'Niciun document',
@@ -562,7 +567,6 @@ function FlatDriveFilesView({
   const [sortKey, setSortKey]             = useState<SortKey>('date')
   const [sortDir, setSortDir]             = useState<SortDir>('desc')
   const [viewMode, setViewMode]           = useState<ViewMode>('list')
-  const [hoveredId, setHoveredId]         = useState<string | null>(null)
   const [downloading, setDownloading]     = useState<string | null>(null)
   const [previewUrls, setPreviewUrls]     = useState<Record<string, string>>({})
   const fetchedIds = useRef<Set<string>>(new Set())
@@ -709,80 +713,84 @@ function FlatDriveFilesView({
       <div className="flex-shrink-0 px-4 pt-4 pb-2">
         {/* Search */}
         <div className="relative mb-4">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: '#5f6368' }} />
+          <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Caută în documente"
-            className="w-full pl-12 pr-4 py-2.5 rounded-full border-0 outline-none transition-shadow"
-            style={{ backgroundColor: '#f1f3f4', color: '#202124', fontSize: '14px' }}
-            onFocus={e => { e.currentTarget.style.backgroundColor = '#fff'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,.2), 0 2px 8px rgba(0,0,0,.1)' }}
-            onBlur={e => { e.currentTarget.style.backgroundColor = '#f1f3f4'; e.currentTarget.style.boxShadow = 'none' }}
+            aria-label="Caută în documente"
+            className="w-full rounded-full bg-slate-100 py-2.5 pl-12 pr-10 text-sm text-slate-800 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-200"
           />
           {search && (
-            <button onClick={() => setSearch('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-sm" style={{ color: '#5f6368' }}>✕</button>
+            <button type="button" onClick={() => setSearch('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" aria-label="Golește căutarea">×</button>
           )}
         </div>
 
         {/* Filter chips + view toggle */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Status */}
           <div className="relative">
-            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-              className="appearance-none text-sm pl-3 pr-8 py-1.5 rounded-full border cursor-pointer outline-none"
-              style={{
-                borderColor: filterStatus !== 'all' ? '#1a73e8' : '#dadce0',
-                backgroundColor: filterStatus !== 'all' ? '#e8f0fe' : '#fff',
-                color: filterStatus !== 'all' ? '#1a73e8' : '#3c4043',
-                fontSize: '13px',
-              }}>
-              <option value="all">Status</option>
+            <select
+              value={filterStatus}
+              onChange={e => setFilterStatus(e.target.value)}
+              aria-label="Filtrează după status"
+              className={`min-h-9 cursor-pointer appearance-none rounded-full border py-1.5 pl-3 pr-8 text-xs outline-none focus:ring-2 focus:ring-indigo-200 ${
+                filterStatus !== 'all'
+                  ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                  : 'border-slate-200 bg-white text-slate-600'
+              }`}
+            >
+              <option value="all">Toate statusurile</option>
               <option value="pending">În așteptare</option>
               <option value="sent">Trimise clientului</option>
               <option value="review">În verificare</option>
               <option value="approved">Aprobate</option>
               <option value="rejected">Respinse</option>
             </select>
-            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
-              style={{ color: filterStatus !== 'all' ? '#1a73e8' : '#5f6368' }} />
+            <ChevronDown className={`pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 ${filterStatus !== 'all' ? 'text-indigo-600' : 'text-slate-400'}`} />
           </div>
 
           {/* Secondary filter */}
           {(secondaryOptions.length > 1 || (secondaryOptions.length > 0 && hasUnassigned)) && (
             <div className="relative">
-              <select value={filterSecondary} onChange={e => setFilterSecondary(e.target.value)}
-                className="appearance-none text-sm pl-3 pr-8 py-1.5 rounded-full border cursor-pointer outline-none"
-                style={{
-                  borderColor: filterSecondary !== 'all' ? '#1a73e8' : '#dadce0',
-                  backgroundColor: filterSecondary !== 'all' ? '#e8f0fe' : '#fff',
-                  color: filterSecondary !== 'all' ? '#1a73e8' : '#3c4043',
-                  fontSize: '13px',
-                  maxWidth: '180px',
-                }}>
+              <select
+                value={filterSecondary}
+                onChange={e => setFilterSecondary(e.target.value)}
+                aria-label={`Filtrează după ${secondaryColumnLabel.toLowerCase()}`}
+                className={`min-h-9 max-w-[180px] cursor-pointer appearance-none rounded-full border py-1.5 pl-3 pr-8 text-xs outline-none focus:ring-2 focus:ring-indigo-200 ${
+                  filterSecondary !== 'all'
+                    ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                    : 'border-slate-200 bg-white text-slate-600'
+                }`}
+              >
                 <option value="all">{secondaryColumnLabel}</option>
                 {secondaryOptions.map(o => <option key={o} value={o}>{o}</option>)}
                 {hasUnassigned && <option value="__unassigned__">Generale</option>}
               </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
-                style={{ color: filterSecondary !== 'all' ? '#1a73e8' : '#5f6368' }} />
+              <ChevronDown className={`pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 ${filterSecondary !== 'all' ? 'text-indigo-600' : 'text-slate-400'}`} />
             </div>
           )}
 
-          <div className="flex-1" />
+          <span className="flex-1" />
 
-          <span style={{ fontSize: '12px', color: '#5f6368' }}>
+          <span className="text-xs text-slate-500">
             {sorted.length !== rows.length ? `${sorted.length} din ` : ''}{rows.length} {rows.length === 1 ? 'intrare' : 'intrări'}
           </span>
 
           {/* View toggle */}
-          <div className="hidden items-center rounded-full border overflow-hidden sm:flex" style={{ borderColor: '#dadce0' }}>
+          <div className="hidden overflow-hidden rounded-full border border-slate-200 sm:flex">
             {(['list', 'grid'] as ViewMode[]).map(mode => (
-              <button key={mode} onClick={() => setViewMode(mode)} className="p-1.5 transition-colors"
-                style={{
-                  backgroundColor: viewMode === mode ? '#e8f0fe' : 'transparent',
-                  color: viewMode === mode ? '#1a73e8' : '#5f6368',
-                }}>
-                {mode === 'list' ? <List className="w-4 h-4" /> : <Grid3X3 className="w-4 h-4" />}
+              <button
+                type="button"
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                aria-label={mode === 'list' ? 'Vedere listă' : 'Vedere grilă'}
+                aria-pressed={viewMode === mode}
+                className={`p-1.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 ${
+                  viewMode === mode ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400 hover:bg-slate-50'
+                }`}
+              >
+                {mode === 'list' ? <List className="h-4 w-4" /> : <Grid3X3 className="h-4 w-4" />}
               </button>
             ))}
           </div>
@@ -792,12 +800,12 @@ function FlatDriveFilesView({
       {/* ── Content ── */}
       <div className={contentCls}>
         {sorted.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 text-center px-8">
-            <FolderOpen className="w-20 h-20 mb-4" style={{ color: '#dadce0' }} />
-            <p className="text-lg font-medium" style={{ color: '#3c4043' }}>
+          <div className="flex flex-col items-center justify-center px-8 py-24 text-center">
+            <FolderOpen className="mb-4 h-20 w-20 text-slate-200" />
+            <p className="text-lg font-medium text-slate-700">
               {search || filterStatus !== 'all' || filterSecondary !== 'all' ? 'Niciun rezultat' : emptyText}
             </p>
-            <p className="text-sm mt-1" style={{ color: '#5f6368' }}>
+            <p className="mt-1 text-sm text-slate-500">
               {search || filterStatus !== 'all' || filterSecondary !== 'all'
                 ? 'Încearcă să modifici filtrele'
                 : 'Documentele uploadate vor apărea aici'}
@@ -807,24 +815,24 @@ function FlatDriveFilesView({
         ) : viewMode === 'list' ? (
           /* ══ LIST VIEW ══ */
           <div>
-            <div className="grid px-4 py-2 border-b" style={{
-              gridTemplateColumns: '3fr 1.5fr 1fr 1fr 72px',
-              gap: '8px', borderColor: '#e0e0e0', backgroundColor: '#fafafa',
-            }}>
+            <div className="grid gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2" style={{ gridTemplateColumns: '3fr 1.5fr 1fr 1fr 88px' }}>
               {([
                 { key: 'name' as SortKey,      label: 'Nume' },
                 { key: 'secondary' as SortKey, label: secondaryColumnLabel },
                 { key: 'status' as SortKey,    label: 'Status' },
                 { key: 'date' as SortKey,      label: 'Dată' },
               ]).map(col => (
-                <button key={col.key} onClick={() => toggleSort(col.key)}
-                  className="flex items-center gap-1 text-left transition-colors"
-                  style={{
-                    fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
-                    color: sortKey === col.key ? '#1a73e8' : '#9aa0a6',
-                  }}>
+                <button
+                  type="button"
+                  key={col.key}
+                  onClick={() => toggleSort(col.key)}
+                  aria-label={`Sortează după ${col.label.toLowerCase()}`}
+                  className={`flex items-center gap-1 text-left text-[11px] font-semibold uppercase tracking-wider transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 ${
+                    sortKey === col.key ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
                   {col.label}
-                  <span style={{ opacity: sortKey === col.key ? 1 : 0, fontSize: '10px' }}>
+                  <span className={`text-[10px] ${sortKey === col.key ? 'opacity-100' : 'opacity-0'}`}>
                     {sortDir === 'asc' ? '↑' : '↓'}
                   </span>
                 </button>
@@ -833,32 +841,25 @@ function FlatDriveFilesView({
             </div>
 
             {sorted.map(row => (
-              <div key={row.id}
-                onMouseEnter={() => setHoveredId(row.id)}
-                onMouseLeave={() => setHoveredId(null)}
+              <div
+                key={row.id}
                 onClick={() => row.onRowClick?.()}
-                className="grid items-center px-4 py-1.5 transition-colors"
-                style={{
-                  gridTemplateColumns: '3fr 1.5fr 1fr 1fr 72px',
-                  gap: '8px',
-                  backgroundColor: hoveredId === row.id ? '#f8f9fa' : 'transparent',
-                  borderBottom: '1px solid #f1f3f4',
-                  cursor: row.onRowClick ? 'pointer' : 'default',
-                }}>
+                className={`group grid items-center gap-2 border-b border-slate-100 px-4 py-1.5 transition-colors hover:bg-slate-50 ${row.onRowClick ? 'cursor-pointer' : ''}`}
+                style={{ gridTemplateColumns: '3fr 1.5fr 1fr 1fr 88px' }}
+              >
                 {/* Name */}
-                <div className="flex items-center gap-3 min-w-0">
+                <div className="flex min-w-0 items-center gap-3">
                   <FilePreview path={row.storagePath} previewUrl={row.fileId ? previewUrls[row.fileId] : undefined} size="sm" />
                   <div className="min-w-0">
-                    <p className="truncate font-medium" style={{ fontSize: '13px', color: '#202124' }}>
+                    <p className="truncate text-[13px] font-medium text-slate-900">
                       {row.docName}
                       {row.versionNumber && row.versionNumber > 1 && (
-                        <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded"
-                          style={{ backgroundColor: '#e8f0fe', color: '#1a73e8' }}>
+                        <span className="ml-1.5 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] text-indigo-700">
                           v{row.versionNumber}
                         </span>
                       )}
                     </p>
-                    <p className="truncate" style={{ fontSize: '11px', color: '#9aa0a6' }}>
+                    <p className="truncate text-[11px] text-slate-400">
                       {row.entryLabel ? `${row.entryLabel} · ` : ''}{getDisplayName(row)}
                     </p>
                   </div>
@@ -869,21 +870,20 @@ function FlatDriveFilesView({
                   {row.secondaryMain ? (
                     <div>
                       <button
+                        type="button"
                         onClick={e => { e.stopPropagation(); row.onSecondaryClick?.() }}
-                        className="flex items-center gap-1 text-left w-full truncate"
-                        style={{
-                          fontSize: '12px',
-                          color: row.onSecondaryClick ? '#1a73e8' : '#5f6368',
-                          cursor: row.onSecondaryClick ? 'pointer' : 'default',
-                        }}>
+                        className={`flex w-full items-center gap-1 truncate text-left text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 ${
+                          row.onSecondaryClick ? 'cursor-pointer text-indigo-600 hover:underline' : 'cursor-default text-slate-500'
+                        }`}
+                      >
                         <span className="truncate">{row.secondaryMain}</span>
                       </button>
                       {row.secondarySub && (
-                        <p className="truncate" style={{ fontSize: '11px', color: '#9aa0a6' }}>{row.secondarySub}</p>
+                        <p className="truncate text-[11px] text-slate-400">{row.secondarySub}</p>
                       )}
                     </div>
                   ) : (
-                    <p style={{ fontSize: '12px', color: '#9aa0a6', fontStyle: 'italic' }}>General</p>
+                    <p className="text-xs italic text-slate-400">General</p>
                   )}
                 </div>
 
@@ -891,36 +891,37 @@ function FlatDriveFilesView({
                 <div><StatusPill status={row.docStatus} label={row.entryLabel} /></div>
 
                 {/* Date */}
-                <p style={{ fontSize: '12px', color: '#5f6368' }}>{formatDate(row.uploadedAt)}</p>
+                <p className="text-xs text-slate-500">{formatDate(row.uploadedAt)}</p>
 
-                {/* Actions */}
-                <div className="flex items-center justify-end gap-0.5" onClick={e => e.stopPropagation()}>
-                  {hoveredId === row.id && isRowPreviewable(row) && (
+                {/* Actions — mereu vizibile pe touch, la hover pe desktop */}
+                <div
+                  className="flex items-center justify-end gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:focus-within:opacity-100 sm:group-hover:opacity-100"
+                  onClick={e => e.stopPropagation()}
+                >
+                  {isRowPreviewable(row) && (
                     <button
+                      type="button"
                       onClick={e => handleOpen(e, row)}
-                      className="p-1.5 rounded-full transition-colors"
-                      style={{ color: '#5f6368' }}
-                      onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
-                      onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                      title="Deschide în tab nou">
-                      <Eye className="w-4 h-4" />
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-200 hover:text-indigo-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600"
+                      title="Deschide în tab nou"
+                      aria-label={`Deschide ${getDisplayName(row)}`}
+                    >
+                      <Eye className="h-4 w-4" />
                     </button>
                   )}
-                  {hoveredId === row.id && (
-                    <button
-                      onClick={e => handleDownload(e, row)}
-                      disabled={downloading === rowActionId(row)}
-                      className="p-1.5 rounded-full transition-colors"
-                      style={{ color: '#5f6368' }}
-                      onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
-                      onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                      title="Descarcă">
-                      {downloading === rowActionId(row)
-                        ? <span className="w-4 h-4 border-2 rounded-full animate-spin block" style={{ borderColor: '#dadce0', borderTopColor: '#1a73e8' }} />
-                        : <Download className="w-4 h-4" />
-                      }
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={e => handleDownload(e, row)}
+                    disabled={downloading === rowActionId(row)}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-200 hover:text-indigo-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 disabled:opacity-50"
+                    title="Descarcă"
+                    aria-label={`Descarcă ${getDisplayName(row)}`}
+                  >
+                    {downloading === rowActionId(row)
+                      ? <span className="block h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-indigo-600" />
+                      : <Download className="h-4 w-4" />
+                    }
+                  </button>
                 </div>
               </div>
             ))}
@@ -928,72 +929,67 @@ function FlatDriveFilesView({
 
         ) : (
           /* ══ GRID VIEW ══ */
-          <div className="p-4 grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
+          <div className="grid gap-4 p-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
             {sorted.map(row => (
-              <div key={row.id}
-                onMouseEnter={() => setHoveredId(row.id)}
-                onMouseLeave={() => setHoveredId(null)}
+              <div
+                key={row.id}
                 onClick={() => row.onRowClick?.()}
-                className="flex flex-col rounded-xl border transition-all overflow-hidden"
-                style={{
-                  borderColor: hoveredId === row.id ? '#1a73e8' : '#e0e0e0',
-                  backgroundColor: hoveredId === row.id ? '#f8f9fa' : '#fff',
-                  boxShadow: hoveredId === row.id ? '0 2px 8px rgba(0,0,0,.12)' : 'none',
-                  cursor: row.onRowClick ? 'pointer' : 'default',
-                }}>
+                className={`group flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white transition-all hover:border-indigo-300 hover:bg-slate-50 hover:shadow-md ${row.onRowClick ? 'cursor-pointer' : ''}`}
+              >
                 {/* Preview area */}
-                <div className="relative overflow-hidden" style={{ height: '130px', backgroundColor: '#f8f9fa' }}>
+                <div className="relative h-[130px] overflow-hidden bg-slate-50">
                   {row.fileId && isImageExt(getExt(row.storagePath)) && previewUrls[row.fileId] ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={previewUrls[row.fileId]} alt={row.docName}
-                      className="absolute inset-0 w-full h-full object-cover" />
+                      className="absolute inset-0 h-full w-full object-cover" />
                   ) : (
-                    <div className="flex items-center justify-center h-full">
+                    <div className="flex h-full items-center justify-center">
                       <FileIconDrive path={row.storagePath} size="lg" />
                     </div>
                   )}
                 </div>
 
                 {/* Info */}
-                <div className="px-3 py-2.5 border-t flex items-start gap-2" style={{ borderColor: '#e0e0e0' }}>
-                  <div className="flex-shrink-0 mt-0.5">
+                <div className="flex items-start gap-2 border-t border-slate-200 px-3 py-2.5">
+                  <div className="mt-0.5 flex-shrink-0">
                     <FileIconDrive path={row.storagePath} size="sm" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate font-medium leading-tight" style={{ fontSize: '12px', color: '#202124' }}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium leading-tight text-slate-900">
                       {row.docName}
                     </p>
                     {row.secondaryMain && (
-                      <p className="truncate mt-0.5" style={{ fontSize: '10px', color: '#9aa0a6' }}>{row.secondaryMain}</p>
+                      <p className="mt-0.5 truncate text-[10px] text-slate-400">{row.secondaryMain}</p>
                     )}
-                    <p className="mt-0.5" style={{ fontSize: '10px', color: '#9aa0a6' }}>
+                    <p className="mt-0.5 text-[10px] text-slate-400">
                       {row.entryLabel ? `${row.entryLabel} · ` : ''}{formatDate(row.uploadedAt)}
                     </p>
                   </div>
-                  <div onClick={e => e.stopPropagation()} className="flex-shrink-0 flex items-center">
-                    {hoveredId === row.id && isRowPreviewable(row) && (
+                  <div
+                    onClick={e => e.stopPropagation()}
+                    className="flex flex-shrink-0 items-center opacity-100 transition-opacity sm:opacity-0 sm:focus-within:opacity-100 sm:group-hover:opacity-100"
+                  >
+                    {isRowPreviewable(row) && (
                       <button
+                        type="button"
                         onClick={e => handleOpen(e, row)}
-                        className="p-1 rounded-full"
-                        style={{ color: '#5f6368' }}
-                        onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
-                        onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                        title="Deschide în tab nou">
-                        <Eye className="w-3.5 h-3.5" />
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-200 hover:text-indigo-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600"
+                        title="Deschide în tab nou"
+                        aria-label={`Deschide ${getDisplayName(row)}`}
+                      >
+                        <Eye className="h-3.5 w-3.5" />
                       </button>
                     )}
-                    {hoveredId === row.id && (
-                      <button
-                        onClick={e => handleDownload(e, row)}
-                        disabled={downloading === rowActionId(row)}
-                        className="p-1 rounded-full"
-                        style={{ color: '#5f6368' }}
-                        onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
-                        onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                        title="Descarcă">
-                        <Download className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={e => handleDownload(e, row)}
+                      disabled={downloading === rowActionId(row)}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-200 hover:text-indigo-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 disabled:opacity-50"
+                      title="Descarcă"
+                      aria-label={`Descarcă ${getDisplayName(row)}`}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </div>
 
@@ -1009,17 +1005,17 @@ function FlatDriveFilesView({
 
       {/* ── Footer ── */}
       {rows.length > 0 && (
-        <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 border-t" style={{ borderColor: '#e0e0e0' }}>
-          <div className="flex items-center gap-4">
+        <div className="flex flex-shrink-0 items-center justify-between border-t border-slate-200 px-4 py-2">
+          <div className="flex flex-wrap items-center gap-4">
             {[
-              { label: 'Aprobate',      val: stats.approved, color: '#137333' },
-              { label: 'Trimise clientului', val: stats.sent, color: '#137333' },
-              { label: 'În verificare', val: stats.review,   color: '#1a73e8' },
-              { label: 'În așteptare',  val: stats.pending,  color: '#b06000' },
-              { label: 'Respinse',      val: stats.rejected, color: '#c5221f' },
+              { label: 'Aprobate',           val: stats.approved, text: 'text-emerald-700', dot: 'bg-emerald-600' },
+              { label: 'Trimise clientului', val: stats.sent,     text: 'text-emerald-700', dot: 'bg-emerald-600' },
+              { label: 'În verificare',      val: stats.review,   text: 'text-indigo-700',  dot: 'bg-indigo-600' },
+              { label: 'În așteptare',       val: stats.pending,  text: 'text-amber-700',   dot: 'bg-amber-500' },
+              { label: 'Respinse',           val: stats.rejected, text: 'text-red-700',     dot: 'bg-red-500' },
             ].filter(s => s.val > 0).map(s => (
-              <span key={s.label} className="flex items-center gap-1.5" style={{ fontSize: '12px', color: s.color }}>
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+              <span key={s.label} className={`flex items-center gap-1.5 text-xs ${s.text}`}>
+                <span className={`h-2 w-2 rounded-full ${s.dot}`} />
                 {s.val} {s.label.toLowerCase()}
               </span>
             ))}
