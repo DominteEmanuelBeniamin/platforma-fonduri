@@ -10,7 +10,7 @@ import {
   monthGridDays,
   type CalendarEvent,
 } from '@/lib/calendar'
-import { compareEvents, ownerColor } from '@/components/calendar/eventVisuals'
+import { ownerColor, sortEvents } from '@/components/calendar/eventVisuals'
 import CalendarEventChip from '@/components/calendar/CalendarEventChip'
 
 interface CalendarMonthGridProps {
@@ -41,7 +41,7 @@ export default function CalendarMonthGrid({ month, events, withProject, onOpenDa
       if (bucket) bucket.push(event)
       else map.set(key, [event])
     }
-    for (const bucket of map.values()) bucket.sort(compareEvents)
+    for (const [key, bucket] of map) map.set(key, sortEvents(bucket))
     return map
   }, [events])
 
@@ -106,7 +106,7 @@ export default function CalendarMonthGrid({ month, events, withProject, onOpenDa
                     bulinele, iar numărul zilei deschide lista zilei. */}
                 {dayEvents.length > 0 && (
                   <span className="flex items-center gap-0.5 sm:hidden" aria-hidden>
-                    {dayEvents.slice(0, 3).map(event => {
+                    {dayEvents.slice(0, VISIBLE_PER_DAY).map(event => {
                       const color = ownerColor(event)
                       return (
                         <span
@@ -118,8 +118,8 @@ export default function CalendarMonthGrid({ month, events, withProject, onOpenDa
                         />
                       )
                     })}
-                    {dayEvents.length > 3 && (
-                      <span className="text-[9px] font-bold text-[var(--p-ink-faint)]">+{dayEvents.length - 3}</span>
+                    {hidden > 0 && (
+                      <span className="text-[9px] font-bold text-[var(--p-ink-faint)]">+{hidden}</span>
                     )}
                   </span>
                 )}

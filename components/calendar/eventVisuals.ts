@@ -94,9 +94,23 @@ export function eventAriaLabel(
 /** Depășitele primele, finalizatele la urmă; în rest, alfabetic. */
 const PROGRESS_RANK: Record<CalendarProgress, number> = { overdue: 0, open: 1, done: 2 }
 
-export function compareEvents(a: CalendarEvent, b: CalendarEvent): number {
-  const byProgress = PROGRESS_RANK[eventProgress(a)] - PROGRESS_RANK[eventProgress(b)]
-  if (byProgress !== 0) return byProgress
-  if (a.kind !== b.kind) return a.kind === 'activity' ? -1 : 1
-  return a.name.localeCompare(b.name, 'ro')
+/**
+ * Ordinea de citire a unei liste de evenimente: depășitele primele,
+ * finalizatele la urmă, activitățile înaintea cererilor, apoi alfabetic.
+ *
+ * Progresul se calculează o dată per eveniment, nu la fiecare comparație:
+ * `eventProgress` citește ceasul și construiește date, deci într-un comparator
+ * ar fi fost și de zeci de ori mai scump, și — la limită — inconsecvent, dacă
+ * ziua s-ar fi schimbat în timpul sortării.
+ *
+ * Întoarce o listă nouă; lista primită rămâne neatinsă.
+ */
+export function sortEvents(events: CalendarEvent[]): CalendarEvent[] {
+  const rank = new Map(events.map(event => [event, PROGRESS_RANK[eventProgress(event)]]))
+  return [...events].sort((a, b) => {
+    const byProgress = rank.get(a)! - rank.get(b)!
+    if (byProgress !== 0) return byProgress
+    if (a.kind !== b.kind) return a.kind === 'activity' ? -1 : 1
+    return a.name.localeCompare(b.name, 'ro')
+  })
 }

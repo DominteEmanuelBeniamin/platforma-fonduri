@@ -12,7 +12,7 @@ import {
   formatRelativeDeadline,
   type CalendarEvent,
 } from '@/lib/calendar'
-import { KIND_ICONS, compareEvents, eventAriaLabel, eventSurfaceStyle } from '@/components/calendar/eventVisuals'
+import { KIND_ICONS, eventAriaLabel, eventSurfaceStyle, sortEvents } from '@/components/calendar/eventVisuals'
 
 interface DeadlineListProps {
   events: CalendarEvent[]
@@ -48,7 +48,6 @@ export default function DeadlineList({
   // O singură trecere prin evenimente, memoizată: componenta se re-randează la
   // fiecare filtru comutat și la fiecare deschidere de zi.
   const { dated, undated, days } = useMemo(() => {
-    const withDeadline: CalendarEvent[] = []
     const withoutDeadline: CalendarEvent[] = []
     const byDay = new Map<string, CalendarEvent[]>()
 
@@ -58,18 +57,21 @@ export default function DeadlineList({
         withoutDeadline.push(event)
         continue
       }
-      withDeadline.push(event)
       const bucket = byDay.get(key)
       if (bucket) bucket.push(event)
       else byDay.set(key, [event])
     }
 
-    const buckets = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b))
-    for (const [, bucket] of buckets) bucket.sort(compareEvents)
+    const buckets: [string, CalendarEvent[]][] = [...byDay.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, bucket]) => [key, sortEvents(bucket)])
 
     return {
-      dated: [...withDeadline].sort(compareEvents),
-      undated: withoutDeadline.sort(compareEvents),
+      // Lista negrupată e chiar zilele puse cap la cap: `sortEvents` nu are
+      // termen de dată, deci sortarea directă a evenimentelor cu termen le-ar fi
+      // dat alfabetic, nu cronologic — exact invers față de ce promite lista.
+      dated: buckets.flatMap(([, bucket]) => bucket),
+      undated: sortEvents(withoutDeadline),
       days: buckets,
     }
   }, [events])

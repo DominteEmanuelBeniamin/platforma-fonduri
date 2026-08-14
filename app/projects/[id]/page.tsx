@@ -106,6 +106,10 @@ function ProjectDetailsContent() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [autoOpenRequestId, setAutoOpenRequestId] = useState<string | null>(null)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  // Două momente distincte din viața aceluiași deep-link: `appliedDeepLink` —
+  // tabul și faza au fost mutate; `handledDeepLink` — s-a derulat până la
+  // element. Al doilea îl așteaptă pe primul și pe randare, deci nu pot fi unul.
+  const appliedDeepLink = useRef<string | null>(null)
   const handledDeepLink = useRef<string | null>(null)
 
   const [showAddActivity, setShowAddActivity] = useState<Record<string, boolean>>({})
@@ -501,18 +505,42 @@ function ProjectDetailsContent() {
     })
   }
 
+  // Tabul trăiește în URL, deci se citește din URL de fiecare dată, nu doar la
+  // montare: un deep-link din calendar schimbă doar parametrii aceleiași rute,
+  // iar la Back pagina nu se remontează. Fără asta, adresa spunea „calendar" în
+  // timp ce pe ecran rămâneau fazele, și Back părea că nu face nimic.
+  //
+  // Un deep-link e o cerere explicită către un element, deci decide el tabul —
+  // în efectul de mai jos.
+  useEffect(() => {
+    if (hasDeepLink) return
+    setActiveView(targetView === 'documents' || targetView === 'calendar' ? targetView : 'phases')
+  }, [targetView, hasDeepLink])
+
   // Un deep-link ales din tabul „Calendar" schimbă doar parametrii aceleiași
   // rute, deci pagina nu se remontează și `fetchAll` nu mai rulează: tabul și
   // faza activă trebuie mutate aici, altfel selectarea unui eveniment n-ar
   // părea să facă nimic.
+  //
+  // O singură dată per link, ținut minte în `appliedDeepLink`: `phases` e în
+  // dependențe fiindcă fazele sosesc după primul render, dar orice reîncărcare
+  // ulterioară (o editare, o reînnoire de token) le înlocuiește cu un array nou
+  // și ar fi reaplicat linkul — sărind utilizatorul înapoi în faza din URL și
+  // redeschizând-o pe cea tocmai restrânsă.
   useEffect(() => {
-    if (!targetPhaseId) return
+    if (!targetPhaseId) {
+      appliedDeepLink.current = null
+      return
+    }
+    const deepLinkKey = `${targetPhaseId}:${targetActivityId}:${targetDocumentId}`
+    if (appliedDeepLink.current === deepLinkKey) return
     // Numai pe o fază care chiar există: la prima încărcare fazele încă nu-s
     // aici și de asta se ocupă `fetchAll`, care face aceeași verificare. Un
     // link vechi, către o fază ștearsă între timp, nu trebuie să lase faza
     // activă pe un id inexistent.
     const known = targetPhaseId === GENERAL_ID || phases.some(phase => phase.id === targetPhaseId)
     if (!known) return
+    appliedDeepLink.current = deepLinkKey
     setActiveView('phases')
     setLandingView('browse')
     setActivePhaseId(targetPhaseId)
@@ -670,7 +698,10 @@ function ProjectDetailsContent() {
     )
   }
 
-  if (!project) {
+  // `projectId` intră în gardă alături de proiect, ca restul paginii să-l poată
+  // folosi ca `string`. Fără el, `CalendarSurface` ar fi căzut pe calendarul
+  // general și ar fi arătat, în pagina unui proiect, termenele tuturor.
+  if (!project || !projectId) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50">
         <div className="text-center">
@@ -797,7 +828,7 @@ function ProjectDetailsContent() {
             activePhaseId={landingView === 'browse' ? activePhaseId : null}
             expandedPhases={expandedPhases}
             canEdit={canEdit}
-            projectId={projectId!}
+            projectId={projectId}
             isGeneralActive={landingView === 'browse' && activePhaseId === GENERAL_ID}
             onSelectPhase={handleSelectPhase}
             onSelectGeneral={handleSelectGeneral}
@@ -849,15 +880,22 @@ function ProjectDetailsContent() {
                 >
                   <Icon className="w-4 h-4" />
                   {label}
+                  {/* `aria-label` pe un `span` fără rol e ignorat: la cititorul
+                      de ecran ar fi ajuns doar cifra, iar urgența ar fi rămas
+                      spusă exclusiv prin culoare. Deci cifra e decorativă, iar
+                      explicația se citește dintr-un text ascuns vizual. */}
                   {count > 0 && (
-                    <span
-                      aria-label={hint}
-                      className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                        urgent ? 'bg-[var(--p-danger-soft)] text-[var(--p-danger)]' : 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
-                      {count}
-                    </span>
+                    <>
+                      <span
+                        aria-hidden
+                        className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                          urgent ? 'bg-[var(--p-danger-soft)] text-[var(--p-danger)]' : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                      <span className="sr-only">{hint}</span>
+                    </>
                   )}
                 </button>
               ))}
@@ -867,11 +905,11 @@ function ProjectDetailsContent() {
           {/* ── Content ── */}
           {activeView === 'calendar' ? (
             <div className="p-4 sm:p-6 max-w-5xl mx-auto">
-              <CalendarSurface projectId={projectId!} />
+              <CalendarSurface projectId={projectId} />
             </div>
           ) : activeView === 'documents' ? (
             <ProjectDocumentsView
-              projectId={projectId!}
+              projectId={projectId}
               requests={allDocRequests}
               phases={phases}
             />
@@ -982,7 +1020,7 @@ function ProjectDetailsContent() {
                         })}
                       >
                         <DocumentRequests
-                          projectId={projectId!}
+                          projectId={projectId}
                           activityId={activity.id}
                           activityName={activity.name}
                           parentActivityVisibility={activity.visibility}
@@ -1077,7 +1115,7 @@ function ProjectDetailsContent() {
                   >
                     <DocumentRequests
                       key="__general__"
-                      projectId={projectId!}
+                      projectId={projectId}
                       activityId={null}
                       activityName="Cereri generale"
                       generalConsultantId={

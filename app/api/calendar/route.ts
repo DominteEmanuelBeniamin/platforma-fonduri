@@ -13,16 +13,13 @@ import {
   GENERAL_PHASE_ID,
   isActivityDone,
   isRequestDone,
+  one,
   requestOwnerId,
   type CalendarEvent,
   type CalendarPayload,
 } from '@/lib/calendar'
 
 type Admin = ReturnType<typeof createSupabaseServiceClient>
-
-/** PostgREST întoarce relațiile many-to-one când ca obiect, când ca listă. */
-const one = <T,>(relation: T | T[] | null | undefined): T | null =>
-  (Array.isArray(relation) ? relation[0] : relation) ?? null
 
 /** Plafonul implicit de rânduri al PostgREST pe acest proiect Supabase. */
 const PAGE_SIZE = 1000
@@ -34,6 +31,11 @@ const PAGE_SIZE = 1000
  * rânduri. Pe un calendar, un termen lipsă nu arată ca o defecțiune, ci ca
  * „elementul n-are termen" — adică exact ca ceva ce nu trebuie urmărit. Deci
  * paginăm, în loc să ne bazăm pe faptul că azi încă încap toate.
+ *
+ * Fiecare interogare paginată trebuie să aibă ordine totală — de asta `orderById`
+ * mai jos. Fără ea, Postgres n-are de ce să întoarcă rândurile în aceeași
+ * ordine la fiecare `LIMIT/OFFSET`, deci paginarea ar fi putut sări rânduri sau
+ * întoarce același rând de două ori: aceeași pierdere tăcută, pe alt drum.
  */
 async function fetchAllRows<T>(
   label: string,
@@ -50,6 +52,16 @@ async function fetchAllRows<T>(
 }
 
 /**
+ * Ordinea totală cerută de paginare. `id` e cheia primară pe toate tabelele de
+ * mai jos, deci departajează orice două rânduri; acolo unde ordinea de afișare
+ * contează (`order_index`), se adaugă *după* ea și nu o schimbă.
+ *
+ * `any`: tipurile generice ale builderului Supabase se instanțiază la adâncime
+ * nefinită dacă trec printr-un helper generic.
+ */
+const orderById = (query: any): any => query.order('id', { ascending: true })
+
+/**
  * Proiectele care intră în calendarul general. `null` = toate, pentru
  * administrator: e mai ieftin și mai sigur decât să trimitem înapoi în URL o
  * listă cu toate id-urile de proiect.
@@ -63,7 +75,9 @@ async function accessibleProjectIds(
   // Apartenența consultantului stă în `project_members`. `general_consultant_id`
   // nu e sursă de acces — e gol pe aproape toate proiectele existente.
   const rows = await fetchAllRows<{ project_id: string }>('project_members', (from, to) =>
-    admin.from('project_members').select('project_id').eq('consultant_id', profile.id).range(from, to)
+    orderById(
+      admin.from('project_members').select('project_id').eq('consultant_id', profile.id)
+    ).range(from, to)
   )
   return [...new Set(rows.map(row => row.project_id))]
 }
@@ -110,50 +124,60 @@ export async function GET(request: Request) {
       projectIds === null ? query : query.in(column, projectIds)
 
     // ── Surse ────────────────────────────────────────────────────────────────
-    const [projects, phases, requests, members] = await Promise.all([
+    //
+    // Toate cinci pornesc odată: niciuna nu depinde de rezultatul alteia.
+    // Activitățile se filtrează prin resursa imbricată `phase.project_id`, nu
+    // printr-o listă de `phase_id` scoasă din faze — lista ar fi ajuns în URL-ul
+    // cererii și ar fi crescut cu fiecare fază.
+    const [projects, phases, requests, members, activities] = await Promise.all([
       fetchAllRows<any>('projects', (from, to) =>
-        scoped(
-          admin
-            .from('projects')
-            .select('id, title, client_id, general_consultant_id, client:profiles!projects_client_id_fkey(id, full_name, email)'),
-          'id',
+        orderById(
+          scoped(
+            admin
+              .from('projects')
+              .select('id, title, client_id, general_consultant_id, client:profiles!projects_client_id_fkey(id, full_name, email)'),
+            'id',
+          )
         ).range(from, to)
       ),
       fetchAllRows<any>('project_phases', (from, to) =>
-        scoped(
-          admin.from('project_phases').select('id, name, order_index, visibility, project_id'),
-          'project_id',
-        ).order('order_index', { ascending: true }).range(from, to)
+        orderById(
+          scoped(
+            admin.from('project_phases').select('id, name, order_index, visibility, project_id'),
+            'project_id',
+          ).order('order_index', { ascending: true })
+        ).range(from, to)
       ),
       fetchAllRows<any>('document_requirements', (from, to) =>
-        scoped(
-          admin
-            .from('document_requirements')
-            .select('id, name, status, deadline_at, visibility, assigned_to, activity_id, project_id, activity:activity_id(id, name, phase_id, visibility, assigned_to, phase:phase_id(id, name, visibility))'),
-          'project_id',
-        )
-          .is('deleted_at', null)
-          .eq('is_outgoing', false)
-          .range(from, to)
+        orderById(
+          scoped(
+            admin
+              .from('document_requirements')
+              .select('id, name, status, deadline_at, visibility, assigned_to, activity_id, project_id, activity:activity_id(id, name, phase_id, visibility, assigned_to, phase:phase_id(id, name, visibility))'),
+            'project_id',
+          )
+            .is('deleted_at', null)
+            .eq('is_outgoing', false)
+        ).range(from, to)
       ),
       fetchAllRows<any>('project_members', (from, to) =>
-        scoped(admin.from('project_members').select('project_id, consultant_id'), 'project_id').range(from, to)
+        orderById(
+          scoped(admin.from('project_members').select('project_id, consultant_id'), 'project_id')
+        ).range(from, to)
+      ),
+      fetchAllRows<any>('project_activities', (from, to) =>
+        orderById(
+          scoped(
+            admin
+              .from('project_activities')
+              .select('id, name, status, completed_at, deadline_at, visibility, assigned_to, phase_id, phase:phase_id!inner(project_id)'),
+            'phase.project_id',
+          ).order('order_index', { ascending: true })
+        ).range(from, to)
       ),
     ])
 
     const phaseById = new Map(phases.map(phase => [phase.id, phase]))
-
-    // Filtrarea prin resursa imbricată, nu printr-o listă de `phase_id`: lista
-    // ar fi ajuns în URL-ul cererii și ar fi crescut cu fiecare fază.
-    const activities = await fetchAllRows<any>('project_activities', (from, to) =>
-      scoped(
-        admin
-          .from('project_activities')
-          .select('id, name, status, completed_at, deadline_at, visibility, assigned_to, phase_id, phase:phase_id!inner(project_id)'),
-        'phase.project_id',
-      ).order('order_index', { ascending: true }).range(from, to)
-    )
-
     const projectById = new Map(projects.map(project => [project.id, project]))
 
     // Consultantul general al proiectului contează ca responsabil doar dacă e
@@ -170,7 +194,7 @@ export async function GET(request: Request) {
       requestOwnerId({
         assigned_to: req.assigned_to,
         activity_id: req.activity_id,
-        activity: one<any>(req.activity),
+        activity: req.activity,
         generalOwnerId: generalOwnerOf(projectById.get(req.project_id)),
       })
 
@@ -184,7 +208,7 @@ export async function GET(request: Request) {
     const ownerById = new Map<string, { full_name: string | null; email: string | null }>()
     if (ownerIds.size > 0) {
       const owners = await fetchAllRows<any>('profiles', (from, to) =>
-        admin.from('profiles').select('id, full_name, email').in('id', [...ownerIds]).range(from, to)
+        orderById(admin.from('profiles').select('id, full_name, email').in('id', [...ownerIds])).range(from, to)
       )
       for (const owner of owners) ownerById.set(owner.id, owner)
     }

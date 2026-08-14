@@ -50,9 +50,6 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
   const [payload, setPayload] = useState<CalendarPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filterOverride, setFilterOverride] = useState<CalendarFilterState | null>(null)
-  const [viewMode, setViewMode] = useState<CalendarViewMode>(() => readViewMode(new URLSearchParams(searchParams.toString())))
-  const [month, setMonth] = useState<Date>(() => readMonth(new URLSearchParams(searchParams.toString())))
   const [openDayKey, setOpenDayKey] = useState<string | null>(null)
 
   const scope = projectId ? 'project' : 'global'
@@ -84,50 +81,64 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
     load()
   }, [authLoading, token, load])
 
-  const defaults = useMemo(
-    () => (payload ? defaultFilters(payload.role, payload.user_id) : null),
-    [payload]
-  )
-
-  // Filtrele se pot citi din URL abia când se știe rolul: implicitul
-  // consultantului („ale mele") e altul decât al administratorului. Până la
-  // prima interacțiune conduce URL-ul; după ea, starea locală — altfel fiecare
-  // bifă ar aștepta o navigare ca să se vadă.
-  const filters = useMemo(() => {
-    if (filterOverride) return filterOverride
-    if (!defaults) return null
-    return readFiltersFromParams(new URLSearchParams(searchParams.toString()), defaults)
-  }, [filterOverride, defaults, searchParams])
-
   // ─── Stare în URL ───────────────────────────────────────────────────────────
+  //
+  // Vederea, luna și filtrele trăiesc în URL, ca un calendar filtrat să se poată
+  // trimite mai departe ca link. Ce scriem noi se vede însă pe loc, fără să
+  // așteptăm navigarea — altfel fiecare bifă ar avea o clipă de întârziere.
+  //
+  // Optimismul ține exact cât timp URL-ul e încă cel de dinaintea scrierii. De
+  // îndată ce ajunge oriunde altundeva — Back/Forward, un link deschis în
+  // pagină, `clearCalendarParams` la schimbarea tabului — cade, și URL-ul
+  // redevine sursa. Ținut necondiționat, ar fi însemnat controale care arată
+  // altceva decât spune adresa, fără cale înapoi.
+  const query = searchParams.toString()
+  const [pending, setPending] = useState<{ from: string; to: string } | null>(null)
+
+  useEffect(() => {
+    if (pending && pending.from !== query) setPending(null)
+  }, [pending, query])
+
+  const params = useMemo(
+    () => new URLSearchParams(pending && pending.from === query ? pending.to : query),
+    [pending, query]
+  )
 
   const syncUrl = useCallback(
     (mutate: (params: URLSearchParams) => void) => {
-      const params = new URLSearchParams(searchParams.toString())
-      mutate(params)
-      const query = params.toString()
-      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+      const next = new URLSearchParams(params.toString())
+      mutate(next)
+      const to = next.toString()
+      if (to === params.toString()) return
+      setPending({ from: query, to })
+      router.replace(to ? `${pathname}?${to}` : pathname, { scroll: false })
     },
-    [pathname, router, searchParams]
+    [params, query, pathname, router]
   )
 
-  const changeFilters = (next: CalendarFilterState) => {
-    if (!defaults) return
-    setFilterOverride(next)
-    syncUrl(params => writeFiltersToParams(params, next, defaults))
-  }
-
-  const changeView = (mode: CalendarViewMode) => {
-    setViewMode(mode)
-    syncUrl(params => writeViewMode(params, mode))
-  }
-
-  const changeMonth = (next: Date) => {
-    setMonth(next)
-    syncUrl(params => writeMonth(params, next))
-  }
-
   // ─── Derivate ───────────────────────────────────────────────────────────────
+
+  const viewMode = readViewMode(params)
+  const month = useMemo(() => readMonth(params), [params])
+
+  // Filtrele se pot citi din URL abia când se știe rolul: implicitul
+  // consultantului („ale mele") e altul decât al administratorului. Deci
+  // răspunsul, implicitele și filtrele se calculează împreună — sau lipsesc
+  // împreună, cât timp calendarul se încarcă.
+  const ready = useMemo(() => {
+    if (!payload) return null
+    const defaults = defaultFilters(payload.role, payload.user_id)
+    return { payload, defaults, filters: readFiltersFromParams(params, defaults) }
+  }, [payload, params])
+
+  const changeFilters = (next: CalendarFilterState) => {
+    if (!ready) return
+    syncUrl(target => writeFiltersToParams(target, next, ready.defaults))
+  }
+
+  const changeView = (mode: CalendarViewMode) => syncUrl(target => writeViewMode(target, mode))
+
+  const changeMonth = (next: Date) => syncUrl(target => writeMonth(target, next))
 
   const owners: OwnerOption[] = useMemo(() => {
     if (!payload) return []
@@ -141,8 +152,8 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
   }, [payload])
 
   const visible: CalendarEvent[] = useMemo(
-    () => (payload && filters ? filterEvents(payload.events, filters) : []),
-    [payload, filters]
+    () => (ready ? filterEvents(ready.payload.events, ready.filters) : []),
+    [ready]
   )
 
   const overdueCount = useMemo(
@@ -162,23 +173,13 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
 
   // ─── Stări de excepție ──────────────────────────────────────────────────────
 
-  const retry = (
-    <button
-      type="button"
-      onClick={load}
-      className="rounded-lg bg-[var(--p-accent)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
-    >
-      Reîncearcă
-    </button>
-  )
-
-  if (loading || !payload || !filters || !defaults) {
+  if (loading || !ready) {
     if (error) {
       return (
         <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
           <AlertCircle className="h-8 w-8 text-[var(--p-danger)]" />
           <p className="text-sm font-semibold text-[var(--p-ink)]">{error}</p>
-          {retry}
+          <RetryButton onClick={load} />
         </div>
       )
     }
@@ -190,9 +191,10 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
     )
   }
 
+  const { payload: calendar, defaults, filters } = ready
   const today = new Date()
   const isCurrentMonth = month.getFullYear() === today.getFullYear() && month.getMonth() === today.getMonth()
-  const hasAnyEvent = payload.events.length > 0
+  const hasAnyEvent = calendar.events.length > 0
   const hiddenByFilters = hasAnyEvent && visible.length === 0
 
   return (
@@ -206,7 +208,7 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
         >
           <AlertCircle className="h-4 w-4 flex-shrink-0" aria-hidden />
           <span className="flex-1">{error} Termenele afișate pot fi neactualizate.</span>
-          {retry}
+          <RetryButton onClick={load} />
         </div>
       )}
 
@@ -278,11 +280,11 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
         filters={filters}
         defaults={defaults}
         onChange={changeFilters}
-        role={payload.role}
-        userId={payload.user_id}
+        role={calendar.role}
+        userId={calendar.user_id}
         scope={scope}
-        phases={payload.phases}
-        projects={payload.projects}
+        phases={calendar.phases}
+        projects={calendar.projects}
         owners={owners}
       />
 
@@ -332,6 +334,18 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
         onClose={() => setOpenDayKey(null)}
       />
     </div>
+  )
+}
+
+function RetryButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-lg bg-[var(--p-accent)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+    >
+      Reîncearcă
+    </button>
   )
 }
 

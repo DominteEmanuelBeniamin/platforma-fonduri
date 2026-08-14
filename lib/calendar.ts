@@ -69,6 +69,14 @@ export interface CalendarPayload {
 // ─── Constante partajate ──────────────────────────────────────────────────────
 
 /**
+ * PostgREST întoarce relațiile many-to-one când ca obiect, când ca listă, în
+ * funcție de cum a fost cerută relația. Aici, fiindcă aceleași rânduri ajung și
+ * pe ruta de calendar, și în pagina proiectului, prin interogări diferite.
+ */
+export const one = <T,>(relation: T | T[] | null | undefined): T | null =>
+  (Array.isArray(relation) ? relation[0] : relation) ?? null
+
+/**
  * Cererile fără activitate stau, și în pagina proiectului, într-o secțiune
  * distinctă cu acest id. Aceeași valoare ajunge în `?phase=` din deep-link.
  */
@@ -111,15 +119,22 @@ export const isRequestDone = (row: { status?: string | null }): boolean => row.s
  * Îl folosesc și ruta de calendar, și indicatorul numeric din pagina
  * proiectului: dacă badge-ul ar număra altfel decât filtrează calendarul,
  * consultantul ar vedea un „7" roșu care deschide o vedere goală.
+ *
+ * De aceea activitatea-părinte se normalizează aici, nu la apelanți: cele două
+ * o primesc din interogări diferite, iar `one` la un singur apelant ar fi
+ * însemnat exact divergența pe care funcția există s-o împiedice.
  */
+type ActivityOwner = { assigned_to?: string | null }
+
 export function requestOwnerId(request: {
   assigned_to?: string | null
   activity_id?: string | null
-  activity?: { assigned_to?: string | null } | null
+  activity?: ActivityOwner | ActivityOwner[] | null
   generalOwnerId?: string | null
 }): string | null {
   if (request.assigned_to) return request.assigned_to
-  if (request.activity?.assigned_to) return request.activity.assigned_to
+  const activity = one(request.activity)
+  if (activity?.assigned_to) return activity.assigned_to
   if (!request.activity_id) return request.generalOwnerId ?? null
   return null
 }
@@ -174,6 +189,15 @@ export function monthKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
 }
 
+/**
+ * Fereastra de ani acceptată din URL. Constructorul `Date` cu doi parametri
+ * rescrie anii 0–99 ca 1900–1999, deci `?cm=0026-08` ar fi randat „august
+ * 1926" și s-ar fi întors în URL ca `1926-08`. Orice an în afara ferestrei e
+ * URL stricat, nu o lună de arătat: se cade pe luna curentă.
+ */
+const MIN_YEAR = 1970
+const MAX_YEAR = 2999
+
 export function parseMonthKey(value: string | null): Date | null {
   if (!value) return null
   const match = /^(\d{4})-(\d{2})$/.exec(value)
@@ -181,6 +205,7 @@ export function parseMonthKey(value: string | null): Date | null {
   const year = Number(match[1])
   const month = Number(match[2]) - 1
   if (month < 0 || month > 11) return null
+  if (year < MIN_YEAR || year > MAX_YEAR) return null
   return new Date(year, month, 1)
 }
 

@@ -115,36 +115,36 @@ export default function FilterDropdown({ label, summary, sections, active }: Fil
   )
 }
 
+/**
+ * Opțiunile secțiunii, cu antet acolo unde există grup.
+ *
+ * Cele fără grup rămân sus, fără antet, chiar dacă restul sunt grupate:
+ * gruparea e o comoditate de citire, nu un filtru. Sărite la randare, ele ar fi
+ * continuat să restrângă lista din `value`, fără bifă prin care să fie scoase.
+ */
 function renderOptions(section: FilterSection, toggle: (section: FilterSection, value: string) => void) {
   const checked = (value: string) => section.value === null || section.value.includes(value)
+  const row = (option: FilterOption) => (
+    <CheckRow
+      key={option.value}
+      label={option.label}
+      checked={checked(option.value)}
+      onSelect={() => toggle(section, option.value)}
+    />
+  )
   const groups = [...new Set(section.options.map(option => option.group).filter(Boolean))] as string[]
 
-  if (groups.length === 0) {
-    return section.options.map(option => (
-      <CheckRow
-        key={option.value}
-        label={option.label}
-        checked={checked(option.value)}
-        onSelect={() => toggle(section, option.value)}
-      />
-    ))
-  }
-
-  return groups.map(group => (
-    <div key={group}>
-      <p className="px-2 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--p-ink-faint)]">{group}</p>
-      {section.options
-        .filter(option => option.group === group)
-        .map(option => (
-          <CheckRow
-            key={option.value}
-            label={option.label}
-            checked={checked(option.value)}
-            onSelect={() => toggle(section, option.value)}
-          />
-        ))}
-    </div>
-  ))
+  return (
+    <>
+      {section.options.filter(option => !option.group).map(row)}
+      {groups.map(group => (
+        <div key={group}>
+          <p className="px-2 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--p-ink-faint)]">{group}</p>
+          {section.options.filter(option => option.group === group).map(row)}
+        </div>
+      ))}
+    </>
+  )
 }
 
 function CheckRow({ label, checked, onSelect }: { label: string; checked: boolean; onSelect: () => void }) {
