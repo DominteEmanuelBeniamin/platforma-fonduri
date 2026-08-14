@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
+import { useMemo, useState, type KeyboardEvent } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Search, X, Layers, ListChecks, FileText } from 'lucide-react'
 import { filterSearchIndex, type SearchResult, type SearchResultType } from '@/lib/projectSearch'
@@ -57,16 +57,10 @@ export default function UnifiedSearchDialog({ open, onOpenChange, index, onSelec
 
   const results = useMemo(() => filterSearchIndex(index, query), [index, query])
 
-  useEffect(() => {
-    if (open) {
-      setQuery('')
-      setActiveIndex(0)
-    }
-  }, [open])
-
-  useEffect(() => {
+  const resetSearch = () => {
+    setQuery('')
     setActiveIndex(0)
-  }, [query])
+  }
 
   const select = (result: SearchResult) => {
     onSelect(result)
@@ -76,7 +70,7 @@ export default function UnifiedSearchDialog({ open, onOpenChange, index, onSelec
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setActiveIndex(i => Math.min(i + 1, results.length - 1))
+      setActiveIndex(i => Math.min(i + 1, Math.max(results.length - 1, 0)))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setActiveIndex(i => Math.max(i - 1, 0))
@@ -93,6 +87,7 @@ export default function UnifiedSearchDialog({ open, onOpenChange, index, onSelec
         <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[999999]" />
         <Dialog.Content
           className="project-scope fixed left-1/2 top-[12vh] -translate-x-1/2 w-[calc(100%-2rem)] max-w-xl max-h-[70vh] overflow-hidden bg-[var(--p-surface)] rounded-2xl shadow-2xl z-[999999] flex flex-col focus:outline-none"
+          onOpenAutoFocus={resetSearch}
           onKeyDown={handleKeyDown}
         >
           <Dialog.Title className="sr-only">Căutare în proiect</Dialog.Title>
@@ -105,7 +100,10 @@ export default function UnifiedSearchDialog({ open, onOpenChange, index, onSelec
             <input
               autoFocus
               value={query}
-              onChange={e => setQuery(e.target.value)}
+              onChange={e => {
+                setQuery(e.target.value)
+                setActiveIndex(0)
+              }}
               placeholder="Caută faze, activități, cereri de documente..."
               className="flex-1 text-sm outline-none placeholder:text-[var(--p-ink-faint)] bg-transparent text-[var(--p-ink)]"
             />

@@ -4,10 +4,14 @@ import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { logAction } from '@/app/api/_utils/audit'
 import { isPreviewableFile, clampExpiresIn } from '@/lib/file-preview'
 import { isClientVisibleDocument } from '@/lib/client-visibility'
+import { isLatestFileVersion } from '@/lib/document-versions'
 
 const BUCKET = 'project-files'
 
 type FileDownloadRow = {
+  id: string
+  requirement_id: string
+  version_number: number
   storage_path: string
   original_name: string | null
   mime_type: string | null
@@ -37,7 +41,7 @@ export async function POST(
 
     const { data: fileRow, error } = await admin
       .from('files')
-      .select('id, storage_path, original_name, mime_type, requirement_id, deleted_at, document_requirements(project_id, name, deleted_at, activity_id, visibility, activity:activity_id(visibility, phase:phase_id(visibility)))')
+      .select('id, requirement_id, version_number, storage_path, original_name, mime_type, deleted_at, document_requirements(project_id, name, deleted_at, activity_id, visibility, activity:activity_id(visibility, phase:phase_id(visibility)))')
       .eq('id', fileId)
       .is('deleted_at', null)
       .single()
@@ -62,6 +66,29 @@ export async function POST(
     if (!access.ok) return guardToResponse(access)
     if (access.profile.role === 'client' && !isClientVisibleDocument(requirement)) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 })
+    }
+
+    if (access.profile.role === 'client') {
+      // Doar rândul cu versiunea maximă, nu toate rândurile cererii: pe un
+      // requirement cu multe fișiere, plafonul de rânduri al PostgREST ar putea
+      // tăia tocmai versiunea curentă și i-am refuza clientului propriul document.
+      const { data: latestFile, error: versionError } = await admin
+        .from('files')
+        .select('version_number')
+        .eq('requirement_id', typedFileRow.requirement_id)
+        .is('deleted_at', null)
+        .order('version_number', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (versionError) {
+        console.error('latest file version lookup error:', versionError)
+        return NextResponse.json({ error: 'Failed to validate file access' }, { status: 500 })
+      }
+
+      if (!isLatestFileVersion(typedFileRow, latestFile ? [latestFile] : [])) {
+        return NextResponse.json({ error: 'File not found' }, { status: 404 })
+      }
     }
 
     const { data: projectRow } = await admin
