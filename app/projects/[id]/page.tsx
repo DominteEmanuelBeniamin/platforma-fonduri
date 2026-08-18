@@ -888,6 +888,7 @@ function ProjectDetailsContent() {
             expandedPhases={expandedPhases}
             canEdit={canEdit}
             projectId={projectId}
+            documentRequests={allDocRequests}
             isGeneralActive={landingView === 'browse' && activePhaseId === GENERAL_ID}
             onSelectPhase={handleSelectPhase}
             onSelectGeneral={handleSelectGeneral}

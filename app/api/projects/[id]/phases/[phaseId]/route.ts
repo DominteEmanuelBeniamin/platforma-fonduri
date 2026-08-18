@@ -150,20 +150,42 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Doar adminii pot șterge faze' }, { status: 403 })
     }
 
-    const { data: before } = await supabaseAdmin
+    const { data: before, error: beforeError } = await supabaseAdmin
       .from('project_phases')
       .select('*')
       .eq('id', phaseId)
       .eq('project_id', projectId)
       .maybeSingle()
 
-    const { error } = await supabaseAdmin
-      .from('project_phases')
-      .delete()
-      .eq('id', phaseId)
-      .eq('project_id', projectId)
+    if (beforeError) throw beforeError
+    if (!before) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    if (error) throw error
+    const { data: deletionData, error: deletionError } = await supabaseAdmin.rpc(
+      'delete_project_phase_preserving_requests',
+      { project_id: projectId, phase_id: phaseId },
+    )
+
+    if (deletionError) {
+      if (deletionError.code === 'P0002') {
+        return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      }
+      throw deletionError
+    }
+
+    const deletion = (Array.isArray(deletionData) ? deletionData[0] : deletionData) as {
+      deleted: boolean
+      deleted_activities: number
+      moved_requests: number
+      demoted_requests: number
+    } | null
+
+    if (!deletion) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    const deletionSummary = {
+      deleted_activities: Number(deletion.deleted_activities ?? 0),
+      moved_requests: Number(deletion.moved_requests ?? 0),
+      demoted_requests: Number(deletion.demoted_requests ?? 0),
+    }
 
     const projectTitle = await loadProjectTitle(projectId)
 
@@ -174,11 +196,12 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       entityId: phaseId,
       entityName: before?.name ?? phaseId,
       oldValues: before ? { ...before, project_title: projectTitle } : null,
-      description: `Stergere faza "${before?.name ?? phaseId}" din proiectul "${projectTitle}"`,
+      newValues: { project_id: projectId, project_title: projectTitle, ...deletionSummary },
+      description: `Stergere faza "${before?.name ?? phaseId}" din proiectul "${projectTitle}"; ${deletionSummary.deleted_activities} activitati sterse, ${deletionSummary.moved_requests} cereri mutate, ${deletionSummary.demoted_requests} cereri trecute in pregatire`,
       request: req,
     })
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, deleted: deletion.deleted, ...deletionSummary })
   } catch (error: any) {
     console.error('DELETE /api/projects/[id]/phases/[phaseId] error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
