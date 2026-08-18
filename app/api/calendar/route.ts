@@ -135,7 +135,7 @@ export async function GET(request: Request) {
           scoped(
             admin
               .from('projects')
-              .select('id, title, client_id, general_consultant_id, client:profiles!projects_client_id_fkey(id, full_name, email)'),
+              .select('id, title, client_id, lifecycle_status, general_consultant_id, client:profiles!projects_client_id_fkey(id, full_name, email)'),
             'id',
           )
         ).range(from, to)
@@ -286,6 +286,10 @@ export async function GET(request: Request) {
           id: project.id,
           title: project.title,
           client_name: clientNameOf(project),
+          // Nefolosit de calendare, care arată termenele din orice proiect
+          // accesibil. Tabloul de bord (#81) e cel care ascunde implicit
+          // proiectele încheiate, și îl ia de aici ca să nu mai facă o cerere.
+          lifecycle_status: project.lifecycle_status ?? '',
         }))
         .sort((a, b) => (a.client_name ?? '').localeCompare(b.client_name ?? '', 'ro') || a.title.localeCompare(b.title, 'ro')),
       // Filtrul de fază are sens doar în calendarul unui proiect; în cel general
