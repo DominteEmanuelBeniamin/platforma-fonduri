@@ -60,6 +60,12 @@ const COLUMNS: { key: ProjectColumnKey; label: string; numeric?: boolean; hint?:
 const DETAIL_LIMIT = 5
 
 /**
+ * Cât așteaptă căutarea înainte să ajungă în adresă. Destul cât o tastare
+ * obișnuită să scrie o singură dată în istoric, prea puțin cât să se simtă.
+ */
+const SEARCH_DEBOUNCE_MS = 300
+
+/**
  * Tabloul de bord al administratorului (cerința 23): toate proiectele, cât din
  * fiecare e finalizat, cine e dator cu munca rămasă, ce urmează și ce e depășit.
  *
@@ -177,15 +183,36 @@ function ProjectDashboardContent() {
     () => (showEnded ? allRows : allRows.filter(row => row.active)),
     [allRows, showEnded]
   )
+  // Ce s-a tastat, ținut local; URL-ul primește valoarea puțin mai târziu.
+  //
+  // Legat direct la URL, câmpul nu putea primi spațiu: `writeSearch` taie
+  // capetele, deci adresa rămânea „femeia" cât utilizatorul scria „femeia a",
+  // iar câmpul controlat îi ștergea spațiul înapoi la fiecare tastă. Căutarea
+  // din două cuvinte era imposibil de scris. Tot de aici veneau și revenirile
+  // de o clipă la un caracter mai vechi, când tastarea o lua înaintea rutei.
+  const [draft, setDraft] = useState(search)
+
+  // Adresa rămâne sursa de adevăr: Back, un link deschis în pagină sau golirea
+  // căutării din altă parte se văd în câmp.
+  useEffect(() => { setDraft(search) }, [search])
+
+  useEffect(() => {
+    if (draft === search) return
+    const timer = setTimeout(() => syncUrl(next => writeSearch(next, draft)), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [draft, search, syncUrl])
+
+  // Tabelul urmează tastarea, nu URL-ul: filtrarea e locală și gratuită, iar o
+  // pauză de un sfert de secundă între tastă și rânduri s-ar fi simțit ca lag.
   const rows = useMemo(
-    () => sortProjectRows(filterProjectRows(inScope, search), sort.sort, sort.direction),
-    [inScope, search, sort]
+    () => sortProjectRows(filterProjectRows(inScope, draft), sort.sort, sort.direction),
+    [inScope, draft, sort]
   )
   const summary = useMemo(() => summarizeProjectRows(rows), [rows])
 
   // Caseta de căutare apare doar peste prag — sau când tot ea e cea care a redus
   // tabelul, altfel ar dispărea odată cu rândurile pe care le-a filtrat.
-  const showSearch = inScope.length > SEARCH_THRESHOLD || search.length > 0
+  const showSearch = inScope.length > SEARCH_THRESHOLD || draft.length > 0
 
   const [open, setOpen] = useState<Set<string>>(new Set())
   const toggle = useCallback((id: string) => {
@@ -239,11 +266,8 @@ function ProjectDashboardContent() {
                 />
                 <input
                   type="search"
-                  value={search}
-                  onChange={event => {
-                    const value = event.target.value
-                    syncUrl(next => writeSearch(next, value))
-                  }}
+                  value={draft}
+                  onChange={event => setDraft(event.target.value)}
                   placeholder="Caută"
                   className="w-40 border-0 border-b border-[var(--p-border)] bg-transparent py-1 pl-6 text-sm text-[var(--p-ink)] placeholder:text-[var(--p-ink-faint)] focus:border-[var(--p-accent)] focus:outline-none focus:ring-0"
                 />
@@ -289,14 +313,14 @@ function ProjectDashboardContent() {
           Se încarcă proiectele...
         </div>
       ) : rows.length === 0 ? (
-        search ? (
+        draft ? (
           <EmptyState
             title="Niciun proiect găsit"
-            description={`Nimic nu se potrivește cu „${search}”, nici în titlu, nici la client.`}
+            description={`Nimic nu se potrivește cu „${draft}”, nici în titlu, nici la client.`}
             action={
               <button
                 type="button"
-                onClick={() => syncUrl(next => writeSearch(next, ''))}
+                onClick={() => setDraft('')}
                 className="text-sm font-medium text-[var(--p-accent)] underline underline-offset-2"
               >
                 Șterge căutarea
@@ -448,7 +472,9 @@ function ProjectRow({
               type="button"
               onClick={event => { event.stopPropagation(); onToggle() }}
               aria-expanded={open}
-              aria-controls={detailsId}
+              // Doar cât rândul chiar există: `aria-controls` către un id
+              // absent e o referință ruptă pentru cititoarele de ecran.
+              aria-controls={open ? detailsId : undefined}
               aria-label={`${open ? 'Ascunde' : 'Arată'} termenele proiectului ${row.title}`}
               className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded transition-colors hover:text-[var(--p-ink)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)] ${FAINT}`}
             >
