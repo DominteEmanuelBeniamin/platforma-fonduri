@@ -244,7 +244,7 @@ async function runCron(
   const now = new Date()
   const { data: projectRows, error: projectError } = await admin
     .from('projects')
-    .select('id,title,status,client_id,general_consultant_id,client:profiles!projects_client_id_fkey(id,full_name,email)')
+    .select('id,title,status,client_id,general_consultant_id,automatic_reminders_enabled,client:profiles!projects_client_id_fkey(id,full_name,email)')
     .in('status', ['contractare', 'implementare', 'monitorizare'])
   if (projectError) {
     logFailure(runId, 'project_query_failed')
