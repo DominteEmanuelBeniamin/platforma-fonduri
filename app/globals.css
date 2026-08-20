@@ -119,6 +119,18 @@ body {
   background-color: #94A3B8; /* Slate-400 */
 }
 
+/* Derulare fără bară vizibilă. Pentru rânduri care se derulează lateral și în
+   care o bară de 8px ar fi mai groasă decât rândul însuși — bara de meniu, de
+   pildă. Conținutul rămâne accesibil: se derulează cu degetul, cu roata și cu
+   tastatura. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 input:-webkit-autofill,
 input:-webkit-autofill:hover, 
 input:-webkit-autofill:focus, 

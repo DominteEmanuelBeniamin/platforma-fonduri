@@ -1,6 +1,7 @@
 'use client'
 
 import Link from "next/link"
+import { useEffect, useRef } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {useAuth} from "@/app/providers/AuthProvider"
 import { usePrivateChatUnread } from "@/hooks/usePrivateChatUnread"
@@ -31,6 +32,23 @@ export default function Navbar() {
     router.replace('/login')
   }
 
+  // Rândul de pastile se derulează, deci pastila paginii curente poate cădea în
+  // afara cadrului — pe telefon, unde din șapte se văd trei. O aducem în mijloc
+  // la fiecare schimbare de pagină, ca meniul să arate mereu unde ești.
+  //
+  // Pastila activă se găsește după chiar adresa ei, fără niciun atribut adăugat
+  // celor șapte link-uri. Pe o pagină din afara meniului (un proiect, de pildă)
+  // nu se potrivește nimic și nu se derulează nimic.
+  const pillRow = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const row = pillRow.current
+    const active = row?.querySelector<HTMLElement>(`a[href="${pathname}"]`)
+    if (!row || !active) return
+    const rowBox = row.getBoundingClientRect()
+    const pillBox = active.getBoundingClientRect()
+    row.scrollBy({ left: pillBox.left - rowBox.left - (rowBox.width - pillBox.width) / 2 })
+  }, [pathname, isLoggedIn, profile?.role])
+
   const isActive = (path: string) => pathname === path 
     ? "text-slate-900 bg-white shadow-sm border-slate-200/60" 
     : "text-slate-500 hover:text-slate-900 hover:bg-white/50"
@@ -49,9 +67,19 @@ export default function Navbar() {
         </Link>
       </div>
 
-      <div className="flex-1 flex justify-center px-4">
+      {/* `min-w-0` lasă rândul de pastile să se îngusteze sub lățimea lui
+          naturală; fără el, un element flex refuză să scadă sub conținut și
+          derularea de mai jos n-ar porni niciodată. */}
+      <div className="flex-1 min-w-0 flex justify-center px-4">
         {isLoggedIn && (
-          <div className="flex items-center gap-1 bg-slate-100/50 p-1 rounded-full border border-slate-200/50 overflow-hidden">
+          // Se derulează lateral, nu se taie. Adminul are șapte pastile, peste
+          // 600px puse cap la cap, într-un ecran de telefon care oferă vreo 330:
+          // cu `overflow-hidden`, ultimele două — Utilizatori și Audit — nu erau
+          // doar tăiate, ci de neatins.
+          <div
+            ref={pillRow}
+            className="no-scrollbar flex max-w-full items-center gap-1 overflow-x-auto bg-slate-100/50 p-1 rounded-full border border-slate-200/50"
+          >
             <Link
               href="/"
               className={`relative px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/')}`}
