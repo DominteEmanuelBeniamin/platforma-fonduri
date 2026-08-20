@@ -11,6 +11,7 @@ import { useToast } from '@/app/providers/ToastProvider'
 import {
   AlertTriangle, Check, MessageSquare, FileText, Plus, MoreVertical, Trash2,
   Search, SlidersHorizontal, ArrowUpDown, LayoutGrid, List, X, ChevronRight, ChevronDown, Info, Clock,
+  Bell, BellOff, Loader2,
 } from 'lucide-react'
 import { useProjectChatUnread } from '@/app/providers/ProjectChatUnreadProvider'
 import { GENERAL_PHASE_ID } from '@/lib/calendar'
@@ -104,15 +105,21 @@ function AttentionBadges({ att, isClient, className = '' }: { att: Att; isClient
 }
 
 function AdminMenu({
-  project, openMenuId, setOpenMenuId, onRequestDelete, className = '', dropUp = false,
+  project, openMenuId, setOpenMenuId, onRequestDelete, onToggleAutomaticReminders, reminderToggleLoadingId,
+  className = '', dropUp = false,
 }: {
   project: any
   openMenuId: string | null
   setOpenMenuId: (id: string | null) => void
   onRequestDelete: (p: any) => void
+  onToggleAutomaticReminders: (p: any) => void
+  reminderToggleLoadingId: string | null
   className?: string
   dropUp?: boolean
 }) {
+  const automaticRemindersEnabled = project.automatic_reminders_enabled !== false
+  const reminderToggleLoading = reminderToggleLoadingId === project.id
+
   return (
     <div className={className}>
       <div className="relative">
@@ -124,7 +131,20 @@ function AdminMenu({
           <MoreVertical className="w-4 h-4" />
         </button>
         {openMenuId === project.id && (
-          <div className={`absolute right-0 w-44 bg-white rounded-2xl shadow-xl border border-slate-200 py-1 z-30 ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+          <div className={`absolute right-0 w-60 bg-white rounded-2xl shadow-xl border border-slate-200 py-1 z-30 ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpenMenuId(null); onToggleAutomaticReminders(project) }}
+              disabled={reminderToggleLoading}
+              className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 transition-colors disabled:opacity-60 ${automaticRemindersEnabled ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50'}`}
+            >
+              {reminderToggleLoading
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : automaticRemindersEnabled
+                  ? <BellOff className="w-4 h-4" />
+                  : <Bell className="w-4 h-4" />}
+              {automaticRemindersEnabled ? 'Oprește reminderele automate' : 'Pornește reminderele automate'}
+            </button>
+            <div className="my-1 border-t border-slate-100" />
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpenMenuId(null); onRequestDelete(project) }}
               className="w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors"
@@ -421,7 +441,7 @@ function PriorityDrawer({
 export default function Dashboard() {
   const router = useRouter()
   const { loading: authLoading, token, apiFetch } = useAuth()
-  const { showToast } = useToast()
+  const { showToast, confirm } = useToast()
 
   const [loading, setLoading] = useState(true)
   const [projects, setProjects] = useState<any[]>([])
@@ -430,6 +450,7 @@ export default function Dashboard() {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [projectToDelete, setProjectToDelete] = useState<any>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
+  const [reminderToggleLoadingId, setReminderToggleLoadingId] = useState<string | null>(null)
   const [myDocRequests, setMyDocRequests] = useState<any[]>([])
   const [informativeDocs, setInformativeDocs] = useState<any[]>([])
   const [priorityOpen, setPriorityOpen] = useState(false)
@@ -593,6 +614,45 @@ export default function Dashboard() {
       showToast('Nu am putut șterge proiectul. Reîncearcă.', 'error')
     } finally {
       setDeleteLoading(false)
+    }
+  }
+
+  const handleToggleAutomaticReminders = async (project: any) => {
+    const automaticRemindersEnabled = project.automatic_reminders_enabled !== false
+    const nextEnabled = !automaticRemindersEnabled
+
+    if (!nextEnabled) {
+      const confirmed = await confirm({
+        title: 'Oprești reminderele automate?',
+        description: `Nu se vor mai trimite automat remindere către client sau consultanți pentru proiectul „${project.title}”.`,
+        confirmText: 'Oprește reminderele',
+      })
+      if (!confirmed) return
+    }
+
+    setReminderToggleLoadingId(project.id)
+    try {
+      const res = await apiFetch(`/api/projects/${project.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ automatic_reminders_enabled: nextEnabled }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error || 'Failed to update automatic reminders')
+
+      const savedEnabled = typeof json?.project?.automatic_reminders_enabled === 'boolean'
+        ? json.project.automatic_reminders_enabled
+        : nextEnabled
+      setProjects((prev) => prev.map((p) => p.id === project.id
+        ? { ...p, automatic_reminders_enabled: savedEnabled }
+        : p))
+      showToast(
+        savedEnabled ? 'Reminderele automate au fost pornite.' : 'Reminderele automate au fost oprite.',
+        'success',
+      )
+    } catch {
+      showToast('Nu am putut actualiza reminderele automate. Reîncearcă.', 'error')
+    } finally {
+      setReminderToggleLoadingId(null)
     }
   }
 
@@ -881,6 +941,8 @@ export default function Dashboard() {
                         openMenuId={openMenuId}
                         setOpenMenuId={setOpenMenuId}
                         onRequestDelete={(p) => { setProjectToDelete(p); setShowDeleteModal(true) }}
+                        onToggleAutomaticReminders={handleToggleAutomaticReminders}
+                        reminderToggleLoadingId={reminderToggleLoadingId}
                         className="absolute top-3 right-3 z-10"
                       />
                     )}
@@ -903,7 +965,14 @@ export default function Dashboard() {
                       </div>
                       <AttentionBadges att={att} isClient={isClient} className="hidden sm:flex" />
                       {isAdmin ? (
-                        <AdminMenu project={project} openMenuId={openMenuId} setOpenMenuId={setOpenMenuId} onRequestDelete={(p) => { setProjectToDelete(p); setShowDeleteModal(true) }} />
+                        <AdminMenu
+                          project={project}
+                          openMenuId={openMenuId}
+                          setOpenMenuId={setOpenMenuId}
+                          onRequestDelete={(p) => { setProjectToDelete(p); setShowDeleteModal(true) }}
+                          onToggleAutomaticReminders={handleToggleAutomaticReminders}
+                          reminderToggleLoadingId={reminderToggleLoadingId}
+                        />
                       ) : (
                         <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 transition-colors flex-shrink-0 mr-2" />
                       )}

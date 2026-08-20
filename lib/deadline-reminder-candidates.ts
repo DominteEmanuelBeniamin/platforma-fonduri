@@ -15,6 +15,7 @@ export type ReminderProject = {
   title: string
   status: string
   general_consultant_id: string | null
+  automatic_reminders_enabled?: boolean
   client: Relation<ReminderProfile>
 }
 
@@ -188,6 +189,7 @@ export function selectDeadlineReminderCandidates(input: CandidateSelectionInput)
     const project = projects.get(row.project_id)
     const activity = relation(row.activity)
     if (!project || !ACTIVE_PROJECT_STATUSES.has(project.status)) continue
+    if (project.automatic_reminders_enabled === false) continue
     if (row.status !== 'pending' && row.status !== 'rejected') continue
     if (row.is_outgoing || row.deleted_at || !row.deadline_at || !isClientVisibleDocument(row)) continue
 
@@ -234,6 +236,7 @@ export function selectDeadlineReminderCandidates(input: CandidateSelectionInput)
     const phase = phases.get(row.phase_id)
     const project = phase ? projects.get(phase.project_id) : null
     if (!phase || !project || !ACTIVE_PROJECT_STATUSES.has(project.status)) continue
+    if (project.automatic_reminders_enabled === false) continue
     if (row.status !== 'pending' && row.status !== 'in_progress') continue
     if (phase.visibility !== 'published' || row.visibility !== 'published' || !row.deadline_at) continue
 

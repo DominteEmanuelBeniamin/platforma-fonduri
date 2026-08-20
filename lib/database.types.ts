@@ -420,6 +420,7 @@ export interface Project {
   is_preluat: boolean;
   preluat_detalii: string | null;
   general_consultant_id: string | null;
+  automatic_reminders_enabled: boolean;
   created_at: string;
   updated_at: string;
   // Relații
@@ -452,6 +453,7 @@ export interface ProjectUpdate extends Partial<ProjectCreate> {
   status?: string;
   current_status_id?: string; // NOU
   progress?: number;
+  automatic_reminders_enabled?: boolean;
 }
 
 // FAZĂ PROIECT (ACTUALIZAT - cu project_status_id)
