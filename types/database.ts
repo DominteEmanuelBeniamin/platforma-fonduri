@@ -18,11 +18,8 @@ export type FileReviewStatus = 'pending' | 'approved' | 'rejected';
 export type AuditActionType = 'create' | 'update' | 'delete' | 'login' | 'logout';
 export type AuditEntityType = 'project' | 'document' | 'user' | 'file' | 'team_member' | 'phase' | 'activity' | 'template';
 
-export type NotificationType = 
-  | 'document_requested' | 'document_uploaded' | 'document_approved' | 'document_rejected'
-  | 'project_status_changed' | 'project_created'
-  | 'team_added' | 'team_removed'
-  | 'deadline_approaching' | 'phase_completed' | 'activity_completed' | 'mention';
+export type NotificationType = 'publication' | 'assignment' | 'deadline' | 'document_action';
+export type NotificationEntityType = 'project' | 'phase' | 'activity' | 'document_request';
 
 
 // =====================================================
@@ -646,26 +643,37 @@ export interface AuditLog {
   user?: { email: string; full_name: string | null };
 }
 
-// NOTIFICARE (neschimbat)
+// NOTIFICARE
 export interface Notification {
   id: string;
   user_id: string;
+  project_id: string;
   type: NotificationType;
+  entity_type: NotificationEntityType;
+  entity_id: string;
   title: string;
-  message: string | null;
-  entity_type: 'project' | 'document' | 'user' | 'phase' | 'activity' | null;
-  entity_id: string | null;
-  is_read: boolean;
+  item_count: number;
+  event_key: string;
   created_at: string;
+  read_at: string | null;
 }
 
 export interface NotificationCreate {
+  id?: string;
   user_id: string;
+  project_id: string;
   type: NotificationType;
+  entity_type: NotificationEntityType;
+  entity_id: string;
   title: string;
-  message?: string;
-  entity_type?: string;
-  entity_id?: string;
+  item_count?: number;
+  event_key: string;
+  created_at?: string;
+  read_at?: string | null;
+}
+
+export interface NotificationUpdate {
+  read_at?: string | null;
 }
 
 
@@ -975,7 +983,7 @@ export interface Database {
       document_request_reviews: { Row: DocumentRequestReview; Insert: DocumentRequestReviewCreate; Update: DocumentRequestReviewUpdate };
       
       audit_logs: { Row: AuditLog; Insert: Omit<AuditLog, 'id' | 'created_at'>; Update: never };
-      notifications: { Row: Notification; Insert: NotificationCreate; Update: { is_read?: boolean } };
+      notifications: { Row: Notification; Insert: NotificationCreate; Update: NotificationUpdate };
     };
     Views: {
       programs_overview: { Row: ProgramOverview };
@@ -996,7 +1004,6 @@ export interface Database {
       add_session: { Args: { p_measure_id: string; p_name: string; p_code?: string; p_start_date?: string; p_end_date?: string; p_budget?: number }; Returns: string };
       get_upcoming_deadlines: { Args: { p_days?: number; p_user_id?: string }; Returns: UpcomingDeadline[] };
       log_audit: { Args: { p_action_type: AuditActionType; p_entity_type: AuditEntityType; p_entity_id: string; p_entity_name?: string; p_old_values?: Record<string, unknown>; p_new_values?: Record<string, unknown>; p_description?: string }; Returns: string };
-      create_notification: { Args: { p_user_id: string; p_type: NotificationType; p_title: string; p_message?: string; p_entity_type?: string; p_entity_id?: string }; Returns: string };
       is_admin: { Args: Record<string, never>; Returns: boolean };
     };
   };
