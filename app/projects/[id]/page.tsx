@@ -180,7 +180,9 @@ function ProjectDetailsContent() {
         if (isClientVisibleActivity({ ...activity, phase }) && !activity.client_notified_at) return true
       }
     }
-    return allDocRequests.some((req: any) => isClientVisibleDocument(req) && !req.client_notified_at)
+    return allDocRequests.some((req: any) =>
+      isClientVisibleDocument(req) && (!req.client_notified_at || req.has_unnotified_review)
+    )
   }, [phases, allDocRequests])
 
   const handleOpenChat = () => {
@@ -444,8 +446,8 @@ function ProjectDetailsContent() {
 
   const handleNotifyClient = async () => {
     if (!await confirm({
-      title: 'Anunță clientul?',
-      description: 'Se trimite un singur email către client cu tot ce a fost publicat de la ultima notificare.',
+      title: 'Anunță clientul despre actualizări?',
+      description: 'Se trimite un singur email către client cu noutățile publicate și documentele verificate de la ultima notificare.',
       confirmText: 'Trimite email',
     })) return
     setNotifyingClient(true)
@@ -456,6 +458,9 @@ function ProjectDetailsContent() {
         await Promise.all([refreshPhases(), refreshDocs()])
         showToast('Clientul a fost anunțat prin email.', 'success')
       } else {
+        // Serverul revalidează conținutul la momentul apăsării; sincronizează UI-ul
+        // și când snapshot-ul vechi a lăsat butonul aparent activ.
+        await Promise.allSettled([refreshPhases(), refreshDocs()])
         showToast(data?.error || 'Nu am putut anunța clientul. Reîncearcă.', 'error')
       }
     } catch {
@@ -857,7 +862,7 @@ function ProjectDetailsContent() {
               <button
                 onClick={handleNotifyClient}
                 disabled={!hasUnnotifiedUpdates || notifyingClient}
-                title={hasUnnotifiedUpdates ? 'Anunță clientul despre noutățile publicate' : 'Nimic nou de anunțat'}
+                title={hasUnnotifiedUpdates ? 'Anunță clientul despre actualizări: noutăți publicate și documente verificate' : 'Nicio actualizare de anunțat'}
                 className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
                   hasUnnotifiedUpdates
                     ? 'text-white bg-[var(--p-accent)] border-transparent hover:opacity-90'

@@ -431,6 +431,14 @@ export default function DocumentRequests({
     return src
   }, [externalRequests, internalRequests, activityId])
 
+  // Modalul primește aceeași cerere reîmprospătată ca lista după upload/review;
+  // altfel rămâne cu obiectul capturat la click și afișează statusul/fișierele vechi.
+  useEffect(() => {
+    if (!selectedRequest) return
+    const refreshed = requests.find(request => request.id === selectedRequest.id) ?? null
+    if (refreshed !== selectedRequest) setSelectedRequest(refreshed)
+  }, [requests, selectedRequest])
+
   const reminderIds = selectedRequest ? [selectedRequest.id] : []
   const { states: reminderStates, refresh: refreshReminderStates, loading: reminderStatesLoading } = useReminderStates(
     apiFetch,
