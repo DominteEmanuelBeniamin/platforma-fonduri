@@ -232,6 +232,7 @@ export async function GET(request: Request) {
         name: activity.name,
         deadline_at: activity.deadline_at ?? null,
         done: isActivityDone(activity),
+        status: activity.status ?? null,
         visibility: activity.visibility === 'published' ? 'published' : 'draft',
         project_id: phase.project_id,
         project_title: project?.title ?? '',
@@ -265,6 +266,9 @@ export async function GET(request: Request) {
         name: req.name,
         deadline_at: req.deadline_at ?? null,
         done: isRequestDone(req),
+        // Statusul întreg, nu doar `done`: tabloul de bord (#81) desparte după
+        // el munca aflată la echipă de cea aflată la client. Vezi `eventWaitingOn`.
+        status: req.status ?? null,
         visibility: req.visibility === 'published' ? 'published' : 'draft',
         project_id: req.project_id,
         project_title: project?.title ?? '',

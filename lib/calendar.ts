@@ -29,6 +29,13 @@ export interface CalendarEvent {
   deadline_at: string | null
   /** Activitate încheiată, respectiv cerere aprobată. Calculat pe server. */
   done: boolean
+  /**
+   * Statusul din bază, neinterpretat. `done` îl colapsează la da/nu, ceea ce
+   * ajunge pentru calendar, dar șterge singura distincție care contează în
+   * tabloul de bord: o cerere în verificare așteaptă echipa, una în așteptare
+   * așteaptă clientul. Vezi `eventWaitingOn`.
+   */
+  status: string | null
   visibility: CalendarVisibility
   project_id: string
   project_title: string
@@ -106,6 +113,34 @@ export function eventProgress(event: Pick<CalendarEvent, 'deadline_at' | 'done'>
   if (event.done) return 'done'
   const days = getDaysUntilDeadline(event.deadline_at)
   return days !== null && days < 0 ? 'overdue' : 'open'
+}
+
+export type CalendarWaitingOn = 'us' | 'client'
+
+export const WAITING_LABELS: Record<CalendarWaitingOn, string> = {
+  us: 'la noi',
+  client: 'la client',
+}
+
+/**
+ * Cine trebuie să miște elementul mai departe; `null` pentru ce e finalizat.
+ *
+ * Regula nu e inventată aici: e chiar cea după care pagina proiectului împarte
+ * panoul „Ce ai de făcut" — clientul are de lucru la `pending` și `rejected`,
+ * consultantul la `review`. Activitățile sunt muncă internă, deci una
+ * nefinalizată e mereu la noi, indiferent de status.
+ *
+ * Gardă pe egalitate cu `review`, nu pe lista celorlalte stări: `status` e
+ * `text` liber în bază, iar o valoare nouă apărută acolo trebuie să cadă în „la
+ * client", nu să fie numărată tăcut ca muncă a echipei. Aceeași alegere ca la
+ * `isProjectActive`.
+ */
+export function eventWaitingOn(
+  event: Pick<CalendarEvent, 'kind' | 'status' | 'done'>,
+): CalendarWaitingOn | null {
+  if (event.done) return null
+  if (event.kind === 'activity') return 'us'
+  return event.status === 'review' ? 'us' : 'client'
 }
 
 /**
@@ -497,7 +532,37 @@ export interface ProjectDashboardRow {
   overdue: number
   /** Cel mai apropiat termen viitor al unui element nefinalizat. */
   next_deadline: string | null
+  /**
+   * De câte zile e depășit cel mai vechi termen. Numărul singur nu spune cât de
+   * rău e: trei depășiri de o zi și trei de patru luni arătau identic.
+   */
+  oldest_overdue_days: number | null
+  /**
+   * Termene nefinalizate în următoarele `URGENT_WINDOW_DAYS` zile, azi inclusiv.
+   * Depășitele nu intră — au coloana lor, și le-ar număra de două ori. De aceea
+   * nu folosește `isUrgentDeadline`, care le cuprinde pe amândouă.
+   */
+  due_soon: number
+  /** Nefinalizate care așteaptă echipa, respectiv clientul. Împreună: `total - done`. */
+  waiting_us: number
+  waiting_client: number
+  /** Nefinalizate pe care clientul nu le vede încă. */
+  drafts: number
+  /**
+   * Aceleași numere, separate pe sursă. Raportul general e dominat de cereri
+   * (azi peste 200, față de câteva zeci de activități), deci un „2/36" nu spune
+   * singur dacă munca internă a avansat sau doar au intrat documente.
+   */
+  activities: { done: number; total: number }
+  requests: { done: number; total: number }
+  /** Depășitele, cele mai vechi întâi — pentru rândul desfășurat. */
+  overdue_events: CalendarEvent[]
+  /** Termenele care urmează, cel mai apropiat întâi. */
+  upcoming_events: CalendarEvent[]
 }
+
+const byDeadlineAsc = (a: CalendarEvent, b: CalendarEvent) =>
+  new Date(a.deadline_at ?? 0).getTime() - new Date(b.deadline_at ?? 0).getTime()
 
 /**
  * Proiectele cu numerele lor, dintr-o singură trecere peste evenimentele deja
@@ -511,6 +576,9 @@ export interface ProjectDashboardRow {
  * Proiectele vin din `payload.projects`, interogat din tabela `projects`, nu
  * dedus din evenimente — de aceea un proiect fără niciun element rămâne în listă
  * cu `total` 0, în loc să dispară din tabel.
+ *
+ * Tot aici se pregătesc și listele din rândul desfășurat: aceleași evenimente,
+ * sortate o singură dată, nu la fiecare deschidere de rând.
  */
 export function buildProjectDashboardRows(payload: CalendarPayload): ProjectDashboardRow[] {
   const rows = new Map<string, ProjectDashboardRow>(
@@ -525,6 +593,15 @@ export function buildProjectDashboardRows(payload: CalendarPayload): ProjectDash
         done: 0,
         overdue: 0,
         next_deadline: null,
+        oldest_overdue_days: null,
+        due_soon: 0,
+        waiting_us: 0,
+        waiting_client: 0,
+        drafts: 0,
+        activities: { done: 0, total: 0 },
+        requests: { done: 0, total: 0 },
+        overdue_events: [],
+        upcoming_events: [],
       },
     ])
   )
@@ -536,31 +613,110 @@ export function buildProjectDashboardRows(payload: CalendarPayload): ProjectDash
     if (!row) continue
 
     row.total += 1
+    const bucket = event.kind === 'activity' ? row.activities : row.requests
+    bucket.total += 1
+
     const progress = eventProgress(event)
-    if (progress === 'done') row.done += 1
-    else if (progress === 'overdue') row.overdue += 1
-    else if (event.deadline_at) {
-      // `open` cu termen: nici finalizat, nici trecut — deci chiar un termen
-      // viitor, azi inclusiv. Elementele fără termen cad tot pe `open` și sunt
-      // sărite aici de gardă.
-      const current = row.next_deadline
-      if (current === null || new Date(event.deadline_at) < new Date(current)) {
-        row.next_deadline = event.deadline_at
-      }
+    if (progress === 'done') {
+      row.done += 1
+      bucket.done += 1
+      continue
     }
+
+    // De aici încolo, doar munca rămasă: „în pregătire" și „la cine e mingea"
+    // n-au înțeles pe un element terminat.
+    if (event.visibility === 'draft') row.drafts += 1
+    if (eventWaitingOn(event) === 'us') row.waiting_us += 1
+    else row.waiting_client += 1
+
+    if (progress === 'overdue') row.overdue_events.push(event)
+    // `open` cu termen: nici finalizat, nici trecut — deci chiar un termen
+    // viitor, azi inclusiv. Elementele fără termen cad tot pe `open` și sunt
+    // sărite aici de gardă.
+    else if (event.deadline_at) row.upcoming_events.push(event)
+  }
+
+  for (const row of rows.values()) {
+    // Ordinea listelor e cea în care se citesc în rândul desfășurat: cea mai
+    // veche depășire prima, fiindcă e cea care doare, și cel mai apropiat termen
+    // primul, fiindcă e următorul de rezolvat.
+    row.overdue_events.sort(byDeadlineAsc)
+    row.upcoming_events.sort(byDeadlineAsc)
+
+    row.overdue = row.overdue_events.length
+    row.next_deadline = row.upcoming_events[0]?.deadline_at ?? null
+
+    const oldest = row.overdue_events[0]
+    const days = oldest ? getDaysUntilDeadline(oldest.deadline_at) : null
+    row.oldest_overdue_days = days === null ? null : Math.abs(days)
+
+    row.due_soon = row.upcoming_events.filter(event => {
+      const until = getDaysUntilDeadline(event.deadline_at)
+      return until !== null && until <= URGENT_WINDOW_DAYS
+    }).length
   }
 
   return [...rows.values()]
 }
 
+export interface DashboardSummary {
+  projects: number
+  overdue: number
+  /** În câte proiecte stau depășirile: „12 în 3 proiecte" e altă problemă decât „12 într-unul". */
+  projectsWithOverdue: number
+  dueSoon: number
+  waitingUs: number
+}
+
+/**
+ * Cifrele de deasupra tabelului, calculate peste exact rândurile vizibile — cu
+ * proiectele încheiate ascunse și cu căutarea aplicată, altfel linia ar descrie
+ * altceva decât tabelul de sub ea.
+ *
+ * O singură linie, nu un rând de indicatori mari: Home răspunde deja la „ce
+ * necesită atenție acum", iar două ecrane cu aceleași cifre mari ar începe să se
+ * contrazică de îndată ce ar diverge o definiție.
+ */
+export function summarizeProjectRows(rows: ProjectDashboardRow[]): DashboardSummary {
+  return rows.reduce<DashboardSummary>(
+    (total, row) => ({
+      projects: total.projects + 1,
+      overdue: total.overdue + row.overdue,
+      projectsWithOverdue: total.projectsWithOverdue + (row.overdue > 0 ? 1 : 0),
+      dueSoon: total.dueSoon + row.due_soon,
+      waitingUs: total.waitingUs + row.waiting_us,
+    }),
+    { projects: 0, overdue: 0, projectsWithOverdue: 0, dueSoon: 0, waitingUs: 0 }
+  )
+}
+
+/**
+ * Numeralul românesc cere „de" peste 20, dar nu la 101–119: „3 termene", „21 de
+ * termene", „118 termene". Fără regula asta, linia de rezumat ar fi scris „21
+ * termene" de fiecare dată când platforma crește.
+ */
+export function countLabel(count: number, singular: string, plural: string): string {
+  if (count === 1) return `1 ${singular}`
+  const lastTwo = Math.abs(count) % 100
+  const needsDe = Math.abs(count) >= 20 && !(lastTwo >= 1 && lastTwo <= 19)
+  return `${count} ${needsDe ? 'de ' : ''}${plural}`
+}
+
 // ─── Sortarea tabelului ───────────────────────────────────────────────────────
 
-export type ProjectColumnKey = 'project' | 'client' | 'done' | 'deadline' | 'overdue'
+export type ProjectColumnKey =
+  | 'project'
+  | 'client'
+  | 'done'
+  | 'waiting'
+  | 'deadline'
+  | 'week'
+  | 'overdue'
 /** `urgency` e ordinea implicită, nu o coloană: nu are antet și nu se inversează. */
 export type ProjectSortKey = 'urgency' | ProjectColumnKey
 export type SortDirection = 'asc' | 'desc'
 
-const COLUMN_KEYS = ['project', 'client', 'done', 'deadline', 'overdue'] as const
+const COLUMN_KEYS = ['project', 'client', 'done', 'waiting', 'deadline', 'week', 'overdue'] as const
 
 /**
  * Sensul primei apăsări pe fiecare coloană. Regula e aceeași peste tot: prima
@@ -572,7 +728,9 @@ export const FIRST_SORT_DIRECTION: Record<ProjectColumnKey, SortDirection> = {
   project: 'asc',
   client: 'asc',
   done: 'asc',
+  waiting: 'desc',
   deadline: 'asc',
+  week: 'desc',
   overdue: 'desc',
 }
 
@@ -584,7 +742,9 @@ const HAS_VALUE: Record<ProjectColumnKey, (row: ProjectDashboardRow) => boolean>
   project: () => true,
   client: row => row.client_name !== null,
   done: row => row.total > 0,
+  waiting: () => true,
   deadline: row => row.next_deadline !== null,
+  week: () => true,
   overdue: () => true,
 }
 
@@ -597,16 +757,26 @@ const COMPARE: Record<ProjectColumnKey, (a: ProjectDashboardRow, b: ProjectDashb
   // Raportul, nu numărul brut: „3/4" e mai avansat decât „5/40", iar coloana
   // răspunde la „cât din proiect e gata". Apelat doar când `total > 0`.
   done: (a, b) => a.done / a.total - b.done / b.total,
+  // Întâi câtă muncă e la noi — singura pe care adminul o poate mișca azi —,
+  // apoi cât așteaptă la client.
+  waiting: (a, b) => a.waiting_us - b.waiting_us || a.waiting_client - b.waiting_client,
   deadline: (a, b) => new Date(a.next_deadline!).getTime() - new Date(b.next_deadline!).getTime(),
-  overdue: (a, b) => a.overdue - b.overdue,
+  week: (a, b) => a.due_soon - b.due_soon,
+  // La număr egal de depășiri, cea mai veche cântărește mai greu.
+  overdue: (a, b) =>
+    a.overdue - b.overdue || (a.oldest_overdue_days ?? 0) - (b.oldest_overdue_days ?? 0),
 }
 
 /**
  * Ordinea implicită: întâi proiectele cu termene depășite, cele mai multe
- * primele, apoi cât de aproape e următorul termen.
+ * primele, la egalitate cele cu depășirea cea mai veche, apoi cât de aproape e
+ * următorul termen.
  */
 function byUrgency(a: ProjectDashboardRow, b: ProjectDashboardRow): number {
   if (a.overdue !== b.overdue) return b.overdue - a.overdue
+  // Tot atâtea depășiri: le desparte vechimea celei mai vechi.
+  const oldest = (b.oldest_overdue_days ?? 0) - (a.oldest_overdue_days ?? 0)
+  if (oldest !== 0) return oldest
   if (a.next_deadline === null || b.next_deadline === null) {
     if (a.next_deadline !== b.next_deadline) return a.next_deadline === null ? 1 : -1
   } else {
@@ -657,7 +827,7 @@ export function nextProjectSort(
 // link. Se scrie doar ce se abate de la implicit, ca adresa obișnuită să rămână
 // curată. Numele n-au nevoie de prefix — ecranul nu împarte URL-ul cu nimeni.
 
-const TABLE_PARAM = { sort: 'sort', dir: 'dir', ended: 'incheiate' } as const
+const TABLE_PARAM = { sort: 'sort', dir: 'dir', ended: 'incheiate', search: 'q' } as const
 
 export function readProjectSort(params: URLSearchParams): { sort: ProjectSortKey; direction: SortDirection } {
   const raw = params.get(TABLE_PARAM.sort)
@@ -689,4 +859,61 @@ export function readShowEnded(params: URLSearchParams): boolean {
 export function writeShowEnded(params: URLSearchParams, show: boolean): void {
   if (show) params.set(TABLE_PARAM.ended, '1')
   else params.delete(TABLE_PARAM.ended)
+}
+
+export function readSearch(params: URLSearchParams): string {
+  return params.get(TABLE_PARAM.search) ?? ''
+}
+
+export function writeSearch(params: URLSearchParams, value: string): void {
+  const trimmed = value.trim()
+  if (trimmed) params.set(TABLE_PARAM.search, trimmed)
+  else params.delete(TABLE_PARAM.search)
+}
+
+// ─── Căutarea în tabel ────────────────────────────────────────────────────────
+
+/**
+ * Sub pragul ăsta caseta de căutare nu apare: un tabel de câteva rânduri se
+ * citește dintr-o privire, iar un control care nu ajută la nimic e tot un
+ * control de citit. Aceeași regulă ca la comutatorul de proiecte încheiate, care
+ * apare doar când chiar ascunde ceva.
+ */
+export const SEARCH_THRESHOLD = 8
+
+/**
+ * Fără diacritice și fără majuscule: „ACHIZIȚIE" trebuie găsit și scriind
+ * „achizitie", de la o tastatură fără diacritice — cea de pe care se scrie, de
+ * altfel, jumătate din titlurile din bază.
+ */
+const foldForSearch = (value: string): string =>
+  value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+
+/** Caută în titlu și în numele clientului: ambele sunt vizibile în tabel. */
+export function filterProjectRows(rows: ProjectDashboardRow[], query: string): ProjectDashboardRow[] {
+  const needle = foldForSearch(query.trim())
+  if (!needle) return rows
+  return rows.filter(row => foldForSearch(`${row.title} ${row.client_name ?? ''}`).includes(needle))
+}
+
+// ─── Puntea către calendar ────────────────────────────────────────────────────
+
+/**
+ * Linkul către calendarul general, deschis în modul listă pe un singur proiect.
+ *
+ * Construit din aceleași chei ca filtrele calendarului, nu din litere scrise de
+ * mână aici: un `cj` copiat în altă parte s-ar strica în tăcere la prima
+ * redenumire. Tabloul trimite în calendar în loc să-și crească propriile filtre
+ * pe responsabil și pe fază — calendarul le are deja, iar două seturi ar fi
+ * început să se contrazică.
+ */
+export function projectCalendarHref(
+  projectId: string,
+  options: { overdueOnly?: boolean } = {},
+): string {
+  const params = new URLSearchParams()
+  writeViewMode(params, 'list')
+  params.set(PARAM.projects, projectId)
+  if (options.overdueOnly) params.set(PARAM.progress, 'overdue')
+  return `/calendar?${params.toString()}`
 }
