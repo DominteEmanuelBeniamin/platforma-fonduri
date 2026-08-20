@@ -541,6 +541,10 @@ export interface ProjectDashboardRow {
    * Termene nefinalizate în următoarele `URGENT_WINDOW_DAYS` zile, azi inclusiv.
    * Depășitele nu intră — au coloana lor, și le-ar număra de două ori. De aceea
    * nu folosește `isUrgentDeadline`, care le cuprinde pe amândouă.
+   *
+   * Se citește sub termenul următor, nu într-o coloană a lui: e contextul
+   * termenului („mâine, dar în total șase săptămâna asta"), iar o a șaptea
+   * coloană de numere ar fi costat mai mult decât spune.
    */
   due_soon: number
   /** Nefinalizate care așteaptă echipa, respectiv clientul. Împreună: `total - done`. */
@@ -704,19 +708,12 @@ export function countLabel(count: number, singular: string, plural: string): str
 
 // ─── Sortarea tabelului ───────────────────────────────────────────────────────
 
-export type ProjectColumnKey =
-  | 'project'
-  | 'client'
-  | 'done'
-  | 'waiting'
-  | 'deadline'
-  | 'week'
-  | 'overdue'
+export type ProjectColumnKey = 'project' | 'client' | 'done' | 'waiting' | 'deadline' | 'overdue'
 /** `urgency` e ordinea implicită, nu o coloană: nu are antet și nu se inversează. */
 export type ProjectSortKey = 'urgency' | ProjectColumnKey
 export type SortDirection = 'asc' | 'desc'
 
-const COLUMN_KEYS = ['project', 'client', 'done', 'waiting', 'deadline', 'week', 'overdue'] as const
+const COLUMN_KEYS = ['project', 'client', 'done', 'waiting', 'deadline', 'overdue'] as const
 
 /**
  * Sensul primei apăsări pe fiecare coloană. Regula e aceeași peste tot: prima
@@ -730,7 +727,6 @@ export const FIRST_SORT_DIRECTION: Record<ProjectColumnKey, SortDirection> = {
   done: 'asc',
   waiting: 'desc',
   deadline: 'asc',
-  week: 'desc',
   overdue: 'desc',
 }
 
@@ -744,7 +740,6 @@ const HAS_VALUE: Record<ProjectColumnKey, (row: ProjectDashboardRow) => boolean>
   done: row => row.total > 0,
   waiting: () => true,
   deadline: row => row.next_deadline !== null,
-  week: () => true,
   overdue: () => true,
 }
 
@@ -761,7 +756,6 @@ const COMPARE: Record<ProjectColumnKey, (a: ProjectDashboardRow, b: ProjectDashb
   // apoi cât așteaptă la client.
   waiting: (a, b) => a.waiting_us - b.waiting_us || a.waiting_client - b.waiting_client,
   deadline: (a, b) => new Date(a.next_deadline!).getTime() - new Date(b.next_deadline!).getTime(),
-  week: (a, b) => a.due_soon - b.due_soon,
   // La număr egal de depășiri, cea mai veche cântărește mai greu.
   overdue: (a, b) =>
     a.overdue - b.overdue || (a.oldest_overdue_days ?? 0) - (b.oldest_overdue_days ?? 0),

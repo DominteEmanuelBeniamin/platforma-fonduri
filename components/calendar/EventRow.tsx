@@ -34,10 +34,16 @@ function contextLabel(event: CalendarEvent): string {
 export default function EventRow({
   event,
   withProject = false,
+  withProgress = true,
 }: {
   event: CalendarEvent
   /** Afișează proiectul pe rând — necesar oriunde lista amestecă mai multe. */
   withProject?: boolean
+  /**
+   * Pastila „Depășit"/„În lucru"/„Finalizat". Se stinge acolo unde lista e deja
+   * despărțită pe stări și pastila ar repeta antetul pe fiecare rând.
+   */
+  withProgress?: boolean
 }) {
   const progress = eventProgress(event)
   const Icon = KIND_ICONS[event.kind]
@@ -78,17 +84,19 @@ export default function EventRow({
               {VISIBILITY_LABELS.draft}
             </span>
           )}
-          <span
-            className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
-              progress === 'overdue'
-                ? 'bg-[var(--p-danger-soft)] text-[var(--p-danger)]'
-                : progress === 'done'
-                ? 'bg-[var(--p-success-soft)] text-[var(--p-success)]'
-                : 'bg-[var(--p-surface-2)] text-[var(--p-ink-soft)]'
-            }`}
-          >
-            {PROGRESS_LABELS[progress]}
-          </span>
+          {withProgress && (
+            <span
+              className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+                progress === 'overdue'
+                  ? 'bg-[var(--p-danger-soft)] text-[var(--p-danger)]'
+                  : progress === 'done'
+                  ? 'bg-[var(--p-success-soft)] text-[var(--p-success)]'
+                  : 'bg-[var(--p-surface-2)] text-[var(--p-ink-soft)]'
+              }`}
+            >
+              {PROGRESS_LABELS[progress]}
+            </span>
+          )}
           {relative && (
             <span className="hidden w-20 text-right text-[11px] font-medium text-[var(--p-ink-faint)] sm:block">
               {relative}
