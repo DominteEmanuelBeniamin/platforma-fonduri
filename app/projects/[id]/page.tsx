@@ -19,8 +19,18 @@ import {
   Plus,
   Megaphone,
   CalendarDays,
+  Bell,
+  BellOff,
 } from 'lucide-react'
 
+import {
+  REMINDERS_ERROR_MESSAGE,
+  automaticRemindersEnabled,
+  remindersActionLabel,
+  remindersDoneMessage,
+  remindersOffConfirm,
+  saveAutomaticReminders,
+} from '@/lib/automatic-reminders'
 import ProjectChatDrawer from '@/components/ProjectChatDrawer'
 import ProjectPhasesSidebar from '@/components/ProjectPhasesSidebar'
 import type { ProjectPhase } from '@/components/ProjectPhasesSidebar'
@@ -100,6 +110,7 @@ function ProjectDetailsContent() {
   const [chatOpen, setChatOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const [notifyingClient, setNotifyingClient] = useState(false)
+  const [togglingReminders, setTogglingReminders] = useState(false)
 
   const [activeView, setActiveView] = useState<ProjectView>(
     targetView === 'documents' || targetView === 'calendar' ? targetView : 'phases'
@@ -462,6 +473,31 @@ function ProjectDetailsContent() {
       showToast('Nu am putut anunța clientul. Reîncearcă.', 'error')
     } finally {
       setNotifyingClient(false)
+    }
+  }
+
+  /**
+   * Același comutator ca în meniul cardului din Home (#85), aici fiindcă
+   * proiectul se administrează din pagina lui: adminul care tocmai a mutat
+   * termene nu trebuie să se întoarcă la listă ca să oprească reminderele.
+   *
+   * Textele, confirmarea și cererea vin din `lib/automatic-reminders`, ca cele
+   * două butoane să nu poată începe să spună lucruri diferite.
+   */
+  const handleToggleAutomaticReminders = async () => {
+    if (!project) return
+    const nextEnabled = !automaticRemindersEnabled(project)
+    if (!nextEnabled && !(await confirm(remindersOffConfirm(project.title)))) return
+
+    setTogglingReminders(true)
+    try {
+      const savedEnabled = await saveAutomaticReminders(apiFetch, project.id, nextEnabled)
+      setProject((prev: any) => (prev ? { ...prev, automatic_reminders_enabled: savedEnabled } : prev))
+      showToast(remindersDoneMessage(savedEnabled), 'success')
+    } catch {
+      showToast(REMINDERS_ERROR_MESSAGE, 'error')
+    } finally {
+      setTogglingReminders(false)
     }
   }
 
@@ -866,6 +902,37 @@ function ProjectDetailsContent() {
               >
                 {notifyingClient ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
                 <span className="hidden sm:block">Anunță clientul</span>
+              </button>
+            )}
+
+            {/* Pornite, e doar o iconiță ca celelalte; oprite, se face pastilă
+                galbenă cu text. Starea neobișnuită e cea care merită spațiu —
+                altfel butonul ar striga pe fiecare proiect în care totul e
+                normal. Iconița arată starea, titlul spune ce face apăsarea. */}
+            {isAdmin && (
+              <button
+                onClick={handleToggleAutomaticReminders}
+                disabled={togglingReminders}
+                title={
+                  automaticRemindersEnabled(project)
+                    ? 'Reminderele automate sunt pornite. Apasă ca să le oprești.'
+                    : 'Reminderele automate sunt oprite. Apasă ca să le pornești.'
+                }
+                aria-label={remindersActionLabel(automaticRemindersEnabled(project))}
+                className={`inline-flex items-center gap-1.5 rounded-full border text-xs font-medium transition-colors disabled:opacity-60 ${
+                  automaticRemindersEnabled(project)
+                    ? 'w-7 h-7 justify-center text-[var(--p-ink-soft)] bg-[var(--p-surface)] border-[var(--p-border-strong)] hover:bg-[var(--p-surface-2)]'
+                    : 'px-2.5 py-1 text-amber-700 bg-amber-50 border-amber-200 hover:bg-amber-100'
+                }`}
+              >
+                {togglingReminders
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : automaticRemindersEnabled(project)
+                    ? <Bell className="w-3.5 h-3.5" />
+                    : <BellOff className="w-3.5 h-3.5" />}
+                {!automaticRemindersEnabled(project) && (
+                  <span className="hidden sm:block">Remindere oprite</span>
+                )}
               </button>
             )}
 
