@@ -46,6 +46,12 @@ export interface ProjectPhase {
   activities?: ProjectActivity[]
 }
 
+interface DocumentRequestPreview {
+  activity_id?: string | null
+  deleted_at?: string | null
+  visibility?: 'draft' | 'published'
+}
+
 // ─── Inline input ─────────────────────────────────────────────────────────────
 
 function InlineInput({
@@ -92,39 +98,6 @@ function InlineInput({
   )
 }
 
-// ─── Confirm delete inline ────────────────────────────────────────────────────
-
-function ConfirmDelete({
-  label,
-  onConfirm,
-  onCancel,
-  loading,
-}: {
-  label: string
-  onConfirm: () => void
-  onCancel: () => void
-  loading: boolean
-}) {
-  return (
-    <div className="flex items-center gap-1.5 px-2 py-1 bg-[var(--p-danger-soft)] rounded-md border border-[var(--p-danger)]/20">
-      <span className="text-[11px] text-[var(--p-danger)] flex-1 truncate">Ștergi &ldquo;{label}&rdquo;?</span>
-      <button
-        onClick={onConfirm}
-        disabled={loading}
-        className="p-0.5 rounded bg-[var(--p-danger)]/15 text-[var(--p-danger)] hover:bg-[var(--p-danger)]/25 disabled:opacity-40"
-      >
-        {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
-      </button>
-      <button
-        onClick={onCancel}
-        className="p-0.5 rounded bg-[var(--p-surface-2)] text-[var(--p-ink-soft)] hover:opacity-80"
-      >
-        <X className="w-3 h-3" />
-      </button>
-    </div>
-  )
-}
-
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface ProjectPhasesSidebarProps {
@@ -134,11 +107,12 @@ interface ProjectPhasesSidebarProps {
   canEdit: boolean
   isAdmin: boolean
   projectId: string
+  documentRequests: DocumentRequestPreview[]
   isGeneralActive: boolean
   onSelectPhase: (phaseId: string) => void
   onSelectGeneral: () => void
   onToggleExpand: (phaseId: string) => void
-  onRefresh: () => void
+  onRefresh: () => Promise<void> | void
   onReorderRefresh?: () => Promise<void> | void
   onTeamChange?: () => void
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>
@@ -156,6 +130,7 @@ export default function ProjectPhasesSidebar({
   canEdit,
   isAdmin,
   projectId,
+  documentRequests,
   isGeneralActive,
   onSelectPhase,
   onSelectGeneral,
@@ -167,16 +142,13 @@ export default function ProjectPhasesSidebar({
   mobileOpen,
   onMobileClose,
 }: ProjectPhasesSidebarProps) {
-  const { showToast } = useToast()
+  const { showToast, confirm } = useToast()
   const [showAddPhase, setShowAddPhase] = useState(false)
   const [addingPhase, setAddingPhase] = useState(false)
   const [showAddActivity, setShowAddActivity] = useState<Record<string, boolean>>({})
   const [addingActivity, setAddingActivity] = useState<Record<string, boolean>>({})
 
-  // delete confirm state
-  const [confirmDeletePhase, setConfirmDeletePhase] = useState<string | null>(null)
   const [deletingPhase, setDeletingPhase] = useState<string | null>(null)
-  const [confirmDeleteActivity, setConfirmDeleteActivity] = useState<string | null>(null)
   const [deletingActivity, setDeletingActivity] = useState<string | null>(null)
 
   // deadline edit state: activityId → true/false (popup deschis)
@@ -244,13 +216,51 @@ export default function ProjectPhasesSidebar({
     } finally { setAddingActivity(prev => ({ ...prev, [phaseId]: false })) }
   }
 
+  const requestWarning = (moved: number, demoted: number) => {
+    const parts: string[] = []
+    if (moved > 0) {
+      parts.push(moved === 1
+        ? 'Cererea de documente asociată va fi mutată la „Cereri generale”, împreună cu fișierele sale.'
+        : `Cele ${moved} cereri de documente asociate vor fi mutate la „Cereri generale”, împreună cu fișierele lor.`)
+    }
+    if (demoted > 0) {
+      parts.push(demoted === 1
+        ? 'Dintre acestea, o cerere marcată ca publicată va reveni la starea „În pregătire” și va rămâne invizibilă clientului.'
+        : `Dintre acestea, ${demoted} cereri marcate ca publicate vor reveni la starea „În pregătire” și vor rămâne invizibile clientului.`)
+    }
+    return parts.join(' ')
+  }
+  const deletionImpactForActivity = (phase: ProjectPhase, activity: ProjectActivity) => {
+    const requests = documentRequests.filter(request => request.activity_id === activity.id && !request.deleted_at)
+    return {
+      moved: requests.length,
+      demoted: requests.filter(request =>
+        request.visibility === 'published'
+        && (phase.visibility !== 'published' || activity.visibility !== 'published')
+      ).length,
+    }
+  }
+  const deletionImpactForPhase = (phase: ProjectPhase) => {
+    const activityVisibility = new Map((phase.activities ?? []).map(activity => [activity.id, activity.visibility]))
+    const requests = documentRequests.filter(request =>
+      request.activity_id && activityVisibility.has(request.activity_id) && !request.deleted_at
+    )
+    return {
+      moved: requests.length,
+      demoted: requests.filter(request =>
+        request.visibility === 'published'
+        && (phase.visibility !== 'published' || activityVisibility.get(request.activity_id!) !== 'published')
+      ).length,
+    }
+  }
+
   const handleDeletePhase = async (phaseId: string) => {
     setDeletingPhase(phaseId)
     try {
       const res = await apiFetch(`/api/projects/${projectId}/phases/${phaseId}`, {
         method: 'DELETE',
       })
-      if (res.ok) { setConfirmDeletePhase(null); onRefresh() }
+      if (res.ok) await onRefresh()
       else { showToast('Nu am putut șterge faza. Reîncearcă.', 'error') }
     } finally { setDeletingPhase(null) }
   }
@@ -262,9 +272,42 @@ export default function ProjectPhasesSidebar({
         `/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`,
         { method: 'DELETE' }
       )
-      if (res.ok) { setConfirmDeleteActivity(null); onRefresh() }
+      if (res.ok) await onRefresh()
       else { showToast('Nu am putut șterge activitatea. Reîncearcă.', 'error') }
     } finally { setDeletingActivity(null) }
+  }
+
+  const askToDeletePhase = async (phase: ProjectPhase) => {
+    if (deletingPhase === phase.id) return
+    const impact = deletionImpactForPhase(phase)
+    const activityCount = phase.activities?.length ?? 0
+    const activityLabel = activityCount === 1
+      ? 'activitatea asociată'
+      : `cele ${activityCount} activități asociate`
+    const deletionDescription = activityCount === 0
+      ? `Faza „${phase.name}” va fi ștearsă definitiv.`
+      : `Faza „${phase.name}” și ${activityLabel} vor fi șterse definitiv.`
+    const confirmed = await confirm({
+      title: `Ștergi faza „${phase.name}”?`,
+      description: [deletionDescription, requestWarning(impact.moved, impact.demoted)].filter(Boolean).join(' '),
+      confirmText: 'Șterge faza',
+    })
+    if (confirmed) await handleDeletePhase(phase.id)
+  }
+
+  const askToDeleteActivity = async (phase: ProjectPhase, activity: ProjectActivity) => {
+    if (deletingActivity === activity.id) return
+    const impact = deletionImpactForActivity(phase, activity)
+    const description = [
+      `Activitatea „${activity.name}” va fi ștearsă definitiv.`,
+      requestWarning(impact.moved, impact.demoted),
+    ].filter(Boolean).join(' ')
+    const confirmed = await confirm({
+      title: `Ștergi activitatea „${activity.name}”?`,
+      description,
+      confirmText: 'Șterge activitatea',
+    })
+    if (confirmed) await handleDeleteActivity(phase.id, activity.id)
   }
 
   const handleSaveDeadline = async (phaseId: string, activityId: string, dateValue: string) => {
@@ -409,22 +452,10 @@ export default function ProjectPhasesSidebar({
         {displayPhases.map(phase => {
           const isActive = phase.id === activePhaseId
           const isExpanded = expandedPhases.has(phase.id)
-          const isConfirmingDeletePhase = confirmDeletePhase === phase.id
 
           return (
             <div key={phase.id}>
-              {/* Confirm delete phase */}
-              {isConfirmingDeletePhase ? (
-                <div className="mx-1 mb-0.5">
-                  <ConfirmDelete
-                    label={phase.name}
-                    onConfirm={() => handleDeletePhase(phase.id)}
-                    onCancel={() => setConfirmDeletePhase(null)}
-                    loading={deletingPhase === phase.id}
-                  />
-                </div>
-              ) : (
-                <Collapsible.Root open={isExpanded} onOpenChange={() => onToggleExpand(phase.id)}>
+              <Collapsible.Root open={isExpanded} onOpenChange={() => onToggleExpand(phase.id)}>
                 <div
                     onClick={() => onSelectPhase(phase.id)}
                     onDragOver={e => handlePhaseDragOver(e, phase.id)}
@@ -466,10 +497,14 @@ export default function ProjectPhasesSidebar({
                     </Collapsible.Trigger>
                     {isAdmin && (
                       <button
-                        onClick={e => { e.stopPropagation(); setConfirmDeletePhase(phase.id) }}
-                        className="p-1 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-danger)] hover:bg-[var(--p-danger-soft)] opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                        onClick={e => { e.stopPropagation(); void askToDeletePhase(phase) }}
+                        disabled={deletingPhase === phase.id}
+                        aria-label={`Șterge faza ${phase.name}`}
+                        className="p-1 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-danger)] hover:bg-[var(--p-danger-soft)] opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 disabled:opacity-60"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        {deletingPhase === phase.id
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : <Trash2 className="w-3.5 h-3.5" />}
                       </button>
                     )}
                 </div>
@@ -478,20 +513,6 @@ export default function ProjectPhasesSidebar({
               <Collapsible.Content>
                 <div className="ml-5 mt-0.5 mb-1 pl-3 border-l-2 border-[var(--p-border)] space-y-0.5">
                   {displayActivities(phase)?.map(act => {
-                    const isConfirmingDeleteAct = confirmDeleteActivity === act.id
-
-                    if (isConfirmingDeleteAct) {
-                      return (
-                        <ConfirmDelete
-                          key={act.id}
-                          label={act.name}
-                          onConfirm={() => handleDeleteActivity(phase.id, act.id)}
-                          onCancel={() => setConfirmDeleteActivity(null)}
-                          loading={deletingActivity === act.id}
-                        />
-                      )
-                    }
-
                     const isEditingThisDeadline = editingDeadline === act.id
                     const currentDeadline = act.deadline_at
                       ? act.deadline_at.slice(0, 10)
@@ -550,10 +571,14 @@ export default function ProjectPhasesSidebar({
 
                           {isAdmin && (
                             <button
-                              onClick={e => { e.stopPropagation(); setConfirmDeleteActivity(act.id) }}
-                              className="p-0.5 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-danger)] hover:bg-[var(--p-danger-soft)] opacity-0 group-hover/act:opacity-100 transition-opacity flex-shrink-0"
+                              onClick={e => { e.stopPropagation(); void askToDeleteActivity(phase, act) }}
+                              disabled={deletingActivity === act.id}
+                              aria-label={`Șterge activitatea ${act.name}`}
+                              className="p-0.5 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-danger)] hover:bg-[var(--p-danger-soft)] opacity-0 group-hover/act:opacity-100 transition-opacity flex-shrink-0 disabled:opacity-60"
                             >
-                              <Trash2 className="w-3 h-3" />
+                              {deletingActivity === act.id
+                                ? <Loader2 className="w-3 h-3 animate-spin" />
+                                : <Trash2 className="w-3 h-3" />}
                             </button>
                           )}
                         </div>
@@ -612,7 +637,6 @@ export default function ProjectPhasesSidebar({
                 </div>
               </Collapsible.Content>
               </Collapsible.Root>
-              )}
             </div>
           )
         })}

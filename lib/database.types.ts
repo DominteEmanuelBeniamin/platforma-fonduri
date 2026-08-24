@@ -613,6 +613,7 @@ export interface DocumentRequestReview {
   reviewed_version_number: number;
   reviewed_by: string | null;
   reviewed_at: string;
+  client_notified_at: string | null;
 }
 
 export interface DocumentRequestReviewCreate {
@@ -621,6 +622,11 @@ export interface DocumentRequestReviewCreate {
   reason?: string | null;
   reviewed_version_number: number;
   reviewed_by?: string | null;
+  client_notified_at?: string | null;
+}
+
+export interface DocumentRequestReviewUpdate {
+  client_notified_at?: string | null;
 }
 
 // FIȘIER DOCUMENT (neschimbat)
@@ -1001,7 +1007,7 @@ export interface Database {
       project_activities: { Row: ProjectActivity; Insert: ProjectActivityCreate; Update: ProjectActivityUpdate };
       activity_document_requirements: { Row: ActivityDocumentRequirement; Insert: ActivityDocumentRequirementCreate; Update: Partial<ActivityDocumentRequirementCreate> & { status?: DocumentRequirementStatus } };
       activity_document_files: { Row: ActivityDocumentFile; Insert: ActivityDocumentFileCreate & { uploaded_by: string }; Update: ActivityDocumentFileReview & { reviewed_by?: string; reviewed_at?: string } };
-      document_request_reviews: { Row: DocumentRequestReview; Insert: DocumentRequestReviewCreate; Update: never };
+      document_request_reviews: { Row: DocumentRequestReview; Insert: DocumentRequestReviewCreate; Update: DocumentRequestReviewUpdate };
       
       audit_logs: { Row: AuditLog; Insert: Omit<AuditLog, 'id' | 'created_at'>; Update: never };
       notifications: { Row: Notification; Insert: NotificationCreate; Update: { is_read?: boolean } };
