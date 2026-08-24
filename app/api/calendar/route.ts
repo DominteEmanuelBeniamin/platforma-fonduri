@@ -135,7 +135,7 @@ export async function GET(request: Request) {
           scoped(
             admin
               .from('projects')
-              .select('id, title, client_id, lifecycle_status, general_consultant_id, client:profiles!projects_client_id_fkey(id, full_name, email)'),
+              .select('id, title, client_id, lifecycle_status, automatic_reminders_enabled, general_consultant_id, client:profiles!projects_client_id_fkey(id, full_name, email)'),
             'id',
           )
         ).range(from, to)
@@ -294,6 +294,11 @@ export async function GET(request: Request) {
           // accesibil. Tabloul de bord (#81) e cel care ascunde implicit
           // proiectele încheiate, și îl ia de aici ca să nu mai facă o cerere.
           lifecycle_status: project.lifecycle_status ?? '',
+          // Tot pentru tablou: un proiect care nu mai trimite nimic automat
+          // (#85) e o stare de arătat, nu una de aflat deschizând proiectul.
+          // `not null default true` în bază; `?? true` e doar plasa de siguranță
+          // pentru un rând scris înainte de migrare.
+          automatic_reminders_enabled: project.automatic_reminders_enabled ?? true,
         }))
         .sort((a, b) => (a.client_name ?? '').localeCompare(b.client_name ?? '', 'ro') || a.title.localeCompare(b.title, 'ro')),
       // Filtrul de fază are sens doar în calendarul unui proiect; în cel general

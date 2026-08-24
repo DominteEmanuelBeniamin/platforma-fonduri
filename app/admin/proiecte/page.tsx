@@ -8,6 +8,7 @@ import {
   ArrowDown,
   ArrowRight,
   ArrowUp,
+  BellOff,
   ChevronRight,
   ChevronsUpDown,
   LayoutDashboard,
@@ -494,6 +495,20 @@ function ProjectRow({
             {!row.active && (
               <span className={`ml-1 rounded-full border border-[var(--p-border-strong)] px-1.5 text-[10px] uppercase tracking-wide ${FAINT}`}>
                 Încheiat
+              </span>
+            )}
+
+            {/* Doar starea oprită se arată, și doar ca semn: un proiect care nu
+                mai trimite nimic automat își ține termenele din memoria cuiva.
+                Comutarea rămâne unde se face administrarea — în Home și în
+                pagina proiectului; tabloul nu modifică nimic. */}
+            {row.reminders_off && (
+              <span
+                title="Reminderele automate sunt oprite pentru acest proiect."
+                className="flex-shrink-0 text-[var(--p-warning)]"
+              >
+                <BellOff className="h-3.5 w-3.5" aria-hidden />
+                <span className="sr-only">Reminderele automate sunt oprite</span>
               </span>
             )}
           </div>

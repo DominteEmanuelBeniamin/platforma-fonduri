@@ -63,6 +63,8 @@ export interface CalendarProjectOption {
    * singura pe care se sprijină ceva e `active` — vezi `isProjectActive`.
    */
   lifecycle_status: string
+  /** Comutatorul din #85. Vezi `ProjectDashboardRow.reminders_off`. */
+  automatic_reminders_enabled: boolean
 }
 
 export interface CalendarPhaseOption {
@@ -559,6 +561,17 @@ export interface ProjectDashboardRow {
    */
   activities: { done: number; total: number }
   requests: { done: number; total: number }
+  /**
+   * Proiect cu reminderele automate oprite (#85).
+   *
+   * Se ține pe negativ fiindcă doar starea oprită se arată: un proiect care nu
+   * mai trimite nimic automat își ține termenele din memoria cuiva, iar tabloul
+   * răspunde tocmai la „cum stă fiecare proiect".
+   *
+   * Gardă pe `=== false`, oglinda celei din `lib/automatic-reminders` și din
+   * cronul de remindere: necunoscutul înseamnă pornit, nu oprit tăcut.
+   */
+  reminders_off: boolean
   /** Depășitele, cele mai vechi întâi — pentru rândul desfășurat. */
   overdue_events: CalendarEvent[]
   /** Termenele care urmează, cel mai apropiat întâi. */
@@ -593,6 +606,7 @@ export function buildProjectDashboardRows(payload: CalendarPayload): ProjectDash
         title: project.title,
         client_name: project.client_name,
         active: isProjectActive(project),
+        reminders_off: project.automatic_reminders_enabled === false,
         total: 0,
         done: 0,
         overdue: 0,
