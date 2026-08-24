@@ -3,6 +3,7 @@ import "./globals.css";
 import Navbar from "@/components/Navbar"; // <-- Importăm noul Navbar
 import { AuthProvider } from './providers/AuthProvider'
 import { ProjectChatUnreadProvider } from './providers/ProjectChatUnreadProvider'
+import { NotificationsProvider } from './providers/NotificationsProvider'
 import { ToastProvider } from './providers/ToastProvider'
 
 // Fără `next/font/google`: fonturile se descărcau de la Google la fiecare build,
@@ -24,6 +25,7 @@ export default function RootLayout({
       <body className="h-full bg-slate-50 text-slate-900 antialiased overflow-x-hidden">
         <ToastProvider>
         <AuthProvider>
+          <NotificationsProvider>
           <ProjectChatUnreadProvider>
             {/* Navbar-ul Inteligent */}
             <Navbar />
@@ -40,6 +42,7 @@ export default function RootLayout({
               </div>
             </main>
           </ProjectChatUnreadProvider>
+          </NotificationsProvider>
         </AuthProvider>
         </ToastProvider>
       </body>

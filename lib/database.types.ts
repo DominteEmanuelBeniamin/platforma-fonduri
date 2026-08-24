@@ -630,6 +630,7 @@ export interface DocumentRequestReviewUpdate {
 export interface ActivityDocumentFile {
   id: string;
   requirement_id: string;
+  upload_batch_id: string | null;
   storage_path: string;
   original_name: string;
   file_size: number | null;
@@ -649,6 +650,7 @@ export interface ActivityDocumentFile {
 
 export interface ActivityDocumentFileCreate {
   requirement_id: string;
+  upload_batch_id?: string | null;
   storage_path: string;
   original_name: string;
   file_size?: number;

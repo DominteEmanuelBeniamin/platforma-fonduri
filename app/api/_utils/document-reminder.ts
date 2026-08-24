@@ -1,10 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Resend } from 'resend'
 import { resolveReminderDelivery, resendFromAddress, sanitizeHeaderText } from './email'
+import { recordNotification } from './notifications'
 import { createSupabaseServiceClient } from './supabase'
 import { claimReminder, finalizeReminderClaim, releaseReminderClaim } from './reminder-log'
 import { isClientVisibleDocument } from '@/lib/client-visibility'
 import { renderReminderDigest } from '@/lib/reminder-email'
+import {
+  buildManualReminderNotificationMetadata,
+} from '@/lib/notification-utils'
 import {
   getDaysUntilDeadline,
   getManualReminderType,
@@ -148,8 +152,56 @@ export async function sendDocumentReminder(
     console.error('manual reminder claim error:', { requestId, code: 'claim_failed' })
     return { ok: false, status: 500, error: 'Nu am putut pregăti reminderul. Reîncearcă.' }
   }
-  if (!claim.data.claimed || !claim.data.logId || !claim.data.claimToken) {
+  if (!claim.data.claimed || !claim.data.logId || !claim.data.claimToken || claim.data.sendIndex === null) {
     return { ok: false, status: 409, error: 'Reminderul este deja în curs de trimitere. Reîncearcă peste câteva secunde.' }
+  }
+
+  const releaseClaim = async () => {
+    try {
+      const release = await releaseReminderClaim(admin, claim.data!.logId!, claim.data!.claimToken!)
+      if (release.error || release.data !== true) {
+        console.error('manual reminder release failure:', { requestId, code: 'release_failed' })
+        return false
+      }
+      return true
+    } catch {
+      console.error('manual reminder release failure:', { requestId, code: 'release_failed' })
+      return false
+    }
+  }
+
+  const notificationMetadata = buildManualReminderNotificationMetadata({
+    projectId,
+    requestId,
+    recipientId: client.id,
+    threshold: reminderType,
+    deadlineAt,
+    sendIndex: claim.data.sendIndex,
+  })
+  const notificationTitle = reminderType === 'overdue'
+    ? `Termen depășit: "${requestName}"`
+    : `Termen apropiat: "${requestName}"`
+
+  try {
+    const notification = await recordNotification(admin, {
+      projectId,
+      type: 'deadline',
+      entityType: 'document_request',
+      entityId: requestId,
+      title: notificationTitle,
+      itemCount: 1,
+      eventKey: notificationMetadata.eventKey,
+      recipientIds: [client.id],
+      includeAdmins: true,
+      fallbackToProjectMembers: false,
+    })
+    if (!notification.recipientIds.includes(client.id)) {
+      throw new Error('Clientul proiectului nu mai este un destinatar valid')
+    }
+  } catch {
+    console.error('manual reminder notification failure:', { requestId, code: 'notification_failed' })
+    await releaseClaim()
+    return { ok: false, status: 500, error: 'Nu am putut pregăti notificarea. Reîncearcă.' }
   }
 
   let providerId: string | null = null
@@ -161,17 +213,12 @@ export async function sendDocumentReminder(
       subject: sanitizeHeaderText(digest.subject),
       html: digest.html,
       text: digest.text,
-    })
+    }, { idempotencyKey: notificationMetadata.idempotencyKey })
     if (emailError) throw emailError
     providerId = emailData?.id ?? null
   } catch {
     console.error('manual reminder provider failure:', { requestId, code: 'provider_failed' })
-    try {
-      const release = await releaseReminderClaim(admin, claim.data.logId, claim.data.claimToken)
-      if (release.error || release.data !== true) console.error('manual reminder release failure:', { requestId, code: 'release_failed' })
-    } catch {
-      console.error('manual reminder release failure:', { requestId, code: 'release_failed' })
-    }
+    await releaseClaim()
     return { ok: false, status: 502, error: 'Trimiterea emailului a eșuat. Reîncearcă.' }
   }
 

@@ -6,7 +6,13 @@ import { resolveReminderDelivery, resendFromAddress, sanitizeHeaderText } from '
 import { claimReminder, finalizeReminderClaim, releaseReminderClaim } from '@/app/api/_utils/reminder-log'
 import { logReminderDigestAudit } from '@/app/api/_utils/reminder-audit'
 import { acquireReminderRunLease, releaseReminderRunLease } from '@/app/api/_utils/reminder-run'
+import { recordNotification } from '@/app/api/_utils/notifications'
 import {
+  buildReminderDigestIdempotencyKey,
+  buildReminderNotificationEventKey,
+  buildReminderNotificationTitle,
+  groupReminderCandidatesByProject,
+  hasReminderRecipient,
   selectDeadlineReminderCandidates,
   type ReminderCandidate,
   type ReminderProfile,
@@ -21,11 +27,18 @@ type RecipientGroup = {
   items: ReminderCandidate[]
 }
 
+type ClaimedReminder = {
+  item: ReminderCandidate
+  logId: string
+  claimToken: string
+}
+
 type FailureCounts = {
   invalid_email: number
   missing_recipient: number
   claim: number
   provider: number
+  notification: number
   finalize: number
   release: number
   audit: number
@@ -49,6 +62,7 @@ const EMPTY_FAILURES = (): FailureCounts => ({
   missing_recipient: 0,
   claim: 0,
   provider: 0,
+  notification: 0,
   finalize: 0,
   release: 0,
   audit: 0,
@@ -97,6 +111,59 @@ function addCandidate(groups: Map<string, RecipientGroup>, candidate: ReminderCa
   )) group.items.push(candidate)
 }
 
+async function releaseClaims(
+  admin: ReturnType<typeof createSupabaseServiceClient>,
+  claimed: ClaimedReminder[],
+  runId: string,
+  report: CronReport,
+) {
+  for (const entry of claimed) {
+    try {
+      const release = await releaseReminderClaim(admin, entry.logId, entry.claimToken)
+      if (release.error || release.data !== true) throw release.error ?? new Error('release returned false')
+    } catch {
+      report.failures.release++
+      logFailure(runId, 'release_failed', entry.item.entityType, entry.item.entityId)
+    }
+  }
+}
+
+async function recordDeadlineNotifications(
+  admin: ReturnType<typeof createSupabaseServiceClient>,
+  claimed: ClaimedReminder[],
+  group: RecipientGroup,
+  runId: string,
+  report: CronReport,
+) {
+  const projectGroups = groupReminderCandidatesByProject(claimed.map(entry => entry.item))
+  for (const projectGroup of projectGroups) {
+    const items = projectGroup.items
+    const onlyItem = items.length === 1 ? items[0] : null
+    try {
+      const result = await recordNotification(admin, {
+        projectId: projectGroup.projectId,
+        type: 'deadline',
+        entityType: onlyItem ? onlyItem.entityType === 'request' ? 'document_request' : 'activity' : 'project',
+        entityId: onlyItem?.entityId ?? projectGroup.projectId,
+        title: buildReminderNotificationTitle(items),
+        itemCount: items.length,
+        eventKey: buildReminderNotificationEventKey(items),
+        recipientIds: [group.recipientId],
+        includeAdmins: true,
+      })
+      if (!hasReminderRecipient(result.recipientIds, group.recipientId)) {
+        throw new Error('logical reminder recipient is no longer eligible')
+      }
+    } catch {
+      report.failures.notification++
+      logFailure(runId, 'notification_failed', items[0]?.entityType, items[0]?.entityId)
+      await releaseClaims(admin, claimed, runId, report)
+      return false
+    }
+  }
+  return true
+}
+
 async function processRecipient(
   admin: ReturnType<typeof createSupabaseServiceClient>,
   group: RecipientGroup,
@@ -111,7 +178,7 @@ async function processRecipient(
     return
   }
 
-  const claimed: { item: ReminderCandidate; logId: string; claimToken: string }[] = []
+  const claimed: ClaimedReminder[] = []
   for (const item of group.items) {
     let result: Awaited<ReturnType<typeof claimReminder>>
     try {
@@ -144,6 +211,8 @@ async function processRecipient(
 
   if (claimed.length === 0) return
 
+  if (!await recordDeadlineNotifications(admin, claimed, group, runId, report)) return
+
   let digest: ReturnType<typeof renderReminderDigest>
   try {
     digest = renderReminderDigest({
@@ -155,15 +224,7 @@ async function processRecipient(
   } catch {
     report.failures.provider++
     logFailure(runId, 'renderer_failed', claimed[0].item.entityType, claimed[0].item.entityId)
-    for (const entry of claimed) {
-      try {
-        const release = await releaseReminderClaim(admin, entry.logId, entry.claimToken)
-        if (release.error || release.data !== true) throw release.error ?? new Error('release returned false')
-      } catch {
-        report.failures.release++
-        logFailure(runId, 'release_failed', entry.item.entityType, entry.item.entityId)
-      }
-    }
+    await releaseClaims(admin, claimed, runId, report)
     return
   }
   report.emails_attempted++
@@ -176,22 +237,14 @@ async function processRecipient(
       subject: sanitizeHeaderText(digest.subject),
       html: digest.html,
       text: digest.text,
-    })
+    }, { idempotencyKey: buildReminderDigestIdempotencyKey(claimed.map(entry => entry.item)) })
     if (result.error) throw result.error
     providerId = result.data?.id ?? null
     report.emails_accepted++
   } catch {
     report.failures.provider++
     logFailure(runId, 'provider_failed', claimed[0].item.entityType, claimed[0].item.entityId)
-    for (const entry of claimed) {
-      try {
-        const release = await releaseReminderClaim(admin, entry.logId, entry.claimToken)
-        if (release.error || release.data !== true) throw release.error ?? new Error('release returned false')
-      } catch {
-        report.failures.release++
-        logFailure(runId, 'release_failed', entry.item.entityType, entry.item.entityId)
-      }
-    }
+    await releaseClaims(admin, claimed, runId, report)
     return
   }
 

@@ -1,7 +1,15 @@
 import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
+import { recordNotification } from '@/app/api/_utils/notifications'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { isClientVisibleDocument } from '@/lib/client-visibility'
+import {
+  hasDuplicateUploadPaths,
+  isValidDocumentActionUuid,
+  isValidUploadFileSize,
+  isValidUploadStoragePath,
+  MAX_UPLOAD_FILE_SIZE,
+} from '@/lib/document-action-idempotency'
 
 const MAX_FILES = 50
 const MAX_ORIGINAL_NAME_LENGTH = 200
@@ -45,8 +53,8 @@ export async function POST(
       uploaded?: unknown
     }
 
-    if (typeof batchId !== 'string' || !batchId) {
-      return NextResponse.json({ error: 'batchId is required' }, { status: 400 })
+    if (!isValidDocumentActionUuid(batchId)) {
+      return NextResponse.json({ error: 'batchId must be a valid UUID' }, { status: 400 })
     }
     if (typeof versionNumber !== 'number' || !Number.isInteger(versionNumber) || versionNumber < 1) {
       return NextResponse.json({ error: 'versionNumber must be an integer >= 1' }, { status: 400 })
@@ -71,12 +79,8 @@ export async function POST(
         return NextResponse.json({ error: 'mimeType must be a string when provided' }, { status: 400 })
       }
 
-      if (
-        u.fileSize !== undefined &&
-        u.fileSize !== null &&
-        (typeof u.fileSize !== 'number' || !Number.isFinite(u.fileSize) || u.fileSize < 0)
-      ) {
-        return NextResponse.json({ error: 'fileSize must be a non-negative number when provided' }, { status: 400 })
+      if (!isValidUploadFileSize(u.fileSize)) {
+        return NextResponse.json({ error: `fileSize must be between 0 and ${MAX_UPLOAD_FILE_SIZE} bytes when provided` }, { status: 400 })
       }
 
       normalizedUploads.push({
@@ -87,11 +91,15 @@ export async function POST(
       })
     }
 
+    if (hasDuplicateUploadPaths(normalizedUploads.map(upload => upload.storagePath))) {
+      return NextResponse.json({ error: 'uploaded[] must not contain duplicate storagePath values' }, { status: 400 })
+    }
+
     const admin = createSupabaseServiceClient()
 
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('id, project_id, name, activity_id, visibility, is_outgoing, deleted_at, activity:activity_id(visibility, phase:phase_id(visibility))')
+      .select('id, project_id, name, activity_id, assigned_to, visibility, is_outgoing, deleted_at, activity:activity_id(assigned_to, visibility, phase:phase_id(visibility))')
       .eq('id', requestId)
       .is('deleted_at', null)
       .single()
@@ -110,6 +118,11 @@ export async function POST(
       console.error('Document requirement has no project_id:', reqRow)
       return NextResponse.json({ error: 'Document request is not linked to a project' }, { status: 500 })
     }
+
+    if (normalizedUploads.some(upload => !isValidUploadStoragePath(upload.storagePath, reqRow.project_id, requestId, versionNumber))) {
+      return NextResponse.json({ error: 'storagePath is outside the document request upload directory' }, { status: 400 })
+    }
+
     const access = await requireProjectAccess(request, reqRow.project_id)
     if (!access.ok) {
       console.error('Project access denied:', access.error, 'project_id:', reqRow.project_id)
@@ -126,16 +139,11 @@ export async function POST(
 
     console.log('Project access granted for user:', access.user.id, 'project:', reqRow.project_id)
 
-    const { data: projectRow } = await admin
-      .from('projects')
-      .select('title')
-      .eq('id', reqRow.project_id)
-      .maybeSingle()
-    const projectTitle = projectRow?.title ?? reqRow.project_id
     const requestName = reqRow.name || requestId
 
     const rows = normalizedUploads.map((u) => ({
       requirement_id: requestId,
+      upload_batch_id: batchId,
       storage_path: u.storagePath,
       original_name: u.originalName,
       mime_type: u.mimeType,
@@ -144,49 +152,82 @@ export async function POST(
       uploaded_by: access.user.id,
     }))
 
-    const { error: insErr } = await admin.from('files').insert(rows)
-    if (insErr) {
-      console.error('files insert error:', insErr)
-      return NextResponse.json({ error: insErr.message }, { status: 400 })
-    }
-
-    const { error: updErr } = await admin
-      .from('document_requirements')
-      .update({ status: 'review' })
-      .eq('id', requestId)
-      .is('deleted_at', null)
-
-    if (updErr) {
-      console.error('requirements update error:', updErr)
-      return NextResponse.json({ error: updErr.message }, { status: 400 })
-    }
-
     const ipAddress = request.headers.get('x-forwarded-for') ||
                       request.headers.get('x-real-ip') ||
                       null
 
-    const fileNames = normalizedUploads.map((u) => u.originalName).join(', ')
+    const { data: batchData, error: batchError } = await admin.rpc('complete_document_upload_batch', {
+      p_requirement_id: requestId,
+      p_upload_batch_id: batchId,
+      p_version_number: versionNumber,
+      p_uploaded_by: access.user.id,
+      p_rows: rows,
+      p_ip_address: ipAddress,
+    })
 
-    await admin
-      .from('audit_logs')
-      .insert({
-        user_id: access.user.id,
-        action_type: 'create',
-        entity_type: 'file',
-        entity_id: requestId,
-        entity_name: requestName,
-        new_values: {
-          requirement_id: requestId,
-          requirement_name: requestName,
-          project_id: reqRow.project_id,
-          project_title: projectTitle,
-          file_count: uploaded.length,
-          version: versionNumber,
-          files: fileNames,
-        },
-        description: `${access.profile.email || 'User'} a încărcat ${uploaded.length} fișier(e) pentru cererea "${requestName}" din proiectul "${projectTitle}"`,
-        ip_address: ipAddress,
-      })
+    if (batchError) {
+      console.error('complete_document_upload_batch error:', batchError)
+      const status = batchError.code === 'P0001' ? 409 : 500
+      return NextResponse.json({ error: batchError.message }, { status })
+    }
+
+    const batchResult = Array.isArray(batchData) ? batchData[0] : batchData
+    const batchFileCount = Number(batchResult?.file_count)
+    if (!Number.isInteger(batchFileCount) || batchFileCount < 1) {
+      console.error('complete_document_upload_batch returned invalid data:', batchData)
+      return NextResponse.json({ error: 'Failed to complete document upload batch' }, { status: 500 })
+    }
+
+    const [{ data: currentReqRow, error: currentReqError }, { data: currentProjectRow, error: currentProjectError }] = await Promise.all([
+      admin
+        .from('document_requirements')
+        .select('assigned_to, activity:activity_id(assigned_to)')
+        .eq('id', requestId)
+        .is('deleted_at', null)
+        .maybeSingle(),
+      admin
+        .from('projects')
+        .select('general_consultant_id')
+        .eq('id', reqRow.project_id)
+        .maybeSingle(),
+    ])
+
+    if (currentReqError || currentProjectError || !currentReqRow || !currentProjectRow) {
+      console.error('Failed to load post-commit document upload recipients:', { currentReqError, currentProjectError })
+      return NextResponse.json({ error: 'Failed to load current document recipients' }, { status: 500 })
+    }
+
+    const currentActivity = Array.isArray(currentReqRow.activity) ? currentReqRow.activity[0] : currentReqRow.activity
+    const responsibleId = currentReqRow.assigned_to || currentActivity?.assigned_to || currentProjectRow.general_consultant_id || null
+    const uploadTitle = batchFileCount === 1
+      ? `Document încărcat pentru cererea "${requestName}"`
+      : `Documente încărcate pentru cererea "${requestName}"`
+
+    try {
+      const notificationInput = {
+        projectId: reqRow.project_id,
+        type: 'document_action' as const,
+        entityType: 'document_request' as const,
+        entityId: requestId,
+        title: uploadTitle,
+        itemCount: batchFileCount,
+        eventKey: `document-upload:${batchId}`,
+        recipientIds: responsibleId ? [responsibleId] : [],
+        includeAdmins: true,
+        fallbackToProjectMembers: true,
+      }
+      const notificationResult = await recordNotification(admin, notificationInput)
+      if (responsibleId && !notificationResult.recipientIds.includes(responsibleId)) {
+        await recordNotification(admin, {
+          ...notificationInput,
+          recipientIds: [],
+          fallbackToProjectMembers: true,
+        })
+      }
+    } catch (notificationError) {
+      console.error('document upload notification error:', notificationError)
+      return NextResponse.json({ error: 'Failed to save document notification' }, { status: 500 })
+    }
 
     return NextResponse.json({ ok: true })
   } catch (e: unknown) {

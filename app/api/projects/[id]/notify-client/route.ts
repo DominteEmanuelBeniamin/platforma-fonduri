@@ -3,10 +3,18 @@ import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
+import { recordNotification } from '@/app/api/_utils/notifications'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
-import { selectReviewNotificationCandidates } from '@/lib/review-notification'
+import {
+  buildPublicationEmailIdempotencyKey,
+  buildPublicationNotificationMetadata,
+} from '@/lib/notification-utils'
+import {
+  buildReviewNotificationEvents,
+  selectReviewNotificationCandidates,
+} from '@/lib/review-notification'
 
 function listSection(title: string, items: string[]) {
   if (items.length === 0) return ''
@@ -57,7 +65,7 @@ export async function POST(
       return NextResponse.json({ error: 'Proiectul nu a fost găsit' }, { status: 404 })
     }
     const client = Array.isArray(project.client) ? project.client[0] : project.client
-    if (!client?.email) {
+    if (!client?.id || !client.email) {
       return NextResponse.json({ error: 'Clientul proiectului nu are un email valid' }, { status: 400 })
     }
 
@@ -244,6 +252,71 @@ export async function POST(
     }))
     const totalDisplayed = claimedPhases.length + claimedActivities.length + claimedDocuments.length + reviewedDocuments.length
 
+    const publicationItems = [
+      ...claimedPhases.map(phase => ({ entityType: 'phase', entityId: phase.id })),
+      ...claimedActivities.map(activity => ({ entityType: 'activity', entityId: activity.id })),
+      ...claimedDocuments.map(document => ({ entityType: 'document_request', entityId: document.id })),
+    ]
+    const emailItems = [
+      ...publicationItems,
+      ...claimedReviews.map(review => ({ entityType: 'document_review', entityId: review.id })),
+    ]
+    const publicationMetadata = buildPublicationNotificationMetadata({
+      projectId,
+      clientId: client.id,
+      items: publicationItems,
+    })
+    const publicationEmailIdempotencyKey = buildPublicationEmailIdempotencyKey({
+      projectId,
+      clientId: client.id,
+      items: emailItems,
+    })
+
+    const reviewNotificationEvents = buildReviewNotificationEvents(reviewCandidates)
+
+    // Notification-first: claims are rolled back if any logical client
+    // notification cannot be recorded. Existing notification rows remain.
+    try {
+      if (publicationMetadata) {
+        const publication = await recordNotification(admin, {
+          projectId,
+          type: 'publication',
+          entityType: publicationMetadata.target.entityType,
+          entityId: publicationMetadata.target.entityId,
+          title: publicationMetadata.itemCount === 1 ? 'Element nou publicat' : 'Elemente noi publicate',
+          itemCount: publicationMetadata.itemCount,
+          eventKey: publicationMetadata.eventKey,
+          recipientIds: [client.id],
+          includeAdmins: true,
+          fallbackToProjectMembers: false,
+        })
+        if (!publication.recipientIds.includes(client.id)) {
+          throw new Error('Clientul proiectului nu mai este un destinatar valid')
+        }
+      }
+
+      for (const reviewEvent of reviewNotificationEvents) {
+        const reviewNotification = await recordNotification(admin, {
+          projectId,
+          type: 'document_action',
+          entityType: 'document_request',
+          entityId: reviewEvent.requestId,
+          title: reviewEvent.title,
+          itemCount: 1,
+          eventKey: reviewEvent.eventKey,
+          recipientIds: [client.id],
+          includeAdmins: true,
+          fallbackToProjectMembers: false,
+        })
+        if (!reviewNotification.recipientIds.includes(client.id)) {
+          throw new Error('Clientul proiectului nu mai este un destinatar valid pentru review')
+        }
+      }
+    } catch (notificationError) {
+      console.error('notify-client notification error:', notificationError)
+      return failAfterRollback(500, 'Eroare la pregătirea notificării. Reîncearcă.')
+    }
+
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
     const projectUrl = `${appUrl}/projects/${projectId}`
     const safeProjectTitle = escapeHtml(project.title)
@@ -309,7 +382,7 @@ export async function POST(
         to: client.email,
         subject: `Actualizări noi în proiectul „${sanitizeHeaderText(project.title)}”`,
         html,
-      })
+      }, { idempotencyKey: publicationEmailIdempotencyKey })
 
       if (emailError) {
         console.error('notify-client Resend error:', emailError)
