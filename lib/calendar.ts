@@ -549,6 +549,15 @@ export interface ProjectDashboardRow {
    * coloană de numere ar fi costat mai mult decât spune.
    */
   due_soon: number
+  /**
+   * Elemente nefinalizate care n-au niciun termen.
+   *
+   * Fără numărul ăsta, toate celelalte coloane de termene mint prin omisiune: un
+   * proiect cu un singur element datat și șaptezeci nedatate arată la fel de
+   * calm ca unul planificat cap-coadă. Azi, în bază, 16 elemente din 274 au
+   * termen — deci coloanele descriu 6% din muncă, iar restul e tăcere.
+   */
+  undated: number
   /** Nefinalizate care așteaptă echipa, respectiv clientul. Împreună: `total - done`. */
   waiting_us: number
   waiting_client: number
@@ -613,6 +622,7 @@ export function buildProjectDashboardRows(payload: CalendarPayload): ProjectDash
         next_deadline: null,
         oldest_overdue_days: null,
         due_soon: 0,
+        undated: 0,
         waiting_us: 0,
         waiting_client: 0,
         drafts: 0,
@@ -649,9 +659,10 @@ export function buildProjectDashboardRows(payload: CalendarPayload): ProjectDash
 
     if (progress === 'overdue') row.overdue_events.push(event)
     // `open` cu termen: nici finalizat, nici trecut — deci chiar un termen
-    // viitor, azi inclusiv. Elementele fără termen cad tot pe `open` și sunt
-    // sărite aici de gardă.
+    // viitor, azi inclusiv.
     else if (event.deadline_at) row.upcoming_events.push(event)
+    // `open` fără termen: muncă rămasă pe care n-o așteaptă nicio dată.
+    else row.undated += 1
   }
 
   for (const row of rows.values()) {

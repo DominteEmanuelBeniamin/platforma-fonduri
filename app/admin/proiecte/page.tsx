@@ -53,7 +53,11 @@ const COLUMNS: { key: ProjectColumnKey; label: string; numeric?: boolean; hint?:
     numeric: true,
     hint: 'Munca rămasă, împărțită după cine o mișcă mai departe: echipa (activități neterminate, documente de verificat) sau clientul (documente cerute sau respinse)',
   },
-  { key: 'deadline', label: 'Următorul termen' },
+  {
+    key: 'deadline',
+    label: 'Următorul termen',
+    hint: 'Cel mai apropiat termen viitor; dedesubt, câte termene cad în 7 zile și câte elemente nefinalizate n-au niciunul',
+  },
   { key: 'overdue', label: 'Depășite', numeric: true, hint: 'Termene trecute, pe elemente nefinalizate' },
 ]
 
@@ -452,9 +456,15 @@ function ProjectRow({
 
   // „Mâine" e deja pe rândul de deasupra; al doilea termen din aceeași
   // săptămână e cel care schimbă imaginea, deci numărul apare de la două în sus.
-  const weekNote =
-    row.due_soon > 1 ? `${countLabel(row.due_soon, 'termen', 'termene')} săptămâna asta` : null
-  const deadlineNote = [relative, weekNote].filter(Boolean).join(' · ')
+  const weekNote = row.due_soon > 1 ? `${row.due_soon} săptămâna asta` : null
+
+  // Cât din munca rămasă nu e prinsă de nicio dată. Fără el, celula de deasupra
+  // spune „20 aug." și lasă impresia unui proiect planificat, când termenul acela
+  // poate fi singurul din cincizeci de elemente.
+  const undatedNote =
+    row.undated > 0 ? `${countLabel(row.undated, 'neplanificat', 'neplanificate')}` : null
+
+  const deadlineNote = [relative, weekNote, undatedNote].filter(Boolean).join(' · ')
 
   return (
     <Fragment>
@@ -553,7 +563,10 @@ function ProjectRow({
 
         <td className="px-3 py-3">
           {row.next_deadline === null ? (
-            <span className={FAINT}>Fără termen</span>
+            <>
+              <span className={FAINT}>Fără termen</span>
+              {undatedNote && <span className={NOTE}>{undatedNote}</span>}
+            </>
           ) : (
             <>
               <span className="text-[var(--p-ink)]">{formatShortDate(row.next_deadline)}</span>
