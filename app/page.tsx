@@ -15,6 +15,14 @@ import {
 } from 'lucide-react'
 import { useProjectChatUnread } from '@/app/providers/ProjectChatUnreadProvider'
 import { GENERAL_PHASE_ID } from '@/lib/calendar'
+import {
+  REMINDERS_ERROR_MESSAGE,
+  automaticRemindersEnabled,
+  remindersActionLabel,
+  remindersDoneMessage,
+  remindersOffConfirm,
+  saveAutomaticReminders,
+} from '@/lib/automatic-reminders'
 
 type Att = {
   overdue: number
@@ -117,7 +125,7 @@ function AdminMenu({
   className?: string
   dropUp?: boolean
 }) {
-  const automaticRemindersEnabled = project.automatic_reminders_enabled !== false
+  const remindersEnabled = automaticRemindersEnabled(project)
   const reminderToggleLoading = reminderToggleLoadingId === project.id
 
   return (
@@ -135,14 +143,14 @@ function AdminMenu({
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpenMenuId(null); onToggleAutomaticReminders(project) }}
               disabled={reminderToggleLoading}
-              className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 transition-colors disabled:opacity-60 ${automaticRemindersEnabled ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50'}`}
+              className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 transition-colors disabled:opacity-60 ${remindersEnabled ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50'}`}
             >
               {reminderToggleLoading
                 ? <Loader2 className="w-4 h-4 animate-spin" />
-                : automaticRemindersEnabled
+                : remindersEnabled
                   ? <BellOff className="w-4 h-4" />
                   : <Bell className="w-4 h-4" />}
-              {automaticRemindersEnabled ? 'Oprește reminderele automate' : 'Pornește reminderele automate'}
+              {remindersActionLabel(remindersEnabled)}
             </button>
             <div className="my-1 border-t border-slate-100" />
             <button
@@ -618,39 +626,18 @@ export default function Dashboard() {
   }
 
   const handleToggleAutomaticReminders = async (project: any) => {
-    const automaticRemindersEnabled = project.automatic_reminders_enabled !== false
-    const nextEnabled = !automaticRemindersEnabled
-
-    if (!nextEnabled) {
-      const confirmed = await confirm({
-        title: 'Oprești reminderele automate?',
-        description: `Nu se vor mai trimite automat remindere către client sau consultanți pentru proiectul „${project.title}”.`,
-        confirmText: 'Oprește reminderele',
-      })
-      if (!confirmed) return
-    }
+    const nextEnabled = !automaticRemindersEnabled(project)
+    if (!nextEnabled && !(await confirm(remindersOffConfirm(project.title)))) return
 
     setReminderToggleLoadingId(project.id)
     try {
-      const res = await apiFetch(`/api/projects/${project.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ automatic_reminders_enabled: nextEnabled }),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json?.error || 'Failed to update automatic reminders')
-
-      const savedEnabled = typeof json?.project?.automatic_reminders_enabled === 'boolean'
-        ? json.project.automatic_reminders_enabled
-        : nextEnabled
+      const savedEnabled = await saveAutomaticReminders(apiFetch, project.id, nextEnabled)
       setProjects((prev) => prev.map((p) => p.id === project.id
         ? { ...p, automatic_reminders_enabled: savedEnabled }
         : p))
-      showToast(
-        savedEnabled ? 'Reminderele automate au fost pornite.' : 'Reminderele automate au fost oprite.',
-        'success',
-      )
+      showToast(remindersDoneMessage(savedEnabled), 'success')
     } catch {
-      showToast('Nu am putut actualiza reminderele automate. Reîncearcă.', 'error')
+      showToast(REMINDERS_ERROR_MESSAGE, 'error')
     } finally {
       setReminderToggleLoadingId(null)
     }
