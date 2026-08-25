@@ -257,11 +257,17 @@ function ProjectDashboardContent() {
     [allConsultants, draft, consultantSort]
   )
 
+  // Munca fără responsabil e o grămadă rămasă pe dinafară, nu un consultant:
+  // n-are ce căuta nici în numărătoarea de consultanți, nici în „la câți dintre
+  // ei sunt depășiri". Își primește propria mențiune în rezumat.
+  const namedConsultants = useMemo(() => consultantRows.filter(row => row.assigned), [consultantRows])
+  const unassigned = useMemo(() => consultantRows.find(row => !row.assigned) ?? null, [consultantRows])
+
   const visibleCount = view === 'projects' ? projectRows.length : consultantRows.length
   const scopeCount = view === 'projects' ? inScope.length : allConsultants.length
   const summary = useMemo(
-    () => summarizeRows(view === 'projects' ? projectRows : consultantRows),
-    [view, projectRows, consultantRows]
+    () => summarizeRows(view === 'projects' ? projectRows : namedConsultants),
+    [view, projectRows, namedConsultants]
   )
 
   // Caseta de căutare apare doar peste prag — sau când tot ea e cea care a redus
@@ -319,7 +325,7 @@ function ProjectDashboardContent() {
             <h1 className="font-display text-lg font-semibold text-[var(--p-ink)]">Tablou de bord</h1>
             {/* Rezumatul ține loc de subtitlu: aceleași cifre, în locul unei
                 propoziții care ar fi repetat numele coloanelor. */}
-            {ready && <SummaryLine summary={summary} view={view} />}
+            {ready && <SummaryLine summary={summary} view={view} unassigned={unassigned} />}
           </div>
         </div>
 
@@ -456,33 +462,64 @@ function ViewSwitch({ view, onSwitch }: { view: DashboardView; onSwitch: (view: 
  * mari: Home are deja indicatorii lui, iar două seturi ar începe să se
  * contrazică. Culoare doar pe depășiri — restul e text.
  */
-function SummaryLine({ summary, view }: { summary: DashboardSummary; view: DashboardView }) {
-  const subject = view === 'projects'
+function SummaryLine({
+  summary,
+  view,
+  unassigned,
+}: {
+  summary: DashboardSummary
+  view: DashboardView
+  /** Grămada fără responsabil, dacă vederea de consultanți o arată. */
+  unassigned: DashboardTotals | null
+}) {
+  const projects = view === 'projects'
+  const subject = projects
     ? countLabel(summary.rows, 'proiect', 'proiecte')
     : countLabel(summary.rows, 'consultant', 'consultanți')
 
-  const pieces: { text: string; danger?: boolean }[] = [
+  const pieces: { text: string; tone?: 'danger' | 'warning' }[] = [
     { text: subject },
     summary.overdue > 0
       ? {
-          text: `${countLabel(summary.overdue, 'depășit', 'depășite')} în ${
-            view === 'projects'
+          // „în 3 proiecte", dar „la 3 consultanți": depășirile stau într-o
+          // lucrare și sunt la un om.
+          text: `${countLabel(summary.overdue, 'depășit', 'depășite')} ${projects ? 'în' : 'la'} ${
+            projects
               ? countLabel(summary.rowsWithOverdue, 'proiect', 'proiecte')
               : countLabel(summary.rowsWithOverdue, 'consultant', 'consultanți')
           }`,
-          danger: true,
+          tone: 'danger' as const,
         }
       : { text: 'niciun termen depășit' },
   ]
   if (summary.dueSoon > 0) pieces.push({ text: `${summary.dueSoon} săptămâna asta` })
   if (summary.waitingUs > 0) pieces.push({ text: `${summary.waitingUs} ${WAITING_LABELS.us}` })
 
+  // Cea mai mare grămadă din platformă merită spusă, nu ascunsă în ultimul rând
+  // al tabelului — dar spusă separat, ca să nu umfle cifrele consultanților.
+  if (!projects && unassigned && unassigned.total - unassigned.done > 0) {
+    pieces.push({
+      text: `${unassigned.total - unassigned.done} fără responsabil`,
+      tone: 'warning',
+    })
+  }
+
   return (
     <p className="text-xs text-[var(--p-ink-soft)]">
       {pieces.map((piece, index) => (
         <Fragment key={piece.text}>
           {index > 0 && <span className="mx-2 text-[var(--p-ink-faint)]">·</span>}
-          <span className={piece.danger ? 'text-[var(--p-danger)]' : undefined}>{piece.text}</span>
+          <span
+            className={
+              piece.tone === 'danger'
+                ? 'text-[var(--p-danger)]'
+                : piece.tone === 'warning'
+                ? 'text-[var(--p-warning)]'
+                : undefined
+            }
+          >
+            {piece.text}
+          </span>
         </Fragment>
       ))}
     </p>
@@ -791,6 +828,10 @@ function ConsultantRow({
         onClick={onToggle}
         className={`cursor-pointer border-b border-[var(--p-border)] transition-colors last:border-b-0 hover:bg-[var(--p-surface-2)] ${
           open ? 'bg-[var(--p-surface-2)]' : ''
+        } ${
+          // Linia care desparte oamenii de grămada rămasă pe dinafară: rândul de
+          // jos e ultimul din tabel, dar nu e un consultant.
+          row.assigned ? '' : 'border-t-2 border-t-[var(--p-border-strong)]'
         }`}
       >
         <td className="py-3.5 pl-4 pr-3">

@@ -286,15 +286,18 @@ export function formatShortDate(deadlineAt: string): string {
   return new Date(deadlineAt).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-/** „mâine", „în 3 zile", „acum 2 zile" — contextul de lângă dată. */
+/**
+ * „mâine", „în 3 zile", „în 128 de zile", „acum 2 zile" — contextul de lângă
+ * dată. Numeralul trece prin `countLabel`, altfel scria „în 128 zile".
+ */
 export function formatRelativeDeadline(deadlineAt: string | null): string | null {
   const days = getDaysUntilDeadline(deadlineAt)
   if (days === null) return null
   if (days === 0) return 'astăzi'
   if (days === 1) return 'mâine'
   if (days === -1) return 'ieri'
-  if (days > 0) return `în ${days} zile`
-  return `acum ${Math.abs(days)} zile`
+  if (days > 0) return `în ${countLabel(days, 'zi', 'zile')}`
+  return `acum ${countLabel(Math.abs(days), 'zi', 'zile')}`
 }
 
 // ─── Filtre ───────────────────────────────────────────────────────────────────
@@ -951,11 +954,23 @@ export const sortProjectRows = (
   direction: SortDirection,
 ): ProjectDashboardRow[] => sortRows(PROJECT_COLUMNS, rows, sort, direction)
 
+/**
+ * Consultanții se sortează între ei; munca fără responsabil stă mereu la urmă.
+ *
+ * Nu e un consultant leneș, e o grămadă rămasă pe dinafară — amestecată în
+ * clasament, ar fi ieșit prima aproape la orice coloană (azi ține 197 din cele
+ * 274 de elemente) și ar fi împins oamenii adevărați sub ea. Aceeași alegere ca
+ * la „Fără termen": absența unei valori stă la final, în ambele sensuri.
+ */
 export const sortConsultantRows = (
   rows: ConsultantDashboardRow[],
   sort: ConsultantSortKey,
   direction: SortDirection,
-): ConsultantDashboardRow[] => sortRows(CONSULTANT_COLUMNS, rows, sort, direction)
+): ConsultantDashboardRow[] => {
+  const named = rows.filter(row => row.assigned)
+  const unassigned = rows.filter(row => !row.assigned)
+  return [...sortRows(CONSULTANT_COLUMNS, named, sort, direction), ...unassigned]
+}
 
 /** Ciclul unui antet: prima apăsare, inversul, apoi înapoi la ordinea implicită. */
 function nextSort<K extends string>(
