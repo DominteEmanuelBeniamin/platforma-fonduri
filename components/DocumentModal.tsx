@@ -101,6 +101,20 @@ type ClientUploadInit = {
   }[]
 }
 
+type PendingClientUploadCompletion = {
+  requestId: string
+  batchId: string
+  versionNumber: number
+  uploaded: {
+    storagePath: string
+    originalName: string
+    mimeType: string
+    fileSize: number
+    relativePath: string | null
+  }[]
+  failed: number
+}
+
 function formatClientUploadSize(bytes: number) {
   if (bytes === 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB']
@@ -166,6 +180,7 @@ export default function DocumentModal({
   const [attachmentActionLoading, setAttachmentActionLoading] = useState(false)
   const [clientUploadFiles, setClientUploadFiles] = useState<ClientUploadFile[]>([])
   const [clientUploadLoading, setClientUploadLoading] = useState(false)
+  const pendingClientUploadRef = useRef<PendingClientUploadCompletion | null>(null)
   const attachmentInputRef = useRef<HTMLInputElement | null>(null)
   const handleApproveRef = useRef<(() => Promise<void>) | null>(null)
 
@@ -215,8 +230,12 @@ export default function DocumentModal({
     setAttachmentMissing(!!request.attachment_missing_at)
     setLocalDeadline(request.deadline_at)
     setLocalAssignee(request.assigned_to)
+  }, [request.attachment_path, request.attachment_missing_at, request.deadline_at, request.assigned_to])
+
+  useEffect(() => {
+    pendingClientUploadRef.current = null
     setClientUploadFiles([])
-  }, [request.id, request.attachment_path, request.attachment_missing_at, request.deadline_at, request.assigned_to])
+  }, [request.id])
 
   const handleSaveDeadline = async (deadline: string) => {
     setSavingDeadline(true)
@@ -569,6 +588,7 @@ export default function DocumentModal({
     const files = Array.from(fileList ?? [])
     if (files.length === 0) return
 
+    pendingClientUploadRef.current = null
     setClientUploadFiles(current => {
       const added: ClientUploadFile[] = []
       for (const file of files) {
@@ -587,15 +607,51 @@ export default function DocumentModal({
     })
   }
 
+  const clearClientUploadSelection = () => {
+    pendingClientUploadRef.current = null
+    setClientUploadFiles([])
+  }
+
+  const completeClientUpload = async (pending: PendingClientUploadCompletion) => {
+    const completeRes = await apiFetch(`/api/document-requests/${pending.requestId}/uploads/complete`, {
+      method: 'POST',
+      body: JSON.stringify({
+        batchId: pending.batchId,
+        versionNumber: pending.versionNumber,
+        uploaded: pending.uploaded,
+      }),
+    })
+    if (!completeRes.ok) throw new Error('Nu am putut finaliza încărcarea fișierelor.')
+  }
+
   const handleClientUpload = async () => {
+    if (clientUploadLoading) return
     const validFiles = clientUploadFiles.filter(file => !file.error)
-    if (validFiles.length === 0) {
+    const pending = pendingClientUploadRef.current?.requestId === request.id
+      ? pendingClientUploadRef.current
+      : null
+
+    if (!pending && validFiles.length === 0) {
       showToast('Nu există fișiere valide. Verifică selecția.', 'warning')
       return
     }
 
     setClientUploadLoading(true)
     try {
+      if (pending) {
+        await completeClientUpload(pending)
+        pendingClientUploadRef.current = null
+        setClientUploadFiles([])
+        await onUpdate()
+        showToast(
+          pending.failed === 0
+            ? `Au fost încărcate ${pending.uploaded.length} fișiere.`
+            : `${pending.uploaded.length} fișiere au fost încărcate, iar ${pending.failed} au eșuat.`,
+          pending.failed === 0 ? 'success' : 'warning',
+        )
+        return
+      }
+
       const initRes = await apiFetch(`/api/document-requests/${request.id}/uploads/init`, {
         method: 'POST',
         body: JSON.stringify({
@@ -632,21 +688,22 @@ export default function DocumentModal({
       const failed = results.length - successful.length
       if (successful.length === 0) throw new Error('Toate fișierele au eșuat la încărcare.')
 
-      const completeRes = await apiFetch(`/api/document-requests/${request.id}/uploads/complete`, {
-        method: 'POST',
-        body: JSON.stringify({
-          batchId: init.batchId,
-          versionNumber: init.versionNumber,
-          uploaded: successful.map(result => ({
-            storagePath: result.upload.storagePath,
-            originalName: result.file.name,
-            mimeType: result.file.type,
-            fileSize: result.file.size,
-            relativePath: result.file.relativePath,
-          })),
-        }),
-      })
-      if (!completeRes.ok) throw new Error('Nu am putut finaliza încărcarea fișierelor.')
+      const pendingCompletion: PendingClientUploadCompletion = {
+        requestId: request.id,
+        batchId: init.batchId,
+        versionNumber: init.versionNumber,
+        uploaded: successful.map(result => ({
+          storagePath: result.upload.storagePath,
+          originalName: result.file.name,
+          mimeType: result.file.type,
+          fileSize: result.file.size,
+          relativePath: result.file.relativePath,
+        })),
+        failed,
+      }
+      pendingClientUploadRef.current = pendingCompletion
+      await completeClientUpload(pendingCompletion)
+      pendingClientUploadRef.current = null
 
       setClientUploadFiles([])
       await onUpdate()
@@ -1166,7 +1223,7 @@ export default function DocumentModal({
                         </div>
                         <button
                           type="button"
-                          onClick={() => setClientUploadFiles([])}
+                          onClick={clearClientUploadSelection}
                           disabled={clientUploadLoading}
                           className="rounded-lg p-1.5 text-indigo-500 hover:bg-white disabled:opacity-50"
                           title="Anulează selecția"

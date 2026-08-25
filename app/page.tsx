@@ -11,7 +11,7 @@ import { useToast } from '@/app/providers/ToastProvider'
 import {
   AlertTriangle, Bell, Check, MessageSquare, FileText, Plus, MoreVertical, Trash2,
   Search, SlidersHorizontal, ArrowUpDown, LayoutGrid, List, X, ChevronRight, ChevronDown, Info, Clock,
-  Bell, BellOff, Loader2,
+  BellOff, Loader2,
 } from 'lucide-react'
 import { useProjectChatUnread } from '@/app/providers/ProjectChatUnreadProvider'
 import { useNotifications } from '@/app/providers/NotificationsProvider'

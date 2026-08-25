@@ -3,13 +3,14 @@ import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
-import { recordNotification } from '@/app/api/_utils/notifications'
+import { deleteNotificationsByIds, recordNotification } from '@/app/api/_utils/notifications'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
 import {
   buildPublicationEmailIdempotencyKey,
   buildPublicationNotificationMetadata,
+  shouldReleaseClaimsAfterNotificationCleanup,
 } from '@/lib/notification-utils'
 import {
   buildReviewNotificationEvents,
@@ -171,6 +172,21 @@ export async function POST(
     const claimedActivities = claimedActivitiesRes.data ?? []
     const claimedDocuments = claimedDocumentsRes.data ?? []
     const claimedReviews = claimedReviewsRes.data ?? []
+    const insertedNotificationIds: string[] = []
+
+    const compensateNotifications = async () => {
+      try {
+        await deleteNotificationsByIds(admin, insertedNotificationIds)
+        return true
+      } catch (error) {
+        console.error('notify-client notification compensation failed — claims kept for repair:', {
+          projectId,
+          notificationIds: insertedNotificationIds,
+          error,
+        })
+        return false
+      }
+    }
 
     // Anulează revendicarea. Dacă ASTA eșuează, elementele rămân marcate ca notificate
     // fără să fi plecat vreun email — clientul n-ar mai afla niciodată despre ele. E cel
@@ -207,6 +223,16 @@ export async function POST(
     // Răspunsul de eroare după un rollback: dacă rollback-ul n-a reușit, coada NU mai e
     // intactă, iar consultantul trebuie să știe că o reîncercare simplă nu e suficientă.
     const failAfterRollback = async (status: number, message: string) => {
+      const notificationsCleaned = await compensateNotifications()
+      if (!shouldReleaseClaimsAfterNotificationCleanup(insertedNotificationIds, notificationsCleaned)) {
+        return NextResponse.json(
+          {
+            error: `${message} Notificările create în această încercare nu au putut fi eliminate — claims păstrate pentru repair.`,
+            notificationCompensationFailed: true,
+          },
+          { status },
+        )
+      }
       const rolledBack = await rollbackClaim()
       return NextResponse.json(
         {
@@ -274,8 +300,9 @@ export async function POST(
 
     const reviewNotificationEvents = buildReviewNotificationEvents(reviewCandidates)
 
-    // Notification-first: claims are rolled back if any logical client
-    // notification cannot be recorded. Existing notification rows remain.
+    // Notification-first: claims are rolled back if recording or email delivery fails
+    // after compensating only rows inserted by this attempt. Pre-existing notification
+    // rows are never deleted; if compensation fails, claims stay set for repair.
     try {
       if (publicationMetadata) {
         const publication = await recordNotification(admin, {
@@ -290,6 +317,7 @@ export async function POST(
           includeAdmins: true,
           fallbackToProjectMembers: false,
         })
+        insertedNotificationIds.push(...publication.insertedIds)
         if (!publication.recipientIds.includes(client.id)) {
           throw new Error('Clientul proiectului nu mai este un destinatar valid')
         }
@@ -308,6 +336,7 @@ export async function POST(
           includeAdmins: true,
           fallbackToProjectMembers: false,
         })
+        insertedNotificationIds.push(...reviewNotification.insertedIds)
         if (!reviewNotification.recipientIds.includes(client.id)) {
           throw new Error('Clientul proiectului nu mai este un destinatar valid pentru review')
         }
@@ -319,10 +348,11 @@ export async function POST(
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
     const projectUrl = `${appUrl}/projects/${projectId}`
-    const safeProjectTitle = escapeHtml(project.title)
-    const salut = client.full_name ? `Salut, ${escapeHtml(client.full_name)}!` : 'Salut!'
-
-    const phaseItems = claimedPhases.map(p => escapeHtml(p.name))
+    let html: string
+    try {
+      const safeProjectTitle = escapeHtml(project.title)
+      const salut = client.full_name ? `Salut, ${escapeHtml(client.full_name)}!` : 'Salut!'
+      const phaseItems = claimedPhases.map(p => escapeHtml(p.name))
     const activityItems = claimedActivities.map(a => {
       const phaseName = phaseById.get(a.phase_id)?.name
       return phaseName ? `${escapeHtml(a.name)} <span style="color:#6b7280;">— fază: ${escapeHtml(phaseName)}</span>` : escapeHtml(a.name)
@@ -335,7 +365,7 @@ export async function POST(
       ? `${escapeHtml(document.name)} — Aprobat`
       : `${escapeHtml(document.name)} — Respins. Motiv: ${escapeHtml(document.reason || '')}`)
 
-    const html = `<!DOCTYPE html>
+      html = `<!DOCTYPE html>
 <html lang="ro">
 <head>
   <meta charset="UTF-8">
@@ -375,7 +405,6 @@ export async function POST(
 </body>
 </html>`
 
-    try {
       const resend = new Resend(process.env.RESEND_API_KEY)
       const { error: emailError } = await resend.emails.send({
         from: resendFromAddress('client'),

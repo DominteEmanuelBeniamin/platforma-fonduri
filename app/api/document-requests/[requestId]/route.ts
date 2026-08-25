@@ -5,7 +5,6 @@ import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
-import { recordNotification } from '@/app/api/_utils/notifications'
 import { isRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
 import { buildAssignmentNotificationMetadata, isRealAssignmentChange } from '@/lib/notification-utils'
@@ -289,8 +288,7 @@ export async function PATCH(
       )
     }
 
-    const assignmentNotificationResponse = await notifyAssignment()
-    if (assignmentNotificationResponse) return assignmentNotificationResponse
+    await notifyAssignment()
 
     if (attachments !== undefined) {
       const { error: deleteAttachmentsError } = await admin
@@ -354,25 +352,6 @@ export async function PATCH(
         recipientId: assigned_to,
         version: assignmentEventAt,
       })
-      try {
-        const notification = await recordNotification(admin, {
-          projectId: currentRequest.project_id,
-          type: 'assignment',
-          entityType: 'document_request',
-          entityId: requestId,
-          title: `Cerere de document atribuită: ${updatedRequest.name}`,
-          itemCount: 1,
-          eventKey: metadata.eventKey,
-          recipientIds: [assigned_to],
-          includeAdmins: true,
-        })
-        if (!notification.recipientIds.includes(assigned_to)) {
-          throw new Error('Destinatarul cererii nu mai este eligibil pentru notificare')
-        }
-      } catch (notificationError) {
-        console.error('Document assignment notification failed; email was skipped:', notificationError)
-        return NextResponse.json({ error: 'Cererea a fost salvată, dar notificarea nu a putut fi creată' }, { status: 500 })
-      }
       try {
         // Proiectul e deja citit mai sus, în `projectRow`/`projectTitle`.
         const { data: consultant, error: consultantError } = await admin

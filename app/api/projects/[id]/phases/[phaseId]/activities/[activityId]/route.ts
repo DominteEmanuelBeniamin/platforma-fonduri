@@ -5,7 +5,6 @@ import { Resend } from 'resend'
 import { requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
-import { recordNotification } from '@/app/api/_utils/notifications'
 import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
 import { buildAssignmentNotificationMetadata, isRealAssignmentChange } from '@/lib/notification-utils'
 
@@ -265,25 +264,6 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         recipientId: assigned_to,
         version: activity.updated_at,
       })
-      try {
-        const notification = await recordNotification(supabaseAdmin, {
-          projectId,
-          type: 'assignment',
-          entityType: 'activity',
-          entityId: activityId,
-          title: `Activitate atribuită: ${activity.name}`,
-          itemCount: 1,
-          eventKey: metadata.eventKey,
-          recipientIds: [assigned_to],
-          includeAdmins: true,
-        })
-        if (!notification.recipientIds.includes(assigned_to)) {
-          throw new Error('Destinatarul activității nu mai este eligibil pentru notificare')
-        }
-      } catch (notificationError) {
-        console.error('Activity assignment notification failed; email was skipped:', notificationError)
-        return NextResponse.json({ error: 'Activitatea a fost salvată, dar notificarea nu a putut fi creată' }, { status: 500 })
-      }
       await sendActivityAssignedEmail({
         consultantId: assigned_to,
         activityName: activity.name,

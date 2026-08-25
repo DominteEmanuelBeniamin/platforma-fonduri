@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   buildNotificationEventKey,
+  isUuid,
   selectEligibleNotificationRecipients,
   type NotificationRecipientProfile,
 } from '@/lib/notification-utils'
@@ -116,7 +117,7 @@ export async function recordNotification(admin: any, input: RecordNotificationIn
   const recipientIds = await resolveNotificationRecipients(admin, input, project)
   const eventKey = buildNotificationEventKey(input)
 
-  if (recipientIds.length === 0) return { recipientIds, inserted: 0, eventKey }
+  if (recipientIds.length === 0) return { recipientIds, inserted: 0, insertedIds: [] as string[], eventKey }
 
   const result = await admin
     .from('notifications')
@@ -136,5 +137,21 @@ export async function recordNotification(admin: any, input: RecordNotificationIn
     .select('id')
 
   if (result.error) dbError(result.error, 'Failed to record notification')
-  return { recipientIds, inserted: (result.data ?? []).length, eventKey }
+  const insertedIds = (result.data ?? [])
+    .map((row: any) => row?.id)
+    .filter((id: unknown): id is string => typeof id === 'string' && isUuid(id))
+  return { recipientIds, inserted: insertedIds.length, insertedIds, eventKey }
+}
+
+/** Delete only rows inserted by the current attempt. The caller must pass a service-role client. */
+export async function deleteNotificationsByIds(admin: any, ids: readonly string[]) {
+  const uniqueIds = [...new Set(ids)]
+  if (uniqueIds.length === 0) return { deleted: 0 }
+  if (uniqueIds.some(id => !isUuid(id))) {
+    throw new Error('Notification ids must be UUIDs')
+  }
+
+  const result = await admin.from('notifications').delete().in('id', uniqueIds)
+  if (result.error) dbError(result.error, 'Failed to delete notification compensation rows')
+  return { deleted: uniqueIds.length }
 }

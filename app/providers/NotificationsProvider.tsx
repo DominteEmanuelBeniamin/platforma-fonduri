@@ -21,6 +21,7 @@ export type NotificationUnreadByProject = {
 type NotificationsState = {
   unreadCount: number
   unreadByProject: NotificationUnreadByProject[]
+  revision: number
 }
 
 type NotificationSummaryResponse = {
@@ -36,6 +37,7 @@ type NotificationsContextValue = NotificationsState & {
 const emptyState: NotificationsState = {
   unreadCount: 0,
   unreadByProject: [],
+  revision: 0,
 }
 
 const NotificationsContext = createContext<NotificationsContextValue | null>(null)
@@ -74,10 +76,11 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         const json = (await res.json().catch(() => null)) as NotificationSummaryResponse | null
         if (!res.ok || generation !== generationRef.current || !activeRef.current) return
 
-        setState({
+        setState((current) => ({
           unreadCount: json?.unreadCount ?? 0,
           unreadByProject: json?.unreadByProject ?? [],
-        })
+          revision: current.revision + 1,
+        }))
       } catch {
         // Păstrăm ultima stare pentru un indicator care nu trebuie să blocheze UI-ul.
       } finally {
@@ -92,7 +95,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     if (active) return
     inFlightRefreshRef.current = null
     refreshQueuedRef.current = false
-    setState(emptyState)
+    setState((current) => ({ ...emptyState, revision: current.revision }))
   }, [active])
 
   useEffect(() => {
@@ -152,6 +155,7 @@ export function useNotifications(enabled = true) {
   return {
     unreadCount: active ? value.unreadCount : 0,
     unreadByProject: active ? value.unreadByProject : [],
+    revision: active ? value.revision : 0,
     refresh: value.refresh,
   }
 }

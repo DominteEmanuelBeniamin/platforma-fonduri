@@ -6,7 +6,7 @@ import { resolveReminderDelivery, resendFromAddress, sanitizeHeaderText } from '
 import { claimReminder, finalizeReminderClaim, releaseReminderClaim } from '@/app/api/_utils/reminder-log'
 import { logReminderDigestAudit } from '@/app/api/_utils/reminder-audit'
 import { acquireReminderRunLease, releaseReminderRunLease } from '@/app/api/_utils/reminder-run'
-import { recordNotification } from '@/app/api/_utils/notifications'
+import { deleteNotificationsByIds, recordNotification } from '@/app/api/_utils/notifications'
 import {
   buildReminderDigestIdempotencyKey,
   buildReminderNotificationEventKey,
@@ -17,6 +17,7 @@ import {
   type ReminderCandidate,
   type ReminderProfile,
 } from '@/lib/deadline-reminder-candidates'
+import { shouldReleaseClaimsAfterNotificationCleanup } from '@/lib/notification-utils'
 import { renderReminderDigest } from '@/lib/reminder-email'
 
 type RecipientGroup = {
@@ -128,6 +129,38 @@ async function releaseClaims(
   }
 }
 
+async function compensateNotificationsAndReleaseClaims(
+  admin: ReturnType<typeof createSupabaseServiceClient>,
+  claimed: ClaimedReminder[],
+  notificationIds: readonly string[],
+  runId: string,
+  report: CronReport,
+  failureCode: string,
+) {
+  let cleanupSucceeded = true
+  try {
+    await deleteNotificationsByIds(admin, notificationIds)
+  } catch (error) {
+    cleanupSucceeded = false
+    report.ok = false
+    report.error ??= 'Unele claims nu au putut fi eliberate după eșecul notificării.'
+    report.failures.notification++
+    console.error('deadline reminder notification compensation failed — claims kept for repair:', {
+      run_id: runId,
+      notification_ids: notificationIds,
+      claim_ids: claimed.map(entry => entry.logId),
+      error,
+    })
+    logFailure(runId, 'notification_compensation_failed', claimed[0]?.item.entityType, claimed[0]?.item.entityId)
+  }
+
+  if (shouldReleaseClaimsAfterNotificationCleanup(notificationIds, cleanupSucceeded)) {
+    await releaseClaims(admin, claimed, runId, report)
+  } else {
+    logFailure(runId, failureCode, claimed[0]?.item.entityType, claimed[0]?.item.entityId)
+  }
+}
+
 async function recordDeadlineNotifications(
   admin: ReturnType<typeof createSupabaseServiceClient>,
   claimed: ClaimedReminder[],
@@ -136,6 +169,7 @@ async function recordDeadlineNotifications(
   report: CronReport,
 ) {
   const projectGroups = groupReminderCandidatesByProject(claimed.map(entry => entry.item))
+  const insertedNotificationIds: string[] = []
   for (const projectGroup of projectGroups) {
     const items = projectGroup.items
     const onlyItem = items.length === 1 ? items[0] : null
@@ -151,17 +185,17 @@ async function recordDeadlineNotifications(
         recipientIds: [group.recipientId],
         includeAdmins: true,
       })
+      insertedNotificationIds.push(...result.insertedIds)
       if (!hasReminderRecipient(result.recipientIds, group.recipientId)) {
         throw new Error('logical reminder recipient is no longer eligible')
       }
     } catch {
       report.failures.notification++
       logFailure(runId, 'notification_failed', items[0]?.entityType, items[0]?.entityId)
-      await releaseClaims(admin, claimed, runId, report)
-      return false
+      return { ok: false, insertedNotificationIds }
     }
   }
-  return true
+  return { ok: true, insertedNotificationIds }
 }
 
 async function processRecipient(
@@ -211,7 +245,18 @@ async function processRecipient(
 
   if (claimed.length === 0) return
 
-  if (!await recordDeadlineNotifications(admin, claimed, group, runId, report)) return
+  const notificationResult = await recordDeadlineNotifications(admin, claimed, group, runId, report)
+  if (!notificationResult.ok) {
+    await compensateNotificationsAndReleaseClaims(
+      admin,
+      claimed,
+      notificationResult.insertedNotificationIds,
+      runId,
+      report,
+      'notification_failure_claims_kept',
+    )
+    return
+  }
 
   let digest: ReturnType<typeof renderReminderDigest>
   try {
@@ -224,7 +269,14 @@ async function processRecipient(
   } catch {
     report.failures.provider++
     logFailure(runId, 'renderer_failed', claimed[0].item.entityType, claimed[0].item.entityId)
-    await releaseClaims(admin, claimed, runId, report)
+    await compensateNotificationsAndReleaseClaims(
+      admin,
+      claimed,
+      notificationResult.insertedNotificationIds,
+      runId,
+      report,
+      'renderer_failure_claims_kept',
+    )
     return
   }
   report.emails_attempted++
@@ -244,7 +296,14 @@ async function processRecipient(
   } catch {
     report.failures.provider++
     logFailure(runId, 'provider_failed', claimed[0].item.entityType, claimed[0].item.entityId)
-    await releaseClaims(admin, claimed, runId, report)
+    await compensateNotificationsAndReleaseClaims(
+      admin,
+      claimed,
+      notificationResult.insertedNotificationIds,
+      runId,
+      report,
+      'provider_failure_claims_kept',
+    )
     return
   }
 

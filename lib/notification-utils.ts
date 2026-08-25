@@ -48,6 +48,13 @@ export function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID_RE.test(value)
 }
 
+export function shouldReleaseClaimsAfterNotificationCleanup(
+  insertedIds: readonly string[],
+  cleanupSucceeded: boolean,
+): boolean {
+  return insertedIds.length === 0 || cleanupSucceeded
+}
+
 export function buildNotificationEventKey(parts: NotificationEventParts): string {
   const explicit = parts.eventKey?.trim()
   return explicit || `${parts.type}:${parts.projectId}:${parts.entityType}:${parts.entityId}`

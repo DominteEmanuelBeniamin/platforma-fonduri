@@ -72,7 +72,7 @@ function itemLabel(item: NotificationItem) {
 
 export default function NotificationsBell() {
   const { apiFetch } = useAuth()
-  const { unreadCount, refresh } = useNotifications()
+  const { unreadCount, refresh, revision } = useNotifications()
   const { showToast } = useToast()
   const [open, setOpen] = useState(false)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
@@ -124,7 +124,7 @@ export default function NotificationsBell() {
   useEffect(() => {
     if (!open) return
     void loadPage(true)
-  }, [loadPage, open, projectFilter, statusFilter])
+  }, [loadPage, open, projectFilter, statusFilter, revision])
 
   const closePanel = useCallback(async () => {
     requestSequence.current += 1

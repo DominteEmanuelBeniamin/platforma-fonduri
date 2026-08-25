@@ -30,6 +30,7 @@ const result = {
   table: {
     newSchema: !newSchema.error,
     legacySchema: !legacySchema.error,
+    legacyContractRejected: Boolean(legacySchema.error),
     empty: rowCount.error ? null : rowCount.count === 0,
   },
   errors: {
@@ -41,6 +42,6 @@ const result = {
 
 console.log(JSON.stringify(result, null, 2))
 
-if (newSchema.error || rowCount.error || rowCount.count !== 0) {
+if (newSchema.error || rowCount.error || !legacySchema.error) {
   process.exitCode = 1
 }

@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
-import { recordNotification } from '@/app/api/_utils/notifications'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 
 type Action = 'approved' | 'rejected'
@@ -69,35 +68,6 @@ export async function POST(
     if (!reviewId) {
       console.error('review_document_request returned invalid data:', reviewData)
       return NextResponse.json({ error: 'Failed to save review history' }, { status: 500 })
-    }
-
-    const { data: projectRow, error: projectErr } = await admin
-      .from('projects')
-      .select('client_id')
-      .eq('id', reqRow.project_id)
-      .maybeSingle()
-
-    if (projectErr || !projectRow) {
-      console.error('review project lookup error:', projectErr)
-      return NextResponse.json({ error: 'Failed to load project' }, { status: 500 })
-    }
-
-    try {
-      await recordNotification(admin, {
-        projectId: reqRow.project_id,
-        type: 'document_action',
-        entityType: 'document_request',
-        entityId: requestId,
-        title: `Document ${action === 'approved' ? 'aprobat' : 'respins'}: "${reqRow.name || requestId}"`,
-        itemCount: 1,
-        eventKey: `document-review:${reviewId}`,
-        recipientIds: projectRow.client_id ? [projectRow.client_id] : [],
-        includeAdmins: true,
-        fallbackToProjectMembers: false,
-      })
-    } catch (notificationError) {
-      console.error('document review notification error:', notificationError)
-      return NextResponse.json({ error: 'Failed to save document notification' }, { status: 500 })
     }
 
     return NextResponse.json({ ok: true })

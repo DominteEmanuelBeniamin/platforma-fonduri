@@ -17,9 +17,9 @@ Implementarea pornește din branch-ul curent, care conține deja modificările �
 - Nu se adaugă outbox/worker, retenție, preferințe de categorie, notificări de chat sau backfill istoric.
 - Nu se refactorizează template-urile de email.
 - `notifications` are un singur `project_id`.
-- Emailul de deadline poate rămâne digest per recipient, dar notificările in-app sunt cel mult una per recipient/proiect/eveniment. Modelul multi-proiect este amânat.
+- Emailul de deadline rămâne un singur digest per destinatar și rulare, iar același digest produce câte o notificare in-app per proiect. Pentru un singur element, clickul deschide elementul; pentru mai multe, deschide proiectul.
 - Review-ul este notificat imediat; un digest ulterior format numai din review-uri nu creează încă o notificare.
-- Ordinea este notification-first, email-second: notificarea rămâne dacă emailul eșuează.
+- Ordinea este notification-first, email-second: pentru digesturile publication/deadline, doar rândurile de notificare inserate în încercarea curentă se șterg înainte de eliberarea claims dacă emailul eșuează; rândurile preexistente nu se șterg. Dacă cleanup-ul eșuează, claims rămân pentru repair. Pentru evenimente de business deja comise (de exemplu assignment), notificarea rămâne, iar emailul este best-effort.
 - Lista nu are retenție; API-ul folosește cursor `(created_at,id)`, cu 40 de rânduri inițiale și „Încarcă mai multe”.
 - La închiderea panoului se marchează ca citite notificările accesibile necitite existente în acel moment.
 
@@ -79,13 +79,13 @@ Testează separat cursorul, filtrele, idempotency key, membership-ul și entită
 - Persistă `batchId` pe fișier.
 - Adaugă index unic parțial pe `(requirement_id, upload_batch_id, storage_path)`.
 - Fă endpoint-ul `complete` retry-safe; auditul și actualizarea statusului se execută o singură dată.
-- Creează notificarea `document_action` pentru consultant/admin după commit.
+- Creează notificarea `document_action` pentru consultant/admin în aceeași tranzacție cu fișierele, auditul și actualizarea statusului.
 
 ### Review
 
 - Adaugă unique `(requirement_id, reviewed_version_number)`.
 - Protejează ruta cu status `review` și tratează retry-ul ca succes idempotent.
-- Auditul și notificarea se creează doar la primul insert.
+- Auditul și notificarea se creează în aceeași tranzacție, doar la primul insert.
 - `notify-client` poate repara/upserta notificarea review-ului, dar digestul review-only nu creează un rând nou.
 - `item_count` pentru publicații include doar faze/activități/documente, nu review-uri.
 
@@ -95,14 +95,14 @@ Teste: dublu submit, retry după timeout, concurență și digest numai cu revie
 
 Integrează helperul în producători:
 
-- assignment activity: compare-and-set pe vechiul `assigned_to`;
-- assignment document request: folosește rândul actualizat pentru email și notificare;
+- assignment activity: compare-and-set pe vechiul `assigned_to`, cu notificarea creată atomic de triggerul DB;
+- assignment document request: notificarea este creată atomic de triggerul DB, iar emailul best-effort folosește rândul actualizat;
 - publish/`notify-client`: notificare publication doar când există elemente relevante;
 - deadline cron: resolver comun pentru responsabil și membership curent, grupare in-app per proiect, email digest existent păstrat per recipient;
 - admini: notificare separată per proiect/eveniment, fără duplicate;
 - fiecare email primește aceeași cheie logică stabilă și idempotency key Resend.
 
-Regula de eroare: dacă inserarea notificării eșuează, nu trimite emailul pentru acel eveniment; dacă emailul eșuează, păstrează notificarea și continuă celelalte grupuri.
+Regula de eroare: dacă inserarea notificării eșuează, nu trimite emailul pentru acel eveniment; pentru digesturile publication/deadline, dacă emailul eșuează, șterge doar rândurile noi inserate în încercarea curentă înainte de eliberarea claims, fără să ștergi rânduri preexistente. Dacă ștergerea eșuează, păstrează claims pentru repair și întoarce eroare; pentru evenimente de business deja comise (de exemplu assignment), notificarea rămâne, iar emailul este best-effort.
 
 Testează proiecte multiple, consultant scos din proiect, override email, retry cron și eșec parțial.
 

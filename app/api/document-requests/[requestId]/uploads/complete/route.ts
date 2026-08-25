@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
-import { recordNotification } from '@/app/api/_utils/notifications'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { isClientVisibleDocument } from '@/lib/client-visibility'
 import {
@@ -139,8 +138,6 @@ export async function POST(
 
     console.log('Project access granted for user:', access.user.id, 'project:', reqRow.project_id)
 
-    const requestName = reqRow.name || requestId
-
     const rows = normalizedUploads.map((u) => ({
       requirement_id: requestId,
       upload_batch_id: batchId,
@@ -156,7 +153,7 @@ export async function POST(
                       request.headers.get('x-real-ip') ||
                       null
 
-    const { data: batchData, error: batchError } = await admin.rpc('complete_document_upload_batch', {
+    const { error: batchError } = await admin.rpc('complete_document_upload_batch', {
       p_requirement_id: requestId,
       p_upload_batch_id: batchId,
       p_version_number: versionNumber,
@@ -169,64 +166,6 @@ export async function POST(
       console.error('complete_document_upload_batch error:', batchError)
       const status = batchError.code === 'P0001' ? 409 : 500
       return NextResponse.json({ error: batchError.message }, { status })
-    }
-
-    const batchResult = Array.isArray(batchData) ? batchData[0] : batchData
-    const batchFileCount = Number(batchResult?.file_count)
-    if (!Number.isInteger(batchFileCount) || batchFileCount < 1) {
-      console.error('complete_document_upload_batch returned invalid data:', batchData)
-      return NextResponse.json({ error: 'Failed to complete document upload batch' }, { status: 500 })
-    }
-
-    const [{ data: currentReqRow, error: currentReqError }, { data: currentProjectRow, error: currentProjectError }] = await Promise.all([
-      admin
-        .from('document_requirements')
-        .select('assigned_to, activity:activity_id(assigned_to)')
-        .eq('id', requestId)
-        .is('deleted_at', null)
-        .maybeSingle(),
-      admin
-        .from('projects')
-        .select('general_consultant_id')
-        .eq('id', reqRow.project_id)
-        .maybeSingle(),
-    ])
-
-    if (currentReqError || currentProjectError || !currentReqRow || !currentProjectRow) {
-      console.error('Failed to load post-commit document upload recipients:', { currentReqError, currentProjectError })
-      return NextResponse.json({ error: 'Failed to load current document recipients' }, { status: 500 })
-    }
-
-    const currentActivity = Array.isArray(currentReqRow.activity) ? currentReqRow.activity[0] : currentReqRow.activity
-    const responsibleId = currentReqRow.assigned_to || currentActivity?.assigned_to || currentProjectRow.general_consultant_id || null
-    const uploadTitle = batchFileCount === 1
-      ? `Document încărcat pentru cererea "${requestName}"`
-      : `Documente încărcate pentru cererea "${requestName}"`
-
-    try {
-      const notificationInput = {
-        projectId: reqRow.project_id,
-        type: 'document_action' as const,
-        entityType: 'document_request' as const,
-        entityId: requestId,
-        title: uploadTitle,
-        itemCount: batchFileCount,
-        eventKey: `document-upload:${batchId}`,
-        recipientIds: responsibleId ? [responsibleId] : [],
-        includeAdmins: true,
-        fallbackToProjectMembers: true,
-      }
-      const notificationResult = await recordNotification(admin, notificationInput)
-      if (responsibleId && !notificationResult.recipientIds.includes(responsibleId)) {
-        await recordNotification(admin, {
-          ...notificationInput,
-          recipientIds: [],
-          fallbackToProjectMembers: true,
-        })
-      }
-    } catch (notificationError) {
-      console.error('document upload notification error:', notificationError)
-      return NextResponse.json({ error: 'Failed to save document notification' }, { status: 500 })
     }
 
     return NextResponse.json({ ok: true })
