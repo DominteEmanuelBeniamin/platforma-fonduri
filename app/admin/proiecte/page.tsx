@@ -20,27 +20,27 @@ import {
 import {
   SEARCH_THRESHOLD,
   WAITING_LABELS,
-  buildPersonDashboardRows,
+  buildConsultantDashboardRows,
   buildProjectDashboardRows,
   countLabel,
-  filterPersonRows,
+  filterConsultantRows,
   filterProjectRows,
   formatRelativeDeadline,
   formatShortDate,
-  nextPersonSort,
+  nextConsultantSort,
   nextProjectSort,
-  personCalendarHref,
+  consultantCalendarHref,
   projectCalendarHref,
   readDashboardView,
-  readPersonSort,
+  readConsultantSort,
   readProjectSort,
   readSearch,
   readShowEnded,
-  sortPersonRows,
+  sortConsultantRows,
   sortProjectRows,
   summarizeRows,
   writeDashboardView,
-  writePersonSort,
+  writeConsultantSort,
   writeProjectSort,
   writeSearch,
   writeShowEnded,
@@ -49,8 +49,8 @@ import {
   type DashboardSummary,
   type DashboardTotals,
   type DashboardView,
-  type PersonColumnKey,
-  type PersonDashboardRow,
+  type ConsultantColumnKey,
+  type ConsultantDashboardRow,
   type ProjectColumnKey,
   type ProjectDashboardRow,
   type SortDirection,
@@ -86,8 +86,8 @@ const PROJECT_COLUMNS: Column<ProjectColumnKey>[] = [
   { key: 'overdue', label: 'Depășite', numeric: true, hint: OVERDUE_HINT },
 ]
 
-const PERSON_COLUMNS: Column<PersonColumnKey>[] = [
-  { key: 'person', label: 'Om', grow: true },
+const CONSULTANT_COLUMNS: Column<ConsultantColumnKey>[] = [
+  { key: 'consultant', label: 'Consultant', grow: true },
   { key: 'projects', label: 'Proiecte', numeric: true, hint: 'În câte proiecte are de lucru' },
   { key: 'waiting', label: 'De rezolvat', numeric: true, hint: WAITING_HINT },
   { key: 'deadline', label: 'Următorul termen', hint: DEADLINE_HINT },
@@ -105,9 +105,9 @@ const SEARCH_DEBOUNCE_MS = 300
 
 /**
  * Tabloul de bord al administratorului (cerința 23), în două vederi peste
- * aceleași date: proiectele și oamenii.
+ * aceleași date: proiectele și consultanții.
  *
- * „Proiecte" răspunde la „cum stă fiecare lucrare", „Oameni" la „cine e blocat
+ * „Proiecte" răspunde la „cum stă fiecare lucrare", „Consultanți" la „cine e blocat
  * și cine e liber". Amândouă se calculează din aceeași singură cerere la
  * `/api/calendar` și prin același cod de agregare — dacă „depășit" ar fi
  * însemnat altceva de la un tabel la altul, ecranul s-ar fi contrazis la vedere.
@@ -212,7 +212,7 @@ function ProjectDashboardContent() {
 
   const view = useMemo(() => readDashboardView(params), [params])
   const projectSort = useMemo(() => readProjectSort(params), [params])
-  const personSort = useMemo(() => readPersonSort(params), [params])
+  const consultantSort = useMemo(() => readConsultantSort(params), [params])
   const showEnded = useMemo(() => readShowEnded(params), [params])
   const search = useMemo(() => readSearch(params), [params])
 
@@ -246,22 +246,22 @@ function ProjectDashboardContent() {
     [inScope, draft, projectSort]
   )
 
-  // Oamenii se strâng peste exact proiectele vizibile alături: cu comutatorul
+  // Consultanții se strâng peste exact proiectele vizibile alături: cu comutatorul
   // oprit, cele două tabele n-au voie să descrie mulțimi diferite.
-  const allPeople = useMemo(
-    () => (payload ? buildPersonDashboardRows(payload, new Set(inScope.map(row => row.id))) : []),
+  const allConsultants = useMemo(
+    () => (payload ? buildConsultantDashboardRows(payload, new Set(inScope.map(row => row.id))) : []),
     [payload, inScope]
   )
-  const personRows = useMemo(
-    () => sortPersonRows(filterPersonRows(allPeople, draft), personSort.sort, personSort.direction),
-    [allPeople, draft, personSort]
+  const consultantRows = useMemo(
+    () => sortConsultantRows(filterConsultantRows(allConsultants, draft), consultantSort.sort, consultantSort.direction),
+    [allConsultants, draft, consultantSort]
   )
 
-  const visibleCount = view === 'projects' ? projectRows.length : personRows.length
-  const scopeCount = view === 'projects' ? inScope.length : allPeople.length
+  const visibleCount = view === 'projects' ? projectRows.length : consultantRows.length
+  const scopeCount = view === 'projects' ? inScope.length : allConsultants.length
   const summary = useMemo(
-    () => summarizeRows(view === 'projects' ? projectRows : personRows),
-    [view, projectRows, personRows]
+    () => summarizeRows(view === 'projects' ? projectRows : consultantRows),
+    [view, projectRows, consultantRows]
   )
 
   // Caseta de căutare apare doar peste prag — sau când tot ea e cea care a redus
@@ -281,7 +281,7 @@ function ProjectDashboardContent() {
     (next: DashboardView) => {
       if (next === view) return
       // Căutarea se golește la comutare: „achizitie" scris peste proiecte n-ar
-      // găsi niciun om, iar celălalt tabel s-ar deschide gol fără motiv vizibil.
+      // găsi niciun consultant, iar celălalt tabel s-ar deschide gol fără motiv vizibil.
       setDraft('')
       setOpen(new Set())
       syncUrl(params => { writeDashboardView(params, next); writeSearch(params, '') })
@@ -330,7 +330,7 @@ function ProjectDashboardContent() {
             {showSearch && (
               <label className="relative">
                 <span className="sr-only">
-                  {view === 'projects' ? 'Caută după proiect sau client' : 'Caută după nume'}
+                  {view === 'projects' ? 'Caută după proiect sau client' : 'Caută după numele consultantului'}
                 </span>
                 <Search
                   className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--p-ink-faint)]"
@@ -340,7 +340,7 @@ function ProjectDashboardContent() {
                   type="search"
                   value={draft}
                   onChange={event => setDraft(event.target.value)}
-                  placeholder={view === 'projects' ? 'Caută proiect' : 'Caută nume'}
+                  placeholder={view === 'projects' ? 'Caută proiect' : 'Caută consultant'}
                   className="h-8 w-44 rounded-xl border border-[var(--p-border)] bg-[var(--p-surface)] pl-8 pr-2.5 text-sm text-[var(--p-ink)] placeholder:text-[var(--p-ink-faint)] focus:border-[var(--p-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--p-accent-soft)]"
                 />
               </label>
@@ -407,13 +407,13 @@ function ProjectDashboardContent() {
       ) : (
         <TableFrame minWidth={640}>
           <SortHeader
-            columns={PERSON_COLUMNS}
-            sort={personSort}
-            onSort={column => syncUrl(next => writePersonSort(next, nextPersonSort(personSort, column)))}
+            columns={CONSULTANT_COLUMNS}
+            sort={consultantSort}
+            onSort={column => syncUrl(next => writeConsultantSort(next, nextConsultantSort(consultantSort, column)))}
           />
           <tbody>
-            {personRows.map(row => (
-              <PersonRow key={row.id} row={row} open={open.has(row.id)} onToggle={() => toggle(row.id)} />
+            {consultantRows.map(row => (
+              <ConsultantRow key={row.id} row={row} open={open.has(row.id)} onToggle={() => toggle(row.id)} />
             ))}
           </tbody>
         </TableFrame>
@@ -427,7 +427,7 @@ function ProjectDashboardContent() {
 function ViewSwitch({ view, onSwitch }: { view: DashboardView; onSwitch: (view: DashboardView) => void }) {
   const options: { key: DashboardView; label: string }[] = [
     { key: 'projects', label: 'Proiecte' },
-    { key: 'people', label: 'Oameni' },
+    { key: 'consultants', label: 'Consultanți' },
   ]
 
   return (
@@ -459,7 +459,7 @@ function ViewSwitch({ view, onSwitch }: { view: DashboardView; onSwitch: (view: 
 function SummaryLine({ summary, view }: { summary: DashboardSummary; view: DashboardView }) {
   const subject = view === 'projects'
     ? countLabel(summary.rows, 'proiect', 'proiecte')
-    : countLabel(summary.rows, 'om', 'oameni')
+    : countLabel(summary.rows, 'consultant', 'consultanți')
 
   const pieces: { text: string; danger?: boolean }[] = [
     { text: subject },
@@ -468,7 +468,7 @@ function SummaryLine({ summary, view }: { summary: DashboardSummary; view: Dashb
           text: `${countLabel(summary.overdue, 'depășit', 'depășite')} în ${
             view === 'projects'
               ? countLabel(summary.rowsWithOverdue, 'proiect', 'proiecte')
-              : countLabel(summary.rowsWithOverdue, 'om', 'oameni')
+              : countLabel(summary.rowsWithOverdue, 'consultant', 'consultanți')
           }`,
           danger: true,
         }
@@ -772,14 +772,14 @@ function ProjectRow({
   )
 }
 
-// ─── Rândul de om ─────────────────────────────────────────────────────────────
+// ─── Rândul de consultant ─────────────────────────────────────────────────────────────
 
-function PersonRow({
+function ConsultantRow({
   row,
   open,
   onToggle,
 }: {
-  row: PersonDashboardRow
+  row: ConsultantDashboardRow
   open: boolean
   onToggle: () => void
 }) {
@@ -823,14 +823,14 @@ function PersonRow({
 
       {open && (
         <tr id={detailsId} className="border-b border-[var(--p-border)] bg-[var(--p-surface-2)] last:border-b-0">
-          <td colSpan={PERSON_COLUMNS.length} className="px-4 pb-5 pt-1">
+          <td colSpan={CONSULTANT_COLUMNS.length} className="px-4 pb-5 pt-1">
             <DetailPanel
               row={row}
               withProject
-              overdueHref={personCalendarHref(row.id, { overdueOnly: true })}
-              upcomingHref={personCalendarHref(row.id)}
+              overdueHref={consultantCalendarHref(row.id, { overdueOnly: true })}
+              upcomingHref={consultantCalendarHref(row.id)}
               links={
-                <Link href={personCalendarHref(row.id)} className="text-[var(--p-accent)] hover:underline">
+                <Link href={consultantCalendarHref(row.id)} className="text-[var(--p-accent)] hover:underline">
                   Vezi în calendar
                 </Link>
               }
@@ -856,7 +856,7 @@ function DetailPanel({
   links,
 }: {
   row: DashboardTotals
-  /** Termenele unui om vin din mai multe proiecte, deci proiectul trebuie scris. */
+  /** Termenele unui consultant vin din mai multe proiecte, deci proiectul trebuie scris. */
   withProject?: boolean
   overdueHref: string
   upcomingHref: string
@@ -977,11 +977,11 @@ function EmptyView({
   if (search) {
     return (
       <EmptyState
-        title={view === 'projects' ? 'Niciun proiect găsit' : 'Niciun om găsit'}
+        title={view === 'projects' ? 'Niciun proiect găsit' : 'Niciun consultant găsit'}
         description={
           view === 'projects'
             ? `Nimic nu se potrivește cu „${search}”, nici în titlu, nici la client.`
-            : `Niciun nume nu se potrivește cu „${search}”.`
+            : `Niciun nume de consultant nu se potrivește cu „${search}”.`
         }
         action={
           <button
@@ -996,11 +996,11 @@ function EmptyView({
     )
   }
 
-  if (view === 'people') {
+  if (view === 'consultants') {
     return (
       <EmptyState
-        title="Nimeni n-are muncă"
-        description="Aici apare fiecare om cu termenele lui, de îndată ce există elemente în proiectele vizibile."
+        title="Nimeni n-are muncă atribuită"
+        description="Aici apare fiecare consultant cu termenele lui, de îndată ce există elemente în proiectele vizibile."
       />
     )
   }

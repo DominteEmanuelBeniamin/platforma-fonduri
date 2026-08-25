@@ -526,7 +526,7 @@ export const isProjectActive = (project: Pick<CalendarProjectOption, 'lifecycle_
 /**
  * Numerele unui rând de tablou, oricare ar fi capul lui de rând.
  *
- * Aceleași pentru un proiect și pentru un om: câtă muncă, cât e gata, cât e
+ * Aceleași pentru un proiect și pentru un consultant: câtă muncă, cât e gata, cât e
  * depășit, ce urmează, cât nu e planificat. Scrise o singură dată fiindcă cele
  * două tabele stau pe același ecran — dacă „depășit" ar fi însemnat altceva de
  * la un tabel la altul, ecranul s-ar fi contrazis singur, la vedere.
@@ -595,13 +595,13 @@ export interface ProjectDashboardRow extends DashboardTotals {
   reminders_off: boolean
 }
 
-export interface PersonDashboardRow extends DashboardTotals {
+export interface ConsultantDashboardRow extends DashboardTotals {
   /** Id-ul responsabilului, sau `UNASSIGNED_OWNER_ID` pentru munca fără nimeni. */
   id: string
   label: string
   /** Fals doar pe rândul „Fără responsabil". */
   assigned: boolean
-  /** În câte proiecte are de lucru: un om întins pe cinci proiecte nu e ca unul pe unul. */
+  /** În câte proiecte are de lucru: un consultant întins pe cinci proiecte nu e ca unul pe unul. */
   projects: number
 }
 
@@ -718,7 +718,7 @@ export function buildProjectDashboardRows(payload: CalendarPayload): ProjectDash
 }
 
 /**
- * Aceleași evenimente, adunate pe oameni în loc de proiecte.
+ * Aceleași evenimente, adunate pe consultanți în loc de proiecte.
  *
  * Al doilea tabel al ecranului răspunde la „cine e blocat și cine e liber", iar
  * răspunsul iese din date deja descărcate: fiecare termen poartă responsabilul
@@ -734,11 +734,11 @@ export function buildProjectDashboardRows(payload: CalendarPayload): ProjectDash
  * două tabele să nu descrie mulțimi diferite când comutatorul de proiecte
  * încheiate e oprit.
  */
-export function buildPersonDashboardRows(
+export function buildConsultantDashboardRows(
   payload: CalendarPayload,
   projectIds?: Set<string>,
-): PersonDashboardRow[] {
-  const rows = new Map<string, PersonDashboardRow>()
+): ConsultantDashboardRow[] {
+  const rows = new Map<string, ConsultantDashboardRow>()
   const projectsOf = new Map<string, Set<string>>()
 
   for (const event of payload.events) {
@@ -820,14 +820,14 @@ export function countLabel(count: number, singular: string, plural: string): str
 // scrise o dată, iar fiecare tabel aduce doar coloanele lui.
 
 export type ProjectColumnKey = 'project' | 'client' | 'done' | 'waiting' | 'deadline' | 'overdue'
-export type PersonColumnKey = 'person' | 'projects' | 'waiting' | 'deadline' | 'overdue'
+export type ConsultantColumnKey = 'consultant' | 'projects' | 'waiting' | 'deadline' | 'overdue'
 /** `urgency` e ordinea implicită, nu o coloană: nu are antet și nu se inversează. */
 export type ProjectSortKey = 'urgency' | ProjectColumnKey
-export type PersonSortKey = 'urgency' | PersonColumnKey
+export type ConsultantSortKey = 'urgency' | ConsultantColumnKey
 export type SortDirection = 'asc' | 'desc'
 
 const PROJECT_COLUMN_KEYS = ['project', 'client', 'done', 'waiting', 'deadline', 'overdue'] as const
-const PERSON_COLUMN_KEYS = ['person', 'projects', 'waiting', 'deadline', 'overdue'] as const
+const CONSULTANT_COLUMN_KEYS = ['consultant', 'projects', 'waiting', 'deadline', 'overdue'] as const
 
 /** Rând de tablou, oricare din cele două tabele. */
 type Row = DashboardTotals & { label: string }
@@ -884,19 +884,19 @@ const PROJECT_COLUMNS: ColumnSpec<ProjectDashboardRow, ProjectColumnKey> = {
   },
 }
 
-const PERSON_COLUMNS: ColumnSpec<PersonDashboardRow, PersonColumnKey> = {
-  keys: PERSON_COLUMN_KEYS,
-  first: { person: 'asc', projects: 'desc', waiting: 'desc', deadline: 'asc', overdue: 'desc' },
+const CONSULTANT_COLUMNS: ColumnSpec<ConsultantDashboardRow, ConsultantColumnKey> = {
+  keys: CONSULTANT_COLUMN_KEYS,
+  first: { consultant: 'asc', projects: 'desc', waiting: 'desc', deadline: 'asc', overdue: 'desc' },
   hasValue: {
-    person: () => true,
+    consultant: () => true,
     projects: () => true,
     waiting: () => true,
     deadline: row => row.next_deadline !== null,
     overdue: () => true,
   },
   compare: {
-    person: byLabel,
-    // Câte proiecte îl întind pe om; la egalitate, cine are mai multă muncă.
+    consultant: byLabel,
+    // Câte proiecte îl întind pe consultant; la egalitate, cine are mai multă muncă.
     projects: (a, b) => a.projects - b.projects || a.total - b.total,
     ...TOTALS_COMPARE,
   },
@@ -951,11 +951,11 @@ export const sortProjectRows = (
   direction: SortDirection,
 ): ProjectDashboardRow[] => sortRows(PROJECT_COLUMNS, rows, sort, direction)
 
-export const sortPersonRows = (
-  rows: PersonDashboardRow[],
-  sort: PersonSortKey,
+export const sortConsultantRows = (
+  rows: ConsultantDashboardRow[],
+  sort: ConsultantSortKey,
   direction: SortDirection,
-): PersonDashboardRow[] => sortRows(PERSON_COLUMNS, rows, sort, direction)
+): ConsultantDashboardRow[] => sortRows(CONSULTANT_COLUMNS, rows, sort, direction)
 
 /** Ciclul unui antet: prima apăsare, inversul, apoi înapoi la ordinea implicită. */
 function nextSort<K extends string>(
@@ -976,14 +976,14 @@ export const nextProjectSort = (
   column: ProjectColumnKey,
 ) => nextSort(PROJECT_COLUMNS as unknown as ColumnSpec<Row, ProjectColumnKey>, current, column)
 
-export const nextPersonSort = (
-  current: { sort: PersonSortKey; direction: SortDirection },
-  column: PersonColumnKey,
-) => nextSort(PERSON_COLUMNS as unknown as ColumnSpec<Row, PersonColumnKey>, current, column)
+export const nextConsultantSort = (
+  current: { sort: ConsultantSortKey; direction: SortDirection },
+  column: ConsultantColumnKey,
+) => nextSort(CONSULTANT_COLUMNS as unknown as ColumnSpec<Row, ConsultantColumnKey>, current, column)
 
 /** Sensul primei apăsări, pentru antetele tabelului de proiecte. */
 export const FIRST_SORT_DIRECTION = PROJECT_COLUMNS.first
-export const FIRST_PERSON_SORT_DIRECTION = PERSON_COLUMNS.first
+export const FIRST_CONSULTANT_SORT_DIRECTION = CONSULTANT_COLUMNS.first
 
 // ─── Starea tabelului în URL ──────────────────────────────────────────────────
 //
@@ -995,16 +995,16 @@ const TABLE_PARAM = { sort: 'sort', dir: 'dir', ended: 'incheiate', search: 'q',
 
 /**
  * Care din cele două tabele e deschis. Proiectele sunt implicite, deci nu lasă
- * nimic în adresă; oamenii se scriu, ca vederea să se poată trimite ca link.
+ * nimic în adresă; consultanții se scriu, ca vederea să se poată trimite ca link.
  */
-export type DashboardView = 'projects' | 'people'
+export type DashboardView = 'projects' | 'consultants'
 
 export function readDashboardView(params: URLSearchParams): DashboardView {
-  return params.get(TABLE_PARAM.view) === 'oameni' ? 'people' : 'projects'
+  return params.get(TABLE_PARAM.view) === 'consultanti' ? 'consultants' : 'projects'
 }
 
 export function writeDashboardView(params: URLSearchParams, view: DashboardView): void {
-  if (view === 'people') params.set(TABLE_PARAM.view, 'oameni')
+  if (view === 'consultants') params.set(TABLE_PARAM.view, 'consultanti')
   else params.delete(TABLE_PARAM.view)
 }
 
@@ -1046,13 +1046,13 @@ export const writeProjectSort = (
   value: { sort: ProjectSortKey; direction: SortDirection },
 ) => writeSort(params, value, PROJECT_COLUMNS.first)
 
-export const readPersonSort = (params: URLSearchParams) =>
-  readSort(params, PERSON_COLUMN_KEYS, PERSON_COLUMNS.first)
+export const readConsultantSort = (params: URLSearchParams) =>
+  readSort(params, CONSULTANT_COLUMN_KEYS, CONSULTANT_COLUMNS.first)
 
-export const writePersonSort = (
+export const writeConsultantSort = (
   params: URLSearchParams,
-  value: { sort: PersonSortKey; direction: SortDirection },
-) => writeSort(params, value, PERSON_COLUMNS.first)
+  value: { sort: ConsultantSortKey; direction: SortDirection },
+) => writeSort(params, value, CONSULTANT_COLUMNS.first)
 
 export function readShowEnded(params: URLSearchParams): boolean {
   return params.get(TABLE_PARAM.ended) === '1'
@@ -1098,8 +1098,8 @@ export function filterProjectRows(rows: ProjectDashboardRow[], query: string): P
   return rows.filter(row => foldForSearch(`${row.label} ${row.client_name ?? ''}`).includes(needle))
 }
 
-/** La oameni, capul de rând e tot ce se caută: numele. */
-export function filterPersonRows(rows: PersonDashboardRow[], query: string): PersonDashboardRow[] {
+/** La consultanți, capul de rând e tot ce se caută: numele. */
+export function filterConsultantRows(rows: ConsultantDashboardRow[], query: string): ConsultantDashboardRow[] {
   const needle = foldForSearch(query.trim())
   if (!needle) return rows
   return rows.filter(row => foldForSearch(row.label).includes(needle))
@@ -1128,11 +1128,11 @@ export function projectCalendarHref(
 }
 
 /**
- * Aceeași punte, pentru un om: toate termenele lui, din toate proiectele.
+ * Aceeași punte, pentru un consultant: toate termenele lui, din toate proiectele.
  * `UNASSIGNED_OWNER_ID` trece ca atare — filtrul de responsabil al calendarului
  * are deja opțiunea „Fără responsabil", deci și rândul fără nimeni duce undeva.
  */
-export function personCalendarHref(
+export function consultantCalendarHref(
   assigneeId: string,
   options: { overdueOnly?: boolean } = {},
 ): string {
