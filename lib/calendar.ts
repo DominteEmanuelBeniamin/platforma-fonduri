@@ -523,12 +523,16 @@ export function writeMonth(params: URLSearchParams, month: Date): void {
 export const isProjectActive = (project: Pick<CalendarProjectOption, 'lifecycle_status'>): boolean =>
   project.lifecycle_status === 'active'
 
-export interface ProjectDashboardRow {
-  id: string
-  title: string
-  client_name: string | null
-  active: boolean
-  /** Elementele proiectului: activități și cereri de documente la un loc. */
+/**
+ * Numerele unui rând de tablou, oricare ar fi capul lui de rând.
+ *
+ * Aceleași pentru un proiect și pentru un om: câtă muncă, cât e gata, cât e
+ * depășit, ce urmează, cât nu e planificat. Scrise o singură dată fiindcă cele
+ * două tabele stau pe același ecran — dacă „depășit" ar fi însemnat altceva de
+ * la un tabel la altul, ecranul s-ar fi contrazis singur, la vedere.
+ */
+export interface DashboardTotals {
+  /** Elementele numărate: activități și cereri de documente la un loc. */
   total: number
   done: number
   overdue: number
@@ -543,10 +547,6 @@ export interface ProjectDashboardRow {
    * Termene nefinalizate în următoarele `URGENT_WINDOW_DAYS` zile, azi inclusiv.
    * Depășitele nu intră — au coloana lor, și le-ar număra de două ori. De aceea
    * nu folosește `isUrgentDeadline`, care le cuprinde pe amândouă.
-   *
-   * Se citește sub termenul următor, nu într-o coloană a lui: e contextul
-   * termenului („mâine, dar în total șase săptămâna asta"), iar o a șaptea
-   * coloană de numere ar fi costat mai mult decât spune.
    */
   due_soon: number
   /**
@@ -570,6 +570,18 @@ export interface ProjectDashboardRow {
    */
   activities: { done: number; total: number }
   requests: { done: number; total: number }
+  /** Depășitele, cele mai vechi întâi — pentru rândul desfășurat. */
+  overdue_events: CalendarEvent[]
+  /** Termenele care urmează, cel mai apropiat întâi. */
+  upcoming_events: CalendarEvent[]
+}
+
+export interface ProjectDashboardRow extends DashboardTotals {
+  id: string
+  /** Capul de rând, sub numele pe care îl sortează ambele tabele. */
+  label: string
+  client_name: string | null
+  active: boolean
   /**
    * Proiect cu reminderele automate oprite (#85).
    *
@@ -581,23 +593,96 @@ export interface ProjectDashboardRow {
    * cronul de remindere: necunoscutul înseamnă pornit, nu oprit tăcut.
    */
   reminders_off: boolean
-  /** Depășitele, cele mai vechi întâi — pentru rândul desfășurat. */
-  overdue_events: CalendarEvent[]
-  /** Termenele care urmează, cel mai apropiat întâi. */
-  upcoming_events: CalendarEvent[]
+}
+
+export interface PersonDashboardRow extends DashboardTotals {
+  /** Id-ul responsabilului, sau `UNASSIGNED_OWNER_ID` pentru munca fără nimeni. */
+  id: string
+  label: string
+  /** Fals doar pe rândul „Fără responsabil". */
+  assigned: boolean
+  /** În câte proiecte are de lucru: un om întins pe cinci proiecte nu e ca unul pe unul. */
+  projects: number
 }
 
 const byDeadlineAsc = (a: CalendarEvent, b: CalendarEvent) =>
   new Date(a.deadline_at ?? 0).getTime() - new Date(b.deadline_at ?? 0).getTime()
 
+const emptyTotals = (): DashboardTotals => ({
+  total: 0,
+  done: 0,
+  overdue: 0,
+  next_deadline: null,
+  oldest_overdue_days: null,
+  due_soon: 0,
+  undated: 0,
+  waiting_us: 0,
+  waiting_client: 0,
+  drafts: 0,
+  activities: { done: 0, total: 0 },
+  requests: { done: 0, total: 0 },
+  overdue_events: [],
+  upcoming_events: [],
+})
+
 /**
- * Proiectele cu numerele lor, dintr-o singură trecere peste evenimentele deja
- * aduse pentru calendar.
+ * Un element, adăugat la numerele unui rând.
  *
  * Nu-și definește propriul „finalizat" și propriul „depășit": le ia din
  * `eventProgress`, care le ia la rândul lui din `event.done` calculat pe server.
  * Două definiții paralele ar fi însemnat exact divergența pe care criteriul de
  * acceptare o interzice.
+ */
+function addEvent(totals: DashboardTotals, event: CalendarEvent): void {
+  totals.total += 1
+  const bucket = event.kind === 'activity' ? totals.activities : totals.requests
+  bucket.total += 1
+
+  const progress = eventProgress(event)
+  if (progress === 'done') {
+    totals.done += 1
+    bucket.done += 1
+    return
+  }
+
+  // De aici încolo, doar munca rămasă: „în pregătire" și „la cine e mingea"
+  // n-au înțeles pe un element terminat.
+  if (event.visibility === 'draft') totals.drafts += 1
+  if (eventWaitingOn(event) === 'us') totals.waiting_us += 1
+  else totals.waiting_client += 1
+
+  if (progress === 'overdue') totals.overdue_events.push(event)
+  // `open` cu termen: nici finalizat, nici trecut — deci chiar un termen
+  // viitor, azi inclusiv.
+  else if (event.deadline_at) totals.upcoming_events.push(event)
+  // `open` fără termen: muncă rămasă pe care n-o așteaptă nicio dată.
+  else totals.undated += 1
+}
+
+/** Ce se poate ști abia după ce au trecut toate elementele. */
+function finalizeTotals(totals: DashboardTotals): void {
+  // Ordinea listelor e cea în care se citesc în rândul desfășurat: cea mai
+  // veche depășire prima, fiindcă e cea care doare, și cel mai apropiat termen
+  // primul, fiindcă e următorul de rezolvat.
+  totals.overdue_events.sort(byDeadlineAsc)
+  totals.upcoming_events.sort(byDeadlineAsc)
+
+  totals.overdue = totals.overdue_events.length
+  totals.next_deadline = totals.upcoming_events[0]?.deadline_at ?? null
+
+  const oldest = totals.overdue_events[0]
+  const days = oldest ? getDaysUntilDeadline(oldest.deadline_at) : null
+  totals.oldest_overdue_days = days === null ? null : Math.abs(days)
+
+  totals.due_soon = totals.upcoming_events.filter(event => {
+    const until = getDaysUntilDeadline(event.deadline_at)
+    return until !== null && until <= URGENT_WINDOW_DAYS
+  }).length
+}
+
+/**
+ * Proiectele cu numerele lor, dintr-o singură trecere peste evenimentele deja
+ * aduse pentru calendar.
  *
  * Proiectele vin din `payload.projects`, interogat din tabela `projects`, nu
  * dedus din evenimente — de aceea un proiect fără niciun element rămâne în listă
@@ -612,24 +697,11 @@ export function buildProjectDashboardRows(payload: CalendarPayload): ProjectDash
       project.id,
       {
         id: project.id,
-        title: project.title,
+        label: project.title,
         client_name: project.client_name,
         active: isProjectActive(project),
         reminders_off: project.automatic_reminders_enabled === false,
-        total: 0,
-        done: 0,
-        overdue: 0,
-        next_deadline: null,
-        oldest_overdue_days: null,
-        due_soon: 0,
-        undated: 0,
-        waiting_us: 0,
-        waiting_client: 0,
-        drafts: 0,
-        activities: { done: 0, total: 0 },
-        requests: { done: 0, total: 0 },
-        overdue_events: [],
-        upcoming_events: [],
+        ...emptyTotals(),
       },
     ])
   )
@@ -638,61 +710,70 @@ export function buildProjectDashboardRows(payload: CalendarPayload): ProjectDash
     // Un eveniment fără proiect în listă n-ar trebui să existe: ambele vin din
     // aceeași cerere, restrânse la aceleași `projectIds`.
     const row = rows.get(event.project_id)
-    if (!row) continue
+    if (row) addEvent(row, event)
+  }
 
-    row.total += 1
-    const bucket = event.kind === 'activity' ? row.activities : row.requests
-    bucket.total += 1
+  for (const row of rows.values()) finalizeTotals(row)
+  return [...rows.values()]
+}
 
-    const progress = eventProgress(event)
-    if (progress === 'done') {
-      row.done += 1
-      bucket.done += 1
-      continue
+/**
+ * Aceleași evenimente, adunate pe oameni în loc de proiecte.
+ *
+ * Al doilea tabel al ecranului răspunde la „cine e blocat și cine e liber", iar
+ * răspunsul iese din date deja descărcate: fiecare termen poartă responsabilul
+ * lui efectiv, calculat pe server pe lanțul cerere → activitate → proiect
+ * (`requestOwnerId`). Nicio cerere nouă, nicio a doua definiție a muncii.
+ *
+ * Rândurile ies din evenimente, nu dintr-o listă de consultanți: cine n-are
+ * nimic atribuit nu apare. Munca fără nimeni în spate se strânge într-un rând
+ * propriu, `UNASSIGNED_OWNER_ID` — azi cel mai încărcat dintre toate, și tocmai
+ * de aceea nu e de ascuns.
+ *
+ * `projectIds` restrânge la proiectele vizibile în tabelul de alături, ca cele
+ * două tabele să nu descrie mulțimi diferite când comutatorul de proiecte
+ * încheiate e oprit.
+ */
+export function buildPersonDashboardRows(
+  payload: CalendarPayload,
+  projectIds?: Set<string>,
+): PersonDashboardRow[] {
+  const rows = new Map<string, PersonDashboardRow>()
+  const projectsOf = new Map<string, Set<string>>()
+
+  for (const event of payload.events) {
+    if (projectIds && !projectIds.has(event.project_id)) continue
+
+    const id = event.assignee_id ?? UNASSIGNED_OWNER_ID
+    let row = rows.get(id)
+    if (!row) {
+      row = {
+        id,
+        label: event.assignee_name ?? 'Fără responsabil',
+        assigned: event.assignee_id !== null,
+        projects: 0,
+        ...emptyTotals(),
+      }
+      rows.set(id, row)
+      projectsOf.set(id, new Set())
     }
 
-    // De aici încolo, doar munca rămasă: „în pregătire" și „la cine e mingea"
-    // n-au înțeles pe un element terminat.
-    if (event.visibility === 'draft') row.drafts += 1
-    if (eventWaitingOn(event) === 'us') row.waiting_us += 1
-    else row.waiting_client += 1
-
-    if (progress === 'overdue') row.overdue_events.push(event)
-    // `open` cu termen: nici finalizat, nici trecut — deci chiar un termen
-    // viitor, azi inclusiv.
-    else if (event.deadline_at) row.upcoming_events.push(event)
-    // `open` fără termen: muncă rămasă pe care n-o așteaptă nicio dată.
-    else row.undated += 1
+    projectsOf.get(id)!.add(event.project_id)
+    addEvent(row, event)
   }
 
   for (const row of rows.values()) {
-    // Ordinea listelor e cea în care se citesc în rândul desfășurat: cea mai
-    // veche depășire prima, fiindcă e cea care doare, și cel mai apropiat termen
-    // primul, fiindcă e următorul de rezolvat.
-    row.overdue_events.sort(byDeadlineAsc)
-    row.upcoming_events.sort(byDeadlineAsc)
-
-    row.overdue = row.overdue_events.length
-    row.next_deadline = row.upcoming_events[0]?.deadline_at ?? null
-
-    const oldest = row.overdue_events[0]
-    const days = oldest ? getDaysUntilDeadline(oldest.deadline_at) : null
-    row.oldest_overdue_days = days === null ? null : Math.abs(days)
-
-    row.due_soon = row.upcoming_events.filter(event => {
-      const until = getDaysUntilDeadline(event.deadline_at)
-      return until !== null && until <= URGENT_WINDOW_DAYS
-    }).length
+    row.projects = projectsOf.get(row.id)!.size
+    finalizeTotals(row)
   }
-
   return [...rows.values()]
 }
 
 export interface DashboardSummary {
-  projects: number
+  rows: number
   overdue: number
-  /** În câte proiecte stau depășirile: „12 în 3 proiecte" e altă problemă decât „12 într-unul". */
-  projectsWithOverdue: number
+  /** În câte rânduri stau depășirile: „12 în 3 proiecte" e altă problemă decât „12 într-unul". */
+  rowsWithOverdue: number
   dueSoon: number
   waitingUs: number
 }
@@ -706,16 +787,16 @@ export interface DashboardSummary {
  * necesită atenție acum", iar două ecrane cu aceleași cifre mari ar începe să se
  * contrazică de îndată ce ar diverge o definiție.
  */
-export function summarizeProjectRows(rows: ProjectDashboardRow[]): DashboardSummary {
+export function summarizeRows(rows: DashboardTotals[]): DashboardSummary {
   return rows.reduce<DashboardSummary>(
     (total, row) => ({
-      projects: total.projects + 1,
+      rows: total.rows + 1,
       overdue: total.overdue + row.overdue,
-      projectsWithOverdue: total.projectsWithOverdue + (row.overdue > 0 ? 1 : 0),
+      rowsWithOverdue: total.rowsWithOverdue + (row.overdue > 0 ? 1 : 0),
       dueSoon: total.dueSoon + row.due_soon,
       waitingUs: total.waitingUs + row.waiting_us,
     }),
-    { projects: 0, overdue: 0, projectsWithOverdue: 0, dueSoon: 0, waitingUs: 0 }
+    { rows: 0, overdue: 0, rowsWithOverdue: 0, dueSoon: 0, waitingUs: 0 }
   )
 }
 
@@ -731,67 +812,102 @@ export function countLabel(count: number, singular: string, plural: string): str
   return `${count} ${needsDe ? 'de ' : ''}${plural}`
 }
 
-// ─── Sortarea tabelului ───────────────────────────────────────────────────────
+// ─── Sortarea tabelelor ───────────────────────────────────────────────────────
+//
+// Două tabele pe același ecran, cu aceeași mecanică: prima apăsare scoate în
+// față problemele, a doua inversează, a treia revine la ordinea implicită, iar
+// rândurile fără valoare stau la final în ambele sensuri. Regulile comune sunt
+// scrise o dată, iar fiecare tabel aduce doar coloanele lui.
 
 export type ProjectColumnKey = 'project' | 'client' | 'done' | 'waiting' | 'deadline' | 'overdue'
+export type PersonColumnKey = 'person' | 'projects' | 'waiting' | 'deadline' | 'overdue'
 /** `urgency` e ordinea implicită, nu o coloană: nu are antet și nu se inversează. */
 export type ProjectSortKey = 'urgency' | ProjectColumnKey
+export type PersonSortKey = 'urgency' | PersonColumnKey
 export type SortDirection = 'asc' | 'desc'
 
-const COLUMN_KEYS = ['project', 'client', 'done', 'waiting', 'deadline', 'overdue'] as const
+const PROJECT_COLUMN_KEYS = ['project', 'client', 'done', 'waiting', 'deadline', 'overdue'] as const
+const PERSON_COLUMN_KEYS = ['person', 'projects', 'waiting', 'deadline', 'overdue'] as const
 
-/**
- * Sensul primei apăsări pe fiecare coloană. Regula e aceeași peste tot: prima
- * apăsare scoate în față problemele — proiectul cel mai puțin avansat, termenul
- * cel mai apropiat, cele mai multe depășiri — fiindcă ăsta e motivul pentru care
- * cineva sortează tabelul. A doua inversează, a treia revine la implicit.
- */
-export const FIRST_SORT_DIRECTION: Record<ProjectColumnKey, SortDirection> = {
-  project: 'asc',
-  client: 'asc',
-  done: 'asc',
-  waiting: 'desc',
-  deadline: 'asc',
-  overdue: 'desc',
+/** Rând de tablou, oricare din cele două tabele. */
+type Row = DashboardTotals & { label: string }
+
+interface ColumnSpec<T extends Row, K extends string> {
+  keys: readonly K[]
+  /**
+   * Sensul primei apăsări. Regula e aceeași peste tot: prima apăsare scoate în
+   * față problemele — cel mai puțin avansat, termenul cel mai apropiat, cele mai
+   * multe depășiri — fiindcă ăsta e motivul pentru care cineva sortează tabelul.
+   */
+  first: Record<K, SortDirection>
+  /**
+   * Are coloana o valoare de comparat pentru rândul ăsta? Un `0` e valoare; un
+   * client lipsă, un termen inexistent și un rând fără niciun element nu sunt.
+   */
+  hasValue: Record<K, (row: T) => boolean>
+  /** Comparatoarele descriu doar sensul crescător; direcția se aplică deasupra. */
+  compare: Record<K, (a: T, b: T) => number>
 }
 
-/**
- * Are coloana o valoare de comparat pentru rândul ăsta? Un `0` e valoare; un
- * client lipsă, un termen inexistent și un proiect fără niciun element nu sunt.
- */
-const HAS_VALUE: Record<ProjectColumnKey, (row: ProjectDashboardRow) => boolean> = {
-  project: () => true,
-  client: row => row.client_name !== null,
-  done: row => row.total > 0,
-  waiting: () => true,
-  deadline: row => row.next_deadline !== null,
-  overdue: () => true,
-}
+const byLabel = (a: Row, b: Row) => a.label.localeCompare(b.label, 'ro')
 
-const byTitle = (a: ProjectDashboardRow, b: ProjectDashboardRow) => a.title.localeCompare(b.title, 'ro')
-
-/** Comparatoarele descriu doar sensul crescător; direcția se aplică deasupra. */
-const COMPARE: Record<ProjectColumnKey, (a: ProjectDashboardRow, b: ProjectDashboardRow) => number> = {
-  project: byTitle,
-  client: (a, b) => (a.client_name ?? '').localeCompare(b.client_name ?? '', 'ro'),
-  // Raportul, nu numărul brut: „3/4" e mai avansat decât „5/40", iar coloana
-  // răspunde la „cât din proiect e gata". Apelat doar când `total > 0`.
-  done: (a, b) => a.done / a.total - b.done / b.total,
+/** Comparatoarele care nu depind de capul de rând, deci merg în ambele tabele. */
+const TOTALS_COMPARE = {
   // Întâi câtă muncă e la noi — singura pe care adminul o poate mișca azi —,
   // apoi cât așteaptă la client.
-  waiting: (a, b) => a.waiting_us - b.waiting_us || a.waiting_client - b.waiting_client,
-  deadline: (a, b) => new Date(a.next_deadline!).getTime() - new Date(b.next_deadline!).getTime(),
+  waiting: (a: Row, b: Row) => a.waiting_us - b.waiting_us || a.waiting_client - b.waiting_client,
+  deadline: (a: Row, b: Row) =>
+    new Date(a.next_deadline!).getTime() - new Date(b.next_deadline!).getTime(),
   // La număr egal de depășiri, cea mai veche cântărește mai greu.
-  overdue: (a, b) =>
+  overdue: (a: Row, b: Row) =>
     a.overdue - b.overdue || (a.oldest_overdue_days ?? 0) - (b.oldest_overdue_days ?? 0),
 }
 
+const PROJECT_COLUMNS: ColumnSpec<ProjectDashboardRow, ProjectColumnKey> = {
+  keys: PROJECT_COLUMN_KEYS,
+  first: { project: 'asc', client: 'asc', done: 'asc', waiting: 'desc', deadline: 'asc', overdue: 'desc' },
+  hasValue: {
+    project: () => true,
+    client: row => row.client_name !== null,
+    done: row => row.total > 0,
+    waiting: () => true,
+    deadline: row => row.next_deadline !== null,
+    overdue: () => true,
+  },
+  compare: {
+    project: byLabel,
+    client: (a, b) => (a.client_name ?? '').localeCompare(b.client_name ?? '', 'ro'),
+    // Raportul, nu numărul brut: „3/4" e mai avansat decât „5/40", iar coloana
+    // răspunde la „cât din proiect e gata". Apelat doar când `total > 0`.
+    done: (a, b) => a.done / a.total - b.done / b.total,
+    ...TOTALS_COMPARE,
+  },
+}
+
+const PERSON_COLUMNS: ColumnSpec<PersonDashboardRow, PersonColumnKey> = {
+  keys: PERSON_COLUMN_KEYS,
+  first: { person: 'asc', projects: 'desc', waiting: 'desc', deadline: 'asc', overdue: 'desc' },
+  hasValue: {
+    person: () => true,
+    projects: () => true,
+    waiting: () => true,
+    deadline: row => row.next_deadline !== null,
+    overdue: () => true,
+  },
+  compare: {
+    person: byLabel,
+    // Câte proiecte îl întind pe om; la egalitate, cine are mai multă muncă.
+    projects: (a, b) => a.projects - b.projects || a.total - b.total,
+    ...TOTALS_COMPARE,
+  },
+}
+
 /**
- * Ordinea implicită: întâi proiectele cu termene depășite, cele mai multe
- * primele, la egalitate cele cu depășirea cea mai veche, apoi cât de aproape e
- * următorul termen.
+ * Ordinea implicită: întâi cele cu termene depășite, cele mai multe primele, la
+ * egalitate cele cu depășirea cea mai veche, apoi cât de aproape e următorul
+ * termen.
  */
-function byUrgency(a: ProjectDashboardRow, b: ProjectDashboardRow): number {
+function byUrgency(a: Row, b: Row): number {
   if (a.overdue !== b.overdue) return b.overdue - a.overdue
   // Tot atâtea depășiri: le desparte vechimea celei mai vechi.
   const oldest = (b.oldest_overdue_days ?? 0) - (a.oldest_overdue_days ?? 0)
@@ -802,43 +918,72 @@ function byUrgency(a: ProjectDashboardRow, b: ProjectDashboardRow): number {
     const diff = new Date(a.next_deadline).getTime() - new Date(b.next_deadline).getTime()
     if (diff !== 0) return diff
   }
-  return byTitle(a, b)
+  return byLabel(a, b)
 }
 
-export function sortProjectRows(
-  rows: ProjectDashboardRow[],
-  sort: ProjectSortKey,
+function sortRows<T extends Row, K extends string>(
+  spec: ColumnSpec<T, K>,
+  rows: T[],
+  sort: 'urgency' | K,
   direction: SortDirection,
-): ProjectDashboardRow[] {
+): T[] {
   if (sort === 'urgency') return [...rows].sort(byUrgency)
 
-  const withValue: ProjectDashboardRow[] = []
-  const without: ProjectDashboardRow[] = []
-  for (const row of rows) (HAS_VALUE[sort](row) ? withValue : without).push(row)
+  const withValue: T[] = []
+  const without: T[] = []
+  for (const row of rows) (spec.hasValue[sort](row) ? withValue : without).push(row)
 
-  // Egalitățile cad pe titlu, mereu crescător, ca ordinea să nu sară între
-  // randări și ca inversarea coloanei să nu amestece și rândurile egale.
+  // Egalitățile cad pe capul de rând, mereu crescător, ca ordinea să nu sară
+  // între randări și ca inversarea coloanei să nu amestece și rândurile egale.
   const sign = direction === 'desc' ? -1 : 1
-  withValue.sort((a, b) => sign * COMPARE[sort](a, b) || byTitle(a, b))
+  withValue.sort((a, b) => sign * spec.compare[sort](a, b) || byLabel(a, b))
 
   // Rândurile fără valoare stau la final în ambele sensuri: „fără client" și
   // „fără termen" sunt absența unei valori, nu una mică sau mare. Aceeași
-  // alegere ca grupul „Fără termen" din `DeadlineList`, ca cele două ecrane să
-  // nu se contrazică.
-  return [...withValue, ...without.sort(byTitle)]
+  // alegere ca grupul „Fără termen" din `DeadlineList`, ca ecranele să nu se
+  // contrazică.
+  return [...withValue, ...without.sort(byLabel)]
 }
 
+export const sortProjectRows = (
+  rows: ProjectDashboardRow[],
+  sort: ProjectSortKey,
+  direction: SortDirection,
+): ProjectDashboardRow[] => sortRows(PROJECT_COLUMNS, rows, sort, direction)
+
+export const sortPersonRows = (
+  rows: PersonDashboardRow[],
+  sort: PersonSortKey,
+  direction: SortDirection,
+): PersonDashboardRow[] => sortRows(PERSON_COLUMNS, rows, sort, direction)
+
 /** Ciclul unui antet: prima apăsare, inversul, apoi înapoi la ordinea implicită. */
-export function nextProjectSort(
-  current: { sort: ProjectSortKey; direction: SortDirection },
-  column: ProjectColumnKey,
-): { sort: ProjectSortKey; direction: SortDirection } {
-  if (current.sort !== column) return { sort: column, direction: FIRST_SORT_DIRECTION[column] }
-  if (current.direction === FIRST_SORT_DIRECTION[column]) {
+function nextSort<K extends string>(
+  spec: ColumnSpec<Row, K> | ColumnSpec<never, K>,
+  current: { sort: 'urgency' | K; direction: SortDirection },
+  column: K,
+): { sort: 'urgency' | K; direction: SortDirection } {
+  const first = spec.first[column]
+  if (current.sort !== column) return { sort: column, direction: first }
+  if (current.direction === first) {
     return { sort: column, direction: current.direction === 'asc' ? 'desc' : 'asc' }
   }
   return { sort: 'urgency', direction: 'asc' }
 }
+
+export const nextProjectSort = (
+  current: { sort: ProjectSortKey; direction: SortDirection },
+  column: ProjectColumnKey,
+) => nextSort(PROJECT_COLUMNS as unknown as ColumnSpec<Row, ProjectColumnKey>, current, column)
+
+export const nextPersonSort = (
+  current: { sort: PersonSortKey; direction: SortDirection },
+  column: PersonColumnKey,
+) => nextSort(PERSON_COLUMNS as unknown as ColumnSpec<Row, PersonColumnKey>, current, column)
+
+/** Sensul primei apăsări, pentru antetele tabelului de proiecte. */
+export const FIRST_SORT_DIRECTION = PROJECT_COLUMNS.first
+export const FIRST_PERSON_SORT_DIRECTION = PERSON_COLUMNS.first
 
 // ─── Starea tabelului în URL ──────────────────────────────────────────────────
 //
@@ -846,20 +991,42 @@ export function nextProjectSort(
 // link. Se scrie doar ce se abate de la implicit, ca adresa obișnuită să rămână
 // curată. Numele n-au nevoie de prefix — ecranul nu împarte URL-ul cu nimeni.
 
-const TABLE_PARAM = { sort: 'sort', dir: 'dir', ended: 'incheiate', search: 'q' } as const
+const TABLE_PARAM = { sort: 'sort', dir: 'dir', ended: 'incheiate', search: 'q', view: 'vedere' } as const
 
-export function readProjectSort(params: URLSearchParams): { sort: ProjectSortKey; direction: SortDirection } {
-  const raw = params.get(TABLE_PARAM.sort)
-  if (!(COLUMN_KEYS as readonly string[]).includes(raw ?? '')) return { sort: 'urgency', direction: 'asc' }
+/**
+ * Care din cele două tabele e deschis. Proiectele sunt implicite, deci nu lasă
+ * nimic în adresă; oamenii se scriu, ca vederea să se poată trimite ca link.
+ */
+export type DashboardView = 'projects' | 'people'
 
-  const sort = raw as ProjectColumnKey
-  const dir = params.get(TABLE_PARAM.dir)
-  return { sort, direction: dir === 'asc' || dir === 'desc' ? dir : FIRST_SORT_DIRECTION[sort] }
+export function readDashboardView(params: URLSearchParams): DashboardView {
+  return params.get(TABLE_PARAM.view) === 'oameni' ? 'people' : 'projects'
 }
 
-export function writeProjectSort(
+export function writeDashboardView(params: URLSearchParams, view: DashboardView): void {
+  if (view === 'people') params.set(TABLE_PARAM.view, 'oameni')
+  else params.delete(TABLE_PARAM.view)
+}
+
+function readSort<K extends string>(
   params: URLSearchParams,
-  { sort, direction }: { sort: ProjectSortKey; direction: SortDirection },
+  keys: readonly K[],
+  first: Record<K, SortDirection>,
+): { sort: 'urgency' | K; direction: SortDirection } {
+  const raw = params.get(TABLE_PARAM.sort)
+  // O coloană necunoscută — inclusiv una a celuilalt tabel, rămasă în adresă la
+  // comutare — cade pe ordinea implicită, nu pe o sortare inventată.
+  if (!(keys as readonly string[]).includes(raw ?? '')) return { sort: 'urgency', direction: 'asc' }
+
+  const sort = raw as K
+  const dir = params.get(TABLE_PARAM.dir)
+  return { sort, direction: dir === 'asc' || dir === 'desc' ? dir : first[sort] }
+}
+
+function writeSort<K extends string>(
+  params: URLSearchParams,
+  { sort, direction }: { sort: 'urgency' | K; direction: SortDirection },
+  first: Record<K, SortDirection>,
 ): void {
   if (sort === 'urgency') {
     params.delete(TABLE_PARAM.sort)
@@ -867,9 +1034,25 @@ export function writeProjectSort(
     return
   }
   params.set(TABLE_PARAM.sort, sort)
-  if (direction === FIRST_SORT_DIRECTION[sort]) params.delete(TABLE_PARAM.dir)
+  if (direction === first[sort]) params.delete(TABLE_PARAM.dir)
   else params.set(TABLE_PARAM.dir, direction)
 }
+
+export const readProjectSort = (params: URLSearchParams) =>
+  readSort(params, PROJECT_COLUMN_KEYS, PROJECT_COLUMNS.first)
+
+export const writeProjectSort = (
+  params: URLSearchParams,
+  value: { sort: ProjectSortKey; direction: SortDirection },
+) => writeSort(params, value, PROJECT_COLUMNS.first)
+
+export const readPersonSort = (params: URLSearchParams) =>
+  readSort(params, PERSON_COLUMN_KEYS, PERSON_COLUMNS.first)
+
+export const writePersonSort = (
+  params: URLSearchParams,
+  value: { sort: PersonSortKey; direction: SortDirection },
+) => writeSort(params, value, PERSON_COLUMNS.first)
 
 export function readShowEnded(params: URLSearchParams): boolean {
   return params.get(TABLE_PARAM.ended) === '1'
@@ -912,7 +1095,14 @@ const foldForSearch = (value: string): string =>
 export function filterProjectRows(rows: ProjectDashboardRow[], query: string): ProjectDashboardRow[] {
   const needle = foldForSearch(query.trim())
   if (!needle) return rows
-  return rows.filter(row => foldForSearch(`${row.title} ${row.client_name ?? ''}`).includes(needle))
+  return rows.filter(row => foldForSearch(`${row.label} ${row.client_name ?? ''}`).includes(needle))
+}
+
+/** La oameni, capul de rând e tot ce se caută: numele. */
+export function filterPersonRows(rows: PersonDashboardRow[], query: string): PersonDashboardRow[] {
+  const needle = foldForSearch(query.trim())
+  if (!needle) return rows
+  return rows.filter(row => foldForSearch(row.label).includes(needle))
 }
 
 // ─── Puntea către calendar ────────────────────────────────────────────────────
@@ -933,6 +1123,22 @@ export function projectCalendarHref(
   const params = new URLSearchParams()
   writeViewMode(params, 'list')
   params.set(PARAM.projects, projectId)
+  if (options.overdueOnly) params.set(PARAM.progress, 'overdue')
+  return `/calendar?${params.toString()}`
+}
+
+/**
+ * Aceeași punte, pentru un om: toate termenele lui, din toate proiectele.
+ * `UNASSIGNED_OWNER_ID` trece ca atare — filtrul de responsabil al calendarului
+ * are deja opțiunea „Fără responsabil", deci și rândul fără nimeni duce undeva.
+ */
+export function personCalendarHref(
+  assigneeId: string,
+  options: { overdueOnly?: boolean } = {},
+): string {
+  const params = new URLSearchParams()
+  writeViewMode(params, 'list')
+  params.set(PARAM.owners, assigneeId)
   if (options.overdueOnly) params.set(PARAM.progress, 'overdue')
   return `/calendar?${params.toString()}`
 }

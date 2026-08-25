@@ -14,51 +14,78 @@ import {
   LayoutDashboard,
   Loader2,
   Search,
+  UserX,
 } from 'lucide-react'
 
 import {
   SEARCH_THRESHOLD,
   WAITING_LABELS,
+  buildPersonDashboardRows,
   buildProjectDashboardRows,
   countLabel,
+  filterPersonRows,
   filterProjectRows,
   formatRelativeDeadline,
   formatShortDate,
+  nextPersonSort,
   nextProjectSort,
+  personCalendarHref,
   projectCalendarHref,
+  readDashboardView,
+  readPersonSort,
   readProjectSort,
   readSearch,
   readShowEnded,
+  sortPersonRows,
   sortProjectRows,
-  summarizeProjectRows,
+  summarizeRows,
+  writeDashboardView,
+  writePersonSort,
   writeProjectSort,
   writeSearch,
   writeShowEnded,
   type CalendarEvent,
   type CalendarPayload,
   type DashboardSummary,
+  type DashboardTotals,
+  type DashboardView,
+  type PersonColumnKey,
+  type PersonDashboardRow,
   type ProjectColumnKey,
   type ProjectDashboardRow,
+  type SortDirection,
 } from '@/lib/calendar'
 import EventRow from '@/components/calendar/EventRow'
 import { useAuth } from '@/app/providers/AuthProvider'
 
-const COLUMNS: { key: ProjectColumnKey; label: string; numeric?: boolean; hint?: string }[] = [
+interface Column<K extends string> {
+  key: K
+  label: string
+  numeric?: boolean
+  hint?: string
+}
+
+const DEADLINE_HINT =
+  'Cel mai apropiat termen viitor; dedesubt, câte termene cad în 7 zile și câte elemente nefinalizate n-au niciunul'
+const WAITING_HINT =
+  'Munca rămasă, împărțită după cine o mișcă mai departe: echipa (activități neterminate, documente de verificat) sau clientul (documente cerute sau respinse)'
+const OVERDUE_HINT = 'Termene trecute, pe elemente nefinalizate'
+
+const PROJECT_COLUMNS: Column<ProjectColumnKey>[] = [
   { key: 'project', label: 'Proiect' },
   { key: 'client', label: 'Client' },
   { key: 'done', label: 'Finalizate', numeric: true, hint: 'Activități încheiate și documente aprobate, din total' },
-  {
-    key: 'waiting',
-    label: 'De rezolvat',
-    numeric: true,
-    hint: 'Munca rămasă, împărțită după cine o mișcă mai departe: echipa (activități neterminate, documente de verificat) sau clientul (documente cerute sau respinse)',
-  },
-  {
-    key: 'deadline',
-    label: 'Următorul termen',
-    hint: 'Cel mai apropiat termen viitor; dedesubt, câte termene cad în 7 zile și câte elemente nefinalizate n-au niciunul',
-  },
-  { key: 'overdue', label: 'Depășite', numeric: true, hint: 'Termene trecute, pe elemente nefinalizate' },
+  { key: 'waiting', label: 'De rezolvat', numeric: true, hint: WAITING_HINT },
+  { key: 'deadline', label: 'Următorul termen', hint: DEADLINE_HINT },
+  { key: 'overdue', label: 'Depășite', numeric: true, hint: OVERDUE_HINT },
+]
+
+const PERSON_COLUMNS: Column<PersonColumnKey>[] = [
+  { key: 'person', label: 'Om' },
+  { key: 'projects', label: 'Proiecte', numeric: true, hint: 'În câte proiecte are de lucru' },
+  { key: 'waiting', label: 'De rezolvat', numeric: true, hint: WAITING_HINT },
+  { key: 'deadline', label: 'Următorul termen', hint: DEADLINE_HINT },
+  { key: 'overdue', label: 'Depășite', numeric: true, hint: OVERDUE_HINT },
 ]
 
 /** Câte termene încap în rândul desfășurat înainte să înceapă să înece tabelul. */
@@ -71,30 +98,31 @@ const DETAIL_LIMIT = 5
 const SEARCH_DEBOUNCE_MS = 300
 
 /**
- * Tabloul de bord al administratorului (cerința 23): toate proiectele, cât din
- * fiecare e finalizat, cine e dator cu munca rămasă, ce urmează și ce e depășit.
+ * Tabloul de bord al administratorului (cerința 23), în două vederi peste
+ * aceleași date: proiectele și oamenii.
+ *
+ * „Proiecte" răspunde la „cum stă fiecare lucrare", „Oameni" la „cine e blocat
+ * și cine e liber". Amândouă se calculează din aceeași singură cerere la
+ * `/api/calendar` și prin același cod de agregare — dacă „depășit" ar fi
+ * însemnat altceva de la un tabel la altul, ecranul s-ar fi contrazis la vedere.
  *
  * Ecran separat de Home în mod deliberat. Home răspunde la „ce necesită atenție
- * acum" și o face cu carduri; ăsta răspunde la „cum stă fiecare proiect" și o
- * face cu un tabel. Forma diferă ca deosebirea să fie vizibilă, nu doar
- * conceptuală.
+ * acum" și o face cu carduri; ăsta răspunde la „cum stă totul" și o face cu
+ * tabele.
  *
- * Șase coloane, și fiecare celulă are voie la cel mult două rânduri: cifra care
- * se compară deasupra, contextul ei dedesubt, mic și șters. De aceea „săptămâna
- * asta" stă sub termenul următor, nu într-o coloană proprie, iar „la client"
- * stă sub „la noi" — sunt lămuriri, nu coloane de sortat.
+ * Fiecare celulă are voie la cel mult două rânduri: cifra care se compară
+ * deasupra, lămurirea ei dedesubt, mică și ștearsă. De aceea „săptămâna asta" și
+ * „neplanificate" stau sub termenul următor, iar „la client" sub „la noi".
  *
  * Rândul se desface, ca ecranul să nu fie o fundătură: numărul „3 depășite"
  * spune că e o problemă, dar nu care e. Desfășurat, arată chiar elementele, cu
- * responsabil și link direct — fără altă cerere, fiindcă termenele sunt deja
- * descărcate ca să poată fi numărate.
+ * responsabil și link direct — fără altă cerere.
  *
  * Stadiul de proiect nu apare aici în nicio formă: e ascuns din toată interfața,
  * iar cele două coloane care l-ar putea alimenta — `current_status_id` și
  * `status` — nu sunt întreținute de nimic după importul șablonului.
  *
- * Nu modifică nimic. O singură cerere, la `/api/calendar`; agregarea e în
- * `lib/calendar.ts`, ca numerele de aici și cele din calendar să nu poată devia.
+ * Nu modifică nimic; agregarea e în `lib/calendar.ts`.
  */
 function ProjectDashboardContent() {
   const router = useRouter()
@@ -143,8 +171,8 @@ function ProjectDashboardContent() {
 
   // ─── Stare în URL ───────────────────────────────────────────────────────────
   //
-  // Sortarea, căutarea și comutatorul trăiesc în URL, ca o vedere să se poată
-  // trimite mai departe ca link. Optimismul de mai jos e cel din
+  // Vederea, sortarea, căutarea și comutatorul trăiesc în URL, ca o vedere să se
+  // poată trimite mai departe ca link. Optimismul de mai jos e cel din
   // `CalendarSurface`: ce scriem se vede pe loc, dar cade de îndată ce URL-ul
   // ajunge altundeva (Back, un link deschis în pagină), ca să nu rămână controale
   // care arată altceva decât spune adresa.
@@ -176,29 +204,20 @@ function ProjectDashboardContent() {
     [params, query, pathname, router]
   )
 
-  const sort = useMemo(() => readProjectSort(params), [params])
+  const view = useMemo(() => readDashboardView(params), [params])
+  const projectSort = useMemo(() => readProjectSort(params), [params])
+  const personSort = useMemo(() => readPersonSort(params), [params])
   const showEnded = useMemo(() => readShowEnded(params), [params])
   const search = useMemo(() => readSearch(params), [params])
 
-  // ─── Derivate ───────────────────────────────────────────────────────────────
-
-  const allRows = useMemo(() => (payload ? buildProjectDashboardRows(payload) : []), [payload])
-  const endedCount = useMemo(() => allRows.filter(row => !row.active).length, [allRows])
-  const inScope = useMemo(
-    () => (showEnded ? allRows : allRows.filter(row => row.active)),
-    [allRows, showEnded]
-  )
-  // Ce s-a tastat, ținut local; URL-ul primește valoarea puțin mai târziu.
+  // ─── Căutarea ───────────────────────────────────────────────────────────────
   //
+  // Ce s-a tastat, ținut local; URL-ul primește valoarea puțin mai târziu.
   // Legat direct la URL, câmpul nu putea primi spațiu: `writeSearch` taie
-  // capetele, deci adresa rămânea „femeia" cât utilizatorul scria „femeia a",
-  // iar câmpul controlat îi ștergea spațiul înapoi la fiecare tastă. Căutarea
-  // din două cuvinte era imposibil de scris. Tot de aici veneau și revenirile
-  // de o clipă la un caracter mai vechi, când tastarea o lua înaintea rutei.
+  // capetele, deci adresa rămânea „femeia" cât utilizatorul scria „femeia a", iar
+  // câmpul controlat îi ștergea spațiul înapoi la fiecare tastă.
   const [draft, setDraft] = useState(search)
 
-  // Adresa rămâne sursa de adevăr: Back, un link deschis în pagină sau golirea
-  // căutării din altă parte se văd în câmp.
   useEffect(() => { setDraft(search) }, [search])
 
   useEffect(() => {
@@ -207,17 +226,41 @@ function ProjectDashboardContent() {
     return () => clearTimeout(timer)
   }, [draft, search, syncUrl])
 
-  // Tabelul urmează tastarea, nu URL-ul: filtrarea e locală și gratuită, iar o
-  // pauză de un sfert de secundă între tastă și rânduri s-ar fi simțit ca lag.
-  const rows = useMemo(
-    () => sortProjectRows(filterProjectRows(inScope, draft), sort.sort, sort.direction),
-    [inScope, draft, sort]
+  // ─── Derivate ───────────────────────────────────────────────────────────────
+
+  const allProjects = useMemo(() => (payload ? buildProjectDashboardRows(payload) : []), [payload])
+  const endedCount = useMemo(() => allProjects.filter(row => !row.active).length, [allProjects])
+  const inScope = useMemo(
+    () => (showEnded ? allProjects : allProjects.filter(row => row.active)),
+    [allProjects, showEnded]
   )
-  const summary = useMemo(() => summarizeProjectRows(rows), [rows])
+
+  const projectRows = useMemo(
+    () => sortProjectRows(filterProjectRows(inScope, draft), projectSort.sort, projectSort.direction),
+    [inScope, draft, projectSort]
+  )
+
+  // Oamenii se strâng peste exact proiectele vizibile alături: cu comutatorul
+  // oprit, cele două tabele n-au voie să descrie mulțimi diferite.
+  const allPeople = useMemo(
+    () => (payload ? buildPersonDashboardRows(payload, new Set(inScope.map(row => row.id))) : []),
+    [payload, inScope]
+  )
+  const personRows = useMemo(
+    () => sortPersonRows(filterPersonRows(allPeople, draft), personSort.sort, personSort.direction),
+    [allPeople, draft, personSort]
+  )
+
+  const visibleCount = view === 'projects' ? projectRows.length : personRows.length
+  const scopeCount = view === 'projects' ? inScope.length : allPeople.length
+  const summary = useMemo(
+    () => summarizeRows(view === 'projects' ? projectRows : personRows),
+    [view, projectRows, personRows]
+  )
 
   // Caseta de căutare apare doar peste prag — sau când tot ea e cea care a redus
   // tabelul, altfel ar dispărea odată cu rândurile pe care le-a filtrat.
-  const showSearch = inScope.length > SEARCH_THRESHOLD || draft.length > 0
+  const showSearch = scopeCount > SEARCH_THRESHOLD || draft.length > 0
 
   const [open, setOpen] = useState<Set<string>>(new Set())
   const toggle = useCallback((id: string) => {
@@ -227,6 +270,18 @@ function ProjectDashboardContent() {
       return next
     })
   }, [])
+
+  const switchView = useCallback(
+    (next: DashboardView) => {
+      if (next === view) return
+      // Căutarea se golește la comutare: „achizitie" scris peste proiecte n-ar
+      // găsi niciun om, iar celălalt tabel s-ar deschide gol fără motiv vizibil.
+      setDraft('')
+      setOpen(new Set())
+      syncUrl(params => { writeDashboardView(params, next); writeSearch(params, '') })
+    },
+    [view, syncUrl]
+  )
 
   // ─── Randare ────────────────────────────────────────────────────────────────
 
@@ -240,6 +295,8 @@ function ProjectDashboardContent() {
       </div>
     )
   }
+
+  const ready = !loading && !error
 
   return (
     // `project-scope` aduce paleta `--p-*`, ca ecranul să arate ca restul
@@ -256,15 +313,19 @@ function ProjectDashboardContent() {
             <h1 className="font-display text-lg font-semibold text-[var(--p-ink)]">Tablou de bord</h1>
             {/* Rezumatul ține loc de subtitlu: aceleași cifre, în locul unei
                 propoziții care ar fi repetat numele coloanelor. */}
-            {!loading && !error && <SummaryLine summary={summary} />}
+            {ready && <SummaryLine summary={summary} view={view} />}
           </div>
         </div>
 
-        {!loading && !error && (
+        {ready && (
           <div className="flex flex-wrap items-center gap-4">
+            <ViewSwitch view={view} onSwitch={switchView} />
+
             {showSearch && (
               <label className="relative">
-                <span className="sr-only">Caută după proiect sau client</span>
+                <span className="sr-only">
+                  {view === 'projects' ? 'Caută după proiect sau client' : 'Caută după nume'}
+                </span>
                 <Search
                   className="pointer-events-none absolute left-0 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--p-ink-faint)]"
                   aria-hidden
@@ -317,84 +378,69 @@ function ProjectDashboardContent() {
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
           Se încarcă proiectele...
         </div>
-      ) : rows.length === 0 ? (
-        draft ? (
-          <EmptyState
-            title="Niciun proiect găsit"
-            description={`Nimic nu se potrivește cu „${draft}”, nici în titlu, nici la client.`}
-            action={
-              <button
-                type="button"
-                onClick={() => setDraft('')}
-                className="text-sm font-medium text-[var(--p-accent)] underline underline-offset-2"
-              >
-                Șterge căutarea
-              </button>
-            }
+      ) : visibleCount === 0 ? (
+        <EmptyView
+          view={view}
+          search={draft}
+          hasProjects={allProjects.length > 0}
+          onClearSearch={() => setDraft('')}
+        />
+      ) : view === 'projects' ? (
+        <TableFrame minWidth={860}>
+          <SortHeader
+            columns={PROJECT_COLUMNS}
+            sort={projectSort}
+            onSort={column => syncUrl(next => writeProjectSort(next, nextProjectSort(projectSort, column)))}
           />
-        ) : (
-          <EmptyState
-            title={allRows.length === 0 ? 'Niciun proiect' : 'Niciun proiect în lucru'}
-            description={
-              allRows.length === 0
-                ? 'Aici apar toate proiectele din platformă, de îndată ce se creează primul.'
-                : 'Toate proiectele sunt încheiate. Pornește comutatorul de mai sus ca să le vezi.'
-            }
-          />
-        )
+          <tbody>
+            {projectRows.map(row => (
+              <ProjectRow key={row.id} row={row} open={open.has(row.id)} onToggle={() => toggle(row.id)} />
+            ))}
+          </tbody>
+        </TableFrame>
       ) : (
-        <div className="-mx-2 overflow-x-auto px-2">
-          <table className="w-full min-w-[860px] border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-[var(--p-border)]">
-                {COLUMNS.map(column => {
-                  const active = sort.sort === column.key
-                  const Icon = !active ? ChevronsUpDown : sort.direction === 'asc' ? ArrowUp : ArrowDown
-                  return (
-                    <th
-                      key={column.key}
-                      scope="col"
-                      aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-                      className={`px-3 pb-2 font-normal ${column.numeric ? 'text-right' : 'text-left'}`}
-                    >
-                      <button
-                        type="button"
-                        title={column.hint}
-                        onClick={() => syncUrl(next => writeProjectSort(next, nextProjectSort(sort, column.key)))}
-                        className={`group inline-flex items-center gap-1 text-[11px] uppercase tracking-[0.08em] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)] ${
-                          active
-                            ? 'font-semibold text-[var(--p-ink)]'
-                            : 'text-[var(--p-ink-faint)] hover:text-[var(--p-ink-soft)]'
-                        }`}
-                      >
-                        {column.label}
-                        {/* Săgeata de sortare apare la nevoie: șase iconițe
-                            permanente ar fi fost cel mai zgomotos lucru din tabel. */}
-                        <Icon
-                          className={`h-3 w-3 transition-opacity ${
-                            active ? 'opacity-100' : 'opacity-0 group-hover:opacity-60 group-focus-visible:opacity-60'
-                          }`}
-                          aria-hidden
-                        />
-                      </button>
-                    </th>
-                  )
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(row => (
-                <ProjectRow
-                  key={row.id}
-                  row={row}
-                  open={open.has(row.id)}
-                  onToggle={() => toggle(row.id)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <TableFrame minWidth={720}>
+          <SortHeader
+            columns={PERSON_COLUMNS}
+            sort={personSort}
+            onSort={column => syncUrl(next => writePersonSort(next, nextPersonSort(personSort, column)))}
+          />
+          <tbody>
+            {personRows.map(row => (
+              <PersonRow key={row.id} row={row} open={open.has(row.id)} onToggle={() => toggle(row.id)} />
+            ))}
+          </tbody>
+        </TableFrame>
       )}
+    </div>
+  )
+}
+
+// ─── Controale ────────────────────────────────────────────────────────────────
+
+function ViewSwitch({ view, onSwitch }: { view: DashboardView; onSwitch: (view: DashboardView) => void }) {
+  const options: { key: DashboardView; label: string }[] = [
+    { key: 'projects', label: 'Proiecte' },
+    { key: 'people', label: 'Oameni' },
+  ]
+
+  return (
+    <div className="inline-flex rounded-lg border border-[var(--p-border)] p-0.5">
+      {options.map(option => (
+        <button
+          key={option.key}
+          type="button"
+          onClick={() => onSwitch(option.key)}
+          aria-pressed={view === option.key}
+          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)] ${
+            view === option.key
+              ? 'bg-[var(--p-accent-soft)] text-[var(--p-accent)]'
+              : 'text-[var(--p-ink-soft)] hover:text-[var(--p-ink)]'
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
     </div>
   )
 }
@@ -404,16 +450,20 @@ function ProjectDashboardContent() {
  * mari: Home are deja indicatorii lui, iar două seturi ar începe să se
  * contrazică. Culoare doar pe depășiri — restul e text.
  */
-function SummaryLine({ summary }: { summary: DashboardSummary }) {
+function SummaryLine({ summary, view }: { summary: DashboardSummary; view: DashboardView }) {
+  const subject = view === 'projects'
+    ? countLabel(summary.rows, 'proiect', 'proiecte')
+    : countLabel(summary.rows, 'om', 'oameni')
+
   const pieces: { text: string; danger?: boolean }[] = [
-    { text: countLabel(summary.projects, 'proiect', 'proiecte') },
+    { text: subject },
     summary.overdue > 0
       ? {
-          text: `${countLabel(summary.overdue, 'depășit', 'depășite')} în ${countLabel(
-            summary.projectsWithOverdue,
-            'proiect',
-            'proiecte'
-          )}`,
+          text: `${countLabel(summary.overdue, 'depășit', 'depășite')} în ${
+            view === 'projects'
+              ? countLabel(summary.rowsWithOverdue, 'proiect', 'proiecte')
+              : countLabel(summary.rowsWithOverdue, 'om', 'oameni')
+          }`,
           danger: true,
         }
       : { text: 'niciun termen depășit' },
@@ -433,14 +483,174 @@ function SummaryLine({ summary }: { summary: DashboardSummary }) {
   )
 }
 
+function TableFrame({ minWidth, children }: { minWidth: number; children: React.ReactNode }) {
+  return (
+    <div className="-mx-2 overflow-x-auto px-2">
+      <table className="w-full border-collapse text-sm" style={{ minWidth }}>
+        {children}
+      </table>
+    </div>
+  )
+}
+
+function SortHeader<K extends string>({
+  columns,
+  sort,
+  onSort,
+}: {
+  columns: Column<K>[]
+  sort: { sort: 'urgency' | K; direction: SortDirection }
+  onSort: (column: K) => void
+}) {
+  return (
+    <thead>
+      <tr className="border-b border-[var(--p-border)]">
+        {columns.map(column => {
+          const active = sort.sort === column.key
+          const Icon = !active ? ChevronsUpDown : sort.direction === 'asc' ? ArrowUp : ArrowDown
+          return (
+            <th
+              key={column.key}
+              scope="col"
+              aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+              className={`px-3 pb-2 font-normal ${column.numeric ? 'text-right' : 'text-left'}`}
+            >
+              <button
+                type="button"
+                title={column.hint}
+                onClick={() => onSort(column.key)}
+                className={`group inline-flex items-center gap-1 text-[11px] uppercase tracking-[0.08em] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)] ${
+                  active
+                    ? 'font-semibold text-[var(--p-ink)]'
+                    : 'text-[var(--p-ink-faint)] hover:text-[var(--p-ink-soft)]'
+                }`}
+              >
+                {column.label}
+                {/* Săgeata de sortare apare la nevoie: șase iconițe permanente
+                    ar fi fost cel mai zgomotos lucru din tabel. */}
+                <Icon
+                  className={`h-3 w-3 transition-opacity ${
+                    active ? 'opacity-100' : 'opacity-0 group-hover:opacity-60 group-focus-visible:opacity-60'
+                  }`}
+                  aria-hidden
+                />
+              </button>
+            </th>
+          )
+        })}
+      </tr>
+    </thead>
+  )
+}
+
+// ─── Celule împărțite între cele două tabele ──────────────────────────────────
+
+const FAINT = 'text-[var(--p-ink-faint)]'
+/** Al doilea rând al unei celule: lămurirea cifrei de deasupra. */
+const NOTE = `block text-[11px] leading-tight ${FAINT}`
+
 /** „de o zi", „de 12 zile", „de 21 de zile" — vechimea de sub numărul roșu. */
 function overdueAge(days: number): string {
   return days === 1 ? 'de o zi' : `de ${countLabel(days, 'zi', 'zile')}`
 }
 
-const FAINT = 'text-[var(--p-ink-faint)]'
-/** Al doilea rând al unei celule: lămurirea cifrei de deasupra. */
-const NOTE = `block text-[11px] leading-tight ${FAINT}`
+function WaitingCell({ row }: { row: DashboardTotals }) {
+  if (row.waiting_us + row.waiting_client === 0) {
+    return <td className="px-3 py-3 text-right"><span className={FAINT}>—</span></td>
+  }
+  return (
+    <td className="px-3 py-3 text-right">
+      <span className="tabular-nums">
+        <span className={row.waiting_us > 0 ? 'font-semibold text-[var(--p-ink)]' : FAINT}>
+          {row.waiting_us}
+        </span>
+        <span className={`ml-1 text-[11px] ${FAINT}`}>{WAITING_LABELS.us}</span>
+      </span>
+      {row.waiting_client > 0 && (
+        <span className={`${NOTE} tabular-nums`}>
+          {row.waiting_client} {WAITING_LABELS.client}
+        </span>
+      )}
+    </td>
+  )
+}
+
+function DeadlineCell({ row }: { row: DashboardTotals }) {
+  const relative = formatRelativeDeadline(row.next_deadline)
+
+  // „Mâine" e deja pe rândul de deasupra; al doilea termen din aceeași
+  // săptămână e cel care schimbă imaginea, deci numărul apare de la două în sus.
+  const weekNote = row.due_soon > 1 ? `${row.due_soon} săptămâna asta` : null
+
+  // Cât din munca rămasă nu e prinsă de nicio dată. Fără el, celula de deasupra
+  // spune „20 aug." și lasă impresia unui rând planificat, când termenul acela
+  // poate fi singurul din cincizeci de elemente.
+  const undatedNote = row.undated > 0 ? countLabel(row.undated, 'neplanificat', 'neplanificate') : null
+
+  return (
+    <td className="px-3 py-3">
+      {row.next_deadline === null ? (
+        <>
+          <span className={FAINT}>Fără termen</span>
+          {undatedNote && <span className={NOTE}>{undatedNote}</span>}
+        </>
+      ) : (
+        <>
+          <span className="text-[var(--p-ink)]">{formatShortDate(row.next_deadline)}</span>
+          {[relative, weekNote, undatedNote].filter(Boolean).length > 0 && (
+            <span className={NOTE}>{[relative, weekNote, undatedNote].filter(Boolean).join(' · ')}</span>
+          )}
+        </>
+      )}
+    </td>
+  )
+}
+
+function OverdueCell({ row }: { row: DashboardTotals }) {
+  return (
+    <td className="px-3 py-3 text-right">
+      {row.overdue === 0 ? (
+        <span className={FAINT}>—</span>
+      ) : (
+        <>
+          <span className="font-semibold tabular-nums text-[var(--p-danger)]">{row.overdue}</span>
+          {row.oldest_overdue_days !== null && (
+            <span className={NOTE}>{overdueAge(row.oldest_overdue_days)}</span>
+          )}
+        </>
+      )}
+    </td>
+  )
+}
+
+function ExpandButton({
+  open,
+  onToggle,
+  detailsId,
+  label,
+}: {
+  open: boolean
+  onToggle: () => void
+  detailsId: string
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={event => { event.stopPropagation(); onToggle() }}
+      aria-expanded={open}
+      // Doar cât rândul chiar există: `aria-controls` către un id absent e o
+      // referință ruptă pentru cititoarele de ecran.
+      aria-controls={open ? detailsId : undefined}
+      aria-label={`${open ? 'Ascunde' : 'Arată'} termenele — ${label}`}
+      className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded transition-colors hover:text-[var(--p-ink)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)] ${FAINT}`}
+    >
+      <ChevronRight className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden />
+    </button>
+  )
+}
+
+// ─── Rândul de proiect ────────────────────────────────────────────────────────
 
 function ProjectRow({
   row,
@@ -451,20 +661,7 @@ function ProjectRow({
   open: boolean
   onToggle: () => void
 }) {
-  const relative = formatRelativeDeadline(row.next_deadline)
   const detailsId = `detalii-${row.id}`
-
-  // „Mâine" e deja pe rândul de deasupra; al doilea termen din aceeași
-  // săptămână e cel care schimbă imaginea, deci numărul apare de la două în sus.
-  const weekNote = row.due_soon > 1 ? `${row.due_soon} săptămâna asta` : null
-
-  // Cât din munca rămasă nu e prinsă de nicio dată. Fără el, celula de deasupra
-  // spune „20 aug." și lasă impresia unui proiect planificat, când termenul acela
-  // poate fi singurul din cincizeci de elemente.
-  const undatedNote =
-    row.undated > 0 ? `${countLabel(row.undated, 'neplanificat', 'neplanificate')}` : null
-
-  const deadlineNote = [relative, weekNote, undatedNote].filter(Boolean).join(' · ')
 
   return (
     <Fragment>
@@ -479,18 +676,7 @@ function ProjectRow({
       >
         <td className="py-3 pl-1 pr-3">
           <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={event => { event.stopPropagation(); onToggle() }}
-              aria-expanded={open}
-              // Doar cât rândul chiar există: `aria-controls` către un id
-              // absent e o referință ruptă pentru cititoarele de ecran.
-              aria-controls={open ? detailsId : undefined}
-              aria-label={`${open ? 'Ascunde' : 'Arată'} termenele proiectului ${row.title}`}
-              className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded transition-colors hover:text-[var(--p-ink)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)] ${FAINT}`}
-            >
-              <ChevronRight className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden />
-            </button>
+            <ExpandButton open={open} onToggle={onToggle} detailsId={detailsId} label={row.label} />
 
             <Link
               href={`/projects/${row.id}`}
@@ -499,7 +685,7 @@ function ProjectRow({
               onClick={event => event.stopPropagation()}
               className="font-medium text-[var(--p-ink)] underline-offset-4 hover:underline"
             >
-              {row.title}
+              {row.label}
             </Link>
 
             {!row.active && (
@@ -541,58 +727,29 @@ function ProjectRow({
           )}
         </td>
 
-        <td className="px-3 py-3 text-right">
-          {row.waiting_us + row.waiting_client === 0 ? (
-            <span className={FAINT}>—</span>
-          ) : (
-            <>
-              <span className="tabular-nums">
-                <span className={row.waiting_us > 0 ? 'font-semibold text-[var(--p-ink)]' : FAINT}>
-                  {row.waiting_us}
-                </span>
-                <span className={`ml-1 text-[11px] ${FAINT}`}>{WAITING_LABELS.us}</span>
-              </span>
-              {row.waiting_client > 0 && (
-                <span className={`${NOTE} tabular-nums`}>
-                  {row.waiting_client} {WAITING_LABELS.client}
-                </span>
-              )}
-            </>
-          )}
-        </td>
-
-        <td className="px-3 py-3">
-          {row.next_deadline === null ? (
-            <>
-              <span className={FAINT}>Fără termen</span>
-              {undatedNote && <span className={NOTE}>{undatedNote}</span>}
-            </>
-          ) : (
-            <>
-              <span className="text-[var(--p-ink)]">{formatShortDate(row.next_deadline)}</span>
-              {deadlineNote && <span className={NOTE}>{deadlineNote}</span>}
-            </>
-          )}
-        </td>
-
-        <td className="px-3 py-3 text-right">
-          {row.overdue === 0 ? (
-            <span className={FAINT}>—</span>
-          ) : (
-            <>
-              <span className="font-semibold tabular-nums text-[var(--p-danger)]">{row.overdue}</span>
-              {row.oldest_overdue_days !== null && (
-                <span className={NOTE}>{overdueAge(row.oldest_overdue_days)}</span>
-              )}
-            </>
-          )}
-        </td>
+        <WaitingCell row={row} />
+        <DeadlineCell row={row} />
+        <OverdueCell row={row} />
       </tr>
 
       {open && (
         <tr id={detailsId} className="border-b border-[var(--p-border)] bg-[var(--p-surface-2)]">
-          <td colSpan={COLUMNS.length} className="px-3 pb-5 pt-1">
-            <ProjectDetails row={row} />
+          <td colSpan={PROJECT_COLUMNS.length} className="px-3 pb-5 pt-1">
+            <DetailPanel
+              row={row}
+              overdueHref={projectCalendarHref(row.id, { overdueOnly: true })}
+              upcomingHref={projectCalendarHref(row.id)}
+              links={
+                <>
+                  <Link href={`/projects/${row.id}`} className="text-[var(--p-accent)] hover:underline">
+                    Deschide proiectul
+                  </Link>
+                  <Link href={projectCalendarHref(row.id)} className="text-[var(--p-accent)] hover:underline">
+                    Vezi în calendar
+                  </Link>
+                </>
+              }
+            />
           </td>
         </tr>
       )}
@@ -600,12 +757,96 @@ function ProjectRow({
   )
 }
 
+// ─── Rândul de om ─────────────────────────────────────────────────────────────
+
+function PersonRow({
+  row,
+  open,
+  onToggle,
+}: {
+  row: PersonDashboardRow
+  open: boolean
+  onToggle: () => void
+}) {
+  const detailsId = `detalii-${row.id}`
+
+  return (
+    <Fragment>
+      <tr
+        onClick={onToggle}
+        className={`cursor-pointer border-b border-[var(--p-border)] transition-colors hover:bg-[var(--p-surface-2)] ${
+          open ? 'bg-[var(--p-surface-2)]' : ''
+        }`}
+      >
+        <td className="py-3 pl-1 pr-3">
+          <div className="flex items-center gap-1.5">
+            <ExpandButton open={open} onToggle={onToggle} detailsId={detailsId} label={row.label} />
+
+            {/* Munca fără nimeni în spate nu se ascunde și nu se scoate la
+                sfârșit: e un rând ca oricare, fiindcă azi e cel mai încărcat
+                dintre toate. */}
+            {row.assigned ? (
+              <span className="font-medium text-[var(--p-ink)]">{row.label}</span>
+            ) : (
+              <span className={`flex items-center gap-1.5 ${FAINT}`}>
+                <UserX className="h-3.5 w-3.5" aria-hidden />
+                {row.label}
+              </span>
+            )}
+          </div>
+        </td>
+
+        <td className="px-3 py-3 text-right tabular-nums text-[var(--p-ink-soft)]">
+          {row.projects}
+          <span className={NOTE}>{countLabel(row.total, 'element', 'elemente')}</span>
+        </td>
+
+        <WaitingCell row={row} />
+        <DeadlineCell row={row} />
+        <OverdueCell row={row} />
+      </tr>
+
+      {open && (
+        <tr id={detailsId} className="border-b border-[var(--p-border)] bg-[var(--p-surface-2)]">
+          <td colSpan={PERSON_COLUMNS.length} className="px-3 pb-5 pt-1">
+            <DetailPanel
+              row={row}
+              withProject
+              overdueHref={personCalendarHref(row.id, { overdueOnly: true })}
+              upcomingHref={personCalendarHref(row.id)}
+              links={
+                <Link href={personCalendarHref(row.id)} className="text-[var(--p-accent)] hover:underline">
+                  Vezi în calendar
+                </Link>
+              }
+            />
+          </td>
+        </tr>
+      )}
+    </Fragment>
+  )
+}
+
+// ─── Rândul desfășurat ────────────────────────────────────────────────────────
+
 /**
- * Rândul desfășurat: chiar elementele din spatele numerelor, cu responsabil și
- * link direct. Nicio cerere nouă — termenele sunt deja în memorie, aduse ca să
- * poată fi numărate.
+ * Chiar elementele din spatele numerelor, cu responsabil și link direct. Nicio
+ * cerere nouă — termenele sunt deja în memorie, aduse ca să poată fi numărate.
  */
-function ProjectDetails({ row }: { row: ProjectDashboardRow }) {
+function DetailPanel({
+  row,
+  withProject = false,
+  overdueHref,
+  upcomingHref,
+  links,
+}: {
+  row: DashboardTotals
+  /** Termenele unui om vin din mai multe proiecte, deci proiectul trebuie scris. */
+  withProject?: boolean
+  overdueHref: string
+  upcomingHref: string
+  links: React.ReactNode
+}) {
   return (
     <div className="space-y-4">
       <div className="grid gap-x-8 gap-y-4 lg:grid-cols-2">
@@ -614,13 +855,15 @@ function ProjectDetails({ row }: { row: ProjectDashboardRow }) {
           events={row.overdue_events}
           tone="danger"
           empty="Niciun termen depășit."
-          moreHref={projectCalendarHref(row.id, { overdueOnly: true })}
+          moreHref={overdueHref}
+          withProject={withProject}
         />
         <DetailList
           title="Urmează"
           events={row.upcoming_events}
           empty="Niciun termen viitor."
-          moreHref={projectCalendarHref(row.id)}
+          moreHref={upcomingHref}
+          withProject={withProject}
         />
       </div>
 
@@ -639,14 +882,7 @@ function ProjectDetails({ row }: { row: ProjectDashboardRow }) {
           )}
         </p>
 
-        <span className="flex flex-wrap items-center gap-5">
-          <Link href={`/projects/${row.id}`} className="text-[var(--p-accent)] hover:underline">
-            Deschide proiectul
-          </Link>
-          <Link href={projectCalendarHref(row.id)} className="text-[var(--p-accent)] hover:underline">
-            Vezi în calendar
-          </Link>
-        </span>
+        <span className="flex flex-wrap items-center gap-5">{links}</span>
       </div>
     </div>
   )
@@ -658,12 +894,14 @@ function DetailList({
   empty,
   moreHref,
   tone,
+  withProject,
 }: {
   title: string
   events: CalendarEvent[]
   empty: string
   moreHref: string
   tone?: 'danger'
+  withProject?: boolean
 }) {
   const shown = events.slice(0, DETAIL_LIMIT)
   const rest = events.length - shown.length
@@ -680,13 +918,16 @@ function DetailList({
       ) : (
         <>
           {/* Același rând ca în lista de termene a calendarului, nu o copie a
-              lui: aceleași culori, aceleași etichete, același link. */}
+              lui: aceleași culori, aceleași etichete, același link. Fără pastila
+              de stare — antetul listei o spune deja o dată. */}
           <ul className="divide-y divide-[var(--p-border)] overflow-hidden rounded-lg bg-[var(--p-surface)]">
             {shown.map(event => (
-              // Fără pastila de stare: în „Depășite" ar fi scris „Depășit" pe
-              // fiecare rând, iar în „Urmează", „În lucru" — antetul listei o
-              // spune deja o singură dată.
-              <EventRow key={`${event.kind}-${event.id}`} event={event} withProgress={false} />
+              <EventRow
+                key={`${event.kind}-${event.id}`}
+                event={event}
+                withProject={withProject}
+                withProgress={false}
+              />
             ))}
           </ul>
 
@@ -702,6 +943,62 @@ function DetailList({
         </>
       )}
     </section>
+  )
+}
+
+// ─── Stări goale ──────────────────────────────────────────────────────────────
+
+function EmptyView({
+  view,
+  search,
+  hasProjects,
+  onClearSearch,
+}: {
+  view: DashboardView
+  search: string
+  hasProjects: boolean
+  onClearSearch: () => void
+}) {
+  if (search) {
+    return (
+      <EmptyState
+        title={view === 'projects' ? 'Niciun proiect găsit' : 'Niciun om găsit'}
+        description={
+          view === 'projects'
+            ? `Nimic nu se potrivește cu „${search}”, nici în titlu, nici la client.`
+            : `Niciun nume nu se potrivește cu „${search}”.`
+        }
+        action={
+          <button
+            type="button"
+            onClick={onClearSearch}
+            className="text-sm font-medium text-[var(--p-accent)] underline underline-offset-2"
+          >
+            Șterge căutarea
+          </button>
+        }
+      />
+    )
+  }
+
+  if (view === 'people') {
+    return (
+      <EmptyState
+        title="Nimeni n-are muncă"
+        description="Aici apare fiecare om cu termenele lui, de îndată ce există elemente în proiectele vizibile."
+      />
+    )
+  }
+
+  return (
+    <EmptyState
+      title={hasProjects ? 'Niciun proiect în lucru' : 'Niciun proiect'}
+      description={
+        hasProjects
+          ? 'Toate proiectele sunt încheiate. Pornește comutatorul de mai sus ca să le vezi.'
+          : 'Aici apar toate proiectele din platformă, de îndată ce se creează primul.'
+      }
+    />
   )
 }
 
