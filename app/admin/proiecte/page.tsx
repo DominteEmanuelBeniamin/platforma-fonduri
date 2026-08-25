@@ -63,6 +63,12 @@ interface Column<K extends string> {
   label: string
   numeric?: boolean
   hint?: string
+  /**
+   * Coloana care absoarbe lățimea rămasă. Fără ea, un tabel de cinci coloane pe
+   * un ecran lat își împrăștie cifrele până la marginile lui, iar rândul devine
+   * imposibil de citit dintr-o privire. Restul coloanelor se strâng pe conținut.
+   */
+  grow?: boolean
 }
 
 const DEADLINE_HINT =
@@ -72,7 +78,7 @@ const WAITING_HINT =
 const OVERDUE_HINT = 'Termene trecute, pe elemente nefinalizate'
 
 const PROJECT_COLUMNS: Column<ProjectColumnKey>[] = [
-  { key: 'project', label: 'Proiect' },
+  { key: 'project', label: 'Proiect', grow: true },
   { key: 'client', label: 'Client' },
   { key: 'done', label: 'Finalizate', numeric: true, hint: 'Activități încheiate și documente aprobate, din total' },
   { key: 'waiting', label: 'De rezolvat', numeric: true, hint: WAITING_HINT },
@@ -81,7 +87,7 @@ const PROJECT_COLUMNS: Column<ProjectColumnKey>[] = [
 ]
 
 const PERSON_COLUMNS: Column<PersonColumnKey>[] = [
-  { key: 'person', label: 'Om' },
+  { key: 'person', label: 'Om', grow: true },
   { key: 'projects', label: 'Proiecte', numeric: true, hint: 'În câte proiecte are de lucru' },
   { key: 'waiting', label: 'De rezolvat', numeric: true, hint: WAITING_HINT },
   { key: 'deadline', label: 'Următorul termen', hint: DEADLINE_HINT },
@@ -327,15 +333,15 @@ function ProjectDashboardContent() {
                   {view === 'projects' ? 'Caută după proiect sau client' : 'Caută după nume'}
                 </span>
                 <Search
-                  className="pointer-events-none absolute left-0 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--p-ink-faint)]"
+                  className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--p-ink-faint)]"
                   aria-hidden
                 />
                 <input
                   type="search"
                   value={draft}
                   onChange={event => setDraft(event.target.value)}
-                  placeholder="Caută"
-                  className="w-40 border-0 border-b border-[var(--p-border)] bg-transparent py-1 pl-6 text-sm text-[var(--p-ink)] placeholder:text-[var(--p-ink-faint)] focus:border-[var(--p-accent)] focus:outline-none focus:ring-0"
+                  placeholder={view === 'projects' ? 'Caută proiect' : 'Caută nume'}
+                  className="h-8 w-44 rounded-xl border border-[var(--p-border)] bg-[var(--p-surface)] pl-8 pr-2.5 text-sm text-[var(--p-ink)] placeholder:text-[var(--p-ink-faint)] focus:border-[var(--p-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--p-accent-soft)]"
                 />
               </label>
             )}
@@ -386,7 +392,7 @@ function ProjectDashboardContent() {
           onClearSearch={() => setDraft('')}
         />
       ) : view === 'projects' ? (
-        <TableFrame minWidth={860}>
+        <TableFrame minWidth={800}>
           <SortHeader
             columns={PROJECT_COLUMNS}
             sort={projectSort}
@@ -399,7 +405,7 @@ function ProjectDashboardContent() {
           </tbody>
         </TableFrame>
       ) : (
-        <TableFrame minWidth={720}>
+        <TableFrame minWidth={640}>
           <SortHeader
             columns={PERSON_COLUMNS}
             sort={personSort}
@@ -425,14 +431,14 @@ function ViewSwitch({ view, onSwitch }: { view: DashboardView; onSwitch: (view: 
   ]
 
   return (
-    <div className="inline-flex rounded-lg border border-[var(--p-border)] p-0.5">
+    <div className="inline-flex rounded-xl border border-[var(--p-border)] bg-[var(--p-surface)] p-0.5">
       {options.map(option => (
         <button
           key={option.key}
           type="button"
           onClick={() => onSwitch(option.key)}
           aria-pressed={view === option.key}
-          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)] ${
+          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)] ${
             view === option.key
               ? 'bg-[var(--p-accent-soft)] text-[var(--p-accent)]'
               : 'text-[var(--p-ink-soft)] hover:text-[var(--p-ink)]'
@@ -483,12 +489,19 @@ function SummaryLine({ summary, view }: { summary: DashboardSummary; view: Dashb
   )
 }
 
+/**
+ * Rama tabelului: același card ca listele calendarului și ca panourile paginii
+ * de proiect. Fără ea, tabelul plutea direct pe fundalul paginii și arăta ca
+ * dintr-o altă aplicație decât restul ecranelor.
+ */
 function TableFrame({ minWidth, children }: { minWidth: number; children: React.ReactNode }) {
   return (
-    <div className="-mx-2 overflow-x-auto px-2">
-      <table className="w-full border-collapse text-sm" style={{ minWidth }}>
-        {children}
-      </table>
+    <div className="overflow-hidden rounded-xl border border-[var(--p-border)] bg-[var(--p-surface)]">
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-sm" style={{ minWidth }}>
+          {children}
+        </table>
+      </div>
     </div>
   )
 }
@@ -504,7 +517,7 @@ function SortHeader<K extends string>({
 }) {
   return (
     <thead>
-      <tr className="border-b border-[var(--p-border)]">
+      <tr className="border-b border-[var(--p-border)] bg-[var(--p-surface-2)]">
         {columns.map(column => {
           const active = sort.sort === column.key
           const Icon = !active ? ChevronsUpDown : sort.direction === 'asc' ? ArrowUp : ArrowDown
@@ -513,7 +526,9 @@ function SortHeader<K extends string>({
               key={column.key}
               scope="col"
               aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-              className={`px-3 pb-2 font-normal ${column.numeric ? 'text-right' : 'text-left'}`}
+              className={`px-4 py-2.5 font-normal ${column.numeric ? 'text-right' : 'text-left'} ${
+                column.grow ? 'w-full' : 'whitespace-nowrap'
+              }`}
             >
               <button
                 type="button"
@@ -556,10 +571,10 @@ function overdueAge(days: number): string {
 
 function WaitingCell({ row }: { row: DashboardTotals }) {
   if (row.waiting_us + row.waiting_client === 0) {
-    return <td className="px-3 py-3 text-right"><span className={FAINT}>—</span></td>
+    return <td className="px-4 py-3.5 text-right whitespace-nowrap"><span className={FAINT}>—</span></td>
   }
   return (
-    <td className="px-3 py-3 text-right">
+    <td className="px-4 py-3.5 text-right whitespace-nowrap">
       <span className="tabular-nums">
         <span className={row.waiting_us > 0 ? 'font-semibold text-[var(--p-ink)]' : FAINT}>
           {row.waiting_us}
@@ -588,7 +603,7 @@ function DeadlineCell({ row }: { row: DashboardTotals }) {
   const undatedNote = row.undated > 0 ? countLabel(row.undated, 'neplanificat', 'neplanificate') : null
 
   return (
-    <td className="px-3 py-3">
+    <td className="px-4 py-3.5 whitespace-nowrap">
       {row.next_deadline === null ? (
         <>
           <span className={FAINT}>Fără termen</span>
@@ -608,7 +623,7 @@ function DeadlineCell({ row }: { row: DashboardTotals }) {
 
 function OverdueCell({ row }: { row: DashboardTotals }) {
   return (
-    <td className="px-3 py-3 text-right">
+    <td className="px-4 py-3.5 text-right whitespace-nowrap">
       {row.overdue === 0 ? (
         <span className={FAINT}>—</span>
       ) : (
@@ -670,11 +685,11 @@ function ProjectRow({
           același clic, în funcție de unde nimerește. */}
       <tr
         onClick={onToggle}
-        className={`cursor-pointer border-b border-[var(--p-border)] transition-colors hover:bg-[var(--p-surface-2)] ${
+        className={`cursor-pointer border-b border-[var(--p-border)] transition-colors last:border-b-0 hover:bg-[var(--p-surface-2)] ${
           open ? 'bg-[var(--p-surface-2)]' : ''
         }`}
       >
-        <td className="py-3 pl-1 pr-3">
+        <td className="py-3.5 pl-4 pr-3">
           <div className="flex items-center gap-1.5">
             <ExpandButton open={open} onToggle={onToggle} detailsId={detailsId} label={row.label} />
 
@@ -710,12 +725,12 @@ function ProjectRow({
           </div>
         </td>
 
-        <td className="px-3 py-3 text-[var(--p-ink-soft)]">
+        <td className="px-4 py-3.5 text-[var(--p-ink-soft)]">
           {row.client_name ?? <span className={FAINT}>—</span>}
         </td>
 
         <td
-          className="px-3 py-3 text-right tabular-nums"
+          className="px-4 py-3.5 text-right tabular-nums whitespace-nowrap"
           title={`Activități ${row.activities.done}/${row.activities.total} · Documente ${row.requests.done}/${row.requests.total}`}
         >
           {row.total === 0 ? (
@@ -733,8 +748,8 @@ function ProjectRow({
       </tr>
 
       {open && (
-        <tr id={detailsId} className="border-b border-[var(--p-border)] bg-[var(--p-surface-2)]">
-          <td colSpan={PROJECT_COLUMNS.length} className="px-3 pb-5 pt-1">
+        <tr id={detailsId} className="border-b border-[var(--p-border)] bg-[var(--p-surface-2)] last:border-b-0">
+          <td colSpan={PROJECT_COLUMNS.length} className="px-4 pb-5 pt-1">
             <DetailPanel
               row={row}
               overdueHref={projectCalendarHref(row.id, { overdueOnly: true })}
@@ -774,11 +789,11 @@ function PersonRow({
     <Fragment>
       <tr
         onClick={onToggle}
-        className={`cursor-pointer border-b border-[var(--p-border)] transition-colors hover:bg-[var(--p-surface-2)] ${
+        className={`cursor-pointer border-b border-[var(--p-border)] transition-colors last:border-b-0 hover:bg-[var(--p-surface-2)] ${
           open ? 'bg-[var(--p-surface-2)]' : ''
         }`}
       >
-        <td className="py-3 pl-1 pr-3">
+        <td className="py-3.5 pl-4 pr-3">
           <div className="flex items-center gap-1.5">
             <ExpandButton open={open} onToggle={onToggle} detailsId={detailsId} label={row.label} />
 
@@ -796,7 +811,7 @@ function PersonRow({
           </div>
         </td>
 
-        <td className="px-3 py-3 text-right tabular-nums text-[var(--p-ink-soft)]">
+        <td className="px-4 py-3.5 text-right tabular-nums whitespace-nowrap text-[var(--p-ink-soft)]">
           {row.projects}
           <span className={NOTE}>{countLabel(row.total, 'element', 'elemente')}</span>
         </td>
@@ -807,8 +822,8 @@ function PersonRow({
       </tr>
 
       {open && (
-        <tr id={detailsId} className="border-b border-[var(--p-border)] bg-[var(--p-surface-2)]">
-          <td colSpan={PERSON_COLUMNS.length} className="px-3 pb-5 pt-1">
+        <tr id={detailsId} className="border-b border-[var(--p-border)] bg-[var(--p-surface-2)] last:border-b-0">
+          <td colSpan={PERSON_COLUMNS.length} className="px-4 pb-5 pt-1">
             <DetailPanel
               row={row}
               withProject
@@ -920,7 +935,7 @@ function DetailList({
           {/* Același rând ca în lista de termene a calendarului, nu o copie a
               lui: aceleași culori, aceleași etichete, același link. Fără pastila
               de stare — antetul listei o spune deja o dată. */}
-          <ul className="divide-y divide-[var(--p-border)] overflow-hidden rounded-lg bg-[var(--p-surface)]">
+          <ul className="divide-y divide-[var(--p-border)] overflow-hidden rounded-lg border border-[var(--p-border)] bg-[var(--p-surface)]">
             {shown.map(event => (
               <EventRow
                 key={`${event.kind}-${event.id}`}
@@ -1012,7 +1027,7 @@ function EmptyState({
   action?: React.ReactNode
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-[var(--p-border)] bg-[var(--p-surface)] px-6 py-16 text-center">
       <LayoutDashboard className="h-7 w-7 text-[var(--p-ink-faint)]" aria-hidden />
       <h3 className="font-display text-base font-medium text-[var(--p-ink)]">{title}</h3>
       <p className="max-w-sm text-sm text-[var(--p-ink-soft)]">{description}</p>
