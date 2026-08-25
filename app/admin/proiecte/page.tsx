@@ -69,7 +69,28 @@ interface Column<K extends string> {
    * imposibil de citit dintr-o privire. Restul coloanelor se strâng pe conținut.
    */
   grow?: boolean
+  /** Clasa de ascundere sub un anumit prag. Vezi `HIDE`. */
+  hide?: string
 }
+
+/**
+ * De la ce lățime în sus apare fiecare coloană secundară.
+ *
+ * Pe un telefon în picioare încap trei coloane: capul de rând, termenul următor
+ * și depășitele — adică „ce e" și „cât de rău e". Restul se adaugă pe măsură ce
+ * e loc. Până acum tabelul avea lățime minimă fixă și se derula lateral, deci
+ * coloana cu depășiri se vedea abia după ce trăgeai de el cu degetul.
+ *
+ * Aceleași clase se pun și pe antet, și pe celulă — de aceea stau aici, într-un
+ * loc: două praguri diferite ar fi decalat coloanele între ele.
+ */
+const HIDE = {
+  /** Clientul se citește oricum din titlul proiectului, în cele mai multe cazuri. */
+  client: 'hidden lg:table-cell',
+  done: 'hidden md:table-cell',
+  projects: 'hidden md:table-cell',
+  waiting: 'hidden sm:table-cell',
+} as const
 
 const DEADLINE_HINT =
   'Cel mai apropiat termen viitor; dedesubt, câte termene cad în 7 zile și câte elemente nefinalizate n-au niciunul'
@@ -79,17 +100,29 @@ const OVERDUE_HINT = 'Termene trecute, pe elemente nefinalizate'
 
 const PROJECT_COLUMNS: Column<ProjectColumnKey>[] = [
   { key: 'project', label: 'Proiect', grow: true },
-  { key: 'client', label: 'Client' },
-  { key: 'done', label: 'Finalizate', numeric: true, hint: 'Activități încheiate și documente aprobate, din total' },
-  { key: 'waiting', label: 'De rezolvat', numeric: true, hint: WAITING_HINT },
+  { key: 'client', label: 'Client', hide: HIDE.client },
+  {
+    key: 'done',
+    label: 'Finalizate',
+    numeric: true,
+    hint: 'Activități încheiate și documente aprobate, din total',
+    hide: HIDE.done,
+  },
+  { key: 'waiting', label: 'De rezolvat', numeric: true, hint: WAITING_HINT, hide: HIDE.waiting },
   { key: 'deadline', label: 'Următorul termen', hint: DEADLINE_HINT },
   { key: 'overdue', label: 'Depășite', numeric: true, hint: OVERDUE_HINT },
 ]
 
 const CONSULTANT_COLUMNS: Column<ConsultantColumnKey>[] = [
   { key: 'consultant', label: 'Consultant', grow: true },
-  { key: 'projects', label: 'Proiecte', numeric: true, hint: 'În câte proiecte are de lucru' },
-  { key: 'waiting', label: 'De rezolvat', numeric: true, hint: WAITING_HINT },
+  {
+    key: 'projects',
+    label: 'Proiecte',
+    numeric: true,
+    hint: 'În câte proiecte are de lucru',
+    hide: HIDE.projects,
+  },
+  { key: 'waiting', label: 'De rezolvat', numeric: true, hint: WAITING_HINT, hide: HIDE.waiting },
   { key: 'deadline', label: 'Următorul termen', hint: DEADLINE_HINT },
   { key: 'overdue', label: 'Depășite', numeric: true, hint: OVERDUE_HINT },
 ]
@@ -398,7 +431,7 @@ function ProjectDashboardContent() {
           onClearSearch={() => setDraft('')}
         />
       ) : view === 'projects' ? (
-        <TableFrame minWidth={800}>
+        <TableFrame>
           <SortHeader
             columns={PROJECT_COLUMNS}
             sort={projectSort}
@@ -411,7 +444,7 @@ function ProjectDashboardContent() {
           </tbody>
         </TableFrame>
       ) : (
-        <TableFrame minWidth={640}>
+        <TableFrame>
           <SortHeader
             columns={CONSULTANT_COLUMNS}
             sort={consultantSort}
@@ -531,13 +564,14 @@ function SummaryLine({
  * de proiect. Fără ea, tabelul plutea direct pe fundalul paginii și arăta ca
  * dintr-o altă aplicație decât restul ecranelor.
  */
-function TableFrame({ minWidth, children }: { minWidth: number; children: React.ReactNode }) {
+function TableFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--p-border)] bg-[var(--p-surface)]">
+      {/* Fără lățime minimă fixă: coloanele se ascund pe rând (vezi `HIDE`), deci
+          tabelul intră în ecran în loc să ceară derulare laterală. `overflow-x`
+          rămâne plasa de siguranță pentru un titlu neobișnuit de lung. */}
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-sm" style={{ minWidth }}>
-          {children}
-        </table>
+        <table className="w-full border-collapse text-sm">{children}</table>
       </div>
     </div>
   )
@@ -565,7 +599,7 @@ function SortHeader<K extends string>({
               aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
               className={`px-4 py-2.5 font-normal ${column.numeric ? 'text-right' : 'text-left'} ${
                 column.grow ? 'w-full' : 'whitespace-nowrap'
-              }`}
+              } ${column.hide ?? ''}`}
             >
               <button
                 type="button"
@@ -608,10 +642,14 @@ function overdueAge(days: number): string {
 
 function WaitingCell({ row }: { row: DashboardTotals }) {
   if (row.waiting_us + row.waiting_client === 0) {
-    return <td className="px-4 py-3.5 text-right whitespace-nowrap"><span className={FAINT}>—</span></td>
+    return (
+      <td className={`px-4 py-3.5 text-right whitespace-nowrap ${HIDE.waiting}`}>
+        <span className={FAINT}>—</span>
+      </td>
+    )
   }
   return (
-    <td className="px-4 py-3.5 text-right whitespace-nowrap">
+    <td className={`px-4 py-3.5 text-right whitespace-nowrap ${HIDE.waiting}`}>
       <span className="tabular-nums">
         <span className={row.waiting_us > 0 ? 'font-semibold text-[var(--p-ink)]' : FAINT}>
           {row.waiting_us}
@@ -640,15 +678,18 @@ function DeadlineCell({ row }: { row: DashboardTotals }) {
   const undatedNote = row.undated > 0 ? countLabel(row.undated, 'neplanificat', 'neplanificate') : null
 
   return (
-    <td className="px-4 py-3.5 whitespace-nowrap">
+    // Data nu se rupe niciodată; lămurirea de sub ea are voie să treacă pe două
+    // rânduri, altfel „în 2 zile · 4 săptămâna asta · 11 neplanificate" ar fi
+    // ținut singură coloana lată cât un telefon întreg.
+    <td className="px-4 py-3.5">
       {row.next_deadline === null ? (
         <>
-          <span className={FAINT}>Fără termen</span>
+          <span className={`whitespace-nowrap ${FAINT}`}>Fără termen</span>
           {undatedNote && <span className={NOTE}>{undatedNote}</span>}
         </>
       ) : (
         <>
-          <span className="text-[var(--p-ink)]">{formatShortDate(row.next_deadline)}</span>
+          <span className="whitespace-nowrap text-[var(--p-ink)]">{formatShortDate(row.next_deadline)}</span>
           {[relative, weekNote, undatedNote].filter(Boolean).length > 0 && (
             <span className={NOTE}>{[relative, weekNote, undatedNote].filter(Boolean).join(' · ')}</span>
           )}
@@ -762,12 +803,12 @@ function ProjectRow({
           </div>
         </td>
 
-        <td className="px-4 py-3.5 text-[var(--p-ink-soft)]">
+        <td className={`px-4 py-3.5 text-[var(--p-ink-soft)] ${HIDE.client}`}>
           {row.client_name ?? <span className={FAINT}>—</span>}
         </td>
 
         <td
-          className="px-4 py-3.5 text-right tabular-nums whitespace-nowrap"
+          className={`px-4 py-3.5 text-right tabular-nums whitespace-nowrap ${HIDE.done}`}
           title={`Activități ${row.activities.done}/${row.activities.total} · Documente ${row.requests.done}/${row.requests.total}`}
         >
           {row.total === 0 ? (
@@ -852,7 +893,7 @@ function ConsultantRow({
           </div>
         </td>
 
-        <td className="px-4 py-3.5 text-right tabular-nums whitespace-nowrap text-[var(--p-ink-soft)]">
+        <td className={`px-4 py-3.5 text-right tabular-nums whitespace-nowrap text-[var(--p-ink-soft)] ${HIDE.projects}`}>
           {row.projects}
           <span className={NOTE}>{countLabel(row.total, 'element', 'elemente')}</span>
         </td>
