@@ -257,9 +257,9 @@ function ProjectDashboardContent() {
     [allConsultants, draft, consultantSort]
   )
 
-  // Munca fără responsabil e o grămadă rămasă pe dinafară, nu un consultant:
-  // n-are ce căuta nici în numărătoarea de consultanți, nici în „la câți dintre
-  // ei sunt depășiri". Își primește propria mențiune în rezumat.
+  // Munca fără responsabil e grămada rămasă pe dinafară, nu un consultant: stă
+  // în capul tabelului, dar n-are ce căuta nici în numărătoarea de consultanți,
+  // nici în „la câți dintre ei sunt depășiri". Își primește propria mențiune.
   const namedConsultants = useMemo(() => consultantRows.filter(row => row.assigned), [consultantRows])
   const unassigned = useMemo(() => consultantRows.find(row => !row.assigned) ?? null, [consultantRows])
 
@@ -829,9 +829,9 @@ function ConsultantRow({
         className={`cursor-pointer border-b border-[var(--p-border)] transition-colors last:border-b-0 hover:bg-[var(--p-surface-2)] ${
           open ? 'bg-[var(--p-surface-2)]' : ''
         } ${
-          // Linia care desparte oamenii de grămada rămasă pe dinafară: rândul de
-          // jos e ultimul din tabel, dar nu e un consultant.
-          row.assigned ? '' : 'border-t-2 border-t-[var(--p-border-strong)]'
+          // Linia care desparte grămada rămasă pe dinafară de consultanții de sub
+          // ea: stă prima fiindcă e prima problemă, dar nu e un om.
+          row.assigned ? '' : 'border-b-2 border-b-[var(--p-border-strong)]'
         }`}
       >
         <td className="py-3.5 pl-4 pr-3">

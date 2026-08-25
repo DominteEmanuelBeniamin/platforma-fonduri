@@ -955,12 +955,14 @@ export const sortProjectRows = (
 ): ProjectDashboardRow[] => sortRows(PROJECT_COLUMNS, rows, sort, direction)
 
 /**
- * Consultanții se sortează între ei; munca fără responsabil stă mereu la urmă.
+ * Consultanții se sortează între ei; munca fără responsabil stă mereu deasupra
+ * lor.
  *
- * Nu e un consultant leneș, e o grămadă rămasă pe dinafară — amestecată în
- * clasament, ar fi ieșit prima aproape la orice coloană (azi ține 197 din cele
- * 274 de elemente) și ar fi împins oamenii adevărați sub ea. Aceeași alegere ca
- * la „Fără termen": absența unei valori stă la final, în ambele sensuri.
+ * Nu e un consultant leneș, e grămada rămasă pe dinafară — azi 197 din cele 274
+ * de elemente ale platformei. Amestecată în clasament, ar fi ieșit prima la
+ * aproape orice coloană dintr-un motiv fals, ca și cum ar fi cineva foarte
+ * încărcat; scoasă din el și pusă în frunte, se citește drept ce e: prima
+ * problemă de rezolvat, înaintea împărțirii muncii între oameni.
  */
 export const sortConsultantRows = (
   rows: ConsultantDashboardRow[],
@@ -969,7 +971,7 @@ export const sortConsultantRows = (
 ): ConsultantDashboardRow[] => {
   const named = rows.filter(row => row.assigned)
   const unassigned = rows.filter(row => !row.assigned)
-  return [...sortRows(CONSULTANT_COLUMNS, named, sort, direction), ...unassigned]
+  return [...unassigned, ...sortRows(CONSULTANT_COLUMNS, named, sort, direction)]
 }
 
 /** Ciclul unui antet: prima apăsare, inversul, apoi înapoi la ordinea implicită. */
