@@ -307,13 +307,12 @@ function ProjectDashboardContent() {
   // tabelul, altfel ar dispărea odată cu rândurile pe care le-a filtrat.
   const showSearch = scopeCount > SEARCH_THRESHOLD || draft.length > 0
 
-  const [open, setOpen] = useState<Set<string>>(new Set())
+  // Un singur rând deschis odată. Cu mai multe desfăcute, panourile se pun cap
+  // la cap și tabelul dispare între ele — exact ce nu trebuie să facă un ecran
+  // din care se citește o listă.
+  const [open, setOpen] = useState<string | null>(null)
   const toggle = useCallback((id: string) => {
-    setOpen(current => {
-      const next = new Set(current)
-      if (!next.delete(id)) next.add(id)
-      return next
-    })
+    setOpen(current => (current === id ? null : id))
   }, [])
 
   const switchView = useCallback(
@@ -322,7 +321,7 @@ function ProjectDashboardContent() {
       // Căutarea se golește la comutare: „achizitie" scris peste proiecte n-ar
       // găsi niciun consultant, iar celălalt tabel s-ar deschide gol fără motiv vizibil.
       setDraft('')
-      setOpen(new Set())
+      setOpen(null)
       syncUrl(params => { writeDashboardView(params, next); writeSearch(params, '') })
     },
     [view, syncUrl]
@@ -439,7 +438,7 @@ function ProjectDashboardContent() {
           />
           <tbody>
             {projectRows.map(row => (
-              <ProjectRow key={row.id} row={row} open={open.has(row.id)} onToggle={() => toggle(row.id)} />
+              <ProjectRow key={row.id} row={row} open={open === row.id} onToggle={() => toggle(row.id)} />
             ))}
           </tbody>
         </TableFrame>
@@ -452,7 +451,7 @@ function ProjectDashboardContent() {
           />
           <tbody>
             {consultantRows.map(row => (
-              <ConsultantRow key={row.id} row={row} open={open.has(row.id)} onToggle={() => toggle(row.id)} />
+              <ConsultantRow key={row.id} row={row} open={open === row.id} onToggle={() => toggle(row.id)} />
             ))}
           </tbody>
         </TableFrame>
@@ -827,7 +826,7 @@ function ProjectRow({
 
       {open && (
         <tr id={detailsId} className="border-b border-[var(--p-border)] bg-[var(--p-surface-2)] last:border-b-0">
-          <td colSpan={PROJECT_COLUMNS.length} className="px-4 pb-5 pt-1">
+          <td colSpan={PROJECT_COLUMNS.length} className="py-4 pl-4 pr-4 sm:pl-11">
             <DetailPanel
               row={row}
               overdueHref={projectCalendarHref(row.id, { overdueOnly: true })}
@@ -905,7 +904,7 @@ function ConsultantRow({
 
       {open && (
         <tr id={detailsId} className="border-b border-[var(--p-border)] bg-[var(--p-surface-2)] last:border-b-0">
-          <td colSpan={CONSULTANT_COLUMNS.length} className="px-4 pb-5 pt-1">
+          <td colSpan={CONSULTANT_COLUMNS.length} className="py-4 pl-4 pr-4 sm:pl-11">
             <DetailPanel
               row={row}
               withProject
@@ -944,27 +943,41 @@ function DetailPanel({
   upcomingHref: string
   links: React.ReactNode
 }) {
-  return (
-    <div className="space-y-4">
-      <div className="grid gap-x-8 gap-y-4 lg:grid-cols-2">
-        <DetailList
-          title="Depășite"
-          events={row.overdue_events}
-          tone="danger"
-          empty="Niciun termen depășit."
-          moreHref={overdueHref}
-          withProject={withProject}
-        />
-        <DetailList
-          title="Urmează"
-          events={row.upcoming_events}
-          empty="Niciun termen viitor."
-          moreHref={upcomingHref}
-          withProject={withProject}
-        />
-      </div>
+  const hasOverdue = row.overdue_events.length > 0
+  const hasUpcoming = row.upcoming_events.length > 0
 
-      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 text-xs text-[var(--p-ink-soft)]">
+  return (
+    <div className="space-y-3">
+      {/* Listele goale nu se desenează. Până acum, un proiect fără niciun termen
+          își cerea două coloane ca să scrie de două ori că n-are nimic, iar unul
+          cu o singură listă lăsa jumătate de panou alb. */}
+      {hasOverdue || hasUpcoming ? (
+        <div className={`grid gap-x-8 gap-y-4 ${hasOverdue && hasUpcoming ? 'lg:grid-cols-2' : ''}`}>
+          {hasOverdue && (
+            <DetailList
+              title="Depășite"
+              events={row.overdue_events}
+              tone="danger"
+              moreHref={overdueHref}
+              withProject={withProject}
+            />
+          )}
+          {hasUpcoming && (
+            <DetailList
+              title="Urmează"
+              events={row.upcoming_events}
+              moreHref={upcomingHref}
+              withProject={withProject}
+            />
+          )}
+        </div>
+      ) : (
+        <p className="text-xs text-[var(--p-ink-faint)]">
+          Niciun termen: nici depășit, nici viitor.
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 border-t border-[var(--p-border)] pt-3 text-xs text-[var(--p-ink-soft)]">
         <p>
           {/* Aceleași numere, desfăcute pe sursă: raportul din rând e dominat de
               documente, deci singur nu spune dacă munca internă a avansat. */}
@@ -985,17 +998,16 @@ function DetailPanel({
   )
 }
 
+/** Randată doar când are ce arăta — vezi `DetailPanel`. */
 function DetailList({
   title,
   events,
-  empty,
   moreHref,
   tone,
   withProject,
 }: {
   title: string
   events: CalendarEvent[]
-  empty: string
   moreHref: string
   tone?: 'danger'
   withProject?: boolean
@@ -1007,37 +1019,31 @@ function DetailList({
     <section aria-label={title}>
       <h3 className="flex items-baseline gap-2 px-1 pb-1 text-[11px] uppercase tracking-[0.08em]">
         <span className={tone === 'danger' ? 'text-[var(--p-danger)]' : 'text-[var(--p-ink-faint)]'}>{title}</span>
-        {events.length > 0 && <span className="text-[var(--p-ink-faint)] normal-case">{events.length}</span>}
+        <span className="text-[var(--p-ink-faint)] normal-case">{events.length}</span>
       </h3>
 
-      {shown.length === 0 ? (
-        <p className="px-1 py-3 text-xs text-[var(--p-ink-faint)]">{empty}</p>
-      ) : (
-        <>
-          {/* Același rând ca în lista de termene a calendarului, nu o copie a
-              lui: aceleași culori, aceleași etichete, același link. Fără pastila
-              de stare — antetul listei o spune deja o dată. */}
-          <ul className="divide-y divide-[var(--p-border)] overflow-hidden rounded-lg border border-[var(--p-border)] bg-[var(--p-surface)]">
-            {shown.map(event => (
-              <EventRow
-                key={`${event.kind}-${event.id}`}
-                event={event}
-                withProject={withProject}
-                withProgress={false}
-              />
-            ))}
-          </ul>
+      {/* Același rând ca în lista de termene a calendarului, nu o copie a lui:
+          aceleași culori, aceleași etichete, același link. Fără pastila de stare
+          — antetul listei o spune deja o dată. */}
+      <ul className="divide-y divide-[var(--p-border)] overflow-hidden rounded-lg border border-[var(--p-border)] bg-[var(--p-surface)]">
+        {shown.map(event => (
+          <EventRow
+            key={`${event.kind}-${event.id}`}
+            event={event}
+            withProject={withProject}
+            withProgress={false}
+          />
+        ))}
+      </ul>
 
-          {rest > 0 && (
-            <Link
-              href={moreHref}
-              className="mt-1.5 inline-flex items-center gap-1 px-1 text-xs text-[var(--p-accent)] hover:underline"
-            >
-              și încă {countLabel(rest, 'termen', 'termene')}
-              <ArrowRight className="h-3 w-3" aria-hidden />
-            </Link>
-          )}
-        </>
+      {rest > 0 && (
+        <Link
+          href={moreHref}
+          className="mt-1.5 inline-flex items-center gap-1 px-1 text-xs text-[var(--p-accent)] hover:underline"
+        >
+          și încă {countLabel(rest, 'termen', 'termene')}
+          <ArrowRight className="h-3 w-3" aria-hidden />
+        </Link>
       )}
     </section>
   )
