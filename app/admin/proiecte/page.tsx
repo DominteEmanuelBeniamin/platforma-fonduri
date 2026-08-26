@@ -634,6 +634,10 @@ const FAINT = 'text-[var(--p-ink-faint)]'
 /** Al doilea rând al unei celule: lămurirea cifrei de deasupra. */
 const NOTE = `block text-[11px] leading-tight ${FAINT}`
 
+/** Acțiunile din subsolul panoului, în forma pastilelor din restul aplicației. */
+const PANEL_ACTION =
+  'inline-flex items-center rounded-lg border border-[var(--p-border)] bg-[var(--p-surface)] px-2.5 py-1 font-medium text-[var(--p-accent)] transition-colors hover:bg-[var(--p-accent-soft)]'
+
 /** „de o zi", „de 12 zile", „de 21 de zile" — vechimea de sub numărul roșu. */
 function overdueAge(days: number): string {
   return days === 1 ? 'de o zi' : `de ${countLabel(days, 'zi', 'zile')}`
@@ -833,10 +837,10 @@ function ProjectRow({
               upcomingHref={projectCalendarHref(row.id)}
               links={
                 <>
-                  <Link href={`/projects/${row.id}`} className="text-[var(--p-accent)] hover:underline">
+                  <Link href={`/projects/${row.id}`} className={PANEL_ACTION}>
                     Deschide proiectul
                   </Link>
-                  <Link href={projectCalendarHref(row.id)} className="text-[var(--p-accent)] hover:underline">
+                  <Link href={projectCalendarHref(row.id)} className={PANEL_ACTION}>
                     Vezi în calendar
                   </Link>
                 </>
@@ -911,7 +915,7 @@ function ConsultantRow({
               overdueHref={consultantCalendarHref(row.id, { overdueOnly: true })}
               upcomingHref={consultantCalendarHref(row.id)}
               links={
-                <Link href={consultantCalendarHref(row.id)} className="text-[var(--p-accent)] hover:underline">
+                <Link href={consultantCalendarHref(row.id)} className={PANEL_ACTION}>
                   Vezi în calendar
                 </Link>
               }
@@ -937,7 +941,11 @@ function DetailPanel({
   links,
 }: {
   row: DashboardTotals
-  /** Termenele unui consultant vin din mai multe proiecte, deci proiectul trebuie scris. */
+  /**
+   * Termenele unui consultant vin din mai multe proiecte, deci proiectul trebuie
+   * scris. Tot el arată și că lista e a unui singur om — de aceea insigna își
+   * pierde culoarea de persoană, care ar fi fost aceeași pe toate rândurile.
+   */
   withProject?: boolean
   overdueHref: string
   upcomingHref: string
@@ -960,6 +968,7 @@ function DetailPanel({
               tone="danger"
               moreHref={overdueHref}
               withProject={withProject}
+              plainIcon={withProject}
             />
           )}
           {hasUpcoming && (
@@ -968,6 +977,7 @@ function DetailPanel({
               events={row.upcoming_events}
               moreHref={upcomingHref}
               withProject={withProject}
+              plainIcon={withProject}
             />
           )}
         </div>
@@ -977,22 +987,30 @@ function DetailPanel({
         </p>
       )}
 
-      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 border-t border-[var(--p-border)] pt-3 text-xs text-[var(--p-ink-soft)]">
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-t border-[var(--p-border)] pt-3 text-xs text-[var(--p-ink-soft)]">
         <p>
           {/* Aceleași numere, desfăcute pe sursă: raportul din rând e dominat de
               documente, deci singur nu spune dacă munca internă a avansat. */}
-          Activități {row.activities.done}/{row.activities.total}
+          Activități{' '}
+          <span className="font-semibold tabular-nums text-[var(--p-ink)]">
+            {row.activities.done}/{row.activities.total}
+          </span>
           <span className="mx-2 text-[var(--p-ink-faint)]">·</span>
-          Documente {row.requests.done}/{row.requests.total}
+          Documente{' '}
+          <span className="font-semibold tabular-nums text-[var(--p-ink)]">
+            {row.requests.done}/{row.requests.total}
+          </span>
           {row.drafts > 0 && (
             <>
               <span className="mx-2 text-[var(--p-ink-faint)]">·</span>
-              {countLabel(row.drafts, 'element', 'elemente')} în pregătire, invizibile clientului
+              <span className="text-[var(--p-draft)]">
+                {countLabel(row.drafts, 'element', 'elemente')} în pregătire
+              </span>
             </>
           )}
         </p>
 
-        <span className="flex flex-wrap items-center gap-5">{links}</span>
+        <span className="flex flex-wrap items-center gap-2">{links}</span>
       </div>
     </div>
   )
@@ -1005,33 +1023,41 @@ function DetailList({
   moreHref,
   tone,
   withProject,
+  plainIcon,
 }: {
   title: string
   events: CalendarEvent[]
   moreHref: string
   tone?: 'danger'
   withProject?: boolean
+  plainIcon?: boolean
 }) {
   const shown = events.slice(0, DETAIL_LIMIT)
   const rest = events.length - shown.length
 
   return (
-    <section aria-label={title}>
-      <h3 className="flex items-baseline gap-2 px-1 pb-1 text-[11px] uppercase tracking-[0.08em]">
-        <span className={tone === 'danger' ? 'text-[var(--p-danger)]' : 'text-[var(--p-ink-faint)]'}>{title}</span>
+    // Antetul intră în card, pe aceeași bandă ca antetul tabelului de deasupra.
+    // Plutind pe fundal, arăta ca o etichetă lipită lângă o cutie străină.
+    <section
+      aria-label={title}
+      className="overflow-hidden rounded-xl border border-[var(--p-border)] bg-[var(--p-surface)]"
+    >
+      <h3 className="flex items-baseline gap-2 border-b border-[var(--p-border)] bg-[var(--p-surface-2)] px-3 py-2 text-[11px] uppercase tracking-[0.08em]">
+        <span className={tone === 'danger' ? 'text-[var(--p-danger)]' : 'text-[var(--p-ink-soft)]'}>{title}</span>
         <span className="text-[var(--p-ink-faint)] normal-case">{events.length}</span>
       </h3>
 
       {/* Același rând ca în lista de termene a calendarului, nu o copie a lui:
           aceleași culori, aceleași etichete, același link. Fără pastila de stare
           — antetul listei o spune deja o dată. */}
-      <ul className="divide-y divide-[var(--p-border)] overflow-hidden rounded-lg border border-[var(--p-border)] bg-[var(--p-surface)]">
+      <ul className="divide-y divide-[var(--p-border)]">
         {shown.map(event => (
           <EventRow
             key={`${event.kind}-${event.id}`}
             event={event}
             withProject={withProject}
             withProgress={false}
+            plainIcon={plainIcon}
           />
         ))}
       </ul>
@@ -1039,7 +1065,7 @@ function DetailList({
       {rest > 0 && (
         <Link
           href={moreHref}
-          className="mt-1.5 inline-flex items-center gap-1 px-1 text-xs text-[var(--p-accent)] hover:underline"
+          className="flex items-center justify-center gap-1 border-t border-[var(--p-border)] bg-[var(--p-surface-2)] px-3 py-2 text-xs font-medium text-[var(--p-accent)] hover:bg-[var(--p-accent-soft)]"
         >
           și încă {countLabel(rest, 'termen', 'termene')}
           <ArrowRight className="h-3 w-3" aria-hidden />

@@ -35,6 +35,7 @@ export default function EventRow({
   event,
   withProject = false,
   withProgress = true,
+  plainIcon = false,
 }: {
   event: CalendarEvent
   /** Afișează proiectul pe rând — necesar oriunde lista amestecă mai multe. */
@@ -44,6 +45,14 @@ export default function EventRow({
    * despărțită pe stări și pastila ar repeta antetul pe fiecare rând.
    */
   withProgress?: boolean
+  /**
+   * Insignă neutră, în locul celei colorate cu culoarea responsabilului.
+   *
+   * Culoarea răspunde la „al cui e" — informație care nu spune nimic într-o
+   * listă în care toate elementele sunt ale aceleiași persoane, cum e panoul
+   * unui consultant. Acolo rămâne doar iconița de tip, iar textul conduce.
+   */
+  plainIcon?: boolean
 }) {
   const progress = eventProgress(event)
   const Icon = KIND_ICONS[event.kind]
@@ -60,8 +69,12 @@ export default function EventRow({
         {/* Insigna poartă trei canale deodată: fundalul persoanei, iconița de
             tip și conturul (întrerupt pentru „În pregătire", roșu la depășire). */}
         <span
-          style={eventSurfaceStyle(event, progress)}
-          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border-2"
+          style={plainIcon ? undefined : eventSurfaceStyle(event, progress)}
+          className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${
+            plainIcon
+              ? 'border border-[var(--p-border)] bg-[var(--p-surface-2)] text-[var(--p-ink-soft)]'
+              : 'border-2'
+          }`}
           aria-hidden
         >
           <Icon className="h-3.5 w-3.5" />
@@ -97,8 +110,10 @@ export default function EventRow({
               {PROGRESS_LABELS[progress]}
             </span>
           )}
+          {/* Fără lățime fixă: cele 80px rezervate mâncau din linia de context,
+              care ajungea tăiată la jumătate de cuvânt chiar și când avea loc. */}
           {relative && (
-            <span className="hidden w-20 text-right text-[11px] font-medium text-[var(--p-ink-faint)] sm:block">
+            <span className="hidden whitespace-nowrap text-[11px] font-medium text-[var(--p-ink-faint)] sm:block">
               {relative}
             </span>
           )}
