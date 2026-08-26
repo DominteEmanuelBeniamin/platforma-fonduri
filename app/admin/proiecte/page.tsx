@@ -932,6 +932,11 @@ function ConsultantRow({
 /**
  * Chiar elementele din spatele numerelor, cu responsabil și link direct. Nicio
  * cerere nouă — termenele sunt deja în memorie, aduse ca să poată fi numărate.
+ *
+ * Insignele sunt neutre în ambele panouri. Culoarea răspunde, în calendar, la
+ * „al cui e" — dar aici numele responsabilului e oricum scris pe fiecare rând,
+ * deci culoarea nu adăuga nimic, iar două panouri pe același ecran, unul colorat
+ * și unul nu, arătau ca două ecrane diferite.
  */
 function DetailPanel({
   row,
@@ -941,11 +946,7 @@ function DetailPanel({
   links,
 }: {
   row: DashboardTotals
-  /**
-   * Termenele unui consultant vin din mai multe proiecte, deci proiectul trebuie
-   * scris. Tot el arată și că lista e a unui singur om — de aceea insigna își
-   * pierde culoarea de persoană, care ar fi fost aceeași pe toate rândurile.
-   */
+  /** Termenele unui consultant vin din mai multe proiecte, deci proiectul trebuie scris. */
   withProject?: boolean
   overdueHref: string
   upcomingHref: string
@@ -968,7 +969,7 @@ function DetailPanel({
               tone="danger"
               moreHref={overdueHref}
               withProject={withProject}
-              plainIcon={withProject}
+              plainIcon
             />
           )}
           {hasUpcoming && (
@@ -977,7 +978,7 @@ function DetailPanel({
               events={row.upcoming_events}
               moreHref={upcomingHref}
               withProject={withProject}
-              plainIcon={withProject}
+              plainIcon
             />
           )}
         </div>
