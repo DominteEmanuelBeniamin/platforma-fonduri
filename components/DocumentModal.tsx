@@ -115,6 +115,12 @@ type PendingClientUploadCompletion = {
   failed: number
 }
 
+/** Textul aruncat de handlere e deja pentru utilizator; altfel rămâne mesajul locului. */
+function documentActionMessage(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message.trim() : ''
+  return message || fallback
+}
+
 function formatClientUploadSize(bytes: number) {
   if (bytes === 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB']
@@ -230,7 +236,7 @@ export default function DocumentModal({
     setAttachmentMissing(!!request.attachment_missing_at)
     setLocalDeadline(request.deadline_at)
     setLocalAssignee(request.assigned_to)
-  }, [request.attachment_path, request.attachment_missing_at, request.deadline_at, request.assigned_to])
+  }, [request.id, request.attachment_path, request.attachment_missing_at, request.deadline_at, request.assigned_to])
 
   useEffect(() => {
     pendingClientUploadRef.current = null
@@ -621,7 +627,10 @@ export default function DocumentModal({
         uploaded: pending.uploaded,
       }),
     })
-    if (!completeRes.ok) throw new Error('Nu am putut finaliza încărcarea fișierelor.')
+    if (!completeRes.ok) {
+      const data = await completeRes.json().catch(() => null)
+      throw new Error(data?.message || 'Nu am putut finaliza încărcarea fișierelor.')
+    }
   }
 
   const handleClientUpload = async () => {
@@ -713,8 +722,8 @@ export default function DocumentModal({
           : `${successful.length} fișiere au fost încărcate, iar ${failed} au eșuat.`,
         failed === 0 ? 'success' : 'warning',
       )
-    } catch {
-      showToast('Nu am putut încărca fișierele. Reîncearcă.', 'error')
+    } catch (error) {
+      showToast(documentActionMessage(error, 'Nu am putut încărca fișierele. Reîncearcă.'), 'error')
     } finally {
       setClientUploadLoading(false)
     }
@@ -768,7 +777,8 @@ export default function DocumentModal({
       body: JSON.stringify({ action, notes: notes.trim() || null })
     })
     const data = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(data?.error || 'Review failed')
+    // `error` e rescris de apiFetch cu un text generic; motivul real vine în `message`.
+    if (!res.ok) throw new Error(data?.message || '')
   }
 
   const handleApprove = async () => {
@@ -781,8 +791,8 @@ export default function DocumentModal({
         onUpdate()
         onClose()
       }, 500)
-    } catch {
-      showToast('Nu am putut aproba documentul. Reîncearcă.', 'error')
+    } catch (error) {
+      showToast(documentActionMessage(error, 'Nu am putut aproba documentul. Reîncearcă.'), 'error')
     } finally {
       setActionLoading(false)
     }
@@ -804,8 +814,8 @@ export default function DocumentModal({
         onUpdate()
         onClose()
       }, 500)
-    } catch {
-      showToast('Nu am putut respinge documentul. Reîncearcă.', 'error')
+    } catch (error) {
+      showToast(documentActionMessage(error, 'Nu am putut respinge documentul. Reîncearcă.'), 'error')
     } finally {
       setActionLoading(false)
     }

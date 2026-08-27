@@ -8,6 +8,8 @@ export type NotificationEventParts = {
   eventKey?: string | null
 }
 
+export type NotificationSeverity = 'info' | 'success' | 'warning' | 'danger'
+
 export type NotificationCursor = {
   createdAt: string
   id: string
@@ -128,24 +130,25 @@ export function buildManualReminderNotificationMetadata(input: {
   return { eventKey: hash, idempotencyKey: `${hash}-email` }
 }
 
-export function buildAssignmentNotificationMetadata(input: {
+/**
+ * Only the email needs a key from here. The in-app notification is written by
+ * the assignment trigger, which builds its own event key from the transition it
+ * sees — the two can never be made to agree, so this no longer pretends to.
+ */
+export function buildAssignmentEmailIdempotencyKey(input: {
   projectId: string
   entityType: 'activity' | 'document_request'
   entityId: string
   recipientId: string
   version: string | number
-}) {
-  const value = {
+}): string {
+  return notificationMetadataHash('assignment-email-v1', {
     projectId: input.projectId,
     entityType: input.entityType,
     entityId: input.entityId,
     recipientId: input.recipientId,
     version: input.version,
-  }
-  return {
-    eventKey: notificationMetadataHash('assignment-v1', value),
-    idempotencyKey: notificationMetadataHash('assignment-email-v1', value),
-  }
+  })
 }
 
 export function isRealAssignmentChange(previous: string | null | undefined, next: string | null | undefined): next is string {

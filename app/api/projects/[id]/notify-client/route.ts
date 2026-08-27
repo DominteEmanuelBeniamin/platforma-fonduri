@@ -308,9 +308,11 @@ export async function POST(
         const publication = await recordNotification(admin, {
           projectId,
           type: 'publication',
+          severity: 'info',
           entityType: publicationMetadata.target.entityType,
           entityId: publicationMetadata.target.entityId,
           title: publicationMetadata.itemCount === 1 ? 'Element nou publicat' : 'Elemente noi publicate',
+          actorId: access.profile.id,
           itemCount: publicationMetadata.itemCount,
           eventKey: publicationMetadata.eventKey,
           recipientIds: [client.id],
@@ -327,9 +329,11 @@ export async function POST(
         const reviewNotification = await recordNotification(admin, {
           projectId,
           type: 'document_action',
+          severity: reviewEvent.severity,
           entityType: 'document_request',
           entityId: reviewEvent.requestId,
           title: reviewEvent.title,
+          entityLabel: reviewEvent.entityLabel,
           itemCount: 1,
           eventKey: reviewEvent.eventKey,
           recipientIds: [client.id],

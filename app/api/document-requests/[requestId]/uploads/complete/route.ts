@@ -3,6 +3,7 @@ import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { isClientVisibleDocument } from '@/lib/client-visibility'
 import {
+  describeDocumentActionFailure,
   hasDuplicateUploadPaths,
   isValidDocumentActionUuid,
   isValidUploadFileSize,
@@ -164,8 +165,11 @@ export async function POST(
 
     if (batchError) {
       console.error('complete_document_upload_batch error:', batchError)
-      const status = batchError.code === 'P0001' ? 409 : 500
-      return NextResponse.json({ error: batchError.message }, { status })
+      const failure = describeDocumentActionFailure(batchError.message, batchError.code)
+      return NextResponse.json(
+        { error: batchError.message, message: failure.message },
+        { status: failure.status },
+      )
     }
 
     return NextResponse.json({ ok: true })

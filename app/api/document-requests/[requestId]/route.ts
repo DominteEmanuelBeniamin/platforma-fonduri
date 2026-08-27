@@ -7,7 +7,7 @@ import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { isRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
-import { buildAssignmentNotificationMetadata, isRealAssignmentChange } from '@/lib/notification-utils'
+import { buildAssignmentEmailIdempotencyKey, isRealAssignmentChange } from '@/lib/notification-utils'
 
 // Inițializat în handler ca să preia env-ul la runtime, nu la cold-start
 
@@ -263,6 +263,8 @@ export async function PATCH(
 
     const assignmentChanged = assigned_to !== undefined && assigned_to !== req.assigned_to
     const assignmentEventAt = assignmentChanged ? new Date().toISOString() : null
+    // Ca la activități: triggerul nu vede autorul, așa că îl scriem pe rând.
+    if (assignmentChanged) updatePayload.assigned_by = access.user.id
     let requestUpdate = admin
       .from('document_requirements')
       .update(updatePayload)
@@ -287,8 +289,6 @@ export async function PATCH(
         { status: assignmentChanged ? 409 : 404 },
       )
     }
-
-    await notifyAssignment()
 
     if (attachments !== undefined) {
       const { error: deleteAttachmentsError } = await admin
@@ -345,7 +345,7 @@ export async function PATCH(
     // nou. (Ca la activități, care compară deja cu valoarea dinainte.)
     async function notifyAssignment() {
       if (isRealAssignmentChange(currentRequest.assigned_to, assigned_to) && assignmentEventAt) {
-      const metadata = buildAssignmentNotificationMetadata({
+      const emailIdempotencyKey = buildAssignmentEmailIdempotencyKey({
         projectId: currentRequest.project_id,
         entityType: 'document_request',
         entityId: requestId,
@@ -420,7 +420,7 @@ export async function PATCH(
             to: consultant.email,
             subject: sanitizeHeaderText(`Ți-a fost atribuită o cerere nouă — ${projectTitle}`),
             html,
-          }, { idempotencyKey: metadata.idempotencyKey })
+          }, { idempotencyKey: emailIdempotencyKey })
           if (emailError) {
             console.error('Resend error:', emailError)
           }
@@ -430,6 +430,11 @@ export async function PATCH(
       }
     }
     }
+
+    // Ultimul pas, ca la activități: sincronizarea atașamentelor și logul de
+    // audit de mai sus pot arunca, iar cererea răspunde atunci cu 500. Un email
+    // trimis înainte ar anunța o atribuire pe care API-ul o raportează eșuată.
+    await notifyAssignment()
 
     return NextResponse.json({ ok: true })
   } catch (e: any) {

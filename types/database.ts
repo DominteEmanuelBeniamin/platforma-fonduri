@@ -20,6 +20,7 @@ export type AuditEntityType = 'project' | 'document' | 'user' | 'file' | 'team_m
 
 export type NotificationType = 'publication' | 'assignment' | 'deadline' | 'document_action';
 export type NotificationEntityType = 'project' | 'phase' | 'activity' | 'document_request';
+export type NotificationSeverity = 'info' | 'success' | 'warning' | 'danger';
 
 
 // =====================================================
@@ -490,6 +491,7 @@ export interface ProjectActivity {
   status: ActivityStatus;
   visibility: ProjectItemVisibility;
   assigned_to: string | null;
+  assigned_by: string | null;
   deadline_at: string | null;
   started_at: string | null;
   completed_at: string | null;
@@ -507,6 +509,7 @@ export interface ProjectActivityCreate {
   description?: string;
   order_index?: number;
   assigned_to?: string;
+  assigned_by?: string | null;
   deadline_at?: string;
   source_template_activity_id?: string | null;
   visibility?: ProjectItemVisibility;
@@ -518,6 +521,7 @@ export interface ProjectActivityUpdate {
   order_index?: number;
   status?: ActivityStatus;
   assigned_to?: string | null;
+  assigned_by?: string | null;
   deadline_at?: string | null;
   started_at?: string | null;
   completed_at?: string | null;
@@ -654,10 +658,14 @@ export interface Notification {
   entity_type: NotificationEntityType;
   entity_id: string;
   title: string;
+  severity: NotificationSeverity;
+  actor_name: string | null;
+  entity_label: string | null;
   item_count: number;
   event_key: string;
   created_at: string;
   read_at: string | null;
+  dismissed_at: string | null;
 }
 
 export interface NotificationCreate {
@@ -668,14 +676,19 @@ export interface NotificationCreate {
   entity_type: NotificationEntityType;
   entity_id: string;
   title: string;
+  severity?: NotificationSeverity;
+  actor_name?: string | null;
+  entity_label?: string | null;
   item_count?: number;
   event_key: string;
   created_at?: string;
   read_at?: string | null;
+  dismissed_at?: string | null;
 }
 
 export interface NotificationUpdate {
   read_at?: string | null;
+  dismissed_at?: string | null;
 }
 
 

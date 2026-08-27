@@ -8,11 +8,14 @@ import { logReminderDigestAudit } from '@/app/api/_utils/reminder-audit'
 import { acquireReminderRunLease, releaseReminderRunLease } from '@/app/api/_utils/reminder-run'
 import { deleteNotificationsByIds, recordNotification } from '@/app/api/_utils/notifications'
 import {
+  buildReminderAdminNotificationEventKey,
   buildReminderDigestIdempotencyKey,
   buildReminderNotificationEventKey,
   buildReminderNotificationTitle,
   groupReminderCandidatesByProject,
   hasReminderRecipient,
+  reminderNotificationEntityType,
+  reminderNotificationSeverity,
   selectDeadlineReminderCandidates,
   type ReminderCandidate,
   type ReminderProfile,
@@ -174,20 +177,46 @@ async function recordDeadlineNotifications(
     const items = projectGroup.items
     const onlyItem = items.length === 1 ? items[0] : null
     try {
+      // Digestul destinatarului logic: un rând pentru tot ce i-a intrat în email.
       const result = await recordNotification(admin, {
         projectId: projectGroup.projectId,
         type: 'deadline',
-        entityType: onlyItem ? onlyItem.entityType === 'request' ? 'document_request' : 'activity' : 'project',
+        severity: reminderNotificationSeverity(items),
+        entityType: onlyItem ? reminderNotificationEntityType(onlyItem) : 'project',
         entityId: onlyItem?.entityId ?? projectGroup.projectId,
         title: buildReminderNotificationTitle(items),
+        // Un digest arată spre proiect, iar titlul proiectului e deja pe rând.
+        entityLabel: onlyItem?.name ?? null,
         itemCount: items.length,
         eventKey: buildReminderNotificationEventKey(items),
         recipientIds: [group.recipientId],
-        includeAdmins: true,
+        includeAdmins: false,
       })
       insertedNotificationIds.push(...result.insertedIds)
       if (!hasReminderRecipient(result.recipientIds, group.recipientId)) {
         throw new Error('logical reminder recipient is no longer eligible')
+      }
+
+      // Adminii primesc câte un rând per termen, cu o cheie care nu depinde de
+      // grupul care l-a produs. Cheia digestului se schimbă cu setul de elemente
+      // al fiecărui destinatar, așa că două grupuri care împart un termen îi
+      // trimiteau adminului două notificări pentru același eveniment.
+      for (const item of items) {
+        const adminResult = await recordNotification(admin, {
+          projectId: projectGroup.projectId,
+          type: 'deadline',
+          severity: reminderNotificationSeverity([item]),
+          entityType: reminderNotificationEntityType(item),
+          entityId: item.entityId,
+          title: buildReminderNotificationTitle([item]),
+          entityLabel: item.name,
+          itemCount: 1,
+          eventKey: buildReminderAdminNotificationEventKey(item),
+          recipientIds: [],
+          includeAdmins: true,
+          fallbackToProjectMembers: false,
+        })
+        insertedNotificationIds.push(...adminResult.insertedIds)
       }
     } catch {
       report.failures.notification++
