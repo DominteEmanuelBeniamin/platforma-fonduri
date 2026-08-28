@@ -3,25 +3,64 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { AlertCircle, Bell, CheckCheck, LoaderCircle, X } from 'lucide-react'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useAuth } from '@/app/providers/AuthProvider'
 import { useNotifications } from '@/app/providers/NotificationsProvider'
 import NotificationRow from '@/components/notifications/NotificationRow'
 import { useNotificationFeed } from '@/components/notifications/useNotificationFeed'
 
 const PANEL_SIZE = 8
 
+type ProjectOption = { id: string; title: string }
+
+type ProjectsResponse = {
+  projects?: Array<{ id?: string; title?: string | null }>
+}
+
 export default function NotificationsBell() {
+  const { apiFetch } = useAuth()
   const { unreadCount } = useNotifications()
   const [open, setOpen] = useState(false)
-  const feed = useNotificationFeed({ limit: PANEL_SIZE, active: open })
+  const [projectFilter, setProjectFilter] = useState('')
+  const [projects, setProjects] = useState<ProjectOption[]>([])
+  const feed = useNotificationFeed({
+    limit: PANEL_SIZE,
+    active: open,
+    filters: { status: 'all', type: '', projectId: projectFilter },
+  })
   const [markingAll, setMarkingAll] = useState(false)
 
-  // Panoul e o privire scurtă: filtrele, ștergerea și marcarea rând cu rând
-  // stau pe pagina de notificări, ca să nu existe două seturi de controale
-  // pentru aceleași acțiuni.
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+
+    void apiFetch('/api/projects', { method: 'GET' })
+      .then(async (response) => {
+        if (!response.ok) return null
+        return response.json() as Promise<ProjectsResponse>
+      })
+      .then((payload) => {
+        if (cancelled || !payload || !Array.isArray(payload.projects)) return
+        setProjects(payload.projects
+          .filter((project): project is { id: string; title?: string | null } => typeof project?.id === 'string')
+          .map((project) => ({
+            id: project.id,
+            title: project.title?.trim() || 'Proiect fără titlu',
+          }))
+          .sort((left, right) => left.title.localeCompare(right.title, 'ro')))
+      })
+      .catch(() => undefined)
+
+    return () => { cancelled = true }
+  }, [apiFetch, open])
+
+  // Panoul e o privire scurtă; controalele complete rămân pe pagina de notificări.
   const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen)
-    if (!nextOpen) feed.reset()
+    if (!nextOpen) {
+      setProjectFilter('')
+      feed.reset()
+    }
   }
 
   const markAllRead = async () => {
@@ -67,6 +106,22 @@ export default function NotificationsBell() {
               </button>
             </Dialog.Close>
           </div>
+
+          {projects.length > 1 && (
+            <div className="border-b border-slate-100 px-5 py-3 sm:px-6">
+              <label className="block">
+                <span className="sr-only">Filtrează după proiect</span>
+                <select
+                  value={projectFilter}
+                  onChange={(event) => setProjectFilter(event.target.value)}
+                  className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                >
+                  <option value="">Toate proiectele</option>
+                  {projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}
+                </select>
+              </label>
+            </div>
+          )}
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 sm:px-6">
             {feed.error ? (

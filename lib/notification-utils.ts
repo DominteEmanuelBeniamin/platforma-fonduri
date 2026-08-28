@@ -9,7 +9,6 @@ export type NotificationEventParts = {
 }
 
 export type NotificationSeverity = 'info' | 'success' | 'warning' | 'danger'
-
 export type NotificationCursor = {
   createdAt: string
   id: string
@@ -200,8 +199,7 @@ export function encodeNotificationCursor(cursor: NotificationCursor): string {
  * timestamp-ul trebuie să arate exact ca cel scris de Postgres, nu doar să fie
  * o dată pe care JS o poate citi.
  */
-const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:?\d{2})?$/
-
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/
 export function decodeNotificationCursor(value: string | null | undefined): NotificationCursor | null {
   if (!value || !/^[A-Za-z0-9_-]+$/.test(value)) return null
 

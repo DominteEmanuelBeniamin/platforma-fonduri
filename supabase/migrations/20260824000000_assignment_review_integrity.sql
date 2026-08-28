@@ -1,156 +1,107 @@
--- Issue #78 follow-up: două defecte ale notificărilor de atribuire.
---
--- 1. Cheia de eveniment a atribuirii era determinată numai de tranziția
---    `old.assigned_to -> new.assigned_to`. `UNIQUE (user_id, event_key)` nu
---    expiră, așa că o reatribuire a aceleiași persoane (A->B->A->B, sau
---    dezatribuire urmată de reatribuire) regenera o cheie deja existentă, iar
---    `on conflict do nothing` înghițea tăcut notificarea din clopoțel. Emailul
---    pleca oricum, fiindcă cheia lui de idempotență poartă versiunea rândului.
--- 2. RPC-urile de ștergere a fazei/activității moștenesc `assigned_to` de la
---    activitatea desființată. Scrierea aceea declanșa triggerul de atribuire:
---    consultantul primea „Cerere de document atribuită” pentru o cerere tocmai
---    retrogradată în draft și, fiindcă triggerul cere un destinatar eligibil,
---    un moștenitor care nu mai e membru al proiectului anula toată ștergerea.
+-- Issue #78 follow-up: make project-member removal safe for assignments and
+-- enforce one review per document-request version.
 
--- ============================================================ versiune
-
--- Cheia de idempotență a emailului de atribuire trebuie să poarte o versiune a
--- rândului, ca la activități (`updated_at`). `document_requirements` nu avea
--- niciuna, așa că ruta o calcula în memorie și n-o scria nicăieri: două scrieri
--- concurente pe aceeași tranziție generau două chei, deci două emailuri.
--- Coloana asta e versiunea pe care o scrie ruta și pe care o citește înapoi ca
--- să construiască cheia.
-alter table public.document_requirements
-  add column if not exists assigned_at timestamptz;
-
-comment on column public.document_requirements.assigned_at is
-  'Momentul ultimei schimbări de `assigned_to`. Versiunea din cheia de idempotență a emailului de atribuire.';
-
--- ============================================================ suprimare
-
--- Steag tranzacțional, citit de triggerele de atribuire. Îl setează numai
--- scrierile care mută `assigned_to` fără ca cineva să fi atribuit ceva.
-create or replace function public.assignment_notifications_suppressed()
-returns boolean
-language sql
-stable
-set search_path = public, pg_temp
-as $$
-  select coalesce(current_setting('app.skip_assignment_notifications', true), 'off') = 'on';
-$$;
-
--- ============================================================ producători
-
--- Cheia păstrează tranziția (două atribuiri diferite din aceeași tranzacție
--- rămân două notificări) și primește înapoi id-ul tranzacției, ca o atribuire
--- reală să nu fie confundată cu una veche. Dedublarea unui replay stă în
--- rutele de API, care scriu `assigned_to` sub o condiție optimistă pe valoarea
--- anterioară: o a doua încercare nu mai găsește rândul și întoarce 409, deci
--- nici nu ajunge la trigger.
-create or replace function public.notify_project_activity_assignment()
-returns trigger
+create or replace function public.remove_project_member_if_unassigned(
+  p_project_id uuid,
+  p_member_id uuid
+)
+returns table (
+  removed boolean,
+  consultant_id uuid
+)
 language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
 declare
-  project_id uuid;
+  project_general_consultant_id uuid;
+  member_consultant_id uuid;
 begin
-  if public.assignment_notifications_suppressed() then
-    return new;
-  end if;
-
-  select p.project_id
-    into project_id
-  from public.project_phases p
-  where p.id = new.phase_id;
+  -- Lock the project first, then the membership and all assignment rows. This
+  -- gives assignment updates a stable serialization point with this delete.
+  select p.general_consultant_id
+    into project_general_consultant_id
+  from public.projects as p
+  where p.id = p_project_id
+  for update;
 
   if not found then
-    raise exception 'Project phase not found' using errcode = 'P0001';
+    raise exception 'Project not found'
+      using errcode = 'P0002';
   end if;
 
-  perform public.insert_notification_event(
-    project_id,
-    'assignment',
-    'activity',
-    new.id,
-    'Activitate atribuită',
-    1,
-    format(
-      'assignment-v2:%s:%s:%s:%s:%s',
-      project_id,
-      new.id,
-      new.assigned_to,
-      coalesce(old.assigned_to::text, 'none'),
-      txid_current()
-    ),
-    new.assigned_to,
-    true,
-    false,
-    true,
-    'info',
-    (
-      select coalesce(nullif(btrim(actor.full_name), ''), actor.email)
-      from public.profiles actor
-      where actor.id = new.assigned_by
-    ),
-    coalesce(new.name, new.id::text)
-  );
+  select pm.consultant_id
+    into member_consultant_id
+  from public.project_members as pm
+  where pm.id = p_member_id
+    and pm.project_id = p_project_id
+  for update;
 
-  return new;
+  if not found then
+    raise exception 'Project member not found'
+      using errcode = 'P0002';
+  end if;
+
+  perform a.id
+  from public.project_activities as a
+  join public.project_phases as ph on ph.id = a.phase_id
+  where ph.project_id = p_project_id
+  order by a.id
+  for update;
+
+  perform d.id
+  from public.document_requirements as d
+  where d.project_id = p_project_id
+    and d.deleted_at is null
+  order by d.id
+  for update;
+
+  if project_general_consultant_id = member_consultant_id then
+    raise exception 'Cannot remove this consultant while they are the project general consultant. Reassign the project first.'
+      using errcode = 'P0001';
+  end if;
+
+  if exists (
+    select 1
+    from public.project_activities as a
+    join public.project_phases as ph on ph.id = a.phase_id
+    where ph.project_id = p_project_id
+      and a.assigned_to = member_consultant_id
+  ) then
+    raise exception 'Cannot remove this consultant while they are assigned to an activity. Reassign the activity first.'
+      using errcode = 'P0001';
+  end if;
+
+  if exists (
+    select 1
+    from public.document_requirements as d
+    where d.project_id = p_project_id
+      and d.deleted_at is null
+      and d.assigned_to = member_consultant_id
+  ) then
+    raise exception 'Cannot remove this consultant while they are assigned to an active document request. Reassign the request first.'
+      using errcode = 'P0001';
+  end if;
+
+  delete from public.project_members as pm
+  where pm.id = p_member_id
+    and pm.project_id = p_project_id;
+
+  if not found then
+    raise exception 'Project member not found'
+      using errcode = 'P0002';
+  end if;
+
+  return query select true, member_consultant_id;
 end;
 $$;
 
-create or replace function public.notify_document_request_assignment()
-returns trigger
-language plpgsql
-security definer
-set search_path = public, pg_temp
-as $$
-begin
-  if public.assignment_notifications_suppressed() then
-    return new;
-  end if;
+revoke all on function public.remove_project_member_if_unassigned(uuid, uuid)
+  from public, anon, authenticated;
+grant execute on function public.remove_project_member_if_unassigned(uuid, uuid)
+  to service_role;
 
-  perform public.insert_notification_event(
-    new.project_id,
-    'assignment',
-    'document_request',
-    new.id,
-    'Cerere de document atribuită',
-    1,
-    format(
-      'assignment-v2:%s:%s:%s:%s:%s',
-      new.project_id,
-      new.id,
-      new.assigned_to,
-      coalesce(old.assigned_to::text, 'none'),
-      txid_current()
-    ),
-    new.assigned_to,
-    true,
-    false,
-    true,
-    'info',
-    (
-      select coalesce(nullif(btrim(actor.full_name), ''), actor.email)
-      from public.profiles actor
-      where actor.id = new.assigned_by
-    ),
-    coalesce(new.name, new.id::text)
-  );
-
-  return new;
-end;
-$$;
-
--- ============================================================ ștergeri
-
--- Aceleași RPC-uri ca în 20260818000001, cu o singură schimbare: mutarea
--- cererilor la „Cereri generale” moștenește `assigned_to` de la activitatea
--- ștearsă cu triggerul de atribuire suprimat. Nimeni nu a atribuit nimic —
--- cererea tocmai și-a pierdut părintele — deci nu are cine să fie anunțat, iar
--- ștergerea nu mai depinde de eligibilitatea moștenitorului.
+-- Defense in depth for legacy assignments copied while deleting a parent.
 create or replace function public.delete_project_activity_preserving_requests(
   project_id uuid,
   phase_id uuid,
@@ -225,8 +176,6 @@ begin
       or phase_visibility <> 'published'
     );
 
-  perform set_config('app.skip_assignment_notifications', 'on', true);
-
   update public.document_requirements as d
   set activity_id = null,
       visibility = case
@@ -236,12 +185,23 @@ begin
           then 'published'
         else 'draft'
       end,
-      assigned_to = coalesce(d.assigned_to, activity_assigned_to)
+      assigned_to = case
+        when d.assigned_to is not null then d.assigned_to
+        when activity_assigned_to is not null
+          and exists (
+            select 1
+            from public.project_members as pm
+            join public.profiles as profile on profile.id = pm.consultant_id
+            where pm.project_id = $1
+              and pm.consultant_id = activity_assigned_to
+              and profile.role = 'consultant'
+              and profile.is_active is not false
+          ) then activity_assigned_to
+        else null
+      end
   where d.project_id = $1
     and d.activity_id = $3
     and d.deleted_at is null;
-
-  perform set_config('app.skip_assignment_notifications', 'off', true);
 
   update public.document_requirements as d
   set activity_id = null
@@ -331,8 +291,6 @@ begin
       or phase_visibility <> 'published'
     );
 
-  perform set_config('app.skip_assignment_notifications', 'on', true);
-
   update public.document_requirements as d
   set activity_id = null,
       visibility = case
@@ -342,14 +300,25 @@ begin
           then 'published'
         else 'draft'
       end,
-      assigned_to = coalesce(d.assigned_to, a.assigned_to)
+      assigned_to = case
+        when d.assigned_to is not null then d.assigned_to
+        when a.assigned_to is not null
+          and exists (
+            select 1
+            from public.project_members as pm
+            join public.profiles as profile on profile.id = pm.consultant_id
+            where pm.project_id = $1
+              and pm.consultant_id = a.assigned_to
+              and profile.role = 'consultant'
+              and profile.is_active is not false
+          ) then a.assigned_to
+        else null
+      end
   from public.project_activities as a
   where d.project_id = $1
     and d.activity_id = a.id
     and a.phase_id = $2
     and d.deleted_at is null;
-
-  perform set_config('app.skip_assignment_notifications', 'off', true);
 
   update public.document_requirements as d
   set activity_id = null
@@ -381,8 +350,43 @@ revoke execute on function public.delete_project_phase_preserving_requests(uuid,
 grant execute on function public.delete_project_phase_preserving_requests(uuid, uuid)
   to service_role;
 
--- Triggerele care îl citesc sunt `security definer` și rulează ca proprietar,
--- deci nu au nevoie de acest grant. Rolul browserului nu are ce căuta aici.
-revoke all on function public.assignment_notifications_suppressed()
-  from public, anon, authenticated;
-grant execute on function public.assignment_notifications_suppressed() to service_role;
+-- Do not mutate historical reviews. If duplicates exist, stop and require a
+-- deliberate/manual history decision before enforcing the invariant.
+do $$
+declare
+  duplicate_group_count integer;
+begin
+  select count(*)::integer
+    into duplicate_group_count
+  from (
+    select requirement_id, reviewed_version_number
+    from public.document_request_reviews
+    group by requirement_id, reviewed_version_number
+    having count(*) > 1
+  ) as duplicate_groups;
+
+  raise notice 'Review uniqueness preflight found % duplicate key group(s)', duplicate_group_count;
+
+  if duplicate_group_count > 0 then
+    raise exception 'Cannot enforce review uniqueness: % historical duplicate key group(s) require manual resolution', duplicate_group_count
+      using errcode = '23505';
+  end if;
+end;
+$$;
+
+create unique index if not exists document_request_reviews_requirement_version_uidx
+  on public.document_request_reviews(requirement_id, reviewed_version_number);
+
+do $$
+begin
+  if to_regprocedure('public.remove_project_member_if_unassigned(uuid,uuid)') is null
+     or to_regprocedure('public.delete_project_activity_preserving_requests(uuid,uuid,uuid)') is null
+     or to_regprocedure('public.delete_project_phase_preserving_requests(uuid,uuid)') is null then
+    raise exception 'Assignment integrity functions were not installed';
+  end if;
+
+  if to_regclass('public.document_request_reviews_requirement_version_uidx') is null then
+    raise exception 'Review uniqueness index was not installed';
+  end if;
+end;
+$$;

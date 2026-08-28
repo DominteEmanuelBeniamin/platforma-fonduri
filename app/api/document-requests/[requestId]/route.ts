@@ -296,6 +296,8 @@ export async function PATCH(
       )
     }
 
+    await notifyAssignment()
+
     if (attachments !== undefined) {
       const { error: deleteAttachmentsError } = await admin
         .from('document_requirement_attachments')
@@ -354,12 +356,12 @@ export async function PATCH(
       // Versiunea vine din rândul actualizat, nu din variabila locală: două
       // servere care ajung amândouă să scrie aceeași tranziție citesc aceeași
       // valoare, deci aceeași cheie, deci un singur email.
-      const emailIdempotencyKey = buildAssignmentEmailIdempotencyKey({
+      const idempotencyKey = buildAssignmentEmailIdempotencyKey({
         projectId: currentRequest.project_id,
         entityType: 'document_request',
         entityId: requestId,
         recipientId: assigned_to,
-        version: updatedRequest.assigned_at ?? assignmentEventAt,
+        version: updatedRequest.assigned_at,
       })
       try {
         // Proiectul e deja citit mai sus, în `projectRow`/`projectTitle`.
@@ -429,7 +431,7 @@ export async function PATCH(
             to: consultant.email,
             subject: sanitizeHeaderText(`Ți-a fost atribuită o cerere nouă — ${projectTitle}`),
             html,
-          }, { idempotencyKey: emailIdempotencyKey })
+          }, { idempotencyKey })
           if (emailError) {
             console.error('Resend error:', emailError)
           }
@@ -439,11 +441,6 @@ export async function PATCH(
       }
     }
     }
-
-    // Ultimul pas, ca la activități: sincronizarea atașamentelor și logul de
-    // audit de mai sus pot arunca, iar cererea răspunde atunci cu 500. Un email
-    // trimis înainte ar anunța o atribuire pe care API-ul o raportează eșuată.
-    await notifyAssignment()
 
     return NextResponse.json({ ok: true })
   } catch (e: any) {

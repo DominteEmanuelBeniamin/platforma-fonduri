@@ -46,14 +46,7 @@ export type ClientUploadCandidate = {
 export type PendingClientUploadCompletion = {
   requestId: string
   batchId: string
-  versionNumber: number
-  uploaded: {
-    storagePath: string
-    originalName: string
-    mimeType: string
-    fileSize: number
-    relativePath: string | null
-  }[]
+  fileIds: string[]
   failed: number
 }
 
@@ -61,7 +54,6 @@ export type ClientUploadOutcome = {
   total: number
   successful: number
   failed: number
-  failures: { id: string; name: string }[]
 }
 
 export type ClientUploadFileState =
@@ -73,8 +65,8 @@ type ApiFetch = (input: RequestInfo, init?: RequestInit) => Promise<Response>
 
 type ClientUploadInit = {
   batchId: string
-  versionNumber: number
   uploads: {
+    fileId: string
     clientFileId: number
     signedUploadUrl: string
     token: string
@@ -126,8 +118,7 @@ async function completeClientUpload(apiFetch: ApiFetch, pending: PendingClientUp
     method: 'POST',
     body: JSON.stringify({
       batchId: pending.batchId,
-      versionNumber: pending.versionNumber,
-      uploaded: pending.uploaded,
+      fileIds: pending.fileIds,
     }),
   })
   if (!res.ok) throw new Error(await failureMessage(res, 'Nu am putut finaliza încărcarea fișierelor.'))
@@ -152,10 +143,9 @@ export async function runClientUpload(options: {
     await completeClientUpload(apiFetch, pending)
     onPending(null)
     return {
-      total: pending.uploaded.length + pending.failed,
-      successful: pending.uploaded.length,
+      total: pending.fileIds.length + pending.failed,
+      successful: pending.fileIds.length,
       failed: pending.failed,
-      failures: [],
     }
   }
 
@@ -204,14 +194,7 @@ export async function runClientUpload(options: {
   const completion: PendingClientUploadCompletion = {
     requestId,
     batchId: init.batchId,
-    versionNumber: init.versionNumber,
-    uploaded: successful.map(result => ({
-      storagePath: result.upload.storagePath,
-      originalName: result.candidate.name,
-      mimeType: result.candidate.type,
-      fileSize: result.candidate.size,
-      relativePath: result.candidate.relativePath,
-    })),
+    fileIds: successful.map(result => result.upload.fileId),
     failed: failures.length,
   }
   onPending(completion)
@@ -222,6 +205,5 @@ export async function runClientUpload(options: {
     total: results.length,
     successful: successful.length,
     failed: failures.length,
-    failures: failures.map(result => ({ id: result.candidate.id, name: result.candidate.name })),
   }
 }

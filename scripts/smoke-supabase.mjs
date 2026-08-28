@@ -16,7 +16,7 @@ const admin = createClient(url, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 })
 
-const newColumns = 'id,user_id,project_id,type,entity_type,entity_id,title,item_count,event_key,created_at,read_at'
+const newColumns = 'id,user_id,project_id,type,entity_type,entity_id,title,item_count,event_key,severity,actor_name,entity_label,created_at,read_at,dismissed_at'
 const legacyColumns = 'id,user_id,type,title,message,priority,entity_type,entity_id,is_read,read_at,created_at'
 
 const [newSchema, legacySchema, rowCount] = await Promise.all([
@@ -25,7 +25,7 @@ const [newSchema, legacySchema, rowCount] = await Promise.all([
   admin.from('notifications').select('id', { count: 'exact', head: true }),
 ])
 
-// Migrația 20260823 (corecțiile de review pentru #78). Cu cheia de service
+// Migrația 20260826 (corecțiile de review pentru #78). Cu cheia de service
 // `auth.uid()` e null, deci niciuna dintre sonde nu citește și nu scrie rânduri:
 // sumarul întoarce lista goală, iar marcarea ca citit se oprește în garda de
 // autentificare. Lipsa funcției se vede ca PGRST202.
@@ -47,7 +47,7 @@ const eventArgs = {
   p_require_recipient: false,
 }
 
-// Migrația 20260824 (panoul de notificări). Aceleași reguli: sondele nu scriu
+// Migrația 20260827 (panoul de notificări). Aceleași reguli: sondele nu scriu
 // nimic, iar funcțiile de stare se opresc în garda de autentificare.
 const panelEventArgs = { ...eventArgs, p_severity: 'info', p_actor_name: null, p_entity_label: null }
 
@@ -65,15 +65,21 @@ const [severityColumn, unreadSummary, markRead, canSelect, eventWithSeverity, ev
     admin.rpc('insert_notification_event', eventArgs),
   ])
 
-const [panelColumns, activityAssignedBy, requestAssignedBy, entityLabel, markUnread, dismiss, eventWithActor] =
+const [panelColumns, activityAssignedBy, requestAssignmentColumns, entityLabel, markUnread, dismiss, eventWithActor, assignmentSuppressed, removeMember, deleteActivity, deletePhase, reservedUpload, reviewFunction] =
   await Promise.all([
     admin.from('notifications').select('id,dismissed_at,actor_name,entity_label').limit(1),
     admin.from('project_activities').select('id,assigned_by').limit(1),
-    admin.from('document_requirements').select('id,assigned_by').limit(1),
+    admin.from('document_requirements').select('id,assigned_by,assigned_at').limit(1),
     admin.rpc('notification_entity_label', { p_entity_type: 'project', p_entity_id: nilUuid }),
     admin.rpc('mark_notifications_unread', { p_ids: [nilUuid] }),
     admin.rpc('dismiss_notifications', { p_ids: [nilUuid] }),
     admin.rpc('insert_notification_event', panelEventArgs),
+    admin.rpc('assignment_notifications_suppressed'),
+    admin.rpc('remove_project_member_if_unassigned', { p_project_id: nilUuid, p_member_id: nilUuid }),
+    admin.rpc('delete_project_activity_preserving_requests', { project_id: nilUuid, phase_id: nilUuid, activity_id: nilUuid }),
+    admin.rpc('delete_project_phase_preserving_requests', { project_id: nilUuid, phase_id: nilUuid }),
+    admin.rpc('complete_reserved_document_upload_batch', { p_upload_batch_id: nilUuid, p_actor_id: nilUuid, p_selected_file_ids: [], p_ip_address: null }),
+    admin.rpc('review_document_request', { p_request_id: nilUuid, p_action: 'approved', p_reason: null, p_reviewed_by: nilUuid, p_ip_address: null }),
   ])
 
 const missing = (probe) => probe.error?.code === 'PGRST202' || probe.error?.code === '42883'
@@ -84,6 +90,8 @@ const fixes = {
   markNotificationsRead: !missing(markRead),
   canSelectNotification: !missing(canSelect),
   insertNotificationEventSeverity: !missing(eventWithSeverity),
+  reservedUploadFunction: !missing(reservedUpload),
+  reviewFunction: !missing(reviewFunction),
   // Un apel cu 11 argumente e ambiguu (PGRST203) doar dacă a rămas și
   // supraîncărcarea veche, fără severitate, pe lângă cea nouă.
   legacyEventOverloadDropped: eventLegacyArity.error?.code !== 'PGRST203',
@@ -93,11 +101,15 @@ const fixesApplied = Object.values(fixes).every(Boolean)
 const panel = {
   panelColumns: !panelColumns.error,
   activityAssignedBy: !activityAssignedBy.error,
-  requestAssignedBy: !requestAssignedBy.error,
+  requestAssignmentColumns: !requestAssignmentColumns.error,
   notificationEntityLabel: !missing(entityLabel),
   markNotificationsUnread: !missing(markUnread),
   dismissNotifications: !missing(dismiss),
   insertNotificationEventActor: !missing(eventWithActor),
+  assignmentNotificationsSuppressed: !missing(assignmentSuppressed),
+  atomicMemberRemoval: !missing(removeMember),
+  atomicActivityDelete: !missing(deleteActivity),
+  atomicPhaseDelete: !missing(deletePhase),
   // Un apel cu 12 argumente e ambiguu doar dacă a rămas și supraîncărcarea
   // fără actor, pe lângă cea nouă.
   severityOnlyOverloadDropped: eventWithSeverity.error?.code !== 'PGRST203',
@@ -112,9 +124,9 @@ const result = {
     legacyContractRejected: Boolean(legacySchema.error),
     empty: rowCount.error ? null : rowCount.count === 0,
   },
-  // 20260823_notification_center_fixes: aplicată sau nu.
+  // 20260826_notification_center_fixes: aplicată sau nu.
   fixes: { ...fixes, applied: fixesApplied },
-  // 20260824_notification_center_panel: aplicată sau nu.
+  // 20260827_notification_center_panel: aplicată sau nu.
   panel: { ...panel, applied: panelApplied },
   errors: {
     newSchema: newSchema.error?.code ?? null,
@@ -128,21 +140,27 @@ const result = {
     insertNotificationEventLegacyArity: eventLegacyArity.error?.code ?? null,
     panelColumns: panelColumns.error?.code ?? null,
     activityAssignedBy: activityAssignedBy.error?.code ?? null,
-    requestAssignedBy: requestAssignedBy.error?.code ?? null,
+    requestAssignmentColumns: requestAssignmentColumns.error?.code ?? null,
     notificationEntityLabel: entityLabel.error?.code ?? null,
     markNotificationsUnread: markUnread.error?.code ?? null,
     dismissNotifications: dismiss.error?.code ?? null,
     insertNotificationEventActor: eventWithActor.error?.code ?? null,
+    assignmentNotificationsSuppressed: assignmentSuppressed.error?.code ?? null,
+    atomicMemberRemoval: removeMember.error?.code ?? null,
+    atomicActivityDelete: deleteActivity.error?.code ?? null,
+    atomicPhaseDelete: deletePhase.error?.code ?? null,
+    reservedUploadFunction: reservedUpload.error?.code ?? null,
+    reviewFunction: reviewFunction.error?.code ?? null,
   },
 }
 
 console.log(JSON.stringify(result, null, 2))
 console.log(fixesApplied
-  ? '\n20260823_notification_center_fixes: APLICATĂ'
-  : '\n20260823_notification_center_fixes: NEAPLICATĂ — rulează migrația înainte de deploy')
+  ? '\n20260826_notification_center_fixes: APLICATĂ'
+  : '\n20260826_notification_center_fixes: NEAPLICATĂ — rulează migrația înainte de deploy')
 console.log(panelApplied
-  ? '20260824_notification_center_panel: APLICATĂ'
-  : '20260824_notification_center_panel: NEAPLICATĂ — rulează migrația înainte de deploy')
+  ? '20260827_notification_center_panel: APLICATĂ'
+  : '20260827_notification_center_panel: NEAPLICATĂ — rulează migrația înainte de deploy')
 
 if (newSchema.error || rowCount.error || !legacySchema.error || !fixesApplied || !panelApplied) {
   process.exitCode = 1

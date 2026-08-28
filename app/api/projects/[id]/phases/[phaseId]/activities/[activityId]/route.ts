@@ -262,7 +262,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
 
     if (isRealAssignmentChange(before.assigned_to, assigned_to)) {
-      const emailIdempotencyKey = buildAssignmentEmailIdempotencyKey({
+      const idempotencyKey = buildAssignmentEmailIdempotencyKey({
         projectId,
         entityType: 'activity',
         entityId: activityId,
@@ -276,7 +276,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         projectId,
         projectTitle,
         deadlineAt: activity.deadline_at,
-        idempotencyKey: emailIdempotencyKey,
+        idempotencyKey,
       })
     }
 

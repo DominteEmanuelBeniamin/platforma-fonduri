@@ -206,7 +206,6 @@ export function buildReminderAdminNotificationEventKey(item: ReminderCandidate):
   const slot = JSON.stringify(notificationSlot(item))
   return `deadline-admin-v1-${createHash('sha256').update(slot).digest('hex')}`
 }
-
 export function buildReminderDigestIdempotencyKey(items: ReminderCandidate[]): string {
   const slots = JSON.stringify(items.map(digestSlot).sort((left, right) => {
     const a = JSON.stringify(left)
@@ -233,7 +232,6 @@ export function reminderNotificationSeverity(items: ReminderCandidate[]): 'dange
 export function reminderNotificationEntityType(item: ReminderCandidate): 'document_request' | 'activity' {
   return item.entityType === 'request' ? 'document_request' : 'activity'
 }
-
 export function selectDeadlineReminderCandidates(input: CandidateSelectionInput): CandidateSelection {
   const projects = new Map(input.projects.map(project => [project.id, project]))
   const phases = new Map(input.phases.map(phase => [phase.id, phase]))

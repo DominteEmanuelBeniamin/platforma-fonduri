@@ -89,10 +89,12 @@ export default function NotificationsPage() {
   return (
     <div className="fade-in-up flex flex-col gap-6">
       <div className="flex items-center gap-4 border-b border-slate-200/60 pb-6">
-        <Link href="/">
-          <button className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-sm transition-colors hover:bg-slate-50">
-            <ArrowLeft className="h-4 w-4 text-slate-500" />
-          </button>
+        <Link
+          href="/"
+          aria-label="Înapoi"
+          className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-sm transition-colors hover:bg-slate-50"
+        >
+          <ArrowLeft className="h-4 w-4 text-slate-500" />
         </Link>
         <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Notificări</h1>

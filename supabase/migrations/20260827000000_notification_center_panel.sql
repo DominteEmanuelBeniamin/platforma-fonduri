@@ -466,47 +466,68 @@ begin
 end;
 $$;
 
-create or replace function public.complete_document_upload_batch(
-  p_requirement_id uuid,
+create or replace function public.complete_reserved_document_upload_batch(
   p_upload_batch_id uuid,
-  p_version_number integer,
-  p_uploaded_by uuid,
-  p_rows jsonb,
+  p_actor_id uuid,
+  p_selected_file_ids jsonb,
   p_ip_address text default null
 )
-returns table(created boolean, file_count integer)
+returns table(created boolean, version_number integer, file_count integer)
 language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
 declare
+  batch_row public.document_upload_batches%rowtype;
   requirement_row public.document_requirements%rowtype;
-  existing_count integer;
+  normalized_file_ids jsonb;
   requested_count integer;
   inserted_count integer;
+  next_version integer;
   profile_email text;
   project_title text;
   file_names text;
-  storage_prefix text;
   activity_assigned_to uuid;
   general_consultant_id uuid;
   responsible_id uuid;
 begin
   if p_upload_batch_id is null
-     or p_version_number is null
-     or p_version_number < 1
-     or coalesce(jsonb_typeof(p_rows), '') <> 'array'
-     or jsonb_array_length(p_rows) < 1
-     or jsonb_array_length(p_rows) > 50 then
+     or p_actor_id is null
+     or coalesce(jsonb_typeof(p_selected_file_ids), '') <> 'array'
+     or jsonb_array_length(p_selected_file_ids) < 1
+     or jsonb_array_length(p_selected_file_ids) > 50 then
     raise exception 'Invalid document upload batch' using errcode = 'P0001';
   end if;
 
-  requested_count := jsonb_array_length(p_rows);
+  requested_count := jsonb_array_length(p_selected_file_ids);
+
+  if exists (
+    select 1
+    from jsonb_array_elements_text(p_selected_file_ids) as selected(file_id)
+    group by selected.file_id
+    having count(*) > 1
+  ) then
+    raise exception 'Upload batch contains duplicate file ids' using errcode = 'P0001';
+  end if;
+
+  select *
+    into batch_row
+  from public.document_upload_batches
+  where id = p_upload_batch_id
+  for update;
+
+  if not found then
+    raise exception 'Document upload batch not found' using errcode = 'P0001';
+  end if;
+
+  if batch_row.uploaded_by <> p_actor_id then
+    raise exception 'Document upload batch actor mismatch' using errcode = 'P0001';
+  end if;
 
   select *
     into requirement_row
   from public.document_requirements
-  where id = p_requirement_id
+  where id = batch_row.requirement_id
     and deleted_at is null
   for update;
 
@@ -518,89 +539,35 @@ begin
     raise exception 'Outgoing document requests do not accept uploads' using errcode = 'P0001';
   end if;
 
-  storage_prefix := 'projects/' || requirement_row.project_id::text ||
-    '/document-requests/' || p_requirement_id::text || '/v' || p_version_number::text || '/';
-
   if exists (
     select 1
-    from jsonb_array_elements(p_rows) as item
-    where item->>'storage_path' is null
-       or left(item->>'storage_path', length(storage_prefix)) <> storage_prefix
-       or length(item->>'storage_path') <= length(storage_prefix)
-       or left(item->>'storage_path', length(storage_prefix) + 1) = storage_prefix || '/'
-       or right(item->>'storage_path', 1) = '/'
-       or position('//' in substring(item->>'storage_path' from length(storage_prefix) + 1)) > 0
-       or exists (
-         select 1
-         from regexp_split_to_table(substring(item->>'storage_path' from length(storage_prefix) + 1), '/') as segment
-         where segment in ('.', '..')
-       )
+    from jsonb_array_elements_text(p_selected_file_ids) as selected(file_id)
+    where not exists (
+      select 1
+      from jsonb_array_elements(batch_row.expected_files) as expected(file_data)
+      where expected.file_data->>'file_id' = selected.file_id
+    )
   ) then
-    raise exception 'Upload path is outside the document request version directory' using errcode = 'P0001';
+    raise exception 'Upload batch contains an unknown file id' using errcode = 'P0001';
   end if;
 
-  if exists (
-    select 1
-    from jsonb_array_elements(p_rows) as item
-    where coalesce(item->'file_size', 'null'::jsonb) <> 'null'::jsonb
-      and case
-        when jsonb_typeof(item->'file_size') = 'number' then
-          (item->>'file_size')::numeric < 0
-          or (item->>'file_size')::numeric > 26214400
-        else true
-      end
-  ) then
-    raise exception 'File size must be between 0 and 26214400 bytes' using errcode = 'P0001';
-  end if;
+  select jsonb_agg(to_jsonb(selected.file_id) order by selected.file_id)
+    into normalized_file_ids
+  from jsonb_array_elements_text(p_selected_file_ids) as selected(file_id);
 
-  if exists (
-    select 1
-    from jsonb_array_elements(p_rows) as item
-    group by item->>'storage_path'
-    having count(*) > 1
-  ) then
-    raise exception 'Upload batch contains duplicate storage paths' using errcode = 'P0001';
-  end if;
-
-  select count(*)
-    into existing_count
-  from public.files
-  where requirement_id = p_requirement_id
-    and upload_batch_id = p_upload_batch_id
-    and deleted_at is null;
-
-  if existing_count > 0 then
-    if existing_count <> requested_count
-       or exists (
-         select 1
-         from public.files existing
-         where existing.requirement_id = p_requirement_id
-           and existing.upload_batch_id = p_upload_batch_id
-           and existing.deleted_at is null
-           and not exists (
-             select 1
-             from jsonb_array_elements(p_rows) as item
-             where item->>'storage_path' = existing.storage_path
-           )
-       )
-       or exists (
-         select 1
-         from jsonb_array_elements(p_rows) as item
-         where not exists (
-           select 1
-           from public.files existing
-           where existing.requirement_id = p_requirement_id
-             and existing.upload_batch_id = p_upload_batch_id
-             and existing.deleted_at is null
-             and existing.storage_path = item->>'storage_path'
-         )
-       ) then
-      raise exception 'Upload batch already exists with a different file set' using errcode = 'P0001';
+  if batch_row.version_number is not null then
+    if batch_row.completed_file_ids = normalized_file_ids then
+      return query select false, batch_row.version_number, requested_count;
+      return;
     end if;
-
-    return query select false, existing_count;
-    return;
+    raise exception 'Upload batch already completed with a different file set' using errcode = 'P0001';
   end if;
+
+  -- The requirement row lock serializes all completing batches for this request.
+  select coalesce(max(f.version_number), 0) + 1
+    into next_version
+  from public.files as f
+  where f.requirement_id = batch_row.requirement_id;
 
   insert into public.files (
     requirement_id,
@@ -613,19 +580,18 @@ begin
     uploaded_by
   )
   select
-    p_requirement_id,
-    p_upload_batch_id,
-    item.storage_path,
-    item.original_name,
-    item.mime_type,
-    item.file_size,
-    p_version_number,
-    p_uploaded_by
-  from jsonb_to_recordset(p_rows) as item(
-    storage_path text,
-    original_name text,
-    mime_type text,
-    file_size bigint
+    batch_row.requirement_id,
+    batch_row.id,
+    expected.file_data->>'storage_path',
+    expected.file_data->>'original_name',
+    nullif(expected.file_data->>'mime_type', ''),
+    (expected.file_data->>'declared_size')::bigint,
+    next_version,
+    p_actor_id
+  from jsonb_array_elements(batch_row.expected_files) as expected(file_data)
+  where expected.file_data->>'file_id' in (
+    select selected.file_id
+    from jsonb_array_elements_text(p_selected_file_ids) as selected(file_id)
   );
 
   get diagnostics inserted_count = row_count;
@@ -633,9 +599,15 @@ begin
     raise exception 'Document upload batch was not inserted completely' using errcode = 'P0001';
   end if;
 
+  update public.document_upload_batches
+  set completed_file_ids = normalized_file_ids,
+      version_number = next_version,
+      completed_at = now()
+  where id = batch_row.id;
+
   update public.document_requirements
   set status = 'review'
-  where id = p_requirement_id
+  where id = requirement_row.id
     and deleted_at is null;
 
   if not found then
@@ -645,7 +617,7 @@ begin
   select p.email
     into profile_email
   from public.profiles p
-  where p.id = p_uploaded_by;
+  where p.id = p_actor_id;
 
   select p.title, p.general_consultant_id
     into project_title, general_consultant_id
@@ -661,9 +633,13 @@ begin
 
   responsible_id := coalesce(requirement_row.assigned_to, activity_assigned_to, general_consultant_id);
 
-  select string_agg(item->>'original_name', ', ')
+  select string_agg(expected.file_data->>'original_name', ', ' order by expected.file_data->>'file_id')
     into file_names
-  from jsonb_array_elements(p_rows) as item;
+  from jsonb_array_elements(batch_row.expected_files) as expected(file_data)
+  where expected.file_data->>'file_id' in (
+    select selected.file_id
+    from jsonb_array_elements_text(p_selected_file_ids) as selected(file_id)
+  );
 
   insert into public.audit_logs (
     user_id,
@@ -675,23 +651,23 @@ begin
     description,
     ip_address
   ) values (
-    p_uploaded_by,
+    p_actor_id,
     'create',
     'file',
-    p_requirement_id,
+    requirement_row.id,
     requirement_row.name,
     jsonb_build_object(
-      'requirement_id', p_requirement_id,
+      'requirement_id', requirement_row.id,
       'requirement_name', requirement_row.name,
       'project_id', requirement_row.project_id,
       'project_title', project_title,
       'file_count', requested_count,
-      'version', p_version_number,
+      'version', next_version,
       'files', file_names,
-      'upload_batch_id', p_upload_batch_id
+      'upload_batch_id', batch_row.id
     ),
     coalesce(profile_email, 'User') || ' a încărcat ' || requested_count ||
-      ' fișier(e) pentru cererea "' || coalesce(requirement_row.name, p_requirement_id::text) ||
+      ' fișier(e) pentru cererea "' || coalesce(requirement_row.name, requirement_row.id::text) ||
       '" din proiectul "' || coalesce(project_title, requirement_row.project_id::text) || '"',
     p_ip_address
   );
@@ -700,10 +676,10 @@ begin
     requirement_row.project_id,
     'document_action',
     'document_request',
-    p_requirement_id,
+    requirement_row.id,
     case when requested_count = 1 then 'Document încărcat' else 'Documente încărcate' end,
     requested_count,
-    'document-upload:' || p_upload_batch_id::text,
+    'document-upload:' || batch_row.id::text,
     responsible_id,
     true,
     true,
@@ -712,218 +688,18 @@ begin
     (
       select coalesce(nullif(btrim(uploader.full_name), ''), uploader.email)
       from public.profiles uploader
-      where uploader.id = p_uploaded_by
+      where uploader.id = p_actor_id
     ),
-    coalesce(requirement_row.name, p_requirement_id::text)
+    coalesce(requirement_row.name, requirement_row.id::text)
   );
 
-  return query select true, inserted_count;
+  return query select true, next_version, inserted_count;
 end;
 $$;
 
-create or replace function public.review_document_request(
-  p_request_id uuid,
-  p_action text,
-  p_reason text default null,
-  p_reviewed_by uuid default null,
-  p_ip_address text default null
-)
-returns table(created boolean, review_id uuid, reviewed_version_number integer, action text)
-language plpgsql
-security definer
-set search_path = public, pg_temp
-as $$
-declare
-  requirement_row public.document_requirements%rowtype;
-  latest_version integer;
-  existing_review public.document_request_reviews%rowtype;
-  inserted_review public.document_request_reviews%rowtype;
-  profile_email text;
-  activity_visibility text;
-  activity_phase_id uuid;
-  phase_visibility text;
-  project_client_id uuid;
-  client_visible boolean;
-begin
-  if p_action not in ('approved', 'rejected') then
-    raise exception 'Invalid review action' using errcode = 'P0001';
-  end if;
-
-  select *
-    into requirement_row
-  from public.document_requirements
-  where id = p_request_id
-    and deleted_at is null
-  for update;
-
-  if not found then
-    raise exception 'Document request not found' using errcode = 'P0001';
-  end if;
-
-  if requirement_row.is_outgoing then
-    raise exception 'Outgoing document requests do not enter review' using errcode = 'P0001';
-  end if;
-
-  select f.version_number
-    into latest_version
-  from public.files f
-  where f.requirement_id = p_request_id
-    and f.deleted_at is null
-  order by f.version_number desc, f.created_at desc, f.id desc
-  limit 1;
-
-  if latest_version is null then
-    raise exception 'No uploaded files to review' using errcode = 'P0001';
-  end if;
-
-  select *
-    into existing_review
-  from public.document_request_reviews r
-  where r.requirement_id = p_request_id
-    and r.reviewed_version_number = latest_version
-  order by r.reviewed_at desc, r.id desc
-  limit 1;
-
-  if found then
-    if existing_review.action <> p_action then
-      raise exception 'This document version was already reviewed with another action' using errcode = 'P0001';
-    end if;
-    return query select false, existing_review.id, existing_review.reviewed_version_number, existing_review.action;
-    return;
-  end if;
-
-  if requirement_row.status <> 'review' then
-    raise exception 'Document request is not ready for review' using errcode = 'P0001';
-  end if;
-
-  if p_action = 'rejected' and nullif(btrim(p_reason), '') is null then
-    raise exception 'Notes are required for rejection' using errcode = 'P0001';
-  end if;
-
-  insert into public.document_request_reviews (
-    requirement_id,
-    action,
-    reason,
-    reviewed_version_number,
-    reviewed_by
-  ) values (
-    p_request_id,
-    p_action,
-    case when p_action = 'rejected' then nullif(btrim(p_reason), '') else null end,
-    latest_version,
-    p_reviewed_by
-  )
-  returning * into inserted_review;
-
-  update public.document_requirements
-  set status = p_action
-  where id = p_request_id
-    and deleted_at is null;
-
-  if not found then
-    raise exception 'Document request disappeared during review' using errcode = 'P0001';
-  end if;
-
-  select p.email
-    into profile_email
-  from public.profiles p
-  where p.id = p_reviewed_by;
-
-  insert into public.audit_logs (
-    user_id,
-    action_type,
-    entity_type,
-    entity_id,
-    entity_name,
-    old_values,
-    new_values,
-    description,
-    ip_address
-  ) values (
-    p_reviewed_by,
-    'update',
-    'document',
-    p_request_id,
-    coalesce(requirement_row.name, 'Document'),
-    jsonb_build_object('status', requirement_row.status),
-    jsonb_build_object(
-      'status', p_action,
-      'reviewed_version_number', latest_version,
-      'reason', case when p_action = 'rejected' then nullif(btrim(p_reason), '') else null end
-    ),
-    coalesce(profile_email, 'User') || ' a ' ||
-      case when p_action = 'approved' then 'aprobat' else 'respins' end ||
-      ' documentul "' || coalesce(requirement_row.name, p_request_id::text) || '"' ||
-      case when p_action = 'rejected' and nullif(btrim(p_reason), '') is not null
-        then ' cu motivul: ' || btrim(p_reason)
-        else '' end,
-    p_ip_address
-  );
-
-  select p.client_id
-    into project_client_id
-  from public.projects p
-  where p.id = requirement_row.project_id;
-
-  client_visible := requirement_row.visibility = 'published';
-  if client_visible and requirement_row.activity_id is not null then
-    select a.visibility, a.phase_id, p.visibility
-      into activity_visibility, activity_phase_id, phase_visibility
-    from public.project_activities a
-    left join public.project_phases p on p.id = a.phase_id
-    where a.id = requirement_row.activity_id
-      and (a.phase_id is null or p.project_id = requirement_row.project_id);
-
-    client_visible := found
-      and activity_visibility = 'published'
-      and (activity_phase_id is null or phase_visibility = 'published');
-  end if;
-
-  perform public.insert_notification_event(
-    requirement_row.project_id,
-    'document_action',
-    'document_request',
-    p_request_id,
-    'Document ' || case when p_action = 'approved' then 'aprobat' else 'respins' end,
-    1,
-    'document-review:' || inserted_review.id::text,
-    case when client_visible then project_client_id else null end,
-    true,
-    false,
-    false,
-    case when p_action = 'approved' then 'success' else 'danger' end,
-    (
-      select coalesce(nullif(btrim(reviewer.full_name), ''), reviewer.email)
-      from public.profiles reviewer
-      where reviewer.id = p_reviewed_by
-    ),
-    coalesce(requirement_row.name, p_request_id::text)
-  );
-
-  return query select true, inserted_review.id, inserted_review.reviewed_version_number, inserted_review.action;
-end;
-$$;
-
--- ============================================================ grants
-
-revoke all on function public.insert_notification_event(uuid, text, text, uuid, text, integer, text, uuid, boolean, boolean, boolean, text, text, text)
+revoke all on function public.complete_reserved_document_upload_batch(uuid, uuid, jsonb, text)
   from public, anon, authenticated;
-grant execute on function public.insert_notification_event(uuid, text, text, uuid, text, integer, text, uuid, boolean, boolean, boolean, text, text, text)
-  to service_role;
-
-revoke all on function public.notify_project_activity_assignment()
-  from public, anon, authenticated;
-revoke all on function public.notify_document_request_assignment()
-  from public, anon, authenticated;
-
-revoke all on function public.review_document_request(uuid, text, text, uuid, text)
-  from public, anon, authenticated;
-grant execute on function public.review_document_request(uuid, text, text, uuid, text)
-  to service_role;
-
-revoke all on function public.complete_document_upload_batch(uuid, uuid, integer, uuid, jsonb, text)
-  from public, anon, authenticated;
-grant execute on function public.complete_document_upload_batch(uuid, uuid, integer, uuid, jsonb, text)
+grant execute on function public.complete_reserved_document_upload_batch(uuid, uuid, jsonb, text)
   to service_role;
 
 do $verify$
@@ -931,6 +707,7 @@ begin
   if to_regprocedure('public.notification_entity_label(text,uuid)') is null
      or to_regprocedure('public.mark_notifications_unread(uuid[])') is null
      or to_regprocedure('public.dismiss_notifications(uuid[])') is null
+     or to_regprocedure('public.complete_reserved_document_upload_batch(uuid,uuid,jsonb,text)') is null
      or to_regprocedure('public.insert_notification_event(uuid,text,text,uuid,text,integer,text,uuid,boolean,boolean,boolean,text,text,text)') is null then
     raise exception 'Notification panel functions were not installed';
   end if;

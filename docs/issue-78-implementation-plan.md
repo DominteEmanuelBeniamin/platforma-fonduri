@@ -21,7 +21,7 @@ Implementarea pornește din branch-ul curent, care conține deja modificările �
 - Review-ul este notificat imediat; un digest ulterior format numai din review-uri nu creează încă o notificare.
 - Ordinea este notification-first, email-second: pentru digesturile publication/deadline, doar rândurile de notificare inserate în încercarea curentă se șterg înainte de eliberarea claims dacă emailul eșuează; rândurile preexistente nu se șterg. Dacă cleanup-ul eșuează, claims rămân pentru repair. Pentru evenimente de business deja comise (de exemplu assignment), notificarea rămâne, iar emailul este best-effort.
 - Lista nu are retenție; API-ul folosește cursor `(created_at,id)`, cu 40 de rânduri inițiale și „Încarcă mai multe”.
-- La închiderea panoului se marchează ca citite notificările accesibile necitite existente în acel moment.
+- Citirea și ștergerea logică sunt acțiuni explicite; închiderea clopoțelului nu schimbă starea notificărilor.
 
 ## Faza 0 — Preflight și contract
 
@@ -41,7 +41,7 @@ Adaugă o migrare nouă, cu garduri explicite:
 2. Șterge funcția veche exactă, fără `CASCADE`.
 3. Recreează tabela cu:
    - `id`, `user_id`, `project_id`, `type`, `entity_type`, `entity_id`;
-   - `title`, `item_count`, `event_key`, `created_at`, `read_at`;
+   - `title`, `severity`, `actor_name`, `entity_label`, `item_count`, `event_key`, `created_at`, `read_at`, `dismissed_at`;
    - FK către utilizator și proiect;
    - CHECK pentru tipuri și `item_count > 0`;
    - UNIQUE `(user_id,event_key)`.
@@ -68,6 +68,7 @@ Adaugă endpoint-uri:
 - `GET /api/notifications/summary` — total necitite și număr pe proiect;
 - `GET /api/notifications` — listă paginată, filtre `projectId`, `unreadOnly`;
 - `POST /api/notifications/read` — marchează rânduri accesibile ca citite;
+- `POST /api/notifications/dismiss` — ascunde logic rânduri accesibile;
 - `GET /api/notifications/[id]/target` — verifică accesul și returnează ruta curentă; pentru entitate dispărută răspunde 404.
 
 Testează separat cursorul, filtrele, idempotency key, membership-ul și entitățile șterse.
@@ -76,9 +77,9 @@ Testează separat cursorul, filtrele, idempotency key, membership-ul și entită
 
 ### Upload
 
-- Persistă `batchId` pe fișier.
+- La `init` se persistă rezervarea în `document_upload_batches` cu lista exactă; rândurile `files` primesc `upload_batch_id` numai la `completion`.
 - Adaugă index unic parțial pe `(requirement_id, upload_batch_id, storage_path)`.
-- Fă endpoint-ul `complete` retry-safe; auditul și actualizarea statusului se execută o singură dată.
+- Alocă versiunea atomic la `completion`, iar endpoint-ul `complete` folosește metadata server-side și verifică obiectele din Storage înainte de persistare; auditul și actualizarea statusului se execută o singură dată.
 - Creează notificarea `document_action` pentru consultant/admin în aceeași tranzacție cu fișierele, auditul și actualizarea statusului.
 
 ### Review
@@ -100,6 +101,7 @@ Integrează helperul în producători:
 - publish/`notify-client`: notificare publication doar când există elemente relevante;
 - deadline cron: resolver comun pentru responsabil și membership curent, grupare in-app per proiect, email digest existent păstrat per recipient;
 - admini: notificare separată per proiect/eveniment, fără duplicate;
+- eliminarea membrilor încă asignați este blocată; safe-delete pentru ștergerea părintelui activitate/fază copiază assignee-ul pe cererile mutate doar dacă mai este membru consultant activ;
 - fiecare email primește aceeași cheie logică stabilă și idempotency key Resend.
 
 Regula de eroare: dacă inserarea notificării eșuează, nu trimite emailul pentru acel eveniment; pentru digesturile publication/deadline, dacă emailul eșuează, șterge doar rândurile noi inserate în încercarea curentă înainte de eliberarea claims, fără să ștergi rânduri preexistente. Dacă ștergerea eșuează, păstrează claims pentru repair și întoarce eroare; pentru evenimente de business deja comise (de exemplu assignment), notificarea rămâne, iar emailul este best-effort.
@@ -112,9 +114,10 @@ Testează proiecte multiple, consultant scos din proiect, override email, retry 
 - Abonează-te Realtime filtrat pe `user_id`, apoi refă summary/lista prin API la eveniment.
 - Refă lista la deschidere, focus și revenirea tabului; golește starea locală la închidere pentru revocarea accesului.
 - Adaugă clopoțelul în Navbar folosind fixul de overflow din #81.
-- Panou Radix responsive: card desktop, bottom-sheet pe mobil.
-- Filtre: toate, necitite, proiect; empty states distincte pentru listă goală, filtru fără rezultate și eroare.
-- La închidere marchează notificările accesibile necitite ca citite.
+- Clopoțelul afișează lista scurtă, iar pagina `/notificari` oferă lista și controalele complete.
+- Filtre: stare, categorie și proiect; empty states distincte pentru listă goală, filtru fără rezultate și eroare.
+- Catalogul filtrului de proiecte se încarcă din `/api/projects`, independent de paginarea notificărilor.
+- Nu marca automat notificările ca citite la închiderea clopoțelului.
 
 ## Faza 6 — Home și badge-uri
 
@@ -134,7 +137,7 @@ Separă `unreadChat` de `unreadNotifications`.
 - `pnpm lint`
 - `npx.cmd tsc --noEmit`
 - build de producție
-- test manual desktop + mobil pentru panel, Realtime, read-on-close și membership revocation;
+- test manual desktop + mobil pentru clopoțel, pagina `/notificari`, Realtime și membership revocation;
 - test cron cu mai multe proiecte și test de retry pentru upload/review;
 - verificare migrații pe staging înainte de producție.
 

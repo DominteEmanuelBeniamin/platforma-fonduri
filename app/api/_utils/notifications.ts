@@ -107,7 +107,6 @@ async function resolveEntityLabel(
   const name = typeof result.data?.name === 'string' ? result.data.name.trim() : ''
   return name || null
 }
-
 export async function resolveNotificationRecipients(
   admin: any,
   input: Pick<RecordNotificationInput, 'projectId' | 'recipientIds' | 'includeAdmins' | 'fallbackToProjectMembers'>,
@@ -178,7 +177,6 @@ export async function recordNotification(admin: any, input: RecordNotificationIn
   const entityLabel = input.entityLabel === undefined
     ? await resolveEntityLabel(admin, input.entityType, input.entityId)
     : input.entityLabel?.trim() || null
-
   const result = await admin
     .from('notifications')
     .upsert(

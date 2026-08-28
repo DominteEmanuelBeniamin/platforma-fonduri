@@ -282,14 +282,6 @@ begin
     raise exception 'No uploaded files to review' using errcode = 'P0001';
   end if;
 
-  -- Motivul se cere înaintea scurtcircuitului de idempotență și înaintea
-  -- verificării de status: altfel o respingere fără motiv primește răspunsul
-  -- greșit — 200 pe un replay, sau 409 „Reîncarcă pagina” pe o cerere care nu e
-  -- în review — în loc de 400 „Scrie motivul respingerii”.
-  if p_action = 'rejected' and nullif(btrim(p_reason), '') is null then
-    raise exception 'Notes are required for rejection' using errcode = 'P0001';
-  end if;
-
   select *
     into existing_review
   from public.document_request_reviews r
@@ -308,6 +300,10 @@ begin
 
   if requirement_row.status <> 'review' then
     raise exception 'Document request is not ready for review' using errcode = 'P0001';
+  end if;
+
+  if p_action = 'rejected' and nullif(btrim(p_reason), '') is null then
+    raise exception 'Notes are required for rejection' using errcode = 'P0001';
   end if;
 
   insert into public.document_request_reviews (

@@ -207,9 +207,9 @@ export async function sendDocumentReminder(
     deadlineAt,
     sendIndex: claim.data.sendIndex,
   })
-  const notificationTitle = reminderType === 'overdue' ? 'Termen depășit' : 'Termen apropiat'
 
   let notificationIds: readonly string[] = []
+  const notificationTitle = reminderType === 'overdue' ? 'Termen depășit' : 'Termen apropiat'
   try {
     const notification = await recordNotification(admin, {
       projectId,

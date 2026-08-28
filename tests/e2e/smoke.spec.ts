@@ -16,10 +16,10 @@ const creds: Record<string, string> = fs.existsSync(ENV_FILE)
       .map(l => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim()] }))
   : {}
 
-const PROJECT = creds.E2E_PROJECT_ID || '7f753afc-c107-4254-93d1-8259a050fc17'
+const PROJECT = creds.E2E_PROJECT_ID || ''
 const WRITES = process.env.E2E_WRITES === '1'
-
-test.skip(!creds.E2E_STAFF_EMAIL, `lipsește ${ENV_FILE}`)
+const STAFF_READY = !!(PROJECT && creds.E2E_STAFF_EMAIL && creds.E2E_STAFF_PASSWORD)
+const CLIENT_READY = !!(PROJECT && creds.E2E_CLIENT_EMAIL && creds.E2E_CLIENT_PASSWORD)
 
 async function login(page: Page, who: 'CLIENT' | 'STAFF') {
   await page.goto('/login', { waitUntil: 'domcontentloaded' })
@@ -59,6 +59,7 @@ async function openFirstPendingRequest(page: Page) {
 }
 
 test('paginile atinse se încarcă fără erori de consolă', async ({ page }) => {
+  test.skip(!STAFF_READY, `lipsesc proiectul sau credențialele staff din ${ENV_FILE}`)
   const errors: string[] = []
   page.on('pageerror', e => errors.push(e.message))
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
@@ -72,6 +73,7 @@ test('paginile atinse se încarcă fără erori de consolă', async ({ page }) =
 })
 
 test('un tip de fișier nepermis e oprit în client, fără să atingă serverul', async ({ page }) => {
+  test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)
   const calls: string[] = []
   page.on('request', r => { if (r.url().includes('uploads/init')) calls.push(r.url()) })
 
@@ -89,6 +91,7 @@ test.describe('upload real', () => {
   test.skip(!WRITES, 'scrie date reale — rulează cu E2E_WRITES=1')
 
   test('clientul încarcă din modalul cererii', async ({ page }) => {
+    test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)
     const steps: number[] = []
     page.on('response', r => {
       if (r.url().includes('uploads/init') || r.url().includes('uploads/complete')) steps.push(r.status())
@@ -108,6 +111,7 @@ test.describe('upload real', () => {
   })
 
   test('clientul încarcă din panoul paginii', async ({ page }) => {
+    test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)
     const steps: number[] = []
     page.on('response', r => {
       if (r.url().includes('uploads/init') || r.url().includes('uploads/complete')) steps.push(r.status())
@@ -129,6 +133,7 @@ test.describe('upload real', () => {
 })
 
 test('filtrul de categorii se poate folosi numai din tastatură', async ({ page }) => {
+  test.skip(!STAFF_READY, `lipsesc proiectul sau credențialele staff din ${ENV_FILE}`)
   await login(page, 'STAFF')
   await page.goto('/notificari', { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(4000)
