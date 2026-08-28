@@ -156,6 +156,10 @@ export function useNotificationFeed({ limit, active, filters = ALL_NOTIFICATIONS
         !ids || ids.includes(item.id) ? { ...item, readAt } : item
       )))
       await refresh()
+      // „Marchează tot ca citit” sub filtrul „Necitite” golește lista. Un merge
+      // n-ar scoate niciun rând — aduce doar ce vine de la server — așa că
+      // rândurile tocmai citite ar rămâne afișate sub un filtru care le exclude.
+      if (!ids && status === 'unread') await loadPage('replace')
       return true
     } catch {
       showToast(
@@ -164,7 +168,7 @@ export function useNotificationFeed({ limit, active, filters = ALL_NOTIFICATIONS
       )
       return false
     }
-  }, [apiFetch, refresh, showToast])
+  }, [apiFetch, loadPage, refresh, showToast, status])
 
   const dismiss = useCallback(async (ids: string[]) => {
     if (ids.length === 0) return true

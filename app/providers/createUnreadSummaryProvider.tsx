@@ -82,7 +82,11 @@ export function createUnreadSummaryProvider<TState extends object>(options: Unre
       }
 
       const generation = generationRef.current
-      inFlightRefreshRef.current = (async () => {
+      // Ștergerea se face pe identitatea rulării, nu pe generație: dacă `active`
+      // se schimbă cât cererea e în aer, o condiție pe generație lasă în ref o
+      // promisiune deja rezolvată, iar orice `refresh()` de după intră la
+      // nesfârșit în ramura „e una în curs”.
+      const run = (async () => {
         try {
           const res = await apiFetch(options.endpoint, { method: 'GET' })
           const json = await res.json().catch(() => null)
@@ -96,12 +100,17 @@ export function createUnreadSummaryProvider<TState extends object>(options: Unre
           ))
         } catch {
           // Păstrăm ultima stare pentru un indicator care nu trebuie să blocheze UI-ul.
-        } finally {
-          if (generation === generationRef.current) inFlightRefreshRef.current = null
         }
       })()
+      inFlightRefreshRef.current = run
 
-      await inFlightRefreshRef.current
+      // Cel care a pornit rularea o și eliberează, iar el reia primul după ce
+      // promisiunea se stinge: cine a așteptat-o găsește ref-ul deja gol.
+      try {
+        await run
+      } finally {
+        if (inFlightRefreshRef.current === run) inFlightRefreshRef.current = null
+      }
     }, [apiFetch])
 
     useEffect(() => {

@@ -107,7 +107,9 @@ export function describeDocumentActionFailure(
   rawMessage: string | null | undefined,
   code: string | null | undefined,
 ): DocumentActionFailure {
-  const known = rawMessage ? DOCUMENT_ACTION_FAILURES[rawMessage] : undefined
+  const known = rawMessage && Object.prototype.hasOwnProperty.call(DOCUMENT_ACTION_FAILURES, rawMessage)
+    ? DOCUMENT_ACTION_FAILURES[rawMessage]
+    : undefined
   if (known) return known
   return code === 'P0001'
     ? { status: 409, message: 'Acțiunea nu a putut fi finalizată. Reîncarcă pagina și încearcă din nou.' }

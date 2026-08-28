@@ -194,6 +194,14 @@ export function encodeNotificationCursor(cursor: NotificationCursor): string {
   return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url')
 }
 
+/**
+ * `created_at` ajunge textual într-un filtru `or=(...)` al PostgREST, unde
+ * virgula separă termenii. `Date.parse` singur acceptă „Jan 1, 2026”, deci
+ * timestamp-ul trebuie să arate exact ca cel scris de Postgres, nu doar să fie
+ * o dată pe care JS o poate citi.
+ */
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:?\d{2})?$/
+
 export function decodeNotificationCursor(value: string | null | undefined): NotificationCursor | null {
   if (!value || !/^[A-Za-z0-9_-]+$/.test(value)) return null
 
@@ -201,6 +209,7 @@ export function decodeNotificationCursor(value: string | null | undefined): Noti
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<NotificationCursor>
     if (
       typeof parsed.createdAt !== 'string' ||
+      !ISO_TIMESTAMP.test(parsed.createdAt) ||
       !Number.isFinite(Date.parse(parsed.createdAt)) ||
       !isUuid(parsed.id)
     ) {

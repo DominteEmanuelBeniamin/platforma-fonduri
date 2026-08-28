@@ -39,6 +39,15 @@ function startOfDay(value: Date): number {
   return new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime()
 }
 
+const WEEK = 7 * DAY
+
+/** Luni, ca în calendarul românesc. O fereastră de 7 zile ar trece peste hotarul săptămânii. */
+function startOfWeek(value: Date): number {
+  const start = new Date(value.getFullYear(), value.getMonth(), value.getDate())
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7))
+  return start.getTime()
+}
+
 export function formatNotificationDate(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
@@ -73,9 +82,12 @@ export function formatRelativeTime(value: string, now: Date = new Date()): strin
 
   const days = Math.round((startOfDay(now) - startOfDay(date)) / DAY)
   if (days <= 1) return `ieri, ${formatTime(date)}`
-  // Numele zilei e mai ușor de plasat decât „acum 4 zile”, atâta timp cât
-  // săptămâna în care ne aflăm nu lasă loc de confuzie.
-  if (days < 7) return `${date.toLocaleDateString('ro-RO', { weekday: 'long' })}, ${formatTime(date)}`
+  // Numele zilei e mai ușor de plasat decât „acum 4 zile”, dar numai înăuntrul
+  // săptămânii curente: „sâmbătă” într-o zi de joi ar arăta către o sâmbătă care
+  // n-a venit încă.
+  if (startOfDay(date) >= startOfWeek(now)) {
+    return `${date.toLocaleDateString('ro-RO', { weekday: 'long' })}, ${formatTime(date)}`
+  }
   return formatNotificationDate(value)
 }
 
@@ -87,7 +99,9 @@ export function notificationDayGroup(value: string, now: Date = new Date()): str
   const days = Math.round((startOfDay(now) - startOfDay(date)) / DAY)
   if (days <= 0) return 'Astăzi'
   if (days === 1) return 'Ieri'
-  if (days < 7) return 'Săptămâna aceasta'
+  const weekStart = startOfWeek(now)
+  if (startOfDay(date) >= weekStart) return 'Săptămâna aceasta'
+  if (startOfDay(date) >= weekStart - WEEK) return 'Săptămâna trecută'
   return date.toLocaleDateString('ro-RO', { month: 'long', year: 'numeric' })
 }
 
