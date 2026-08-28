@@ -135,7 +135,7 @@ export async function GET(request: Request) {
           scoped(
             admin
               .from('projects')
-              .select('id, title, client_id, general_consultant_id, client:profiles!projects_client_id_fkey(id, full_name, email)'),
+              .select('id, title, client_id, lifecycle_status, automatic_reminders_enabled, general_consultant_id, client:profiles!projects_client_id_fkey(id, full_name, email)'),
             'id',
           )
         ).range(from, to)
@@ -232,6 +232,7 @@ export async function GET(request: Request) {
         name: activity.name,
         deadline_at: activity.deadline_at ?? null,
         done: isActivityDone(activity),
+        status: activity.status ?? null,
         visibility: activity.visibility === 'published' ? 'published' : 'draft',
         project_id: phase.project_id,
         project_title: project?.title ?? '',
@@ -265,6 +266,9 @@ export async function GET(request: Request) {
         name: req.name,
         deadline_at: req.deadline_at ?? null,
         done: isRequestDone(req),
+        // Statusul întreg, nu doar `done`: tabloul de bord (#81) desparte după
+        // el munca aflată la echipă de cea aflată la client. Vezi `eventWaitingOn`.
+        status: req.status ?? null,
         visibility: req.visibility === 'published' ? 'published' : 'draft',
         project_id: req.project_id,
         project_title: project?.title ?? '',
@@ -286,6 +290,15 @@ export async function GET(request: Request) {
           id: project.id,
           title: project.title,
           client_name: clientNameOf(project),
+          // Nefolosit de calendare, care arată termenele din orice proiect
+          // accesibil. Tabloul de bord (#81) e cel care ascunde implicit
+          // proiectele încheiate, și îl ia de aici ca să nu mai facă o cerere.
+          lifecycle_status: project.lifecycle_status ?? '',
+          // Tot pentru tablou: un proiect care nu mai trimite nimic automat
+          // (#85) e o stare de arătat, nu una de aflat deschizând proiectul.
+          // `not null default true` în bază; `?? true` e doar plasa de siguranță
+          // pentru un rând scris înainte de migrare.
+          automatic_reminders_enabled: project.automatic_reminders_enabled ?? true,
         }))
         .sort((a, b) => (a.client_name ?? '').localeCompare(b.client_name ?? '', 'ro') || a.title.localeCompare(b.title, 'ro')),
       // Filtrul de fază are sens doar în calendarul unui proiect; în cel general

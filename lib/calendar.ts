@@ -29,6 +29,13 @@ export interface CalendarEvent {
   deadline_at: string | null
   /** Activitate încheiată, respectiv cerere aprobată. Calculat pe server. */
   done: boolean
+  /**
+   * Statusul din bază, neinterpretat. `done` îl colapsează la da/nu, ceea ce
+   * ajunge pentru calendar, dar șterge singura distincție care contează în
+   * tabloul de bord: o cerere în verificare așteaptă echipa, una în așteptare
+   * așteaptă clientul. Vezi `eventWaitingOn`.
+   */
+  status: string | null
   visibility: CalendarVisibility
   project_id: string
   project_title: string
@@ -50,6 +57,14 @@ export interface CalendarProjectOption {
   id: string
   title: string
   client_name: string | null
+  /**
+   * `text` liber în bază, fără enum și fără nicio folosință în cod până la #81.
+   * De aceea nu-l îngustăm la o listă de valori pe care n-o putem verifica:
+   * singura pe care se sprijină ceva e `active` — vezi `isProjectActive`.
+   */
+  lifecycle_status: string
+  /** Comutatorul din #85. Vezi `ProjectDashboardRow.reminders_off`. */
+  automatic_reminders_enabled: boolean
 }
 
 export interface CalendarPhaseOption {
@@ -100,6 +115,34 @@ export function eventProgress(event: Pick<CalendarEvent, 'deadline_at' | 'done'>
   if (event.done) return 'done'
   const days = getDaysUntilDeadline(event.deadline_at)
   return days !== null && days < 0 ? 'overdue' : 'open'
+}
+
+export type CalendarWaitingOn = 'us' | 'client'
+
+export const WAITING_LABELS: Record<CalendarWaitingOn, string> = {
+  us: 'la noi',
+  client: 'la client',
+}
+
+/**
+ * Cine trebuie să miște elementul mai departe; `null` pentru ce e finalizat.
+ *
+ * Regula nu e inventată aici: e chiar cea după care pagina proiectului împarte
+ * panoul „Ce ai de făcut" — clientul are de lucru la `pending` și `rejected`,
+ * consultantul la `review`. Activitățile sunt muncă internă, deci una
+ * nefinalizată e mereu la noi, indiferent de status.
+ *
+ * Gardă pe egalitate cu `review`, nu pe lista celorlalte stări: `status` e
+ * `text` liber în bază, iar o valoare nouă apărută acolo trebuie să cadă în „la
+ * client", nu să fie numărată tăcut ca muncă a echipei. Aceeași alegere ca la
+ * `isProjectActive`.
+ */
+export function eventWaitingOn(
+  event: Pick<CalendarEvent, 'kind' | 'status' | 'done'>,
+): CalendarWaitingOn | null {
+  if (event.done) return null
+  if (event.kind === 'activity') return 'us'
+  return event.status === 'review' ? 'us' : 'client'
 }
 
 /**
@@ -243,15 +286,18 @@ export function formatShortDate(deadlineAt: string): string {
   return new Date(deadlineAt).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-/** „mâine", „în 3 zile", „acum 2 zile" — contextul de lângă dată. */
+/**
+ * „mâine", „în 3 zile", „în 128 de zile", „acum 2 zile" — contextul de lângă
+ * dată. Numeralul trece prin `countLabel`, altfel scria „în 128 zile".
+ */
 export function formatRelativeDeadline(deadlineAt: string | null): string | null {
   const days = getDaysUntilDeadline(deadlineAt)
   if (days === null) return null
   if (days === 0) return 'astăzi'
   if (days === 1) return 'mâine'
   if (days === -1) return 'ieri'
-  if (days > 0) return `în ${days} zile`
-  return `acum ${Math.abs(days)} zile`
+  if (days > 0) return `în ${countLabel(days, 'zi', 'zile')}`
+  return `acum ${countLabel(Math.abs(days), 'zi', 'zile')}`
 }
 
 // ─── Filtre ───────────────────────────────────────────────────────────────────
@@ -458,4 +504,658 @@ export function writeMonth(params: URLSearchParams, month: Date): void {
   const isCurrentMonth = month.getFullYear() === now.getFullYear() && month.getMonth() === now.getMonth()
   if (isCurrentMonth) params.delete(PARAM.month)
   else params.set(PARAM.month, monthKey(month))
+}
+
+// ─── Tablou de bord admin (#81) ───────────────────────────────────────────────
+//
+// Ecranul `/admin/proiecte` nu-și aduce datele lui: agregă evenimentele pe care
+// `/api/calendar` le întoarce oricum. Numărătoarea stă aici, lângă `eventProgress`,
+// tocmai ca să nu poată devia de la calendar — un proiect trebuie să arate același
+// raport în ambele locuri.
+//
+// La 7 proiecte agregarea în client e gratuită. Dacă platforma ajunge la ordinul
+// sutelor, funcțiile de mai jos sunt exact ce se mută pe server: primesc un
+// `CalendarPayload` și nu ating nici React, nici URL-ul.
+
+/**
+ * Proiect „în lucru". Gardă pe egalitate cu `active`, nu pe o listă de valori
+ * încheiate: `lifecycle_status` e `text` liber în bază, fără enum, deci o valoare
+ * nouă apărută acolo trebuie să cadă în „încheiat" și să se ascundă implicit, nu
+ * să se strecoare tăcut în lista pe care adminul o crede curentă.
+ */
+export const isProjectActive = (project: Pick<CalendarProjectOption, 'lifecycle_status'>): boolean =>
+  project.lifecycle_status === 'active'
+
+/**
+ * Numerele unui rând de tablou, oricare ar fi capul lui de rând.
+ *
+ * Aceleași pentru un proiect și pentru un consultant: câtă muncă, cât e gata, cât e
+ * depășit, ce urmează, cât nu e planificat. Scrise o singură dată fiindcă cele
+ * două tabele stau pe același ecran — dacă „depășit" ar fi însemnat altceva de
+ * la un tabel la altul, ecranul s-ar fi contrazis singur, la vedere.
+ */
+export interface DashboardTotals {
+  /** Elementele numărate: activități și cereri de documente la un loc. */
+  total: number
+  done: number
+  overdue: number
+  /** Cel mai apropiat termen viitor al unui element nefinalizat. */
+  next_deadline: string | null
+  /**
+   * De câte zile e depășit cel mai vechi termen. Numărul singur nu spune cât de
+   * rău e: trei depășiri de o zi și trei de patru luni arătau identic.
+   */
+  oldest_overdue_days: number | null
+  /**
+   * Termene nefinalizate în următoarele `URGENT_WINDOW_DAYS` zile, azi inclusiv.
+   * Depășitele nu intră — au coloana lor, și le-ar număra de două ori. De aceea
+   * nu folosește `isUrgentDeadline`, care le cuprinde pe amândouă.
+   */
+  due_soon: number
+  /**
+   * Elemente nefinalizate care n-au niciun termen.
+   *
+   * Fără numărul ăsta, toate celelalte coloane de termene mint prin omisiune: un
+   * proiect cu un singur element datat și șaptezeci nedatate arată la fel de
+   * calm ca unul planificat cap-coadă. Azi, în bază, 16 elemente din 274 au
+   * termen — deci coloanele descriu 6% din muncă, iar restul e tăcere.
+   */
+  undated: number
+  /** Nefinalizate care așteaptă echipa, respectiv clientul. Împreună: `total - done`. */
+  waiting_us: number
+  waiting_client: number
+  /** Nefinalizate pe care clientul nu le vede încă. */
+  drafts: number
+  /**
+   * Aceleași numere, separate pe sursă. Raportul general e dominat de cereri
+   * (azi peste 200, față de câteva zeci de activități), deci un „2/36" nu spune
+   * singur dacă munca internă a avansat sau doar au intrat documente.
+   */
+  activities: { done: number; total: number }
+  requests: { done: number; total: number }
+  /** Depășitele, cele mai vechi întâi — pentru rândul desfășurat. */
+  overdue_events: CalendarEvent[]
+  /** Termenele care urmează, cel mai apropiat întâi. */
+  upcoming_events: CalendarEvent[]
+}
+
+export interface ProjectDashboardRow extends DashboardTotals {
+  id: string
+  /** Capul de rând, sub numele pe care îl sortează ambele tabele. */
+  label: string
+  client_name: string | null
+  active: boolean
+  /**
+   * Proiect cu reminderele automate oprite (#85).
+   *
+   * Se ține pe negativ fiindcă doar starea oprită se arată: un proiect care nu
+   * mai trimite nimic automat își ține termenele din memoria cuiva, iar tabloul
+   * răspunde tocmai la „cum stă fiecare proiect".
+   *
+   * Gardă pe `=== false`, oglinda celei din `lib/automatic-reminders` și din
+   * cronul de remindere: necunoscutul înseamnă pornit, nu oprit tăcut.
+   */
+  reminders_off: boolean
+}
+
+export interface ConsultantDashboardRow extends DashboardTotals {
+  /** Id-ul responsabilului, sau `UNASSIGNED_OWNER_ID` pentru munca fără nimeni. */
+  id: string
+  label: string
+  /** Fals doar pe rândul „Fără responsabil". */
+  assigned: boolean
+  /** În câte proiecte are de lucru: un consultant întins pe cinci proiecte nu e ca unul pe unul. */
+  projects: number
+}
+
+const byDeadlineAsc = (a: CalendarEvent, b: CalendarEvent) =>
+  new Date(a.deadline_at ?? 0).getTime() - new Date(b.deadline_at ?? 0).getTime()
+
+const emptyTotals = (): DashboardTotals => ({
+  total: 0,
+  done: 0,
+  overdue: 0,
+  next_deadline: null,
+  oldest_overdue_days: null,
+  due_soon: 0,
+  undated: 0,
+  waiting_us: 0,
+  waiting_client: 0,
+  drafts: 0,
+  activities: { done: 0, total: 0 },
+  requests: { done: 0, total: 0 },
+  overdue_events: [],
+  upcoming_events: [],
+})
+
+/**
+ * Un element, adăugat la numerele unui rând.
+ *
+ * Nu-și definește propriul „finalizat" și propriul „depășit": le ia din
+ * `eventProgress`, care le ia la rândul lui din `event.done` calculat pe server.
+ * Două definiții paralele ar fi însemnat exact divergența pe care criteriul de
+ * acceptare o interzice.
+ */
+function addEvent(totals: DashboardTotals, event: CalendarEvent): void {
+  totals.total += 1
+  const bucket = event.kind === 'activity' ? totals.activities : totals.requests
+  bucket.total += 1
+
+  const progress = eventProgress(event)
+  if (progress === 'done') {
+    totals.done += 1
+    bucket.done += 1
+    return
+  }
+
+  // De aici încolo, doar munca rămasă: „în pregătire" și „la cine e mingea"
+  // n-au înțeles pe un element terminat.
+  if (event.visibility === 'draft') totals.drafts += 1
+  if (eventWaitingOn(event) === 'us') totals.waiting_us += 1
+  else totals.waiting_client += 1
+
+  if (progress === 'overdue') totals.overdue_events.push(event)
+  // `open` cu termen: nici finalizat, nici trecut — deci chiar un termen
+  // viitor, azi inclusiv.
+  else if (event.deadline_at) totals.upcoming_events.push(event)
+  // `open` fără termen: muncă rămasă pe care n-o așteaptă nicio dată.
+  else totals.undated += 1
+}
+
+/** Ce se poate ști abia după ce au trecut toate elementele. */
+function finalizeTotals(totals: DashboardTotals): void {
+  // Ordinea listelor e cea în care se citesc în rândul desfășurat: cea mai
+  // veche depășire prima, fiindcă e cea care doare, și cel mai apropiat termen
+  // primul, fiindcă e următorul de rezolvat.
+  totals.overdue_events.sort(byDeadlineAsc)
+  totals.upcoming_events.sort(byDeadlineAsc)
+
+  totals.overdue = totals.overdue_events.length
+  totals.next_deadline = totals.upcoming_events[0]?.deadline_at ?? null
+
+  const oldest = totals.overdue_events[0]
+  const days = oldest ? getDaysUntilDeadline(oldest.deadline_at) : null
+  totals.oldest_overdue_days = days === null ? null : Math.abs(days)
+
+  totals.due_soon = totals.upcoming_events.filter(event => {
+    const until = getDaysUntilDeadline(event.deadline_at)
+    return until !== null && until <= URGENT_WINDOW_DAYS
+  }).length
+}
+
+/**
+ * Proiectele cu numerele lor, dintr-o singură trecere peste evenimentele deja
+ * aduse pentru calendar.
+ *
+ * Proiectele vin din `payload.projects`, interogat din tabela `projects`, nu
+ * dedus din evenimente — de aceea un proiect fără niciun element rămâne în listă
+ * cu `total` 0, în loc să dispară din tabel.
+ *
+ * Tot aici se pregătesc și listele din rândul desfășurat: aceleași evenimente,
+ * sortate o singură dată, nu la fiecare deschidere de rând.
+ */
+export function buildProjectDashboardRows(payload: CalendarPayload): ProjectDashboardRow[] {
+  const rows = new Map<string, ProjectDashboardRow>(
+    payload.projects.map(project => [
+      project.id,
+      {
+        id: project.id,
+        label: project.title,
+        client_name: project.client_name,
+        active: isProjectActive(project),
+        reminders_off: project.automatic_reminders_enabled === false,
+        ...emptyTotals(),
+      },
+    ])
+  )
+
+  for (const event of payload.events) {
+    // Un eveniment fără proiect în listă n-ar trebui să existe: ambele vin din
+    // aceeași cerere, restrânse la aceleași `projectIds`.
+    const row = rows.get(event.project_id)
+    if (row) addEvent(row, event)
+  }
+
+  for (const row of rows.values()) finalizeTotals(row)
+  return [...rows.values()]
+}
+
+/**
+ * Aceleași evenimente, adunate pe consultanți în loc de proiecte.
+ *
+ * Al doilea tabel al ecranului răspunde la „cine e blocat și cine e liber", iar
+ * răspunsul iese din date deja descărcate: fiecare termen poartă responsabilul
+ * lui efectiv, calculat pe server pe lanțul cerere → activitate → proiect
+ * (`requestOwnerId`). Nicio cerere nouă, nicio a doua definiție a muncii.
+ *
+ * Rândurile ies din evenimente, nu dintr-o listă de consultanți: cine n-are
+ * nimic atribuit nu apare. Munca fără nimeni în spate se strânge într-un rând
+ * propriu, `UNASSIGNED_OWNER_ID` — azi cel mai încărcat dintre toate, și tocmai
+ * de aceea nu e de ascuns.
+ *
+ * `projectIds` restrânge la proiectele vizibile în tabelul de alături, ca cele
+ * două tabele să nu descrie mulțimi diferite când comutatorul de proiecte
+ * încheiate e oprit.
+ */
+export function buildConsultantDashboardRows(
+  payload: CalendarPayload,
+  projectIds?: Set<string>,
+): ConsultantDashboardRow[] {
+  const rows = new Map<string, ConsultantDashboardRow>()
+  const projectsOf = new Map<string, Set<string>>()
+
+  for (const event of payload.events) {
+    if (projectIds && !projectIds.has(event.project_id)) continue
+
+    const id = event.assignee_id ?? UNASSIGNED_OWNER_ID
+    let row = rows.get(id)
+    if (!row) {
+      row = {
+        id,
+        label: event.assignee_name ?? 'Fără responsabil',
+        assigned: event.assignee_id !== null,
+        projects: 0,
+        ...emptyTotals(),
+      }
+      rows.set(id, row)
+      projectsOf.set(id, new Set())
+    }
+
+    projectsOf.get(id)!.add(event.project_id)
+    addEvent(row, event)
+  }
+
+  for (const row of rows.values()) {
+    row.projects = projectsOf.get(row.id)!.size
+    finalizeTotals(row)
+  }
+  return [...rows.values()]
+}
+
+export interface DashboardSummary {
+  rows: number
+  overdue: number
+  /** În câte rânduri stau depășirile: „12 în 3 proiecte" e altă problemă decât „12 într-unul". */
+  rowsWithOverdue: number
+  dueSoon: number
+  waitingUs: number
+}
+
+/**
+ * Cifrele de deasupra tabelului, calculate peste exact rândurile vizibile — cu
+ * proiectele încheiate ascunse și cu căutarea aplicată, altfel linia ar descrie
+ * altceva decât tabelul de sub ea.
+ *
+ * O singură linie, nu un rând de indicatori mari: Home răspunde deja la „ce
+ * necesită atenție acum", iar două ecrane cu aceleași cifre mari ar începe să se
+ * contrazică de îndată ce ar diverge o definiție.
+ */
+export function summarizeRows(rows: DashboardTotals[]): DashboardSummary {
+  return rows.reduce<DashboardSummary>(
+    (total, row) => ({
+      rows: total.rows + 1,
+      overdue: total.overdue + row.overdue,
+      rowsWithOverdue: total.rowsWithOverdue + (row.overdue > 0 ? 1 : 0),
+      dueSoon: total.dueSoon + row.due_soon,
+      waitingUs: total.waitingUs + row.waiting_us,
+    }),
+    { rows: 0, overdue: 0, rowsWithOverdue: 0, dueSoon: 0, waitingUs: 0 }
+  )
+}
+
+/**
+ * Numeralul românesc cere „de" peste 20, dar nu la 101–119: „3 termene", „21 de
+ * termene", „118 termene". Fără regula asta, linia de rezumat ar fi scris „21
+ * termene" de fiecare dată când platforma crește.
+ */
+export function countLabel(count: number, singular: string, plural: string): string {
+  if (count === 1) return `1 ${singular}`
+  const lastTwo = Math.abs(count) % 100
+  const needsDe = Math.abs(count) >= 20 && !(lastTwo >= 1 && lastTwo <= 19)
+  return `${count} ${needsDe ? 'de ' : ''}${plural}`
+}
+
+// ─── Sortarea tabelelor ───────────────────────────────────────────────────────
+//
+// Două tabele pe același ecran, cu aceeași mecanică: prima apăsare scoate în
+// față problemele, a doua inversează, a treia revine la ordinea implicită, iar
+// rândurile fără valoare stau la final în ambele sensuri. Regulile comune sunt
+// scrise o dată, iar fiecare tabel aduce doar coloanele lui.
+
+export type ProjectColumnKey = 'project' | 'client' | 'done' | 'waiting' | 'deadline' | 'overdue'
+export type ConsultantColumnKey = 'consultant' | 'projects' | 'waiting' | 'deadline' | 'overdue'
+/** `urgency` e ordinea implicită, nu o coloană: nu are antet și nu se inversează. */
+export type ProjectSortKey = 'urgency' | ProjectColumnKey
+export type ConsultantSortKey = 'urgency' | ConsultantColumnKey
+export type SortDirection = 'asc' | 'desc'
+
+const PROJECT_COLUMN_KEYS = ['project', 'client', 'done', 'waiting', 'deadline', 'overdue'] as const
+const CONSULTANT_COLUMN_KEYS = ['consultant', 'projects', 'waiting', 'deadline', 'overdue'] as const
+
+/** Rând de tablou, oricare din cele două tabele. */
+type Row = DashboardTotals & { label: string }
+
+interface ColumnSpec<T extends Row, K extends string> {
+  keys: readonly K[]
+  /**
+   * Sensul primei apăsări. Regula e aceeași peste tot: prima apăsare scoate în
+   * față problemele — cel mai puțin avansat, termenul cel mai apropiat, cele mai
+   * multe depășiri — fiindcă ăsta e motivul pentru care cineva sortează tabelul.
+   */
+  first: Record<K, SortDirection>
+  /**
+   * Are coloana o valoare de comparat pentru rândul ăsta? Un `0` e valoare; un
+   * client lipsă, un termen inexistent și un rând fără niciun element nu sunt.
+   */
+  hasValue: Record<K, (row: T) => boolean>
+  /** Comparatoarele descriu doar sensul crescător; direcția se aplică deasupra. */
+  compare: Record<K, (a: T, b: T) => number>
+}
+
+const byLabel = (a: Row, b: Row) => a.label.localeCompare(b.label, 'ro')
+
+/** Comparatoarele care nu depind de capul de rând, deci merg în ambele tabele. */
+const TOTALS_COMPARE = {
+  // Întâi câtă muncă e la noi — singura pe care adminul o poate mișca azi —,
+  // apoi cât așteaptă la client.
+  waiting: (a: Row, b: Row) => a.waiting_us - b.waiting_us || a.waiting_client - b.waiting_client,
+  deadline: (a: Row, b: Row) =>
+    new Date(a.next_deadline!).getTime() - new Date(b.next_deadline!).getTime(),
+  // La număr egal de depășiri, cea mai veche cântărește mai greu.
+  overdue: (a: Row, b: Row) =>
+    a.overdue - b.overdue || (a.oldest_overdue_days ?? 0) - (b.oldest_overdue_days ?? 0),
+}
+
+const PROJECT_COLUMNS: ColumnSpec<ProjectDashboardRow, ProjectColumnKey> = {
+  keys: PROJECT_COLUMN_KEYS,
+  first: { project: 'asc', client: 'asc', done: 'asc', waiting: 'desc', deadline: 'asc', overdue: 'desc' },
+  hasValue: {
+    project: () => true,
+    client: row => row.client_name !== null,
+    done: row => row.total > 0,
+    waiting: () => true,
+    deadline: row => row.next_deadline !== null,
+    overdue: () => true,
+  },
+  compare: {
+    project: byLabel,
+    client: (a, b) => (a.client_name ?? '').localeCompare(b.client_name ?? '', 'ro'),
+    // Raportul, nu numărul brut: „3/4" e mai avansat decât „5/40", iar coloana
+    // răspunde la „cât din proiect e gata". Apelat doar când `total > 0`.
+    done: (a, b) => a.done / a.total - b.done / b.total,
+    ...TOTALS_COMPARE,
+  },
+}
+
+const CONSULTANT_COLUMNS: ColumnSpec<ConsultantDashboardRow, ConsultantColumnKey> = {
+  keys: CONSULTANT_COLUMN_KEYS,
+  first: { consultant: 'asc', projects: 'desc', waiting: 'desc', deadline: 'asc', overdue: 'desc' },
+  hasValue: {
+    consultant: () => true,
+    projects: () => true,
+    waiting: () => true,
+    deadline: row => row.next_deadline !== null,
+    overdue: () => true,
+  },
+  compare: {
+    consultant: byLabel,
+    // Câte proiecte îl întind pe consultant; la egalitate, cine are mai multă muncă.
+    projects: (a, b) => a.projects - b.projects || a.total - b.total,
+    ...TOTALS_COMPARE,
+  },
+}
+
+/**
+ * Ordinea implicită: întâi cele cu termene depășite, cele mai multe primele, la
+ * egalitate cele cu depășirea cea mai veche, apoi cât de aproape e următorul
+ * termen.
+ */
+function byUrgency(a: Row, b: Row): number {
+  if (a.overdue !== b.overdue) return b.overdue - a.overdue
+  // Tot atâtea depășiri: le desparte vechimea celei mai vechi.
+  const oldest = (b.oldest_overdue_days ?? 0) - (a.oldest_overdue_days ?? 0)
+  if (oldest !== 0) return oldest
+  if (a.next_deadline === null || b.next_deadline === null) {
+    if (a.next_deadline !== b.next_deadline) return a.next_deadline === null ? 1 : -1
+  } else {
+    const diff = new Date(a.next_deadline).getTime() - new Date(b.next_deadline).getTime()
+    if (diff !== 0) return diff
+  }
+  return byLabel(a, b)
+}
+
+function sortRows<T extends Row, K extends string>(
+  spec: ColumnSpec<T, K>,
+  rows: T[],
+  sort: 'urgency' | K,
+  direction: SortDirection,
+): T[] {
+  if (sort === 'urgency') return [...rows].sort(byUrgency)
+
+  const withValue: T[] = []
+  const without: T[] = []
+  for (const row of rows) (spec.hasValue[sort](row) ? withValue : without).push(row)
+
+  // Egalitățile cad pe capul de rând, mereu crescător, ca ordinea să nu sară
+  // între randări și ca inversarea coloanei să nu amestece și rândurile egale.
+  const sign = direction === 'desc' ? -1 : 1
+  withValue.sort((a, b) => sign * spec.compare[sort](a, b) || byLabel(a, b))
+
+  // Rândurile fără valoare stau la final în ambele sensuri: „fără client" și
+  // „fără termen" sunt absența unei valori, nu una mică sau mare. Aceeași
+  // alegere ca grupul „Fără termen" din `DeadlineList`, ca ecranele să nu se
+  // contrazică.
+  return [...withValue, ...without.sort(byLabel)]
+}
+
+export const sortProjectRows = (
+  rows: ProjectDashboardRow[],
+  sort: ProjectSortKey,
+  direction: SortDirection,
+): ProjectDashboardRow[] => sortRows(PROJECT_COLUMNS, rows, sort, direction)
+
+/**
+ * Consultanții se sortează între ei; munca fără responsabil stă mereu deasupra
+ * lor.
+ *
+ * Nu e un consultant leneș, e grămada rămasă pe dinafară — azi 197 din cele 274
+ * de elemente ale platformei. Amestecată în clasament, ar fi ieșit prima la
+ * aproape orice coloană dintr-un motiv fals, ca și cum ar fi cineva foarte
+ * încărcat; scoasă din el și pusă în frunte, se citește drept ce e: prima
+ * problemă de rezolvat, înaintea împărțirii muncii între oameni.
+ */
+export const sortConsultantRows = (
+  rows: ConsultantDashboardRow[],
+  sort: ConsultantSortKey,
+  direction: SortDirection,
+): ConsultantDashboardRow[] => {
+  const named = rows.filter(row => row.assigned)
+  const unassigned = rows.filter(row => !row.assigned)
+  return [...unassigned, ...sortRows(CONSULTANT_COLUMNS, named, sort, direction)]
+}
+
+/** Ciclul unui antet: prima apăsare, inversul, apoi înapoi la ordinea implicită. */
+function nextSort<K extends string>(
+  spec: ColumnSpec<Row, K> | ColumnSpec<never, K>,
+  current: { sort: 'urgency' | K; direction: SortDirection },
+  column: K,
+): { sort: 'urgency' | K; direction: SortDirection } {
+  const first = spec.first[column]
+  if (current.sort !== column) return { sort: column, direction: first }
+  if (current.direction === first) {
+    return { sort: column, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+  }
+  return { sort: 'urgency', direction: 'asc' }
+}
+
+export const nextProjectSort = (
+  current: { sort: ProjectSortKey; direction: SortDirection },
+  column: ProjectColumnKey,
+) => nextSort(PROJECT_COLUMNS as unknown as ColumnSpec<Row, ProjectColumnKey>, current, column)
+
+export const nextConsultantSort = (
+  current: { sort: ConsultantSortKey; direction: SortDirection },
+  column: ConsultantColumnKey,
+) => nextSort(CONSULTANT_COLUMNS as unknown as ColumnSpec<Row, ConsultantColumnKey>, current, column)
+
+/** Sensul primei apăsări, pentru antetele tabelului de proiecte. */
+export const FIRST_SORT_DIRECTION = PROJECT_COLUMNS.first
+export const FIRST_CONSULTANT_SORT_DIRECTION = CONSULTANT_COLUMNS.first
+
+// ─── Starea tabelului în URL ──────────────────────────────────────────────────
+//
+// Ca la calendar: un tabel sortat trebuie să se poată trimite mai departe ca
+// link. Se scrie doar ce se abate de la implicit, ca adresa obișnuită să rămână
+// curată. Numele n-au nevoie de prefix — ecranul nu împarte URL-ul cu nimeni.
+
+const TABLE_PARAM = { sort: 'sort', dir: 'dir', ended: 'incheiate', search: 'q', view: 'vedere' } as const
+
+/**
+ * Care din cele două tabele e deschis. Proiectele sunt implicite, deci nu lasă
+ * nimic în adresă; consultanții se scriu, ca vederea să se poată trimite ca link.
+ */
+export type DashboardView = 'projects' | 'consultants'
+
+export function readDashboardView(params: URLSearchParams): DashboardView {
+  return params.get(TABLE_PARAM.view) === 'consultanti' ? 'consultants' : 'projects'
+}
+
+export function writeDashboardView(params: URLSearchParams, view: DashboardView): void {
+  if (view === 'consultants') params.set(TABLE_PARAM.view, 'consultanti')
+  else params.delete(TABLE_PARAM.view)
+}
+
+function readSort<K extends string>(
+  params: URLSearchParams,
+  keys: readonly K[],
+  first: Record<K, SortDirection>,
+): { sort: 'urgency' | K; direction: SortDirection } {
+  const raw = params.get(TABLE_PARAM.sort)
+  // O coloană necunoscută — inclusiv una a celuilalt tabel, rămasă în adresă la
+  // comutare — cade pe ordinea implicită, nu pe o sortare inventată.
+  if (!(keys as readonly string[]).includes(raw ?? '')) return { sort: 'urgency', direction: 'asc' }
+
+  const sort = raw as K
+  const dir = params.get(TABLE_PARAM.dir)
+  return { sort, direction: dir === 'asc' || dir === 'desc' ? dir : first[sort] }
+}
+
+function writeSort<K extends string>(
+  params: URLSearchParams,
+  { sort, direction }: { sort: 'urgency' | K; direction: SortDirection },
+  first: Record<K, SortDirection>,
+): void {
+  if (sort === 'urgency') {
+    params.delete(TABLE_PARAM.sort)
+    params.delete(TABLE_PARAM.dir)
+    return
+  }
+  params.set(TABLE_PARAM.sort, sort)
+  if (direction === first[sort]) params.delete(TABLE_PARAM.dir)
+  else params.set(TABLE_PARAM.dir, direction)
+}
+
+export const readProjectSort = (params: URLSearchParams) =>
+  readSort(params, PROJECT_COLUMN_KEYS, PROJECT_COLUMNS.first)
+
+export const writeProjectSort = (
+  params: URLSearchParams,
+  value: { sort: ProjectSortKey; direction: SortDirection },
+) => writeSort(params, value, PROJECT_COLUMNS.first)
+
+export const readConsultantSort = (params: URLSearchParams) =>
+  readSort(params, CONSULTANT_COLUMN_KEYS, CONSULTANT_COLUMNS.first)
+
+export const writeConsultantSort = (
+  params: URLSearchParams,
+  value: { sort: ConsultantSortKey; direction: SortDirection },
+) => writeSort(params, value, CONSULTANT_COLUMNS.first)
+
+export function readShowEnded(params: URLSearchParams): boolean {
+  return params.get(TABLE_PARAM.ended) === '1'
+}
+
+export function writeShowEnded(params: URLSearchParams, show: boolean): void {
+  if (show) params.set(TABLE_PARAM.ended, '1')
+  else params.delete(TABLE_PARAM.ended)
+}
+
+export function readSearch(params: URLSearchParams): string {
+  return params.get(TABLE_PARAM.search) ?? ''
+}
+
+export function writeSearch(params: URLSearchParams, value: string): void {
+  const trimmed = value.trim()
+  if (trimmed) params.set(TABLE_PARAM.search, trimmed)
+  else params.delete(TABLE_PARAM.search)
+}
+
+// ─── Căutarea în tabel ────────────────────────────────────────────────────────
+
+/**
+ * Sub pragul ăsta caseta de căutare nu apare: un tabel de câteva rânduri se
+ * citește dintr-o privire, iar un control care nu ajută la nimic e tot un
+ * control de citit. Aceeași regulă ca la comutatorul de proiecte încheiate, care
+ * apare doar când chiar ascunde ceva.
+ */
+export const SEARCH_THRESHOLD = 8
+
+/**
+ * Fără diacritice și fără majuscule: „ACHIZIȚIE" trebuie găsit și scriind
+ * „achizitie", de la o tastatură fără diacritice — cea de pe care se scrie, de
+ * altfel, jumătate din titlurile din bază.
+ */
+const foldForSearch = (value: string): string =>
+  value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+
+/** Caută în titlu și în numele clientului: ambele sunt vizibile în tabel. */
+export function filterProjectRows(rows: ProjectDashboardRow[], query: string): ProjectDashboardRow[] {
+  const needle = foldForSearch(query.trim())
+  if (!needle) return rows
+  return rows.filter(row => foldForSearch(`${row.label} ${row.client_name ?? ''}`).includes(needle))
+}
+
+/** La consultanți, capul de rând e tot ce se caută: numele. */
+export function filterConsultantRows(rows: ConsultantDashboardRow[], query: string): ConsultantDashboardRow[] {
+  const needle = foldForSearch(query.trim())
+  if (!needle) return rows
+  return rows.filter(row => foldForSearch(row.label).includes(needle))
+}
+
+// ─── Puntea către calendar ────────────────────────────────────────────────────
+
+/**
+ * Linkul către calendarul general, deschis în modul listă pe un singur proiect.
+ *
+ * Construit din aceleași chei ca filtrele calendarului, nu din litere scrise de
+ * mână aici: un `cj` copiat în altă parte s-ar strica în tăcere la prima
+ * redenumire. Tabloul trimite în calendar în loc să-și crească propriile filtre
+ * pe responsabil și pe fază — calendarul le are deja, iar două seturi ar fi
+ * început să se contrazică.
+ */
+export function projectCalendarHref(
+  projectId: string,
+  options: { overdueOnly?: boolean } = {},
+): string {
+  const params = new URLSearchParams()
+  writeViewMode(params, 'list')
+  params.set(PARAM.projects, projectId)
+  if (options.overdueOnly) params.set(PARAM.progress, 'overdue')
+  return `/calendar?${params.toString()}`
+}
+
+/**
+ * Aceeași punte, pentru un consultant: toate termenele lui, din toate proiectele.
+ * `UNASSIGNED_OWNER_ID` trece ca atare — filtrul de responsabil al calendarului
+ * are deja opțiunea „Fără responsabil", deci și rândul fără nimeni duce undeva.
+ */
+export function consultantCalendarHref(
+  assigneeId: string,
+  options: { overdueOnly?: boolean } = {},
+): string {
+  const params = new URLSearchParams()
+  writeViewMode(params, 'list')
+  params.set(PARAM.owners, assigneeId)
+  if (options.overdueOnly) params.set(PARAM.progress, 'overdue')
+  return `/calendar?${params.toString()}`
 }
