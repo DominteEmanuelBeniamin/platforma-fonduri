@@ -76,9 +76,9 @@ Testează separat cursorul, filtrele, idempotency key, membership-ul și entită
 
 ### Upload
 
-- Persistă `batchId` pe fișier.
+- La `init` se persistă rezervarea în `document_upload_batches` cu lista exactă; rândurile `files` primesc `upload_batch_id` numai la `completion`.
 - Adaugă index unic parțial pe `(requirement_id, upload_batch_id, storage_path)`.
-- Fă endpoint-ul `complete` retry-safe; auditul și actualizarea statusului se execută o singură dată.
+- Alocă versiunea atomic la `completion`, iar endpoint-ul `complete` folosește metadata server-side și verifică obiectele din Storage înainte de persistare; auditul și actualizarea statusului se execută o singură dată.
 - Creează notificarea `document_action` pentru consultant/admin în aceeași tranzacție cu fișierele, auditul și actualizarea statusului.
 
 ### Review
@@ -100,6 +100,7 @@ Integrează helperul în producători:
 - publish/`notify-client`: notificare publication doar când există elemente relevante;
 - deadline cron: resolver comun pentru responsabil și membership curent, grupare in-app per proiect, email digest existent păstrat per recipient;
 - admini: notificare separată per proiect/eveniment, fără duplicate;
+- eliminarea membrilor încă asignați este blocată; safe-delete pentru ștergerea părintelui activitate/fază copiază assignee-ul pe cererile mutate doar dacă mai este membru consultant activ;
 - fiecare email primește aceeași cheie logică stabilă și idempotency key Resend.
 
 Regula de eroare: dacă inserarea notificării eșuează, nu trimite emailul pentru acel eveniment; pentru digesturile publication/deadline, dacă emailul eșuează, șterge doar rândurile noi inserate în încercarea curentă înainte de eliberarea claims, fără să ștergi rânduri preexistente. Dacă ștergerea eșuează, păstrează claims pentru repair și întoarce eroare; pentru evenimente de business deja comise (de exemplu assignment), notificarea rămâne, iar emailul este best-effort.
@@ -114,6 +115,7 @@ Testează proiecte multiple, consultant scos din proiect, override email, retry 
 - Adaugă clopoțelul în Navbar folosind fixul de overflow din #81.
 - Panou Radix responsive: card desktop, bottom-sheet pe mobil.
 - Filtre: toate, necitite, proiect; empty states distincte pentru listă goală, filtru fără rezultate și eroare.
+- Catalogul filtrului de proiecte se încarcă din `/api/projects`, independent de paginarea notificărilor.
 - La închidere marchează notificările accesibile necitite ca citite.
 
 ## Faza 6 — Home și badge-uri

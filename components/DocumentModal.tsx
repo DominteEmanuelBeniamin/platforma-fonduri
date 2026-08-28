@@ -92,8 +92,8 @@ type ClientUploadFile = {
 
 type ClientUploadInit = {
   batchId: string
-  versionNumber: number
   uploads: {
+    fileId: string
     clientFileId: number
     signedUploadUrl: string
     token: string
@@ -104,14 +104,7 @@ type ClientUploadInit = {
 type PendingClientUploadCompletion = {
   requestId: string
   batchId: string
-  versionNumber: number
-  uploaded: {
-    storagePath: string
-    originalName: string
-    mimeType: string
-    fileSize: number
-    relativePath: string | null
-  }[]
+  fileIds: string[]
   failed: number
 }
 
@@ -617,8 +610,7 @@ export default function DocumentModal({
       method: 'POST',
       body: JSON.stringify({
         batchId: pending.batchId,
-        versionNumber: pending.versionNumber,
-        uploaded: pending.uploaded,
+        fileIds: pending.fileIds,
       }),
     })
     if (!completeRes.ok) throw new Error('Nu am putut finaliza încărcarea fișierelor.')
@@ -645,8 +637,8 @@ export default function DocumentModal({
         await onUpdate()
         showToast(
           pending.failed === 0
-            ? `Au fost încărcate ${pending.uploaded.length} fișiere.`
-            : `${pending.uploaded.length} fișiere au fost încărcate, iar ${pending.failed} au eșuat.`,
+            ? `Au fost încărcate ${pending.fileIds.length} fișiere.`
+            : `${pending.fileIds.length} fișiere au fost încărcate, iar ${pending.failed} au eșuat.`,
           pending.failed === 0 ? 'success' : 'warning',
         )
         return
@@ -691,14 +683,7 @@ export default function DocumentModal({
       const pendingCompletion: PendingClientUploadCompletion = {
         requestId: request.id,
         batchId: init.batchId,
-        versionNumber: init.versionNumber,
-        uploaded: successful.map(result => ({
-          storagePath: result.upload.storagePath,
-          originalName: result.file.name,
-          mimeType: result.file.type,
-          fileSize: result.file.size,
-          relativePath: result.file.relativePath,
-        })),
+        fileIds: successful.map(result => result.upload.fileId),
         failed,
       }
       pendingClientUploadRef.current = pendingCompletion

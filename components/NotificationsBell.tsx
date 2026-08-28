@@ -26,6 +26,11 @@ type NotificationsResponse = {
   error?: string
 }
 
+type ProjectsResponse = {
+  projects?: Array<{ id: string; title: string | null }>
+  error?: string
+}
+
 type StatusFilter = 'all' | 'unread'
 
 type NotificationVisual = {
@@ -84,6 +89,34 @@ export default function NotificationsBell() {
   const [error, setError] = useState(false)
   const [navigatingId, setNavigatingId] = useState<string | null>(null)
   const requestSequence = useRef(0)
+  const projectCatalogSequence = useRef(0)
+  const projectCatalogLoaded = useRef(false)
+
+  const loadProjectCatalog = useCallback(async () => {
+    if (projectCatalogLoaded.current) return
+    projectCatalogLoaded.current = true
+    const sequence = ++projectCatalogSequence.current
+
+    try {
+      const res = await apiFetch('/api/projects', { method: 'GET' })
+      const json = (await res.json().catch(() => null)) as ProjectsResponse | null
+      if (!res.ok) throw new Error(json?.error || 'Nu am putut încărca proiectele.')
+      if (sequence !== projectCatalogSequence.current) return
+
+      const projects = Array.isArray(json?.projects) ? json.projects : []
+      setProjectCatalog(
+        projects
+          .filter((project) => typeof project?.id === 'string')
+          .map((project) => ({
+            id: project.id,
+            title: typeof project.title === 'string' ? project.title.trim() || 'Proiect fără titlu' : 'Proiect fără titlu',
+          }))
+          .sort((a, b) => a.title.localeCompare(b.title, 'ro') || a.id.localeCompare(b.id))
+      )
+    } catch {
+      if (sequence === projectCatalogSequence.current) setProjectCatalog([])
+    }
+  }, [apiFetch])
 
   const loadPage = useCallback(async (replace: boolean, cursor: string | null = null) => {
     const sequence = ++requestSequence.current
@@ -102,13 +135,6 @@ export default function NotificationsBell() {
       if (sequence !== requestSequence.current) return
 
       const incoming = Array.isArray(json?.items) ? json.items : []
-      setProjectCatalog((current) => {
-        const byId = new Map(current.map((project) => [project.id, project.title]))
-        for (const item of incoming) {
-          if (!byId.has(item.projectId)) byId.set(item.projectId, item.projectTitle || 'Proiect fără titlu')
-        }
-        return Array.from(byId, ([id, title]) => ({ id, title })).sort((a, b) => a.title.localeCompare(b.title, 'ro'))
-      })
       setItems((current) => {
         const merged = replace ? incoming : [...current, ...incoming]
         return merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -126,8 +152,15 @@ export default function NotificationsBell() {
     void loadPage(true)
   }, [loadPage, open, projectFilter, statusFilter, revision])
 
+  useEffect(() => {
+    if (!open) return
+    void loadProjectCatalog()
+  }, [loadProjectCatalog, open])
+
   const closePanel = useCallback(async () => {
     requestSequence.current += 1
+    projectCatalogSequence.current += 1
+    projectCatalogLoaded.current = false
     setItems([])
     setProjectCatalog([])
     setNextCursor(null)

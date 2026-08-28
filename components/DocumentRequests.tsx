@@ -117,14 +117,7 @@ type PickedFile = {
 type PendingClientUploadCompletion = {
   requestId: string
   batchId: string
-  versionNumber: number
-  uploaded: {
-    storagePath: string
-    originalName: string
-    mimeType: string
-    fileSize: number
-    relativePath: string | null
-  }[]
+  fileIds: string[]
   failed: number
 }
 
@@ -773,8 +766,7 @@ export default function DocumentRequests({
       method: 'POST',
       body: JSON.stringify({
         batchId: pending.batchId,
-        versionNumber: pending.versionNumber,
-        uploaded: pending.uploaded,
+        fileIds: pending.fileIds,
       }),
     })
     if (!completeRes.ok) throw new Error('Nu am putut finaliza încărcarea fișierelor.')
@@ -874,14 +866,7 @@ export default function DocumentRequests({
     const pendingCompletion: PendingClientUploadCompletion = {
       requestId,
       batchId: init.batchId,
-      versionNumber: init.versionNumber,
-      uploaded: successful.map((s: any) => ({
-        storagePath: s.upload.storagePath,
-        originalName: s.file.name,
-        mimeType: s.file.type,
-        fileSize: s.file.size,
-        relativePath: s.file.relativePath,
-      })),
+      fileIds: successful.map((s: any) => s.upload.fileId),
       failed: failed.length,
     }
     pendingClientUploadRef.current = pendingCompletion
@@ -914,26 +899,25 @@ export default function DocumentRequests({
         ? await completeClientUpload(pending).then(() => {
             pendingClientUploadRef.current = null
             return {
-              total: pending.uploaded.length + pending.failed,
-              successful: pending.uploaded.length,
+              total: pending.fileIds.length + pending.failed,
+              successful: pending.fileIds.length,
               failed: pending.failed,
               failures: [],
             }
           })
         : await uploadFilesToRequest(requestId, clientFiles)
-      
-      // Success message
-      if (uploadResult.failed === 0) {
-        showToast(`Au fost încărcate ${uploadResult.successful} fișiere.`, 'success')
-      } else {
-        showToast(`${uploadResult.successful} fișiere au fost încărcate, iar ${uploadResult.failed} au eșuat. Verifică lista fișierelor.`, 'warning')
+      if (uploadResult) {
+        showToast(
+          uploadResult.failed === 0
+            ? `Au fost încărcate ${uploadResult.successful} fișiere.`
+            : `${uploadResult.successful} fișiere au fost încărcate, iar ${uploadResult.failed} au eșuat.`,
+          uploadResult.failed === 0 ? 'success' : 'warning'
+        )
       }
-
-      // Clear și refresh
       clearAllFiles()
       await fetchRequests()
-    } catch {
-      showToast('Nu am putut încărca fișierele. Reîncearcă.', 'error')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Nu am putut încărca fișierele. Reîncearcă.', 'error')
     } finally {
       setSubmitting(false)
     }
