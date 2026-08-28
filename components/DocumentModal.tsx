@@ -34,6 +34,15 @@ import {
 import type { ReminderEntityState } from '@/lib/reminder-state'
 import ReminderStatus, { getReminderDisplayStatus } from '@/components/ReminderStatus'
 import { REQUIREMENT_LABELS, type RequirementType } from '@/lib/requirement-type'
+import {
+  formatFileSize,
+  isAllowedUploadFile,
+  runClientUpload,
+  validateUploadFile,
+  MAX_UPLOAD_FILE_SIZE,
+  type ClientUploadCandidate,
+  type PendingClientUploadCompletion,
+} from '@/lib/client-upload'
 
 interface DocumentRequest {
   id: string
@@ -77,59 +86,18 @@ interface DocumentRequest {
   } | null
 }
 
-const MODEL_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'jpg', 'jpeg', 'png', 'gif', 'webp'])
-const MODEL_MAX_SIZE = 25 * 1024 * 1024
+type ClientUploadFile = ClientUploadCandidate & { error?: string }
 
-type ClientUploadFile = {
-  id: string
-  file: File
-  name: string
-  size: number
-  type: string
-  relativePath: string | null
-  error?: string
+/** Textul aruncat de handlere e deja pentru utilizator; altfel rămâne mesajul locului. */
+function documentActionMessage(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message.trim() : ''
+  return message || fallback
 }
 
-type ClientUploadInit = {
-  batchId: string
-  uploads: {
-    fileId: string
-    clientFileId: number
-    signedUploadUrl: string
-    token: string
-    storagePath: string
-  }[]
-}
-
-type PendingClientUploadCompletion = {
-  requestId: string
-  batchId: string
-  fileIds: string[]
-  failed: number
-}
-
-function formatClientUploadSize(bytes: number) {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB']
-  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
-  return `${parseFloat((bytes / 1024 ** index).toFixed(1))} ${units[index]}`
-}
-
-function validateClientUploadFile(file: File, existing: ClientUploadFile[]) {
-  if (file.size > MODEL_MAX_SIZE) return `Fișierul depășește ${formatClientUploadSize(MODEL_MAX_SIZE)}`
-  if (!MODEL_EXTENSIONS.has(getFileExtension(file.name))) return 'Tip de fișier nepermis'
-  if (existing.some(item => item.name === file.name && item.size === file.size)) return 'Fișier duplicat'
-  return null
-}
-
-function getFileExtension(filename: string) {
-  const dot = filename.lastIndexOf('.')
-  return dot >= 0 ? filename.slice(dot + 1).toLowerCase() : ''
-}
-
+/** Modelul atașat de consultant trece prin aceleași reguli ca răspunsul clientului, fără verificarea de duplicat. */
 function validateModelFile(file: File) {
-  if (file.size > MODEL_MAX_SIZE) return 'Fișierul depășește 25 MB'
-  if (!MODEL_EXTENSIONS.has(getFileExtension(file.name))) return 'Tip de fișier nepermis'
+  if (file.size > MAX_UPLOAD_FILE_SIZE) return `Fișierul depășește ${formatFileSize(MAX_UPLOAD_FILE_SIZE)}`
+  if (!isAllowedUploadFile(file)) return 'Tip de fișier nepermis'
   return null
 }
 
@@ -223,7 +191,7 @@ export default function DocumentModal({
     setAttachmentMissing(!!request.attachment_missing_at)
     setLocalDeadline(request.deadline_at)
     setLocalAssignee(request.assigned_to)
-  }, [request.attachment_path, request.attachment_missing_at, request.deadline_at, request.assigned_to])
+  }, [request.id, request.attachment_path, request.attachment_missing_at, request.deadline_at, request.assigned_to])
 
   useEffect(() => {
     pendingClientUploadRef.current = null
@@ -593,7 +561,7 @@ export default function DocumentModal({
           type: file.type || 'application/octet-stream',
           relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || null,
         }
-        item.error = validateClientUploadFile(file, [...current, ...added]) || undefined
+        item.error = validateUploadFile(file, [...current, ...added])?.message
         added.push(item)
       }
       return [...current, ...added]
@@ -603,17 +571,6 @@ export default function DocumentModal({
   const clearClientUploadSelection = () => {
     pendingClientUploadRef.current = null
     setClientUploadFiles([])
-  }
-
-  const completeClientUpload = async (pending: PendingClientUploadCompletion) => {
-    const completeRes = await apiFetch(`/api/document-requests/${pending.requestId}/uploads/complete`, {
-      method: 'POST',
-      body: JSON.stringify({
-        batchId: pending.batchId,
-        fileIds: pending.fileIds,
-      }),
-    })
-    if (!completeRes.ok) throw new Error('Nu am putut finaliza încărcarea fișierelor.')
   }
 
   const handleClientUpload = async () => {
@@ -630,76 +587,24 @@ export default function DocumentModal({
 
     setClientUploadLoading(true)
     try {
-      if (pending) {
-        await completeClientUpload(pending)
-        pendingClientUploadRef.current = null
-        setClientUploadFiles([])
-        await onUpdate()
-        showToast(
-          pending.failed === 0
-            ? `Au fost încărcate ${pending.fileIds.length} fișiere.`
-            : `${pending.fileIds.length} fișiere au fost încărcate, iar ${pending.failed} au eșuat.`,
-          pending.failed === 0 ? 'success' : 'warning',
-        )
-        return
-      }
-
-      const initRes = await apiFetch(`/api/document-requests/${request.id}/uploads/init`, {
-        method: 'POST',
-        body: JSON.stringify({
-          files: validFiles.map(file => ({
-            name: file.name,
-            size: file.size,
-            type: file.type,
-            relativePath: file.relativePath,
-          })),
-        }),
-      })
-      const init = await initRes.json().catch(() => ({})) as ClientUploadInit
-      if (!initRes.ok) throw new Error('Nu am putut inițializa încărcarea fișierelor.')
-
-      const results = await Promise.all(init.uploads.map(async upload => {
-        const file = validFiles[upload.clientFileId]
-        try {
-          const uploadRes = await fetch(upload.signedUploadUrl, {
-            method: 'PUT',
-            headers: {
-              Authorization: `Bearer ${upload.token}`,
-              'Content-Type': file.type,
-            },
-            body: file.file,
-          })
-          if (!uploadRes.ok) throw new Error('Încărcarea fișierului a eșuat.')
-          return { success: true as const, upload, file }
-        } catch {
-          return { success: false as const, upload, file }
-        }
-      }))
-
-      const successful = results.filter(result => result.success)
-      const failed = results.length - successful.length
-      if (successful.length === 0) throw new Error('Toate fișierele au eșuat la încărcare.')
-
-      const pendingCompletion: PendingClientUploadCompletion = {
+      const result = await runClientUpload({
+        apiFetch,
         requestId: request.id,
-        batchId: init.batchId,
-        fileIds: successful.map(result => result.upload.fileId),
-        failed,
-      }
-      pendingClientUploadRef.current = pendingCompletion
-      await completeClientUpload(pendingCompletion)
-      pendingClientUploadRef.current = null
+        files: validFiles,
+        pending,
+        onPending: next => { pendingClientUploadRef.current = next },
+      })
 
       setClientUploadFiles([])
       await onUpdate()
       showToast(
-        failed === 0
-          ? `Au fost încărcate ${successful.length} fișiere.`
-          : `${successful.length} fișiere au fost încărcate, iar ${failed} au eșuat.`,
-        failed === 0 ? 'success' : 'warning',
+        result.failed === 0
+          ? `Au fost încărcate ${result.successful} fișiere.`
+          : `${result.successful} fișiere au fost încărcate, iar ${result.failed} au eșuat.`,
+        result.failed === 0 ? 'success' : 'warning',
       )
-    } catch {
-      showToast('Nu am putut încărca fișierele. Reîncearcă.', 'error')
+    } catch (error) {
+      showToast(documentActionMessage(error, 'Nu am putut încărca fișierele. Reîncearcă.'), 'error')
     } finally {
       setClientUploadLoading(false)
     }
@@ -753,7 +658,8 @@ export default function DocumentModal({
       body: JSON.stringify({ action, notes: notes.trim() || null })
     })
     const data = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(data?.error || 'Review failed')
+    // `error` e rescris de apiFetch cu un text generic; motivul real vine în `message`.
+    if (!res.ok) throw new Error(data?.message || '')
   }
 
   const handleApprove = async () => {
@@ -766,8 +672,8 @@ export default function DocumentModal({
         onUpdate()
         onClose()
       }, 500)
-    } catch {
-      showToast('Nu am putut aproba documentul. Reîncearcă.', 'error')
+    } catch (error) {
+      showToast(documentActionMessage(error, 'Nu am putut aproba documentul. Reîncearcă.'), 'error')
     } finally {
       setActionLoading(false)
     }
@@ -789,8 +695,8 @@ export default function DocumentModal({
         onUpdate()
         onClose()
       }, 500)
-    } catch {
-      showToast('Nu am putut respinge documentul. Reîncearcă.', 'error')
+    } catch (error) {
+      showToast(documentActionMessage(error, 'Nu am putut respinge documentul. Reîncearcă.'), 'error')
     } finally {
       setActionLoading(false)
     }
@@ -1220,7 +1126,7 @@ export default function DocumentModal({
                         {clientUploadFiles.map(file => (
                           <div key={file.id} className="flex items-center gap-2 text-xs text-indigo-800">
                             <span className="min-w-0 flex-1 truncate">{file.name}</span>
-                            <span className="shrink-0 text-indigo-500">{formatClientUploadSize(file.size)}</span>
+                            <span className="shrink-0 text-indigo-500">{formatFileSize(file.size)}</span>
                             {file.error && <span className="shrink-0 text-red-600">{file.error}</span>}
                           </div>
                         ))}

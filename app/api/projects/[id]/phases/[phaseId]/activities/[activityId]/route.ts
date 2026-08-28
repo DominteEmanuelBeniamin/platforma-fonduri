@@ -6,7 +6,7 @@ import { requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
-import { buildAssignmentNotificationMetadata, isRealAssignmentChange } from '@/lib/notification-utils'
+import { buildAssignmentEmailIdempotencyKey, isRealAssignmentChange } from '@/lib/notification-utils'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -234,7 +234,12 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (visibility === 'published') updateData.visibility = 'published'
 
     const assignmentChanged = assigned_to !== undefined && assigned_to !== before.assigned_to
-    if (assignmentChanged) updateData.updated_at = new Date().toISOString()
+    if (assignmentChanged) {
+      updateData.updated_at = new Date().toISOString()
+      // Triggerul de notificare rulează cu clientul de service, unde `auth.uid()`
+      // e null. Autorul călătorește cu rândul, în aceeași scriere.
+      updateData.assigned_by = auth.user.id
+    }
     const projectTitle = await loadProjectTitle(projectId)
     let activityUpdate = supabaseAdmin
       .from('project_activities')
@@ -257,7 +262,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
 
     if (isRealAssignmentChange(before.assigned_to, assigned_to)) {
-      const metadata = buildAssignmentNotificationMetadata({
+      const idempotencyKey = buildAssignmentEmailIdempotencyKey({
         projectId,
         entityType: 'activity',
         entityId: activityId,
@@ -271,7 +276,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         projectId,
         projectTitle,
         deadlineAt: activity.deadline_at,
-        idempotencyKey: metadata.idempotencyKey,
+        idempotencyKey,
       })
     }
 

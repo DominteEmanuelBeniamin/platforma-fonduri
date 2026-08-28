@@ -4,12 +4,14 @@ import {
   isUuid,
   selectEligibleNotificationRecipients,
   type NotificationRecipientProfile,
+  type NotificationSeverity,
 } from '@/lib/notification-utils'
 
 export { buildNotificationEventKey }
 
 export type NotificationType = 'publication' | 'assignment' | 'deadline' | 'document_action'
 export type NotificationEntityType = 'project' | 'phase' | 'activity' | 'document_request'
+export type { NotificationSeverity }
 
 export type RecordNotificationInput = {
   projectId: string
@@ -17,6 +19,12 @@ export type RecordNotificationInput = {
   entityType: NotificationEntityType
   entityId: string
   title: string
+  /** Drives the icon and the colour in the bell. Stored, never re-derived from the title. */
+  severity?: NotificationSeverity
+  /** Whoever caused the event. Resolved to a display name once, at write time. */
+  actorId?: string | null
+  /** The name of the thing the notification is about. Looked up when omitted. */
+  entityLabel?: string | null
   itemCount?: number
   eventKey?: string | null
   recipientIds?: string[]
@@ -54,6 +62,51 @@ async function loadProfiles(admin: any, ids: string[]): Promise<NotificationReci
   return (result.data ?? []) as NotificationRecipientProfile[]
 }
 
+/**
+ * The name is denormalised on purpose. The panel reads notifications with the
+ * user's own client, and `profiles` is not readable through it, so a join would
+ * come back empty; a row also stays truthful about who acted when that person
+ * is later renamed or deactivated.
+ */
+async function resolveActorName(admin: any, actorId: string | null | undefined): Promise<string | null> {
+  if (!actorId || !isUuid(actorId)) return null
+
+  const result = await admin
+    .from('profiles')
+    .select('full_name, email')
+    .eq('id', actorId)
+    .maybeSingle()
+
+  if (result.error) dbError(result.error, 'Failed to load notification actor')
+  const fullName = typeof result.data?.full_name === 'string' ? result.data.full_name.trim() : ''
+  const email = typeof result.data?.email === 'string' ? result.data.email.trim() : ''
+  return fullName || email || null
+}
+
+const ENTITY_LABEL_SOURCES: Record<string, string> = {
+  phase: 'project_phases',
+  activity: 'project_activities',
+  document_request: 'document_requirements',
+}
+
+/**
+ * A digest points at the project, and the project title is already on the row —
+ * repeating it as the subject would say nothing. Mirrors
+ * `public.notification_entity_label`, which does this for the SQL producers.
+ */
+async function resolveEntityLabel(
+  admin: any,
+  entityType: NotificationEntityType,
+  entityId: string,
+): Promise<string | null> {
+  const table = ENTITY_LABEL_SOURCES[entityType]
+  if (!table) return null
+
+  const result = await admin.from(table).select('name').eq('id', entityId).maybeSingle()
+  if (result.error) dbError(result.error, 'Failed to load notification entity label')
+  const name = typeof result.data?.name === 'string' ? result.data.name.trim() : ''
+  return name || null
+}
 export async function resolveNotificationRecipients(
   admin: any,
   input: Pick<RecordNotificationInput, 'projectId' | 'recipientIds' | 'includeAdmins' | 'fallbackToProjectMembers'>,
@@ -113,12 +166,17 @@ export async function recordNotification(admin: any, input: RecordNotificationIn
     throw new Error('Notification itemCount must be a positive integer')
   }
 
+  const severity = input.severity ?? 'info'
   const project = await loadProject(admin, input.projectId)
   const recipientIds = await resolveNotificationRecipients(admin, input, project)
   const eventKey = buildNotificationEventKey(input)
 
   if (recipientIds.length === 0) return { recipientIds, inserted: 0, insertedIds: [] as string[], eventKey }
 
+  const actorName = await resolveActorName(admin, input.actorId)
+  const entityLabel = input.entityLabel === undefined
+    ? await resolveEntityLabel(admin, input.entityType, input.entityId)
+    : input.entityLabel?.trim() || null
   const result = await admin
     .from('notifications')
     .upsert(
@@ -129,6 +187,9 @@ export async function recordNotification(admin: any, input: RecordNotificationIn
         entity_type: input.entityType,
         entity_id: input.entityId,
         title,
+        severity,
+        actor_name: actorName,
+        entity_label: entityLabel,
         item_count: itemCount,
         event_key: eventKey,
       })),
@@ -151,7 +212,10 @@ export async function deleteNotificationsByIds(admin: any, ids: readonly string[
     throw new Error('Notification ids must be UUIDs')
   }
 
-  const result = await admin.from('notifications').delete().in('id', uniqueIds)
+  // `.select()` so the count is what Postgres actually removed: a compensation
+  // that deleted nothing must not read like one that deleted everything in the
+  // logs written for manual repair.
+  const result = await admin.from('notifications').delete().in('id', uniqueIds).select('id')
   if (result.error) dbError(result.error, 'Failed to delete notification compensation rows')
-  return { deleted: uniqueIds.length }
+  return { deleted: (result.data ?? []).length }
 }

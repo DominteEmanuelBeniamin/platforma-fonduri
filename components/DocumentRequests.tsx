@@ -37,6 +37,15 @@ import { useReminderStates } from '@/hooks/useReminderStates'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { buildPreviewPageUrl, isPreviewableFile, openInNewTab } from '@/lib/file-preview'
 import { publishBlockers } from '@/lib/publish-rules'
+import {
+  formatFileSize,
+  getFileExtension,
+  runClientUpload,
+  validateUploadFile,
+  type ClientUploadCandidate,
+  type PendingClientUploadCompletion,
+  type UploadValidationError,
+} from '@/lib/client-upload'
 import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS } from '@/lib/requirement-type'
 
 interface DocumentRequest {
@@ -96,61 +105,11 @@ interface DocumentRequest {
   } | null
 }
 
-type ValidationError = {
-  type: 'size' | 'type' | 'duplicate'
-  message: string
-}
-
-type PickedFile = {
-  id: string // unique id for tracking
-  file: File
-  name: string
-  size: number
-  type: string
-  relativePath: string | null
-  validationError?: ValidationError
+type PickedFile = ClientUploadCandidate & {
+  validationError?: UploadValidationError
   uploadProgress?: number // 0-100
   uploadStatus?: 'pending' | 'uploading' | 'success' | 'error'
   uploadError?: string
-}
-
-type PendingClientUploadCompletion = {
-  requestId: string
-  batchId: string
-  fileIds: string[]
-  failed: number
-}
-
-// Validare constante
-const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB
-const ALLOWED_TYPES = [
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'text/csv',
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/gif',
-  'image/webp'
-]
-
-const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.jpg', '.jpeg', '.png', '.gif', '.webp']
-
-// Helper functions
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
-}
-
-function getFileExtension(filename: string): string {
-  const dot = filename.lastIndexOf('.')
-  return dot >= 0 ? filename.slice(dot + 1).toLowerCase() : ''
 }
 
 function normalizeFileName(filename: string | null | undefined): string {
@@ -170,36 +129,8 @@ function getRequestAttachments(request: DocumentRequest) {
     : []
 }
 
-function validateFile(file: File, existingFiles: PickedFile[]): ValidationError | null {
-  // Check size
-  if (file.size > MAX_FILE_SIZE) {
-    return {
-      type: 'size',
-      message: `Fișierul depășește ${formatFileSize(MAX_FILE_SIZE)}`
-    }
-  }
-
-  // Check type
-  const ext = `.${getFileExtension(file.name)}`
-  const isValidType = ALLOWED_TYPES.includes(file.type) || ALLOWED_EXTENSIONS.includes(ext)
-  
-  if (!isValidType) {
-    return {
-      type: 'type',
-      message: 'Tip de fișier nepermis'
-    }
-  }
-
-  // Check duplicates
-  const isDuplicate = existingFiles.some(f => f.name === file.name && f.size === file.size)
-  if (isDuplicate) {
-    return {
-      type: 'duplicate',
-      message: 'Fișier duplicat'
-    }
-  }
-
-  return null
+function validateFile(file: File, existingFiles: PickedFile[]): UploadValidationError | null {
+  return validateUploadFile(file, existingFiles)
 }
 
 function getFileIcon(file: PickedFile): JSX.Element {
@@ -441,11 +372,15 @@ export default function DocumentRequests({
 
   // Modalul primește aceeași cerere reîmprospătată ca lista după upload/review;
   // altfel rămâne cu obiectul capturat la click și afișează statusul/fișierele vechi.
+  // Căutarea merge pe sursa nefiltrată: o cerere care iese din filtrul curent —
+  // mutată la „Cereri generale” după ștergerea activității, de pildă — nu are de
+  // ce să închidă modalul deschis. Se închide doar când chiar a dispărut.
   useEffect(() => {
     if (!selectedRequest) return
-    const refreshed = requests.find(request => request.id === selectedRequest.id) ?? null
+    const source = externalRequests ?? internalRequests
+    const refreshed = source.find((request: any) => request.id === selectedRequest.id) ?? null
     if (refreshed !== selectedRequest) setSelectedRequest(refreshed)
-  }, [requests, selectedRequest])
+  }, [externalRequests, internalRequests, selectedRequest])
 
   const reminderIds = selectedRequest ? [selectedRequest.id] : []
   const { states: reminderStates, refresh: refreshReminderStates, loading: reminderStatesLoading } = useReminderStates(
@@ -761,133 +696,13 @@ export default function DocumentRequests({
     resetRequestForm()
   }
 
-  const completeClientUpload = async (pending: PendingClientUploadCompletion) => {
-    const completeRes = await apiFetch(`/api/document-requests/${pending.requestId}/uploads/complete`, {
-      method: 'POST',
-      body: JSON.stringify({
-        batchId: pending.batchId,
-        fileIds: pending.fileIds,
-      }),
-    })
-    if (!completeRes.ok) throw new Error('Nu am putut finaliza încărcarea fișierelor.')
-  }
-
-  // Upload improved cu progress tracking și error handling granular
-  const uploadFilesToRequest = async (requestId: string, filesToUpload: PickedFile[]) => {
-    // Doar fișierele valide
-    const validFiles = filesToUpload.filter(f => !f.validationError)
-    
-    if (validFiles.length === 0) {
-      throw new Error('Niciun fișier valid de încărcat')
-    }
-
-    // 1. Init upload
-    const initRes = await apiFetch(`/api/document-requests/${requestId}/uploads/init`, {
-      method: 'POST',
-      body: JSON.stringify({
-        files: validFiles.map((p) => ({
-          name: p.name,
-          size: p.size,
-          type: p.type,
-          relativePath: p.relativePath,
-        })),
-      }),
-    })
-    const init = await initRes.json().catch(() => ({}))
-    if (!initRes.ok) throw new Error('Nu am putut inițializa încărcarea fișierelor.')
-
-    // 2. Upload fișiere INDIVIDUAL cu progress tracking
-    const uploadResults = await Promise.allSettled(
-      init.uploads.map(async (u: any) => {
-        const pickedFile = validFiles[u.clientFileId]
-        
-        // Update status: uploading
-        setClientFiles(prev => 
-          prev.map(f => 
-            f.id === pickedFile.id 
-              ? { ...f, uploadStatus: 'uploading' as const, uploadProgress: 0 }
-              : f
-          )
-        )
-
-        try {
-          const res = await fetch(u.signedUploadUrl, {
-            method: 'PUT',
-            headers: {
-              Authorization: `Bearer ${u.token}`,
-              'Content-Type': pickedFile.type,
-            },
-            body: pickedFile.file,
-          })
-
-          if (!res.ok) {
-            throw new Error('Încărcarea fișierului a eșuat.')
-          }
-
-          // Success
-          setClientFiles(prev => 
-            prev.map(f => 
-              f.id === pickedFile.id 
-                ? { ...f, uploadStatus: 'success' as const, uploadProgress: 100 }
-                : f
-            )
-          )
-
-          return { success: true, upload: u, file: pickedFile }
-        } catch (error: any) {
-          // Error
-          setClientFiles(prev => 
-            prev.map(f => 
-              f.id === pickedFile.id 
-                ? { ...f, uploadStatus: 'error' as const, uploadError: 'Încărcarea fișierului a eșuat. Reîncearcă.' }
-                : f
-            )
-          )
-
-          return { success: false, upload: u, file: pickedFile, error: error.message }
-        }
-      })
-    )
-
-    // 3. Verificăm rezultatele
-    const successful = uploadResults
-      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value.success)
-      .map(r => r.value)
-
-    const failed = uploadResults
-      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && !r.value.success)
-      .map(r => r.value)
-
-    if (successful.length === 0) {
-      throw new Error('Toate fișierele au eșuat la încărcare')
-    }
-
-    // 4. Păstrăm payload-ul până la confirmarea completării, pentru retry fără init/re-upload
-    const pendingCompletion: PendingClientUploadCompletion = {
-      requestId,
-      batchId: init.batchId,
-      fileIds: successful.map((s: any) => s.upload.fileId),
-      failed: failed.length,
-    }
-    pendingClientUploadRef.current = pendingCompletion
-    await completeClientUpload(pendingCompletion)
-    pendingClientUploadRef.current = null
-
-    return {
-      total: uploadResults.length,
-      successful: successful.length,
-      failed: failed.length,
-      failures: failed.map((f: any) => ({ name: f.file.name, error: f.error }))
-    }
-  }
-
   const handleClientUpload = async (requestId: string) => {
     if (submitting) return
     const validFiles = clientFiles.filter(f => !f.validationError)
     const pending = pendingClientUploadRef.current?.requestId === requestId
       ? pendingClientUploadRef.current
       : null
-    
+
     if (!pending && validFiles.length === 0) {
       showToast('Nu există fișiere valide. Verifică erorile de validare.', 'warning')
       return
@@ -895,34 +710,37 @@ export default function DocumentRequests({
 
     setSubmitting(true)
     try {
-      const uploadResult = pending
-        ? await completeClientUpload(pending).then(() => {
-            pendingClientUploadRef.current = null
-            return {
-              total: pending.fileIds.length + pending.failed,
-              successful: pending.fileIds.length,
-              failed: pending.failed,
-              failures: [],
-            }
-          })
-        : await uploadFilesToRequest(requestId, clientFiles)
-      if (uploadResult) {
-        showToast(
-          uploadResult.failed === 0
-            ? `Au fost încărcate ${uploadResult.successful} fișiere.`
-            : `${uploadResult.successful} fișiere au fost încărcate, iar ${uploadResult.failed} au eșuat.`,
-          uploadResult.failed === 0 ? 'success' : 'warning'
-        )
-      }
+      const result = await runClientUpload({
+        apiFetch,
+        requestId,
+        files: validFiles,
+        pending,
+        onPending: next => { pendingClientUploadRef.current = next },
+        onFileState: (id, state) => setClientFiles(prev => prev.map(file => file.id !== id ? file : (
+          state.status === 'uploading' ? { ...file, uploadStatus: 'uploading' as const, uploadProgress: 0 }
+            : state.status === 'success' ? { ...file, uploadStatus: 'success' as const, uploadProgress: 100 }
+            : { ...file, uploadStatus: 'error' as const, uploadError: state.message }
+        ))),
+      })
+
+      showToast(
+        result.failed === 0
+          ? `Au fost încărcate ${result.successful} fișiere.`
+          : `${result.successful} fișiere au fost încărcate, iar ${result.failed} au eșuat. Verifică lista fișierelor.`,
+        result.failed === 0 ? 'success' : 'warning',
+      )
+
       clearAllFiles()
       await fetchRequests()
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Nu am putut încărca fișierele. Reîncearcă.', 'error')
+      showToast(
+        error instanceof Error && error.message ? error.message : 'Nu am putut încărca fișierele. Reîncearcă.',
+        'error',
+      )
     } finally {
       setSubmitting(false)
     }
   }
-
 
   const fetchAttachmentSignedUrl = async (requestId: string, disposition?: 'inline', attachmentId?: string) => {
     const res = await apiFetch(`/api/document-requests/${requestId}/attachment/signed-download`, {

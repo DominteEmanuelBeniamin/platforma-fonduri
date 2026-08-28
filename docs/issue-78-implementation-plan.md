@@ -21,7 +21,7 @@ Implementarea pornește din branch-ul curent, care conține deja modificările �
 - Review-ul este notificat imediat; un digest ulterior format numai din review-uri nu creează încă o notificare.
 - Ordinea este notification-first, email-second: pentru digesturile publication/deadline, doar rândurile de notificare inserate în încercarea curentă se șterg înainte de eliberarea claims dacă emailul eșuează; rândurile preexistente nu se șterg. Dacă cleanup-ul eșuează, claims rămân pentru repair. Pentru evenimente de business deja comise (de exemplu assignment), notificarea rămâne, iar emailul este best-effort.
 - Lista nu are retenție; API-ul folosește cursor `(created_at,id)`, cu 40 de rânduri inițiale și „Încarcă mai multe”.
-- La închiderea panoului se marchează ca citite notificările accesibile necitite existente în acel moment.
+- Citirea și ștergerea logică sunt acțiuni explicite; închiderea clopoțelului nu schimbă starea notificărilor.
 
 ## Faza 0 — Preflight și contract
 
@@ -41,7 +41,7 @@ Adaugă o migrare nouă, cu garduri explicite:
 2. Șterge funcția veche exactă, fără `CASCADE`.
 3. Recreează tabela cu:
    - `id`, `user_id`, `project_id`, `type`, `entity_type`, `entity_id`;
-   - `title`, `item_count`, `event_key`, `created_at`, `read_at`;
+   - `title`, `severity`, `actor_name`, `entity_label`, `item_count`, `event_key`, `created_at`, `read_at`, `dismissed_at`;
    - FK către utilizator și proiect;
    - CHECK pentru tipuri și `item_count > 0`;
    - UNIQUE `(user_id,event_key)`.
@@ -68,6 +68,7 @@ Adaugă endpoint-uri:
 - `GET /api/notifications/summary` — total necitite și număr pe proiect;
 - `GET /api/notifications` — listă paginată, filtre `projectId`, `unreadOnly`;
 - `POST /api/notifications/read` — marchează rânduri accesibile ca citite;
+- `POST /api/notifications/dismiss` — ascunde logic rânduri accesibile;
 - `GET /api/notifications/[id]/target` — verifică accesul și returnează ruta curentă; pentru entitate dispărută răspunde 404.
 
 Testează separat cursorul, filtrele, idempotency key, membership-ul și entitățile șterse.
@@ -113,10 +114,10 @@ Testează proiecte multiple, consultant scos din proiect, override email, retry 
 - Abonează-te Realtime filtrat pe `user_id`, apoi refă summary/lista prin API la eveniment.
 - Refă lista la deschidere, focus și revenirea tabului; golește starea locală la închidere pentru revocarea accesului.
 - Adaugă clopoțelul în Navbar folosind fixul de overflow din #81.
-- Panou Radix responsive: card desktop, bottom-sheet pe mobil.
-- Filtre: toate, necitite, proiect; empty states distincte pentru listă goală, filtru fără rezultate și eroare.
+- Clopoțelul afișează lista scurtă, iar pagina `/notificari` oferă lista și controalele complete.
+- Filtre: stare, categorie și proiect; empty states distincte pentru listă goală, filtru fără rezultate și eroare.
 - Catalogul filtrului de proiecte se încarcă din `/api/projects`, independent de paginarea notificărilor.
-- La închidere marchează notificările accesibile necitite ca citite.
+- Nu marca automat notificările ca citite la închiderea clopoțelului.
 
 ## Faza 6 — Home și badge-uri
 
@@ -136,7 +137,7 @@ Separă `unreadChat` de `unreadNotifications`.
 - `pnpm lint`
 - `npx.cmd tsc --noEmit`
 - build de producție
-- test manual desktop + mobil pentru panel, Realtime, read-on-close și membership revocation;
+- test manual desktop + mobil pentru clopoțel, pagina `/notificari`, Realtime și membership revocation;
 - test cron cu mai multe proiecte și test de retry pentru upload/review;
 - verificare migrații pe staging înainte de producție.
 

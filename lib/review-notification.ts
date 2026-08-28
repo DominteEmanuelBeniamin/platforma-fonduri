@@ -41,7 +41,9 @@ export type ReviewNotificationSelection = {
 export type ReviewNotificationEvent = {
   requestId: string
   title: string
+  entityLabel: string
   eventKey: string
+  severity: 'success' | 'danger'
 }
 
 function compareReviews(left: ReviewNotificationReview, right: ReviewNotificationReview) {
@@ -99,10 +101,15 @@ export function buildReviewNotificationEvents(candidates: ReviewNotificationCand
     const name = typeof candidate.request.name === 'string' && candidate.request.name
       ? candidate.request.name
       : candidate.requestId
+    const approved = candidate.review.action === 'approved'
     return {
       requestId: candidate.requestId,
-      title: `Document ${candidate.review.action === 'approved' ? 'aprobat' : 'respins'}: "${name}"`,
+      // Numele stă în `entityLabel`: panoul îl pune pe primul rând, iar titlul
+      // rămâne acțiunea, la fel ca la notificarea imediată scrisă din SQL.
+      title: `Document ${approved ? 'aprobat' : 'respins'}`,
+      entityLabel: name,
       eventKey: `document-review:${candidate.review.id}`,
+      severity: approved ? 'success' : 'danger',
     }
   })
 }

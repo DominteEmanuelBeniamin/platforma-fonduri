@@ -8,6 +8,7 @@ export type NotificationEventParts = {
   eventKey?: string | null
 }
 
+export type NotificationSeverity = 'info' | 'success' | 'warning' | 'danger'
 export type NotificationCursor = {
   createdAt: string
   id: string
@@ -128,24 +129,25 @@ export function buildManualReminderNotificationMetadata(input: {
   return { eventKey: hash, idempotencyKey: `${hash}-email` }
 }
 
-export function buildAssignmentNotificationMetadata(input: {
+/**
+ * Only the email needs a key from here. The in-app notification is written by
+ * the assignment trigger, which builds its own event key from the transition it
+ * sees — the two can never be made to agree, so this no longer pretends to.
+ */
+export function buildAssignmentEmailIdempotencyKey(input: {
   projectId: string
   entityType: 'activity' | 'document_request'
   entityId: string
   recipientId: string
   version: string | number
-}) {
-  const value = {
+}): string {
+  return notificationMetadataHash('assignment-email-v1', {
     projectId: input.projectId,
     entityType: input.entityType,
     entityId: input.entityId,
     recipientId: input.recipientId,
     version: input.version,
-  }
-  return {
-    eventKey: notificationMetadataHash('assignment-v1', value),
-    idempotencyKey: notificationMetadataHash('assignment-email-v1', value),
-  }
+  })
 }
 
 export function isRealAssignmentChange(previous: string | null | undefined, next: string | null | undefined): next is string {
@@ -191,6 +193,13 @@ export function encodeNotificationCursor(cursor: NotificationCursor): string {
   return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url')
 }
 
+/**
+ * `created_at` ajunge textual într-un filtru `or=(...)` al PostgREST, unde
+ * virgula separă termenii. `Date.parse` singur acceptă „Jan 1, 2026”, deci
+ * timestamp-ul trebuie să arate exact ca cel scris de Postgres, nu doar să fie
+ * o dată pe care JS o poate citi.
+ */
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/
 export function decodeNotificationCursor(value: string | null | undefined): NotificationCursor | null {
   if (!value || !/^[A-Za-z0-9_-]+$/.test(value)) return null
 
@@ -198,6 +207,7 @@ export function decodeNotificationCursor(value: string | null | undefined): Noti
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<NotificationCursor>
     if (
       typeof parsed.createdAt !== 'string' ||
+      !ISO_TIMESTAMP.test(parsed.createdAt) ||
       !Number.isFinite(Date.parse(parsed.createdAt)) ||
       !isUuid(parsed.id)
     ) {

@@ -3,6 +3,7 @@ import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { isClientVisibleDocument } from '@/lib/client-visibility'
 import {
+  describeDocumentActionFailure,
   isValidDocumentActionUuid,
   MAX_UPLOAD_FILE_SIZE,
   normalizeUploadFileIds,
@@ -168,8 +169,8 @@ export async function POST(
 
     if (rpcError) {
       console.error('complete_reserved_document_upload_batch error:', rpcError)
-      const status = rpcError.code === 'P0001' ? 409 : 500
-      return NextResponse.json({ error: rpcError.message }, { status })
+      const failure = describeDocumentActionFailure(rpcError.message, rpcError.code)
+      return NextResponse.json({ error: rpcError.message, message: failure.message }, { status: failure.status })
     }
 
     const result = Array.isArray(rpcData) ? rpcData[0] as { created?: unknown; version_number?: unknown } | undefined : undefined

@@ -197,6 +197,15 @@ export function buildReminderNotificationEventKey(items: ReminderCandidate[]): s
   return `deadline-notification-v1-${createHash('sha256').update(slots).digest('hex')}`
 }
 
+/**
+ * Cheia notificării de admin nu depinde de grupul de destinatari care a produs-o.
+ * Doi destinatari care împart același termen convergeau altfel pe chei diferite,
+ * iar adminul primea câte un rând de la fiecare.
+ */
+export function buildReminderAdminNotificationEventKey(item: ReminderCandidate): string {
+  const slot = JSON.stringify(notificationSlot(item))
+  return `deadline-admin-v1-${createHash('sha256').update(slot).digest('hex')}`
+}
 export function buildReminderDigestIdempotencyKey(items: ReminderCandidate[]): string {
   const slots = JSON.stringify(items.map(digestSlot).sort((left, right) => {
     const a = JSON.stringify(left)
@@ -216,6 +225,13 @@ export function buildReminderNotificationTitle(items: ReminderCandidate[]): stri
   return items.length === 1 ? 'Termen apropiat' : 'Termene apropiate'
 }
 
+export function reminderNotificationSeverity(items: ReminderCandidate[]): 'danger' | 'warning' {
+  return items.some(item => item.threshold === 'overdue') ? 'danger' : 'warning'
+}
+
+export function reminderNotificationEntityType(item: ReminderCandidate): 'document_request' | 'activity' {
+  return item.entityType === 'request' ? 'document_request' : 'activity'
+}
 export function selectDeadlineReminderCandidates(input: CandidateSelectionInput): CandidateSelection {
   const projects = new Map(input.projects.map(project => [project.id, project]))
   const phases = new Map(input.phases.map(phase => [phase.id, phase]))

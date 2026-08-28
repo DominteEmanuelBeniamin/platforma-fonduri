@@ -7,7 +7,7 @@ import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { isRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
-import { buildAssignmentNotificationMetadata, isRealAssignmentChange } from '@/lib/notification-utils'
+import { buildAssignmentEmailIdempotencyKey, isRealAssignmentChange } from '@/lib/notification-utils'
 
 // Inițializat în handler ca să preia env-ul la runtime, nu la cold-start
 
@@ -263,6 +263,14 @@ export async function PATCH(
 
     const assignmentChanged = assigned_to !== undefined && assigned_to !== req.assigned_to
     const assignmentEventAt = assignmentChanged ? new Date().toISOString() : null
+    // Ca la activități: triggerul nu vede autorul, așa că îl scriem pe rând.
+    // `assigned_at` se scrie în aceeași actualizare pentru că e versiunea pe
+    // care o poartă cheia de idempotență a emailului — una calculată doar în
+    // memorie ar fi diferită la fiecare încercare, deci n-ar deduplica nimic.
+    if (assignmentChanged) {
+      updatePayload.assigned_by = access.user.id
+      updatePayload.assigned_at = assignmentEventAt
+    }
     let requestUpdate = admin
       .from('document_requirements')
       .update(updatePayload)
@@ -345,12 +353,15 @@ export async function PATCH(
     // nou. (Ca la activități, care compară deja cu valoarea dinainte.)
     async function notifyAssignment() {
       if (isRealAssignmentChange(currentRequest.assigned_to, assigned_to) && assignmentEventAt) {
-      const metadata = buildAssignmentNotificationMetadata({
+      // Versiunea vine din rândul actualizat, nu din variabila locală: două
+      // servere care ajung amândouă să scrie aceeași tranziție citesc aceeași
+      // valoare, deci aceeași cheie, deci un singur email.
+      const idempotencyKey = buildAssignmentEmailIdempotencyKey({
         projectId: currentRequest.project_id,
         entityType: 'document_request',
         entityId: requestId,
         recipientId: assigned_to,
-        version: assignmentEventAt,
+        version: updatedRequest.assigned_at,
       })
       try {
         // Proiectul e deja citit mai sus, în `projectRow`/`projectTitle`.
@@ -420,7 +431,7 @@ export async function PATCH(
             to: consultant.email,
             subject: sanitizeHeaderText(`Ți-a fost atribuită o cerere nouă — ${projectTitle}`),
             html,
-          }, { idempotencyKey: metadata.idempotencyKey })
+          }, { idempotencyKey })
           if (emailError) {
             console.error('Resend error:', emailError)
           }

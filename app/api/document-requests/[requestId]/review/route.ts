@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { describeDocumentActionFailure } from '@/lib/document-action-idempotency'
 
 type Action = 'approved' | 'rejected'
 
@@ -57,10 +58,11 @@ export async function POST(
 
     if (reviewError) {
       console.error('review_document_request error:', reviewError)
-      const status = reviewError.message === 'Notes are required for rejection' ||
-        reviewError.message === 'No uploaded files to review' ? 400 :
-        reviewError.code === 'P0001' ? 409 : 500
-      return NextResponse.json({ error: reviewError.message }, { status })
+      const failure = describeDocumentActionFailure(reviewError.message, reviewError.code)
+      return NextResponse.json(
+        { error: reviewError.message, message: failure.message },
+        { status: failure.status },
+      )
     }
 
     const reviewResult = Array.isArray(reviewData) ? reviewData[0] : reviewData

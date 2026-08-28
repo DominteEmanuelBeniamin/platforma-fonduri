@@ -38,6 +38,7 @@ import {
   FileDown,
 } from 'lucide-react'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
+import SelectFilter from '@/components/SelectFilter'
 
 interface AuditLog {
   id: string
@@ -496,25 +497,26 @@ export default function AuditPage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <SelectFilter value={actionType} onChange={setActionType} placeholder="Toate actiunile">
-            {Object.entries(ACTION_CONFIG).map(([key, cfg]) => (
-              <option key={key} value={key}>{cfg.label}</option>
-            ))}
-          </SelectFilter>
+          <SelectFilter
+            value={actionType}
+            onChange={setActionType}
+            placeholder="Toate actiunile"
+            options={Object.entries(ACTION_CONFIG).map(([key, cfg]) => ({ value: key, label: cfg.label }))}
+          />
 
-          <SelectFilter value={entityType} onChange={setEntityType} placeholder="Toate entitatile">
-            {availableEntityKeys.map(key => (
-              <option key={key} value={key}>{getEntityConfig(key).label || key}</option>
-            ))}
-          </SelectFilter>
+          <SelectFilter
+            value={entityType}
+            onChange={setEntityType}
+            placeholder="Toate entitatile"
+            options={availableEntityKeys.map(key => ({ value: key, label: getEntityConfig(key).label || key }))}
+          />
 
-          <SelectFilter value={userIdFilter} onChange={setUserIdFilter} placeholder="Toti utilizatorii">
-            {sortedUsers.map(u => (
-              <option key={u.id} value={u.id}>
-                {u.full_name || u.email}
-              </option>
-            ))}
-          </SelectFilter>
+          <SelectFilter
+            value={userIdFilter}
+            onChange={setUserIdFilter}
+            placeholder="Toti utilizatorii"
+            options={sortedUsers.map(u => ({ value: u.id, label: u.full_name || u.email }))}
+          />
 
           <div className="flex items-center gap-1.5 min-w-0">
             <DateInput value={fromDate} onChange={setFromDate} ariaLabel="De la" />
@@ -636,29 +638,6 @@ function StatCard({
         <p className="text-xs text-slate-500 font-medium uppercase">{label}</p>
         <p className={`text-2xl font-bold mt-0.5 ${valueColor}`}>{value.toLocaleString()}</p>
       </div>
-    </div>
-  )
-}
-
-function SelectFilter({
-  value, onChange, placeholder, children,
-}: {
-  value: string
-  onChange: (v: string) => void
-  placeholder: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="relative min-w-[180px]">
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="w-full appearance-none px-4 py-2.5 pr-10 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm bg-white"
-      >
-        <option value="">{placeholder}</option>
-        {children}
-      </select>
-      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
     </div>
   )
 }
