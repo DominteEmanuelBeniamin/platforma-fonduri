@@ -6,6 +6,7 @@ import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { normalizeRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 import { isClientVisibleDocument } from '@/lib/client-visibility'
 import { filterFilesForClient } from '@/lib/document-versions'
+import { selectReviewNotificationCandidates } from '@/lib/review-notification'
 
 type LatestRejection = {
   reason: string
@@ -13,37 +14,6 @@ type LatestRejection = {
   reviewed_by: { id: string; full_name: string | null } | null
   reviewed_version_number: number
 } | null
-
-async function loadLatestRejections(admin: ReturnType<typeof createSupabaseServiceClient>, requestIds: string[]) {
-  const latest = new Map<string, LatestRejection>()
-  if (requestIds.length === 0) return latest
-
-  const { data, error } = await admin
-    .from('document_request_reviews')
-    .select('requirement_id, reason, reviewed_at, reviewed_version_number, reviewer:reviewed_by(id, full_name)')
-    .in('requirement_id', requestIds)
-    .eq('action', 'rejected')
-    .order('reviewed_at', { ascending: false })
-
-  if (error) {
-    console.error('latest rejection lookup error:', error)
-    return latest
-  }
-
-  for (const row of data ?? []) {
-    if (latest.has((row as any).requirement_id)) continue
-    const reviewerRelation = (row as any).reviewer
-    const reviewer = Array.isArray(reviewerRelation) ? reviewerRelation[0] : reviewerRelation
-    latest.set((row as any).requirement_id, {
-      reason: (row as any).reason || '',
-      reviewed_at: (row as any).reviewed_at,
-      reviewed_by: reviewer ? { id: reviewer.id, full_name: reviewer.full_name ?? null } : null,
-      reviewed_version_number: (row as any).reviewed_version_number,
-    })
-  }
-
-  return latest
-}
 
 export async function GET(
   request: Request,
@@ -113,10 +83,49 @@ export async function GET(
     const rows = access.profile.role === 'client'
       ? (data ?? []).filter(isClientVisibleDocument)
       : data ?? []
-    const latestRejections = await loadLatestRejections(admin, rows.map((row: any) => row.id))
+
+    const requestIds = rows.map((row: any) => row.id)
+    const { data: reviewRows, error: reviewError } = requestIds.length
+      ? await admin
+          .from('document_request_reviews')
+          .select('id, requirement_id, action, reason, reviewed_at, reviewed_version_number, client_notified_at, reviewer:reviewed_by(id, full_name)')
+          .in('requirement_id', requestIds)
+          .order('reviewed_at', { ascending: false })
+          .order('id', { ascending: false })
+      : { data: [], error: null }
+
+    if (reviewError) {
+      console.error('document review history lookup error:', reviewError)
+      return NextResponse.json({ error: 'Failed to load document review history' }, { status: 500 })
+    }
+
+    const reviewSelection = selectReviewNotificationCandidates({
+      requests: rows as any,
+      reviews: (reviewRows ?? []) as any,
+    })
+    if (reviewSelection.incompatibleRequestIds.length > 0) {
+      console.error('document review status/action mismatch:', reviewSelection.incompatibleRequestIds)
+    }
+
+    const latestRejections = new Map<string, LatestRejection>()
+    for (const row of reviewRows ?? []) {
+      if ((row as any).action !== 'rejected') continue
+      const requirementId = (row as any).requirement_id
+      if (latestRejections.has(requirementId)) continue
+      const reviewerRelation = (row as any).reviewer
+      const reviewer = Array.isArray(reviewerRelation) ? reviewerRelation[0] : reviewerRelation
+      latestRejections.set(requirementId, {
+        reason: (row as any).reason || '',
+        reviewed_at: (row as any).reviewed_at,
+        reviewed_by: reviewer ? { id: reviewer.id, full_name: reviewer.full_name ?? null } : null,
+        reviewed_version_number: (row as any).reviewed_version_number,
+      })
+    }
+    const unnotifiedReviewRequestIds = new Set(reviewSelection.candidates.map(candidate => candidate.requestId))
     const requests = rows.map((row: any) => ({
       ...row,
       latest_rejection: latestRejections.get(row.id) ?? null,
+      has_unnotified_review: unnotifiedReviewRequestIds.has(row.id),
       files: access.profile.role === 'client'
         ? filterFilesForClient(row.files)
         : (row.files ?? []).filter((file: any) => !file.deleted_at),

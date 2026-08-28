@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { isClientVisibleDocument } from './client-visibility.js'
 import { getDaysUntilDeadline, getReminderType, REMINDER_TIME_ZONE, type ReminderType } from './document-reminder.ts'
 import { isValidReminderEmail } from './reminder-email.ts'
@@ -15,6 +16,7 @@ export type ReminderProject = {
   title: string
   status: string
   general_consultant_id: string | null
+  automatic_reminders_enabled?: boolean
   client: Relation<ReminderProfile>
 }
 
@@ -103,6 +105,11 @@ export type CandidateSelection = {
   recipientsConsidered: number
 }
 
+export type ReminderNotificationProjectGroup = {
+  projectId: string
+  items: ReminderCandidate[]
+}
+
 const ACTIVE_PROJECT_STATUSES = new Set(['contractare', 'implementare', 'monitorizare'])
 
 type CandidateDraft = Omit<ReminderCandidate, 'recipientEmail' | 'recipientName' | 'recipientId'> & {
@@ -135,6 +142,96 @@ function activityUrl(base: string, projectId: string, activityId: string, phaseI
   }).toString() + '#activity-' + activityId
 }
 
+type ReminderNotificationSlot = [
+  string,
+  ReminderCandidate['entityType'],
+  string,
+  ReminderCandidate['threshold'],
+  string,
+]
+
+function notificationSlot(item: ReminderCandidate): ReminderNotificationSlot {
+  return [
+    item.projectId,
+    item.entityType,
+    item.entityId,
+    item.threshold,
+    item.deadlineAt,
+  ]
+}
+
+type ReminderDigestSlot = [
+  ReminderCandidate['recipientKind'],
+  string,
+  ...ReminderNotificationSlot,
+]
+
+function digestSlot(item: ReminderCandidate): ReminderDigestSlot {
+  return [item.recipientKind, item.recipientId, ...notificationSlot(item)]
+}
+
+function sortedNotificationSlots(items: ReminderCandidate[]) {
+  return items
+    .map(notificationSlot)
+    .sort((left, right) => {
+      const a = JSON.stringify(left)
+      const b = JSON.stringify(right)
+      return a < b ? -1 : a > b ? 1 : 0
+    })
+}
+
+export function groupReminderCandidatesByProject(items: ReminderCandidate[]): ReminderNotificationProjectGroup[] {
+  const groups = new Map<string, ReminderCandidate[]>()
+  for (const item of items) {
+    const group = groups.get(item.projectId) ?? []
+    group.push(item)
+    groups.set(item.projectId, group)
+  }
+  return [...groups.entries()]
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([projectId, projectItems]) => ({ projectId, items: projectItems }))
+}
+
+export function buildReminderNotificationEventKey(items: ReminderCandidate[]): string {
+  const slots = JSON.stringify(sortedNotificationSlots(items))
+  return `deadline-notification-v1-${createHash('sha256').update(slots).digest('hex')}`
+}
+
+/**
+ * Cheia notificării de admin nu depinde de grupul de destinatari care a produs-o.
+ * Doi destinatari care împart același termen convergeau altfel pe chei diferite,
+ * iar adminul primea câte un rând de la fiecare.
+ */
+export function buildReminderAdminNotificationEventKey(item: ReminderCandidate): string {
+  const slot = JSON.stringify(notificationSlot(item))
+  return `deadline-admin-v1-${createHash('sha256').update(slot).digest('hex')}`
+}
+export function buildReminderDigestIdempotencyKey(items: ReminderCandidate[]): string {
+  const slots = JSON.stringify(items.map(digestSlot).sort((left, right) => {
+    const a = JSON.stringify(left)
+    const b = JSON.stringify(right)
+    return a < b ? -1 : a > b ? 1 : 0
+  }))
+  return `deadline-digest-v1-${createHash('sha256').update(slots).digest('hex')}`
+}
+
+export function hasReminderRecipient(recipientIds: string[], recipientId: string): boolean {
+  return recipientIds.includes(recipientId)
+}
+
+export function buildReminderNotificationTitle(items: ReminderCandidate[]): string {
+  const overdue = items.some(item => item.threshold === 'overdue')
+  if (overdue) return items.length === 1 ? 'Termen depășit' : 'Termene depășite'
+  return items.length === 1 ? 'Termen apropiat' : 'Termene apropiate'
+}
+
+export function reminderNotificationSeverity(items: ReminderCandidate[]): 'danger' | 'warning' {
+  return items.some(item => item.threshold === 'overdue') ? 'danger' : 'warning'
+}
+
+export function reminderNotificationEntityType(item: ReminderCandidate): 'document_request' | 'activity' {
+  return item.entityType === 'request' ? 'document_request' : 'activity'
+}
 export function selectDeadlineReminderCandidates(input: CandidateSelectionInput): CandidateSelection {
   const projects = new Map(input.projects.map(project => [project.id, project]))
   const phases = new Map(input.phases.map(phase => [phase.id, phase]))
@@ -188,6 +285,7 @@ export function selectDeadlineReminderCandidates(input: CandidateSelectionInput)
     const project = projects.get(row.project_id)
     const activity = relation(row.activity)
     if (!project || !ACTIVE_PROJECT_STATUSES.has(project.status)) continue
+    if (project.automatic_reminders_enabled === false) continue
     if (row.status !== 'pending' && row.status !== 'rejected') continue
     if (row.is_outgoing || row.deleted_at || !row.deadline_at || !isClientVisibleDocument(row)) continue
 
@@ -234,6 +332,7 @@ export function selectDeadlineReminderCandidates(input: CandidateSelectionInput)
     const phase = phases.get(row.phase_id)
     const project = phase ? projects.get(phase.project_id) : null
     if (!phase || !project || !ACTIVE_PROJECT_STATUSES.has(project.status)) continue
+    if (project.automatic_reminders_enabled === false) continue
     if (row.status !== 'pending' && row.status !== 'in_progress') continue
     if (phase.visibility !== 'published' || row.visibility !== 'published' || !row.deadline_at) continue
 

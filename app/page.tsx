@@ -9,18 +9,29 @@ import { useAuth } from './providers/AuthProvider'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import { useToast } from '@/app/providers/ToastProvider'
 import {
-  AlertTriangle, Check, MessageSquare, FileText, Plus, MoreVertical, Trash2,
+  AlertTriangle, Bell, Check, MessageSquare, FileText, Plus, MoreVertical, Trash2,
   Search, SlidersHorizontal, ArrowUpDown, LayoutGrid, List, X, ChevronRight, ChevronDown, Info, Clock,
+  BellOff, Loader2,
 } from 'lucide-react'
 import { useProjectChatUnread } from '@/app/providers/ProjectChatUnreadProvider'
+import { useNotifications } from '@/app/providers/NotificationsProvider'
 import { GENERAL_PHASE_ID } from '@/lib/calendar'
+import {
+  REMINDERS_ERROR_MESSAGE,
+  automaticRemindersEnabled,
+  remindersActionLabel,
+  remindersDoneMessage,
+  remindersOffConfirm,
+  saveAutomaticReminders,
+} from '@/lib/automatic-reminders'
 
 type Att = {
   overdue: number
   total: number
   review: number
   pending: number
-  unread: number
+  unreadChat: number
+  unreadNotifications: number
   todo: boolean
   clean: boolean
 }
@@ -38,7 +49,7 @@ const SORT_OPTIONS: { key: string; label: string }[] = [
 const ATTENTION_OPTIONS: { key: string; label: string; dot: string }[] = [
   { key: 'overdue', label: 'Depășite', dot: 'bg-red-400' },
   { key: 'todo', label: 'De rezolvat', dot: 'bg-amber-400' },
-  { key: 'unread', label: 'Chat necitit', dot: 'bg-rose-400' },
+  { key: 'unread', label: 'Necitite', dot: 'bg-violet-400' },
   { key: 'clean', label: 'La zi', dot: 'bg-emerald-400' },
 ]
 
@@ -79,8 +90,11 @@ function buildBadges(att: Att, isClient: boolean): any[] {
     if (att.review > 0) badges.push({ key: 'review', cls: 'bg-blue-50 text-blue-600 ring-blue-100', icon: <FileText className="w-3 h-3" />, label: `${att.review} de verificat`, title: `${att.review} cereri de verificat` })
     badges.push({ key: 'pending', cls: att.pending > 0 ? 'bg-amber-50 text-amber-700 ring-amber-100' : 'bg-slate-50 text-slate-500 ring-slate-100', icon: <FileText className="w-3 h-3" />, label: `${att.pending} la client`, title: `${att.pending} cereri așteaptă documente de la client` })
   }
-  if (att.unread > 0) {
-    badges.push({ key: 'chat', cls: 'bg-rose-50 text-rose-600 ring-rose-100', icon: <MessageSquare className="w-3 h-3" />, label: `${att.unread > 99 ? '99+' : att.unread} mesaje`, title: `${att.unread} mesaje necitite în chat` })
+  if (att.unreadChat > 0) {
+    badges.push({ key: 'chat', cls: 'bg-rose-50 text-rose-600 ring-rose-100', icon: <MessageSquare className="w-3 h-3" />, label: `${att.unreadChat > 99 ? '99+' : att.unreadChat} mesaje`, title: `${att.unreadChat} mesaje necitite în chat` })
+  }
+  if (att.unreadNotifications > 0) {
+    badges.push({ key: 'notifications', cls: 'bg-violet-50 text-violet-600 ring-violet-100', icon: <Bell className="w-3 h-3" />, label: `${att.unreadNotifications > 99 ? '99+' : att.unreadNotifications} notificări`, title: `${att.unreadNotifications} notificări necitite` })
   }
   if (att.clean) {
     badges.push({ key: 'clean', cls: 'bg-emerald-50 text-emerald-600 ring-emerald-100', icon: <Check className="w-3 h-3" strokeWidth={3} />, label: 'La zi', title: 'Nimic de făcut' })
@@ -104,15 +118,21 @@ function AttentionBadges({ att, isClient, className = '' }: { att: Att; isClient
 }
 
 function AdminMenu({
-  project, openMenuId, setOpenMenuId, onRequestDelete, className = '', dropUp = false,
+  project, openMenuId, setOpenMenuId, onRequestDelete, onToggleAutomaticReminders, reminderToggleLoadingId,
+  className = '', dropUp = false,
 }: {
   project: any
   openMenuId: string | null
   setOpenMenuId: (id: string | null) => void
   onRequestDelete: (p: any) => void
+  onToggleAutomaticReminders: (p: any) => void
+  reminderToggleLoadingId: string | null
   className?: string
   dropUp?: boolean
 }) {
+  const remindersEnabled = automaticRemindersEnabled(project)
+  const reminderToggleLoading = reminderToggleLoadingId === project.id
+
   return (
     <div className={className}>
       <div className="relative">
@@ -124,7 +144,20 @@ function AdminMenu({
           <MoreVertical className="w-4 h-4" />
         </button>
         {openMenuId === project.id && (
-          <div className={`absolute right-0 w-44 bg-white rounded-2xl shadow-xl border border-slate-200 py-1 z-30 ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+          <div className={`absolute right-0 w-60 bg-white rounded-2xl shadow-xl border border-slate-200 py-1 z-30 ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpenMenuId(null); onToggleAutomaticReminders(project) }}
+              disabled={reminderToggleLoading}
+              className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 transition-colors disabled:opacity-60 ${remindersEnabled ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50'}`}
+            >
+              {reminderToggleLoading
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : remindersEnabled
+                  ? <BellOff className="w-4 h-4" />
+                  : <Bell className="w-4 h-4" />}
+              {remindersActionLabel(remindersEnabled)}
+            </button>
+            <div className="my-1 border-t border-slate-100" />
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpenMenuId(null); onRequestDelete(project) }}
               className="w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors"
@@ -421,7 +454,7 @@ function PriorityDrawer({
 export default function Dashboard() {
   const router = useRouter()
   const { loading: authLoading, token, apiFetch } = useAuth()
-  const { showToast } = useToast()
+  const { showToast, confirm } = useToast()
 
   const [loading, setLoading] = useState(true)
   const [projects, setProjects] = useState<any[]>([])
@@ -430,11 +463,13 @@ export default function Dashboard() {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [projectToDelete, setProjectToDelete] = useState<any>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
+  const [reminderToggleLoadingId, setReminderToggleLoadingId] = useState<string | null>(null)
   const [myDocRequests, setMyDocRequests] = useState<any[]>([])
   const [informativeDocs, setInformativeDocs] = useState<any[]>([])
   const [priorityOpen, setPriorityOpen] = useState(false)
   const [docRequestsLoaded, setDocRequestsLoaded] = useState(false)
   const { unreadProjects } = useProjectChatUnread(!authLoading && !!token)
+  const { unreadByProject: unreadNotifications } = useNotifications(!authLoading && !!token)
 
   // Controale toolbar
   const [search, setSearch] = useState('')
@@ -451,9 +486,13 @@ export default function Dashboard() {
   const canCreateProject = isAdmin || currentUser?.role === 'consultant'
   const isClient = currentUser?.role === 'client'
 
-  const unreadProjectCountById = useMemo(
+  const unreadChatByProjectId = useMemo(
     () => new Map(unreadProjects.map((item) => [item.projectId, item.unreadMessageCount])),
     [unreadProjects],
+  )
+  const unreadNotificationsByProjectId = useMemo(
+    () => new Map(unreadNotifications.map((item) => [item.projectId, item.count])),
+    [unreadNotifications],
   )
 
   // Agregăm cererile per proiect → indicatorii de pe card
@@ -474,16 +513,18 @@ export default function Dashboard() {
     const map = new Map<string, Att>()
     for (const p of projects) {
       const c = counts.get(p.id) ?? { total: 0, overdue: 0, review: 0, pending: 0 }
-      const unread = unreadProjectCountById.get(p.id) ?? 0
+      const unreadChat = unreadChatByProjectId.get(p.id) ?? 0
+      const unreadNotifications = unreadNotificationsByProjectId.get(p.id) ?? 0
       map.set(p.id, {
         ...c,
-        unread,
+        unreadChat,
+        unreadNotifications,
         todo: isClient ? c.total > 0 : c.review > 0,
-        clean: docRequestsLoaded && c.total === 0 && unread === 0,
+        clean: docRequestsLoaded && c.total === 0 && unreadChat === 0 && unreadNotifications === 0,
       })
     }
     return map
-  }, [projects, myDocRequests, unreadProjectCountById, docRequestsLoaded, isClient])
+  }, [projects, myDocRequests, unreadChatByProjectId, unreadNotificationsByProjectId, docRequestsLoaded, isClient])
 
   // Contoare pentru opțiunile de „atenție"
   const attentionCounts = useMemo(() => {
@@ -493,7 +534,7 @@ export default function Dashboard() {
       if (!a) continue
       if (a.overdue > 0) c.overdue += 1
       if (a.todo) c.todo += 1
-      if (a.unread > 0) c.unread += 1
+      if (a.unreadChat > 0 || a.unreadNotifications > 0) c.unread += 1
       if (a.clean) c.clean += 1
     }
     return c
@@ -505,7 +546,7 @@ export default function Dashboard() {
   const attMatch = (att: Att) =>
     (attentionFilter.has('overdue') && att.overdue > 0) ||
     (attentionFilter.has('todo') && att.todo) ||
-    (attentionFilter.has('unread') && att.unread > 0) ||
+    (attentionFilter.has('unread') && (att.unreadChat > 0 || att.unreadNotifications > 0)) ||
     (attentionFilter.has('clean') && att.clean)
 
   const filtered = useMemo(() => {
@@ -526,7 +567,9 @@ export default function Dashboard() {
     else if (sortKey === 'urgency') {
       sorted.sort((a, b) => {
         const A = attentionByProject.get(a.id)!, B = attentionByProject.get(b.id)!
-        return (B.overdue - A.overdue) || (B.total - A.total) || (B.unread - A.unread)
+        const aUnread = A.unreadChat > 0 || A.unreadNotifications > 0 ? 1 : 0
+        const bUnread = B.unreadChat > 0 || B.unreadNotifications > 0 ? 1 : 0
+        return (B.overdue - A.overdue) || (B.total - A.total) || (bUnread - aUnread)
       })
     }
     return sorted
@@ -593,6 +636,24 @@ export default function Dashboard() {
       showToast('Nu am putut șterge proiectul. Reîncearcă.', 'error')
     } finally {
       setDeleteLoading(false)
+    }
+  }
+
+  const handleToggleAutomaticReminders = async (project: any) => {
+    const nextEnabled = !automaticRemindersEnabled(project)
+    if (!nextEnabled && !(await confirm(remindersOffConfirm(project.title)))) return
+
+    setReminderToggleLoadingId(project.id)
+    try {
+      const savedEnabled = await saveAutomaticReminders(apiFetch, project.id, nextEnabled)
+      setProjects((prev) => prev.map((p) => p.id === project.id
+        ? { ...p, automatic_reminders_enabled: savedEnabled }
+        : p))
+      showToast(remindersDoneMessage(savedEnabled), 'success')
+    } catch {
+      showToast(REMINDERS_ERROR_MESSAGE, 'error')
+    } finally {
+      setReminderToggleLoadingId(null)
     }
   }
 
@@ -671,6 +732,7 @@ export default function Dashboard() {
       : { dot: 'bg-blue-400', label: 'De verificat', desc: 'așteaptă verificarea ta' },
     ...(!isClient ? [{ dot: 'bg-amber-400', label: 'La client', desc: 'așteaptă document de la client' }] : []),
     { dot: 'bg-rose-400', label: 'Chat necitit', desc: 'mesaje noi' },
+    { dot: 'bg-violet-400', label: 'Notificări necitite', desc: 'actualizări noi' },
     { dot: 'bg-emerald-400', label: 'La zi', desc: 'nimic de făcut' },
   ]
 
@@ -863,7 +925,7 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
               {filtered.map((project, idx) => {
                 const att = attentionByProject.get(project.id)!
-                const accent = att.overdue > 0 ? 'border-red-300 hover:border-red-400' : att.unread > 0 ? 'border-rose-300 hover:border-rose-400' : 'border-slate-300 hover:border-indigo-300'
+                const accent = att.overdue > 0 ? 'border-red-300 hover:border-red-400' : att.unreadChat > 0 ? 'border-rose-300 hover:border-rose-400' : att.unreadNotifications > 0 ? 'border-violet-300 hover:border-violet-400' : 'border-slate-300 hover:border-indigo-300'
                 return (
                   <div
                     key={project.id}
@@ -881,6 +943,8 @@ export default function Dashboard() {
                         openMenuId={openMenuId}
                         setOpenMenuId={setOpenMenuId}
                         onRequestDelete={(p) => { setProjectToDelete(p); setShowDeleteModal(true) }}
+                        onToggleAutomaticReminders={handleToggleAutomaticReminders}
+                        reminderToggleLoadingId={reminderToggleLoadingId}
                         className="absolute top-3 right-3 z-10"
                       />
                     )}
@@ -893,7 +957,7 @@ export default function Dashboard() {
             <div className="flex flex-col gap-2.5 pb-10">
               {filtered.map((project) => {
                 const att = attentionByProject.get(project.id)!
-                const accent = att.overdue > 0 ? 'border-red-300' : att.unread > 0 ? 'border-rose-300' : 'border-slate-300'
+                const accent = att.overdue > 0 ? 'border-red-300' : att.unreadChat > 0 ? 'border-rose-300' : att.unreadNotifications > 0 ? 'border-violet-300' : 'border-slate-300'
                 return (
                   <div key={project.id} className={`group relative bg-white border rounded-2xl hover:shadow-md hover:shadow-slate-900/[0.05] hover:border-indigo-200 transition-all ${accent}`}>
                     <Link href={`/projects/${project.id}`} className="flex items-center gap-4 pl-5 pr-3 py-4">
@@ -903,7 +967,14 @@ export default function Dashboard() {
                       </div>
                       <AttentionBadges att={att} isClient={isClient} className="hidden sm:flex" />
                       {isAdmin ? (
-                        <AdminMenu project={project} openMenuId={openMenuId} setOpenMenuId={setOpenMenuId} onRequestDelete={(p) => { setProjectToDelete(p); setShowDeleteModal(true) }} />
+                        <AdminMenu
+                          project={project}
+                          openMenuId={openMenuId}
+                          setOpenMenuId={setOpenMenuId}
+                          onRequestDelete={(p) => { setProjectToDelete(p); setShowDeleteModal(true) }}
+                          onToggleAutomaticReminders={handleToggleAutomaticReminders}
+                          reminderToggleLoadingId={reminderToggleLoadingId}
+                        />
                       ) : (
                         <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 transition-colors flex-shrink-0 mr-2" />
                       )}

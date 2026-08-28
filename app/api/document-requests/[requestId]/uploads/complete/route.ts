@@ -2,35 +2,48 @@ import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { isClientVisibleDocument } from '@/lib/client-visibility'
+import {
+  describeDocumentActionFailure,
+  isValidDocumentActionUuid,
+  MAX_UPLOAD_FILE_SIZE,
+  normalizeUploadFileIds,
+} from '@/lib/document-action-idempotency'
 
+const BUCKET = 'project-files'
 const MAX_FILES = 50
-const MAX_ORIGINAL_NAME_LENGTH = 200
 
-type UploadedInput = {
-  storagePath?: unknown
-  originalName?: unknown
-  mimeType?: unknown
-  fileSize?: unknown
+type ExpectedFile = {
+  file_id: string
+  storage_path: string
+  original_name: string
+  declared_size: number
+  mime_type: string | null
 }
 
-type NormalizedUpload = {
-  storagePath: string
-  originalName: string
-  mimeType: string | null
-  fileSize: number | null
+function isExpectedFile(value: unknown): value is ExpectedFile {
+  if (!value || typeof value !== 'object') return false
+  const file = value as Partial<ExpectedFile>
+  return isValidDocumentActionUuid(file.file_id) &&
+    typeof file.storage_path === 'string' && file.storage_path.length > 0 &&
+    typeof file.original_name === 'string' && file.original_name.length > 0 &&
+    typeof file.declared_size === 'number' && Number.isSafeInteger(file.declared_size) &&
+    file.declared_size >= 0 && file.declared_size <= MAX_UPLOAD_FILE_SIZE &&
+    (file.mime_type === null || typeof file.mime_type === 'string')
 }
 
-function normalizeOriginalName(name: string) {
-  return name
-    .trim()
-    .replace(/[\\/:*?"<>|]+/g, '_')
-    .replace(/\s+/g, ' ')
-    .slice(0, MAX_ORIGINAL_NAME_LENGTH)
+function storageObjectSize(value: unknown): number | null {
+  if (!value || typeof value !== 'object') return null
+  const metadata = (value as { metadata?: unknown }).metadata
+  if (!metadata || typeof metadata !== 'object') return null
+  const rawSize = (metadata as { size?: unknown; contentLength?: unknown }).size ??
+    (metadata as { contentLength?: unknown }).contentLength
+  const size = typeof rawSize === 'number' ? rawSize : Number(rawSize)
+  return Number.isSafeInteger(size) && size >= 0 ? size : null
 }
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ requestId: string }> }
+  { params }: { params: Promise<{ requestId: string }> },
 ) {
   try {
     const { requestId } = await params
@@ -39,159 +52,141 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    const { batchId, versionNumber, uploaded } = body as {
-      batchId?: unknown
-      versionNumber?: unknown
-      uploaded?: unknown
+    const { batchId, fileIds } = body as { batchId?: unknown; fileIds?: unknown }
+    if (!isValidDocumentActionUuid(batchId)) {
+      return NextResponse.json({ error: 'batchId must be a valid UUID' }, { status: 400 })
     }
-
-    if (typeof batchId !== 'string' || !batchId) {
-      return NextResponse.json({ error: 'batchId is required' }, { status: 400 })
+    if (!Array.isArray(fileIds) || fileIds.length < 1 || fileIds.length > MAX_FILES) {
+      return NextResponse.json({ error: `fileIds[] must be 1..${MAX_FILES}` }, { status: 400 })
     }
-    if (typeof versionNumber !== 'number' || !Number.isInteger(versionNumber) || versionNumber < 1) {
-      return NextResponse.json({ error: 'versionNumber must be an integer >= 1' }, { status: 400 })
+    if (fileIds.some(fileId => !isValidDocumentActionUuid(fileId))) {
+      return NextResponse.json({ error: 'fileIds[] must contain valid UUIDs' }, { status: 400 })
     }
-    if (!Array.isArray(uploaded) || uploaded.length < 1 || uploaded.length > MAX_FILES) {
-      return NextResponse.json({ error: `uploaded[] must be 1..${MAX_FILES}` }, { status: 400 })
-    }
-
-    const normalizedUploads: NormalizedUpload[] = []
-    for (const item of uploaded) {
-      const u: UploadedInput | null = item && typeof item === 'object' ? item : null
-      if (!u?.storagePath || typeof u.storagePath !== 'string') {
-        return NextResponse.json({ error: 'Each uploaded item must include storagePath' }, { status: 400 })
-      }
-
-      const originalName = typeof u.originalName === 'string' ? normalizeOriginalName(u.originalName) : ''
-      if (!originalName) {
-        return NextResponse.json({ error: 'Each uploaded item must include a valid originalName' }, { status: 400 })
-      }
-
-      if (u.mimeType !== undefined && u.mimeType !== null && typeof u.mimeType !== 'string') {
-        return NextResponse.json({ error: 'mimeType must be a string when provided' }, { status: 400 })
-      }
-
-      if (
-        u.fileSize !== undefined &&
-        u.fileSize !== null &&
-        (typeof u.fileSize !== 'number' || !Number.isFinite(u.fileSize) || u.fileSize < 0)
-      ) {
-        return NextResponse.json({ error: 'fileSize must be a non-negative number when provided' }, { status: 400 })
-      }
-
-      normalizedUploads.push({
-        storagePath: u.storagePath,
-        originalName,
-        mimeType: typeof u.mimeType === 'string' && u.mimeType.trim() ? u.mimeType.trim() : null,
-        fileSize: typeof u.fileSize === 'number' ? Math.trunc(u.fileSize) : null,
-      })
+    const normalizedFileIds = normalizeUploadFileIds(fileIds)
+    if (!normalizedFileIds) {
+      return NextResponse.json({ error: 'fileIds[] must not contain duplicates' }, { status: 400 })
     }
 
     const admin = createSupabaseServiceClient()
-
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('id, project_id, name, activity_id, visibility, is_outgoing, deleted_at, activity:activity_id(visibility, phase:phase_id(visibility))')
+      .select('id, project_id, name, activity_id, assigned_to, visibility, is_outgoing, deleted_at, activity:activity_id(assigned_to, visibility, phase:phase_id(visibility))')
       .eq('id', requestId)
       .is('deleted_at', null)
       .single()
 
-    if (reqErr) {
-      console.error('Failed to load document requirement:', reqErr)
-      return NextResponse.json({ error: 'Document request not found: ' + reqErr.message }, { status: 404 })
-    }
-
-    if (!reqRow) {
-      console.error('Document requirement not found for requestId:', requestId)
+    if (reqErr || !reqRow) {
       return NextResponse.json({ error: 'Document request not found' }, { status: 404 })
     }
-
     if (!reqRow.project_id) {
-      console.error('Document requirement has no project_id:', reqRow)
       return NextResponse.json({ error: 'Document request is not linked to a project' }, { status: 500 })
     }
-    const access = await requireProjectAccess(request, reqRow.project_id)
-    if (!access.ok) {
-      console.error('Project access denied:', access.error, 'project_id:', reqRow.project_id)
-      return guardToResponse(access)
-    }
 
+    const access = await requireProjectAccess(request, reqRow.project_id)
+    if (!access.ok) return guardToResponse(access)
     if (access.profile.role === 'client' && !isClientVisibleDocument(reqRow)) {
       return NextResponse.json({ error: 'Document request not found' }, { status: 404 })
     }
-
     if (reqRow.is_outgoing) {
       return NextResponse.json({ error: 'Documentele trimise clientului nu acceptă răspunsuri încărcate.' }, { status: 400 })
     }
 
-    console.log('Project access granted for user:', access.user.id, 'project:', reqRow.project_id)
-
-    const { data: projectRow } = await admin
-      .from('projects')
-      .select('title')
-      .eq('id', reqRow.project_id)
+    const { data: batch, error: batchError } = await admin
+      .from('document_upload_batches')
+      .select('id, requirement_id, uploaded_by, expected_files, completed_file_ids, version_number')
+      .eq('id', batchId)
       .maybeSingle()
-    const projectTitle = projectRow?.title ?? reqRow.project_id
-    const requestName = reqRow.name || requestId
 
-    const rows = normalizedUploads.map((u) => ({
-      requirement_id: requestId,
-      storage_path: u.storagePath,
-      original_name: u.originalName,
-      mime_type: u.mimeType,
-      file_size: u.fileSize,
-      version_number: versionNumber,
-      uploaded_by: access.user.id,
-    }))
-
-    const { error: insErr } = await admin.from('files').insert(rows)
-    if (insErr) {
-      console.error('files insert error:', insErr)
-      return NextResponse.json({ error: insErr.message }, { status: 400 })
+    if (batchError) {
+      console.error('Failed to load document upload batch:', batchError)
+      return NextResponse.json({ error: 'Failed to load document upload batch' }, { status: 500 })
+    }
+    if (!batch || batch.requirement_id !== requestId || batch.uploaded_by !== access.user.id) {
+      return NextResponse.json({ error: 'Document upload batch not found' }, { status: 404 })
     }
 
-    const { error: updErr } = await admin
-      .from('document_requirements')
-      .update({ status: 'review' })
-      .eq('id', requestId)
-      .is('deleted_at', null)
+    if (!Array.isArray(batch.expected_files) ||
+        batch.expected_files.length < 1 ||
+        batch.expected_files.length > MAX_FILES ||
+        !batch.expected_files.every(isExpectedFile)) {
+      return NextResponse.json({ error: 'Document upload batch is invalid' }, { status: 500 })
+    }
+    const expectedFiles = batch.expected_files as ExpectedFile[]
+    if (new Set(expectedFiles.map(file => file.file_id)).size !== expectedFiles.length ||
+        new Set(expectedFiles.map(file => file.storage_path)).size !== expectedFiles.length) {
+      return NextResponse.json({ error: 'Document upload batch is invalid' }, { status: 500 })
+    }
 
-    if (updErr) {
-      console.error('requirements update error:', updErr)
-      return NextResponse.json({ error: updErr.message }, { status: 400 })
+    const expectedById = new Map(expectedFiles.map(file => [file.file_id, file]))
+    const selectedFiles = (fileIds as string[]).map(fileId => expectedById.get(fileId))
+    if (selectedFiles.some(file => !file)) {
+      return NextResponse.json({ error: 'fileIds[] contains an unknown file' }, { status: 400 })
+    }
+
+    if (batch.version_number !== null) {
+      const normalizedCompletedIds = normalizeUploadFileIds(batch.completed_file_ids)
+      if (!normalizedCompletedIds) {
+        return NextResponse.json({ error: 'Document upload batch is invalid' }, { status: 500 })
+      }
+      if (JSON.stringify(normalizedFileIds) !== JSON.stringify(normalizedCompletedIds)) {
+        return NextResponse.json({ error: 'Upload batch already completed with a different file set' }, { status: 409 })
+      }
+      return NextResponse.json({ ok: true, created: false, versionNumber: batch.version_number })
+    }
+
+    const storageResults = await Promise.all((selectedFiles as ExpectedFile[]).map(async file => {
+      try {
+        const { data: storageInfo, error: storageError } = await admin.storage
+          .from(BUCKET)
+          .info(file.storage_path)
+        return { file, actualSize: storageError ? null : storageObjectSize(storageInfo) }
+      } catch {
+        return { file, actualSize: null }
+      }
+    }))
+    const invalidStorage = storageResults.find(({ file, actualSize }) =>
+      actualSize === null || actualSize > MAX_UPLOAD_FILE_SIZE || actualSize !== file.declared_size
+    )
+    if (invalidStorage) {
+      const { file, actualSize } = invalidStorage
+      return NextResponse.json({
+        error: actualSize === null
+          ? `Uploaded object is missing for ${file.original_name}`
+          : `Uploaded object size does not match ${file.original_name}`,
+      }, { status: 400 })
     }
 
     const ipAddress = request.headers.get('x-forwarded-for') ||
-                      request.headers.get('x-real-ip') ||
-                      null
+      request.headers.get('x-real-ip') ||
+      null
 
-    const fileNames = normalizedUploads.map((u) => u.originalName).join(', ')
+    const { data: rpcData, error: rpcError } = await admin.rpc('complete_reserved_document_upload_batch', {
+      p_upload_batch_id: batchId,
+      p_actor_id: access.user.id,
+      p_selected_file_ids: normalizedFileIds,
+      p_ip_address: ipAddress,
+    })
 
-    await admin
-      .from('audit_logs')
-      .insert({
-        user_id: access.user.id,
-        action_type: 'create',
-        entity_type: 'file',
-        entity_id: requestId,
-        entity_name: requestName,
-        new_values: {
-          requirement_id: requestId,
-          requirement_name: requestName,
-          project_id: reqRow.project_id,
-          project_title: projectTitle,
-          file_count: uploaded.length,
-          version: versionNumber,
-          files: fileNames,
-        },
-        description: `${access.profile.email || 'User'} a încărcat ${uploaded.length} fișier(e) pentru cererea "${requestName}" din proiectul "${projectTitle}"`,
-        ip_address: ipAddress,
-      })
+    if (rpcError) {
+      console.error('complete_reserved_document_upload_batch error:', rpcError)
+      const failure = describeDocumentActionFailure(rpcError.message, rpcError.code)
+      return NextResponse.json({ error: rpcError.message, message: failure.message }, { status: failure.status })
+    }
 
-    return NextResponse.json({ ok: true })
-  } catch (e: unknown) {
-    const error = e as Error
+    const result = Array.isArray(rpcData) ? rpcData[0] as { created?: unknown; version_number?: unknown } | undefined : undefined
+    if (!result || typeof result.created !== 'boolean' ||
+        typeof result.version_number !== 'number' ||
+        !Number.isInteger(result.version_number) || result.version_number < 1) {
+      console.error('complete_reserved_document_upload_batch returned an invalid result:', rpcData)
+      return NextResponse.json({ error: 'Invalid document upload completion response' }, { status: 500 })
+    }
+    return NextResponse.json({
+      ok: true,
+      created: result.created,
+      versionNumber: result.version_number,
+    })
+  } catch (error: unknown) {
     console.error('POST uploads/complete error:', error)
-    return NextResponse.json({ error: error?.message ?? 'Server error' }, { status: 500 })
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Server error' }, { status: 500 })
   }
 }

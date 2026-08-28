@@ -88,6 +88,15 @@ body {
   animation: fadeInUp 0.6s ease-out forwards;
 }
 
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 @keyframes drawerSlideIn {
   from {
     transform: translateX(100%);

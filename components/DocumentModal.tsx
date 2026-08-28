@@ -14,6 +14,8 @@ import {
   Eye,
   Package,
   Upload,
+  FolderUp,
+  Files,
   Trash2,
   UserRound,
   Check
@@ -32,6 +34,15 @@ import {
 import type { ReminderEntityState } from '@/lib/reminder-state'
 import ReminderStatus, { getReminderDisplayStatus } from '@/components/ReminderStatus'
 import { REQUIREMENT_LABELS, type RequirementType } from '@/lib/requirement-type'
+import {
+  formatFileSize,
+  isAllowedUploadFile,
+  runClientUpload,
+  validateUploadFile,
+  MAX_UPLOAD_FILE_SIZE,
+  type ClientUploadCandidate,
+  type PendingClientUploadCompletion,
+} from '@/lib/client-upload'
 
 interface DocumentRequest {
   id: string
@@ -75,17 +86,18 @@ interface DocumentRequest {
   } | null
 }
 
-const MODEL_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'jpg', 'jpeg', 'png', 'gif', 'webp'])
-const MODEL_MAX_SIZE = 25 * 1024 * 1024
+type ClientUploadFile = ClientUploadCandidate & { error?: string }
 
-function getFileExtension(filename: string) {
-  const dot = filename.lastIndexOf('.')
-  return dot >= 0 ? filename.slice(dot + 1).toLowerCase() : ''
+/** Textul aruncat de handlere e deja pentru utilizator; altfel rămâne mesajul locului. */
+function documentActionMessage(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message.trim() : ''
+  return message || fallback
 }
 
+/** Modelul atașat de consultant trece prin aceleași reguli ca răspunsul clientului, fără verificarea de duplicat. */
 function validateModelFile(file: File) {
-  if (file.size > MODEL_MAX_SIZE) return 'Fișierul depășește 25 MB'
-  if (!MODEL_EXTENSIONS.has(getFileExtension(file.name))) return 'Tip de fișier nepermis'
+  if (file.size > MAX_UPLOAD_FILE_SIZE) return `Fișierul depășește ${formatFileSize(MAX_UPLOAD_FILE_SIZE)}`
+  if (!isAllowedUploadFile(file)) return 'Tip de fișier nepermis'
   return null
 }
 
@@ -127,6 +139,9 @@ export default function DocumentModal({
   const [attachmentMissing, setAttachmentMissing] = useState(!!request.attachment_missing_at)
   const [localAttachmentPath, setLocalAttachmentPath] = useState<string | null>(request.attachment_path)
   const [attachmentActionLoading, setAttachmentActionLoading] = useState(false)
+  const [clientUploadFiles, setClientUploadFiles] = useState<ClientUploadFile[]>([])
+  const [clientUploadLoading, setClientUploadLoading] = useState(false)
+  const pendingClientUploadRef = useRef<PendingClientUploadCompletion | null>(null)
   const attachmentInputRef = useRef<HTMLInputElement | null>(null)
   const handleApproveRef = useRef<(() => Promise<void>) | null>(null)
 
@@ -146,6 +161,11 @@ export default function DocumentModal({
   const sendingReminderLock = useRef(false)
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
+  const canUploadFolder =
+    typeof window !== 'undefined' &&
+    'webkitdirectory' in HTMLInputElement.prototype &&
+    !window.matchMedia?.('(pointer: coarse)').matches &&
+    !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
   // O cerere publicată nu poate rămâne fără termen sau fără responsabil (#70),
   // deci golirea se oferă doar cât e „În pregătire". Serverul respinge oricum.
   const canEmptyRequiredFields = request.visibility !== 'published'
@@ -172,6 +192,11 @@ export default function DocumentModal({
     setLocalDeadline(request.deadline_at)
     setLocalAssignee(request.assigned_to)
   }, [request.id, request.attachment_path, request.attachment_missing_at, request.deadline_at, request.assigned_to])
+
+  useEffect(() => {
+    pendingClientUploadRef.current = null
+    setClientUploadFiles([])
+  }, [request.id])
 
   const handleSaveDeadline = async (deadline: string) => {
     setSavingDeadline(true)
@@ -520,6 +545,71 @@ export default function DocumentModal({
     }
   }
 
+  const addClientUploadFiles = (fileList: FileList | null) => {
+    const files = Array.from(fileList ?? [])
+    if (files.length === 0) return
+
+    pendingClientUploadRef.current = null
+    setClientUploadFiles(current => {
+      const added: ClientUploadFile[] = []
+      for (const file of files) {
+        const item: ClientUploadFile = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+          file,
+          name: file.name,
+          size: file.size,
+          type: file.type || 'application/octet-stream',
+          relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || null,
+        }
+        item.error = validateUploadFile(file, [...current, ...added])?.message
+        added.push(item)
+      }
+      return [...current, ...added]
+    })
+  }
+
+  const clearClientUploadSelection = () => {
+    pendingClientUploadRef.current = null
+    setClientUploadFiles([])
+  }
+
+  const handleClientUpload = async () => {
+    if (clientUploadLoading) return
+    const validFiles = clientUploadFiles.filter(file => !file.error)
+    const pending = pendingClientUploadRef.current?.requestId === request.id
+      ? pendingClientUploadRef.current
+      : null
+
+    if (!pending && validFiles.length === 0) {
+      showToast('Nu există fișiere valide. Verifică selecția.', 'warning')
+      return
+    }
+
+    setClientUploadLoading(true)
+    try {
+      const result = await runClientUpload({
+        apiFetch,
+        requestId: request.id,
+        files: validFiles,
+        pending,
+        onPending: next => { pendingClientUploadRef.current = next },
+      })
+
+      setClientUploadFiles([])
+      await onUpdate()
+      showToast(
+        result.failed === 0
+          ? `Au fost încărcate ${result.successful} fișiere.`
+          : `${result.successful} fișiere au fost încărcate, iar ${result.failed} au eșuat.`,
+        result.failed === 0 ? 'success' : 'warning',
+      )
+    } catch (error) {
+      showToast(documentActionMessage(error, 'Nu am putut încărca fișierele. Reîncearcă.'), 'error')
+    } finally {
+      setClientUploadLoading(false)
+    }
+  }
+
   const handleRemoveModel = async () => {
     if (!isAdminOrConsultant || attachmentActionLoading) return
     if (!await confirm({ title: 'Elimini modelul?', description: 'Clientul nu va mai vedea că există un model atașat.', confirmText: 'Elimină modelul' })) return
@@ -568,7 +658,8 @@ export default function DocumentModal({
       body: JSON.stringify({ action, notes: notes.trim() || null })
     })
     const data = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(data?.error || 'Review failed')
+    // `error` e rescris de apiFetch cu un text generic; motivul real vine în `message`.
+    if (!res.ok) throw new Error(data?.message || '')
   }
 
   const handleApprove = async () => {
@@ -581,8 +672,8 @@ export default function DocumentModal({
         onUpdate()
         onClose()
       }, 500)
-    } catch {
-      showToast('Nu am putut aproba documentul. Reîncearcă.', 'error')
+    } catch (error) {
+      showToast(documentActionMessage(error, 'Nu am putut aproba documentul. Reîncearcă.'), 'error')
     } finally {
       setActionLoading(false)
     }
@@ -604,8 +695,8 @@ export default function DocumentModal({
         onUpdate()
         onClose()
       }, 500)
-    } catch {
-      showToast('Nu am putut respinge documentul. Reîncearcă.', 'error')
+    } catch (error) {
+      showToast(documentActionMessage(error, 'Nu am putut respinge documentul. Reîncearcă.'), 'error')
     } finally {
       setActionLoading(false)
     }
@@ -1005,6 +1096,103 @@ export default function DocumentModal({
                       )}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {!isAdminOrConsultant && clientVisible && !isOutgoing && (request.status === 'pending' || request.status === 'rejected') && (
+                <div className="rounded-xl border-t border-slate-100 pt-4" onClick={(event) => event.stopPropagation()}>
+                  <h3 className="mb-2 text-sm font-semibold text-slate-900">
+                    {request.status === 'rejected' ? 'Reîncarcă documentele' : 'Încarcă documentele'}
+                  </h3>
+
+                  {clientUploadFiles.length > 0 && (
+                    <div className="mb-3 space-y-2 rounded-xl border border-indigo-100 bg-indigo-50 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-indigo-900">
+                          <Files className="h-4 w-4" />
+                          {clientUploadFiles.length} {clientUploadFiles.length === 1 ? 'fișier selectat' : 'fișiere selectate'}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={clearClientUploadSelection}
+                          disabled={clientUploadLoading}
+                          className="rounded-lg p-1.5 text-indigo-500 hover:bg-white disabled:opacity-50"
+                          title="Anulează selecția"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <div className="space-y-1">
+                        {clientUploadFiles.map(file => (
+                          <div key={file.id} className="flex items-center gap-2 text-xs text-indigo-800">
+                            <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                            <span className="shrink-0 text-indigo-500">{formatFileSize(file.size)}</span>
+                            {file.error && <span className="shrink-0 text-red-600">{file.error}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <label className="block cursor-pointer">
+                      <div className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 px-4 py-3 text-slate-500 transition-all hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-600">
+                        <Upload className="h-4 w-4" />
+                        <span className="text-sm font-medium">
+                          {request.status === 'rejected' ? 'Reîncarcă fișiere' : 'Încarcă fișiere'}
+                        </span>
+                      </div>
+                      <input
+                        type="file"
+                        multiple
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp"
+                        onClick={(event) => { event.currentTarget.value = '' }}
+                        onChange={(event) => {
+                          addClientUploadFiles(event.currentTarget.files)
+                          event.currentTarget.value = ''
+                        }}
+                        disabled={clientUploadLoading}
+                        className="hidden"
+                      />
+                    </label>
+
+                    {canUploadFolder && (
+                      <label className="block cursor-pointer">
+                        <div className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 px-4 py-3 text-slate-500 transition-all hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-600">
+                          <FolderUp className="h-4 w-4" />
+                          <span className="text-sm font-medium">
+                            {request.status === 'rejected' ? 'Reîncarcă folder' : 'Încarcă folder'}
+                          </span>
+                        </div>
+                        <input
+                          type="file"
+                          multiple
+                          accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp"
+                          ref={(element) => {
+                            if (!element) return
+                            element.setAttribute('webkitdirectory', '')
+                            element.setAttribute('directory', '')
+                          }}
+                          onChange={(event) => {
+                            addClientUploadFiles(event.currentTarget.files)
+                            event.currentTarget.value = ''
+                          }}
+                          disabled={clientUploadLoading}
+                          className="hidden"
+                        />
+                      </label>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleClientUpload}
+                    disabled={clientUploadLoading || clientUploadFiles.every(file => file.error)}
+                    className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {clientUploadLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    {clientUploadLoading ? 'Se încarcă...' : `Încarcă${clientUploadFiles.length ? ` (${clientUploadFiles.filter(file => !file.error).length})` : ''}`}
+                  </button>
                 </div>
               )}
 

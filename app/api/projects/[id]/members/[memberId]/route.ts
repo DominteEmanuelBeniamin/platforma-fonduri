@@ -49,13 +49,20 @@ export async function DELETE(
       consultantProfile?.email ?? consultantProfile?.full_name ?? existing.consultant_id
 
     // 3) Ștergere
-    const { error: delErr } = await admin
-      .from('project_members')
-      .delete()
-      .eq('id', memberId)
+    const { error: delErr } = await admin.rpc('remove_project_member_if_unassigned', {
+      p_project_id: projectId,
+      p_member_id: memberId,
+    })
 
     if (delErr) {
-      return NextResponse.json({ error: delErr.message }, { status: 400 })
+      if (delErr.code === 'P0002') {
+        return NextResponse.json({ error: delErr.message }, { status: 404 })
+      }
+      if (delErr.code === 'P0001') {
+        return NextResponse.json({ error: delErr.message }, { status: 409 })
+      }
+      console.error('Remove project member RPC error:', delErr)
+      return NextResponse.json({ error: delErr.message }, { status: 500 })
     }
 
     await logAction({

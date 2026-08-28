@@ -3,9 +3,19 @@ import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
+import { deleteNotificationsByIds, recordNotification } from '@/app/api/_utils/notifications'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
+import {
+  buildPublicationEmailIdempotencyKey,
+  buildPublicationNotificationMetadata,
+  shouldReleaseClaimsAfterNotificationCleanup,
+} from '@/lib/notification-utils'
+import {
+  buildReviewNotificationEvents,
+  selectReviewNotificationCandidates,
+} from '@/lib/review-notification'
 
 function listSection(title: string, items: string[]) {
   if (items.length === 0) return ''
@@ -56,7 +66,7 @@ export async function POST(
       return NextResponse.json({ error: 'Proiectul nu a fost găsit' }, { status: 404 })
     }
     const client = Array.isArray(project.client) ? project.client[0] : project.client
-    if (!client?.email) {
+    if (!client?.id || !client.email) {
       return NextResponse.json({ error: 'Clientul proiectului nu are un email valid' }, { status: 400 })
     }
 
@@ -67,7 +77,7 @@ export async function POST(
         .eq('project_id', projectId),
       admin
         .from('document_requirements')
-        .select('id, name, visibility, client_notified_at, activity_id, is_outgoing')
+        .select('id, name, status, visibility, client_notified_at, activity_id, is_outgoing')
         .eq('project_id', projectId)
         .is('deleted_at', null),
     ])
@@ -94,6 +104,35 @@ export async function POST(
     const phaseById = new Map(phaseList.map(p => [p.id, p]))
     const activitiesWithPhase = (activities ?? []).map(a => ({ ...a, phase: phaseById.get(a.phase_id) }))
     const activityById = new Map(activitiesWithPhase.map(a => [a.id, a]))
+    const documentRows = (documents ?? []).map(d => ({
+      ...d,
+      deleted_at: null,
+      activity: d.activity_id ? activityById.get(d.activity_id) ?? null : null,
+    }))
+
+    const { data: reviewRows, error: reviewsError } = documentRows.length
+      ? await admin
+          .from('document_request_reviews')
+          .select('id, requirement_id, action, reason, reviewed_at, client_notified_at')
+          .in('requirement_id', documentRows.map(d => d.id))
+          .order('reviewed_at', { ascending: false })
+          .order('id', { ascending: false })
+      : { data: [], error: null }
+
+    if (reviewsError) {
+      console.error('notify-client review history fetch error:', reviewsError)
+      return NextResponse.json({ error: 'Eroare la încărcarea verificărilor' }, { status: 500 })
+    }
+
+    const reviewSelection = selectReviewNotificationCandidates({
+      requests: documentRows as any,
+      reviews: (reviewRows ?? []) as any,
+    })
+    if (reviewSelection.incompatibleRequestIds.length > 0) {
+      console.error('notify-client document review status/action mismatch:', reviewSelection.incompatibleRequestIds)
+    }
+    const reviewCandidates = reviewSelection.candidates
+    const candidateReviewIds = [...new Set(reviewCandidates.flatMap(candidate => candidate.unnotifiedReviewIds))]
 
     const candidatePhaseIds = phaseList
       .filter(p => isClientVisiblePhase(p) && !p.client_notified_at)
@@ -101,11 +140,11 @@ export async function POST(
     const candidateActivityIds = activitiesWithPhase
       .filter(a => isClientVisibleActivity(a) && !a.client_notified_at)
       .map(a => a.id)
-    const candidateDocumentIds = (documents ?? [])
+    const candidateDocumentIds = documentRows
       .filter(d => isClientVisibleDocument({ ...d, activity: d.activity_id ? activityById.get(d.activity_id) : null }) && !d.client_notified_at)
       .map(d => d.id)
 
-    if (candidatePhaseIds.length + candidateActivityIds.length + candidateDocumentIds.length === 0) {
+    if (candidatePhaseIds.length + candidateActivityIds.length + candidateDocumentIds.length + reviewCandidates.length === 0) {
       return NextResponse.json({ error: 'Nu există elemente noi de anunțat clientului' }, { status: 400 })
     }
 
@@ -114,7 +153,7 @@ export async function POST(
     // Revendicare atomică: update-ul condiționat pe `client_notified_at is null`
     // returnează doar rândurile pe care CHIAR le-am revendicat noi — dacă o cerere
     // concurentă le-a luat deja, nu mai apar aici.
-    const [claimedPhasesRes, claimedActivitiesRes, claimedDocumentsRes] = await Promise.all([
+    const [claimedPhasesRes, claimedActivitiesRes, claimedDocumentsRes, claimedReviewsRes] = await Promise.all([
       candidatePhaseIds.length
         ? admin.from('project_phases').update({ client_notified_at: notifiedAt }).in('id', candidatePhaseIds).is('client_notified_at', null).select('id, name')
         : Promise.resolve({ data: [] as { id: string; name: string }[], error: null }),
@@ -124,34 +163,57 @@ export async function POST(
       candidateDocumentIds.length
         ? admin.from('document_requirements').update({ client_notified_at: notifiedAt }).in('id', candidateDocumentIds).is('client_notified_at', null).select('id, name, is_outgoing')
         : Promise.resolve({ data: [] as { id: string; name: string; is_outgoing: boolean }[], error: null }),
+      candidateReviewIds.length
+        ? admin.from('document_request_reviews').update({ client_notified_at: notifiedAt }).in('id', candidateReviewIds).is('client_notified_at', null).select('id, requirement_id')
+        : Promise.resolve({ data: [] as { id: string; requirement_id: string }[], error: null }),
     ])
 
     const claimedPhases = claimedPhasesRes.data ?? []
     const claimedActivities = claimedActivitiesRes.data ?? []
     const claimedDocuments = claimedDocumentsRes.data ?? []
+    const claimedReviews = claimedReviewsRes.data ?? []
+    const insertedNotificationIds: string[] = []
+
+    const compensateNotifications = async () => {
+      try {
+        await deleteNotificationsByIds(admin, insertedNotificationIds)
+        return true
+      } catch (error) {
+        console.error('notify-client notification compensation failed — claims kept for repair:', {
+          projectId,
+          notificationIds: insertedNotificationIds,
+          error,
+        })
+        return false
+      }
+    }
 
     // Anulează revendicarea. Dacă ASTA eșuează, elementele rămân marcate ca notificate
     // fără să fi plecat vreun email — clientul n-ar mai afla niciodată despre ele. E cel
     // mai prost rezultat posibil aici, deci se loghează cu id-uri (reparabil manual) și
     // se semnalează apelantului, nu se înghite.
     const rollbackClaim = async () => {
-      const [phasesRes, activitiesRes, documentsRes] = await Promise.all([
+      const [phasesRes, activitiesRes, documentsRes, reviewsRes] = await Promise.all([
         claimedPhases.length
-          ? admin.from('project_phases').update({ client_notified_at: null }).in('id', claimedPhases.map(p => p.id))
+          ? admin.from('project_phases').update({ client_notified_at: null }).in('id', claimedPhases.map(p => p.id)).eq('client_notified_at', notifiedAt)
           : Promise.resolve({ error: null }),
         claimedActivities.length
-          ? admin.from('project_activities').update({ client_notified_at: null }).in('id', claimedActivities.map(a => a.id))
+          ? admin.from('project_activities').update({ client_notified_at: null }).in('id', claimedActivities.map(a => a.id)).eq('client_notified_at', notifiedAt)
           : Promise.resolve({ error: null }),
         claimedDocuments.length
-          ? admin.from('document_requirements').update({ client_notified_at: null }).in('id', claimedDocuments.map(d => d.id))
+          ? admin.from('document_requirements').update({ client_notified_at: null }).in('id', claimedDocuments.map(d => d.id)).eq('client_notified_at', notifiedAt)
+          : Promise.resolve({ error: null }),
+        claimedReviews.length
+          ? admin.from('document_request_reviews').update({ client_notified_at: null }).in('id', claimedReviews.map(review => review.id)).eq('client_notified_at', notifiedAt)
           : Promise.resolve({ error: null }),
       ])
 
-      if (phasesRes.error || activitiesRes.error || documentsRes.error) {
+      if (phasesRes.error || activitiesRes.error || documentsRes.error || reviewsRes.error) {
         console.error('notify-client ROLLBACK FAILED — elemente marcate ca notificate fără email trimis:', {
           phases: { error: phasesRes.error, ids: claimedPhases.map(p => p.id) },
           activities: { error: activitiesRes.error, ids: claimedActivities.map(a => a.id) },
           documents: { error: documentsRes.error, ids: claimedDocuments.map(d => d.id) },
+          reviews: { error: reviewsRes.error, ids: claimedReviews.map(review => review.id) },
         })
         return false
       }
@@ -161,6 +223,16 @@ export async function POST(
     // Răspunsul de eroare după un rollback: dacă rollback-ul n-a reușit, coada NU mai e
     // intactă, iar consultantul trebuie să știe că o reîncercare simplă nu e suficientă.
     const failAfterRollback = async (status: number, message: string) => {
+      const notificationsCleaned = await compensateNotifications()
+      if (!shouldReleaseClaimsAfterNotificationCleanup(insertedNotificationIds, notificationsCleaned)) {
+        return NextResponse.json(
+          {
+            error: `${message} Notificările create în această încercare nu au putut fi eliminate — claims păstrate pentru repair.`,
+            notificationCompensationFailed: true,
+          },
+          { status },
+        )
+      }
       const rolledBack = await rollbackClaim()
       return NextResponse.json(
         {
@@ -173,27 +245,118 @@ export async function POST(
       )
     }
 
-    if (claimedPhasesRes.error || claimedActivitiesRes.error || claimedDocumentsRes.error) {
+    if (claimedPhasesRes.error || claimedActivitiesRes.error || claimedDocumentsRes.error || claimedReviewsRes.error) {
       console.error('notify-client claim error:', {
         phases: claimedPhasesRes.error,
         activities: claimedActivitiesRes.error,
         documents: claimedDocumentsRes.error,
+        reviews: claimedReviewsRes.error,
       })
       return failAfterRollback(500, 'Eroare la pregătirea notificării. Reîncearcă.')
     }
 
-    const totalClaimed = claimedPhases.length + claimedActivities.length + claimedDocuments.length
-    if (totalClaimed === 0) {
+    const claimedReviewIds = new Set(claimedReviews.map(review => review.id))
+    if (reviewCandidates.some(candidate => !claimedReviewIds.has(candidate.review.id))) {
+      console.error('notify-client review claim conflict:', {
+        expectedFinalReviewIds: reviewCandidates.map(candidate => candidate.review.id),
+        claimedReviewIds: [...claimedReviewIds],
+      })
+      return failAfterRollback(409, 'Actualizările documentelor au fost revendicate de o altă trimitere. Reîncearcă.')
+    }
+
+    const totalClaimedRows = claimedPhases.length + claimedActivities.length + claimedDocuments.length + claimedReviews.length
+    if (totalClaimedRows === 0) {
       // Altcineva a revendicat deja aceleași elemente între timp (dublu-click / alt tab).
       return NextResponse.json({ error: 'Clientul a fost deja anunțat despre aceste noutăți' }, { status: 409 })
     }
 
+    const reviewedDocuments = reviewCandidates.map(candidate => ({
+      id: candidate.requestId,
+      name: typeof candidate.request.name === 'string' ? candidate.request.name : candidate.requestId,
+      action: candidate.review.action,
+      reason: candidate.review.reason,
+    }))
+    const totalDisplayed = claimedPhases.length + claimedActivities.length + claimedDocuments.length + reviewedDocuments.length
+
+    const publicationItems = [
+      ...claimedPhases.map(phase => ({ entityType: 'phase', entityId: phase.id })),
+      ...claimedActivities.map(activity => ({ entityType: 'activity', entityId: activity.id })),
+      ...claimedDocuments.map(document => ({ entityType: 'document_request', entityId: document.id })),
+    ]
+    const emailItems = [
+      ...publicationItems,
+      ...claimedReviews.map(review => ({ entityType: 'document_review', entityId: review.id })),
+    ]
+    const publicationMetadata = buildPublicationNotificationMetadata({
+      projectId,
+      clientId: client.id,
+      items: publicationItems,
+    })
+    const publicationEmailIdempotencyKey = buildPublicationEmailIdempotencyKey({
+      projectId,
+      clientId: client.id,
+      items: emailItems,
+    })
+
+    const reviewNotificationEvents = buildReviewNotificationEvents(reviewCandidates)
+
+    // Notification-first: claims are rolled back if recording or email delivery fails
+    // after compensating only rows inserted by this attempt. Pre-existing notification
+    // rows are never deleted; if compensation fails, claims stay set for repair.
+    try {
+      if (publicationMetadata) {
+        const publication = await recordNotification(admin, {
+          projectId,
+          type: 'publication',
+          severity: 'info',
+          entityType: publicationMetadata.target.entityType,
+          entityId: publicationMetadata.target.entityId,
+          title: publicationMetadata.itemCount === 1 ? 'Element nou publicat' : 'Elemente noi publicate',
+          actorId: access.profile.id,
+          itemCount: publicationMetadata.itemCount,
+          eventKey: publicationMetadata.eventKey,
+          recipientIds: [client.id],
+          includeAdmins: true,
+          fallbackToProjectMembers: false,
+        })
+        insertedNotificationIds.push(...publication.insertedIds)
+        if (!publication.recipientIds.includes(client.id)) {
+          throw new Error('Clientul proiectului nu mai este un destinatar valid')
+        }
+      }
+
+      for (const reviewEvent of reviewNotificationEvents) {
+        const reviewNotification = await recordNotification(admin, {
+          projectId,
+          type: 'document_action',
+          severity: reviewEvent.severity,
+          entityType: 'document_request',
+          entityId: reviewEvent.requestId,
+          title: reviewEvent.title,
+          entityLabel: reviewEvent.entityLabel,
+          itemCount: 1,
+          eventKey: reviewEvent.eventKey,
+          recipientIds: [client.id],
+          includeAdmins: true,
+          fallbackToProjectMembers: false,
+        })
+        insertedNotificationIds.push(...reviewNotification.insertedIds)
+        if (!reviewNotification.recipientIds.includes(client.id)) {
+          throw new Error('Clientul proiectului nu mai este un destinatar valid pentru review')
+        }
+      }
+    } catch (notificationError) {
+      console.error('notify-client notification error:', notificationError)
+      return failAfterRollback(500, 'Eroare la pregătirea notificării. Reîncearcă.')
+    }
+
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
     const projectUrl = `${appUrl}/projects/${projectId}`
-    const safeProjectTitle = escapeHtml(project.title)
-    const salut = client.full_name ? `Salut, ${escapeHtml(client.full_name)}!` : 'Salut!'
-
-    const phaseItems = claimedPhases.map(p => escapeHtml(p.name))
+    let html: string
+    try {
+      const safeProjectTitle = escapeHtml(project.title)
+      const salut = client.full_name ? `Salut, ${escapeHtml(client.full_name)}!` : 'Salut!'
+      const phaseItems = claimedPhases.map(p => escapeHtml(p.name))
     const activityItems = claimedActivities.map(a => {
       const phaseName = phaseById.get(a.phase_id)?.name
       return phaseName ? `${escapeHtml(a.name)} <span style="color:#6b7280;">— fază: ${escapeHtml(phaseName)}</span>` : escapeHtml(a.name)
@@ -202,8 +365,11 @@ export async function POST(
       const label = d.is_outgoing ? 'Document nou disponibil' : 'Cerere nouă de document'
       return `${escapeHtml(d.name)} <span style="color:#6b7280;">— ${label}</span>`
     })
+    const reviewItems = reviewedDocuments.map(document => document.action === 'approved'
+      ? `${escapeHtml(document.name)} — Aprobat`
+      : `${escapeHtml(document.name)} — Respins. Motiv: ${escapeHtml(document.reason || '')}`)
 
-    const html = `<!DOCTYPE html>
+      html = `<!DOCTYPE html>
 <html lang="ro">
 <head>
   <meta charset="UTF-8">
@@ -220,12 +386,13 @@ export async function POST(
     <div style="padding:32px 40px;">
       <p style="margin:0 0 20px;color:#374151;font-size:15px;">${salut}</p>
       <p style="margin:0 0 24px;color:#374151;font-size:15px;">
-        Au fost publicate noutăți noi în proiectul <strong>${safeProjectTitle}</strong>:
+        Ai actualizări noi în proiectul <strong>${safeProjectTitle}</strong>:
       </p>
 
       ${listSection('Faze noi', phaseItems)}
       ${listSection('Activități noi', activityItems)}
       ${listSection('Documente noi', documentItems)}
+      ${listSection('Documente verificate', reviewItems)}
 
       <a href="${projectUrl}"
          style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:13px 26px;border-radius:8px;font-size:14px;font-weight:600;letter-spacing:0.01em;">
@@ -242,14 +409,13 @@ export async function POST(
 </body>
 </html>`
 
-    try {
       const resend = new Resend(process.env.RESEND_API_KEY)
       const { error: emailError } = await resend.emails.send({
         from: resendFromAddress('client'),
         to: client.email,
         subject: `Actualizări noi în proiectul „${sanitizeHeaderText(project.title)}”`,
         html,
-      })
+      }, { idempotencyKey: publicationEmailIdempotencyKey })
 
       if (emailError) {
         console.error('notify-client Resend error:', emailError)
@@ -275,8 +441,10 @@ export async function POST(
           phases: claimedPhases.map(p => p.id),
           activities: claimedActivities.map(a => a.id),
           documents: claimedDocuments.map(d => d.id),
+          review_ids: claimedReviews.map(review => review.id),
+          reviewed_documents: reviewedDocuments,
         },
-        description: `${access.profile.email || 'User'} a anunțat clientul despre ${totalClaimed} noutăți publicate în proiectul "${project.title}"`,
+        description: `${access.profile.email || 'User'} a anunțat clientul despre ${totalDisplayed} actualizări în proiectul "${project.title}"`,
         request,
       })
     } catch (auditError) {
@@ -289,6 +457,7 @@ export async function POST(
         phases: claimedPhases.length,
         activities: claimedActivities.length,
         documents: claimedDocuments.length,
+        reviews: reviewedDocuments.length,
       },
     })
   } catch (e: any) {

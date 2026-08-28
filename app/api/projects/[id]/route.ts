@@ -62,7 +62,7 @@ export async function PATCH(
     // 1. Citim proiectul curent (pentru audit)
     const { data: oldProject, error: findErr } = await admin
       .from('projects')
-      .select('id, title, status, client_id, cod_intern, profiles!projects_client_id_fkey(email, full_name, cif)')
+      .select('id, title, status, client_id, cod_intern, automatic_reminders_enabled, profiles!projects_client_id_fkey(email, full_name, cif)')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -80,7 +80,13 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    const { title, status, client_id, general_consultant_id } = body as { title?: unknown; status?: unknown; client_id?: unknown; general_consultant_id?: unknown }
+    const { title, status, client_id, general_consultant_id, automatic_reminders_enabled } = body as {
+      title?: unknown
+      status?: unknown
+      client_id?: unknown
+      general_consultant_id?: unknown
+      automatic_reminders_enabled?: unknown
+    }
 
     const update: Record<string, any> = {}
 
@@ -144,10 +150,17 @@ export async function PATCH(
       update.general_consultant_id = general_consultant_id ?? null
     }
 
+    if (automatic_reminders_enabled !== undefined) {
+      if (typeof automatic_reminders_enabled !== 'boolean') {
+        return NextResponse.json({ error: 'automatic_reminders_enabled trebuie să fie boolean' }, { status: 400 })
+      }
+      update.automatic_reminders_enabled = automatic_reminders_enabled
+    }
+
     // Dacă nu avem nimic de actualizat
     if (Object.keys(update).length === 0) {
       return NextResponse.json({ 
-        error: 'Nothing to update. Allowed fields: title, status, client_id' 
+        error: 'Nothing to update. Allowed fields: title, status, client_id, general_consultant_id, automatic_reminders_enabled'
       }, { status: 400 })
     }
 
@@ -184,6 +197,11 @@ export async function PATCH(
       description = `${adminEmail} a redenumit proiectul din "${oldProject.title}" în "${update.title}"`
     } else if (update.client_id && oldProject.client_id !== update.client_id) {
       description = `${adminEmail} a schimbat clientul proiectului "${oldProject.title}"`
+    } else if (
+      update.automatic_reminders_enabled !== undefined &&
+      oldProject.automatic_reminders_enabled !== update.automatic_reminders_enabled
+    ) {
+      description = `${adminEmail} a ${update.automatic_reminders_enabled ? 'activat' : 'dezactivat'} reminderele automate pentru proiectul "${oldProject.title}"`
     }
 
     await logProjectAction({

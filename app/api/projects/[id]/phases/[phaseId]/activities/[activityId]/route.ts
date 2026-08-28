@@ -6,6 +6,7 @@ import { requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
+import { buildAssignmentEmailIdempotencyKey, isRealAssignmentChange } from '@/lib/notification-utils'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,11 +14,12 @@ const supabaseAdmin = createClient(
 )
 
 async function loadProjectTitle(projectId: string) {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from('projects')
     .select('title')
     .eq('id', projectId)
     .maybeSingle()
+  if (error) throw error
   return data?.title ?? projectId
 }
 
@@ -29,14 +31,16 @@ async function sendActivityAssignedEmail(params: {
   projectId: string
   projectTitle: string
   deadlineAt: string | null
+  idempotencyKey: string
 }) {
   try {
-    const { data: consultant } = await supabaseAdmin
+    const { data: consultant, error: consultantError } = await supabaseAdmin
       .from('profiles')
       .select('full_name, email')
       .eq('id', params.consultantId)
       .maybeSingle()
 
+    if (consultantError) throw consultantError
     if (!consultant?.email) return
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
@@ -101,7 +105,7 @@ async function sendActivityAssignedEmail(params: {
       to: consultant.email,
       subject: sanitizeHeaderText(`Ți-a fost atribuită o activitate nouă — ${params.projectTitle}`),
       html,
-    })
+    }, { idempotencyKey: params.idempotencyKey })
     if (emailError) {
       console.error('Resend error:', emailError)
     }
@@ -157,21 +161,23 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (assigned_to !== undefined) updateData.assigned_to = assigned_to
     if (deadline_at !== undefined) updateData.deadline_at = deadline_at || null
 
-    const { data: before } = await supabaseAdmin
+    const { data: before, error: beforeError } = await supabaseAdmin
       .from('project_activities')
       .select('*')
       .eq('id', activityId)
       .eq('phase_id', phaseId)
       .maybeSingle()
 
+    if (beforeError) throw beforeError
     if (!before) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    const { data: phase } = await supabaseAdmin
+    const { data: phase, error: phaseError } = await supabaseAdmin
       .from('project_phases')
       .select('id, name')
       .eq('id', phaseId)
       .eq('project_id', projectId)
       .maybeSingle()
+    if (phaseError) throw phaseError
     if (!phase) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     // Dacă se atribuie cuiva, verifică că este consultant membru al proiectului
@@ -227,17 +233,52 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
     if (visibility === 'published') updateData.visibility = 'published'
 
-    const { data: activity, error } = await supabaseAdmin
+    const assignmentChanged = assigned_to !== undefined && assigned_to !== before.assigned_to
+    if (assignmentChanged) {
+      updateData.updated_at = new Date().toISOString()
+      // Triggerul de notificare rulează cu clientul de service, unde `auth.uid()`
+      // e null. Autorul călătorește cu rândul, în aceeași scriere.
+      updateData.assigned_by = auth.user.id
+    }
+    const projectTitle = await loadProjectTitle(projectId)
+    let activityUpdate = supabaseAdmin
       .from('project_activities')
       .update(updateData)
       .eq('id', activityId)
       .eq('phase_id', phaseId)
-      .select()
-      .single()
+    if (assignmentChanged) {
+      activityUpdate = before.assigned_to === null
+        ? activityUpdate.is('assigned_to', null)
+        : activityUpdate.eq('assigned_to', before.assigned_to)
+    }
+    const { data: activity, error } = await activityUpdate.select().maybeSingle()
 
     if (error) throw error
+    if (!activity) {
+      return NextResponse.json(
+        { error: assignmentChanged ? 'Activitatea a fost modificată între timp. Reîncarcă și încearcă din nou.' : 'Activitatea nu mai există' },
+        { status: assignmentChanged ? 409 : 404 },
+      )
+    }
 
-    const projectTitle = await loadProjectTitle(projectId)
+    if (isRealAssignmentChange(before.assigned_to, assigned_to)) {
+      const idempotencyKey = buildAssignmentEmailIdempotencyKey({
+        projectId,
+        entityType: 'activity',
+        entityId: activityId,
+        recipientId: assigned_to,
+        version: activity.updated_at,
+      })
+      await sendActivityAssignedEmail({
+        consultantId: assigned_to,
+        activityName: activity.name,
+        phaseName: phase.name,
+        projectId,
+        projectTitle,
+        deadlineAt: activity.deadline_at,
+        idempotencyKey,
+      })
+    }
 
     await logAction({
       actorId: auth.user.id,
@@ -250,21 +291,6 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       description: `Modificare activitate "${activity.name}" in proiectul "${projectTitle}"`,
       request: req,
     })
-
-    if (
-      assigned_to !== undefined &&
-      assigned_to !== null &&
-      assigned_to !== before.assigned_to
-    ) {
-      await sendActivityAssignedEmail({
-        consultantId: assigned_to,
-        activityName: activity.name,
-        phaseName: phase.name,
-        projectId,
-        projectTitle,
-        deadlineAt: activity.deadline_at,
-      })
-    }
 
     return NextResponse.json({ activity })
   } catch (error: any) {
@@ -287,30 +313,50 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Doar adminii pot șterge' }, { status: 403 })
     }
 
-    const { data: before } = await supabaseAdmin
+    const { data: before, error: beforeError } = await supabaseAdmin
       .from('project_activities')
       .select('*')
       .eq('id', activityId)
       .eq('phase_id', phaseId)
       .maybeSingle()
 
+    if (beforeError) throw beforeError
     if (!before) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    const { data: phase } = await supabaseAdmin
+    const { data: phase, error: phaseError } = await supabaseAdmin
       .from('project_phases')
       .select('id')
       .eq('id', phaseId)
       .eq('project_id', projectId)
       .maybeSingle()
+    if (phaseError) throw phaseError
     if (!phase) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    const { error } = await supabaseAdmin
-      .from('project_activities')
-      .delete()
-      .eq('id', activityId)
-      .eq('phase_id', phaseId)
+    const { data: deletionData, error: deletionError } = await supabaseAdmin.rpc(
+      'delete_project_activity_preserving_requests',
+      { project_id: projectId, phase_id: phaseId, activity_id: activityId },
+    )
 
-    if (error) throw error
+    if (deletionError) {
+      if (deletionError.code === 'P0002') {
+        return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      }
+      throw deletionError
+    }
+
+    const deletion = (Array.isArray(deletionData) ? deletionData[0] : deletionData) as {
+      deleted: boolean
+      moved_requests: number
+      demoted_requests: number
+    } | null
+
+    if (!deletion) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    const deletionSummary = {
+      deleted_activities: deletion.deleted ? 1 : 0,
+      moved_requests: Number(deletion.moved_requests ?? 0),
+      demoted_requests: Number(deletion.demoted_requests ?? 0),
+    }
 
     const projectTitle = await loadProjectTitle(projectId)
 
@@ -321,11 +367,12 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       entityId: activityId,
       entityName: before?.name ?? activityId,
       oldValues: before ? { ...before, project_title: projectTitle } : null,
-      description: `Stergere activitate "${before?.name ?? activityId}" din proiectul "${projectTitle}"`,
+      newValues: { project_id: projectId, project_title: projectTitle, ...deletionSummary },
+      description: `Stergere activitate "${before?.name ?? activityId}" din proiectul "${projectTitle}"; ${deletionSummary.moved_requests} cereri mutate, ${deletionSummary.demoted_requests} cereri trecute in pregatire`,
       request: req,
     })
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, deleted: deletion.deleted, ...deletionSummary })
   } catch (error: any) {
     console.error('DELETE activity error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })

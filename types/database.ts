@@ -18,11 +18,9 @@ export type FileReviewStatus = 'pending' | 'approved' | 'rejected';
 export type AuditActionType = 'create' | 'update' | 'delete' | 'login' | 'logout';
 export type AuditEntityType = 'project' | 'document' | 'user' | 'file' | 'team_member' | 'phase' | 'activity' | 'template';
 
-export type NotificationType = 
-  | 'document_requested' | 'document_uploaded' | 'document_approved' | 'document_rejected'
-  | 'project_status_changed' | 'project_created'
-  | 'team_added' | 'team_removed'
-  | 'deadline_approaching' | 'phase_completed' | 'activity_completed' | 'mention';
+export type NotificationType = 'publication' | 'assignment' | 'deadline' | 'document_action';
+export type NotificationEntityType = 'project' | 'phase' | 'activity' | 'document_request';
+export type NotificationSeverity = 'info' | 'success' | 'warning' | 'danger';
 
 
 // =====================================================
@@ -392,6 +390,7 @@ export interface Project {
   persoana_contact: string | null;
   is_preluat: boolean;
   preluat_detalii: string | null;
+  automatic_reminders_enabled: boolean;
   created_at: string;
   updated_at: string;
   // Relații
@@ -423,6 +422,7 @@ export interface ProjectUpdate extends Partial<ProjectCreate> {
   status?: string;
   current_status_id?: string; // NOU
   progress?: number;
+  automatic_reminders_enabled?: boolean;
 }
 
 // FAZĂ PROIECT (ACTUALIZAT - cu project_status_id)
@@ -491,6 +491,7 @@ export interface ProjectActivity {
   status: ActivityStatus;
   visibility: ProjectItemVisibility;
   assigned_to: string | null;
+  assigned_by: string | null;
   deadline_at: string | null;
   started_at: string | null;
   completed_at: string | null;
@@ -508,6 +509,7 @@ export interface ProjectActivityCreate {
   description?: string;
   order_index?: number;
   assigned_to?: string;
+  assigned_by?: string | null;
   deadline_at?: string;
   source_template_activity_id?: string | null;
   visibility?: ProjectItemVisibility;
@@ -519,6 +521,7 @@ export interface ProjectActivityUpdate {
   order_index?: number;
   status?: ActivityStatus;
   assigned_to?: string | null;
+  assigned_by?: string | null;
   deadline_at?: string | null;
   started_at?: string | null;
   completed_at?: string | null;
@@ -542,6 +545,9 @@ export interface ActivityDocumentRequirement {
   created_at: string;
   updated_at: string;
   created_by: string | null;
+  assigned_to: string | null;
+  assigned_by: string | null;
+  assigned_at: string | null;
   deleted_at: string | null;
   deleted_by: string | null;
   delete_reason: string | null;
@@ -562,6 +568,9 @@ export interface ActivityDocumentRequirementCreate {
   template_path?: string;
   template_name?: string;
   deadline_at?: string;
+  assigned_to?: string | null;
+  assigned_by?: string | null;
+  assigned_at?: string | null;
   delete_reason?: string | null;
   attachment_original_name?: string | null;
   attachment_missing_at?: string | null;
@@ -578,6 +587,7 @@ export interface DocumentRequestReview {
   reviewed_version_number: number;
   reviewed_by: string | null;
   reviewed_at: string;
+  client_notified_at: string | null;
 }
 
 export interface DocumentRequestReviewCreate {
@@ -586,12 +596,18 @@ export interface DocumentRequestReviewCreate {
   reason?: string | null;
   reviewed_version_number: number;
   reviewed_by?: string | null;
+  client_notified_at?: string | null;
+}
+
+export interface DocumentRequestReviewUpdate {
+  client_notified_at?: string | null;
 }
 
 // FIȘIER DOCUMENT (neschimbat)
 export interface ActivityDocumentFile {
   id: string;
   requirement_id: string;
+  upload_batch_id: string | null;
   storage_path: string;
   original_name: string;
   file_size: number | null;
@@ -611,6 +627,7 @@ export interface ActivityDocumentFile {
 
 export interface ActivityDocumentFileCreate {
   requirement_id: string;
+  upload_batch_id?: string | null;
   storage_path: string;
   original_name: string;
   file_size?: number;
@@ -638,26 +655,46 @@ export interface AuditLog {
   user?: { email: string; full_name: string | null };
 }
 
-// NOTIFICARE (neschimbat)
+// NOTIFICARE
 export interface Notification {
   id: string;
   user_id: string;
+  project_id: string;
   type: NotificationType;
+  entity_type: NotificationEntityType;
+  entity_id: string;
   title: string;
-  message: string | null;
-  entity_type: 'project' | 'document' | 'user' | 'phase' | 'activity' | null;
-  entity_id: string | null;
-  is_read: boolean;
+  severity: NotificationSeverity;
+  actor_name: string | null;
+  entity_label: string | null;
+  item_count: number;
+  event_key: string;
   created_at: string;
+  read_at: string | null;
+  dismissed_at: string | null;
 }
 
 export interface NotificationCreate {
+  id?: string;
   user_id: string;
+  project_id: string;
   type: NotificationType;
+  entity_type: NotificationEntityType;
+  entity_id: string;
   title: string;
-  message?: string;
-  entity_type?: string;
-  entity_id?: string;
+  severity?: NotificationSeverity;
+  actor_name?: string | null;
+  entity_label?: string | null;
+  item_count?: number;
+  event_key: string;
+  created_at?: string;
+  read_at?: string | null;
+  dismissed_at?: string | null;
+}
+
+export interface NotificationUpdate {
+  read_at?: string | null;
+  dismissed_at?: string | null;
 }
 
 
@@ -964,10 +1001,10 @@ export interface Database {
       project_activities: { Row: ProjectActivity; Insert: ProjectActivityCreate; Update: ProjectActivityUpdate };
       activity_document_requirements: { Row: ActivityDocumentRequirement; Insert: ActivityDocumentRequirementCreate; Update: Partial<ActivityDocumentRequirementCreate> & { status?: DocumentRequirementStatus } };
       activity_document_files: { Row: ActivityDocumentFile; Insert: ActivityDocumentFileCreate & { uploaded_by: string }; Update: ActivityDocumentFileReview & { reviewed_by?: string; reviewed_at?: string } };
-      document_request_reviews: { Row: DocumentRequestReview; Insert: DocumentRequestReviewCreate; Update: never };
+      document_request_reviews: { Row: DocumentRequestReview; Insert: DocumentRequestReviewCreate; Update: DocumentRequestReviewUpdate };
       
       audit_logs: { Row: AuditLog; Insert: Omit<AuditLog, 'id' | 'created_at'>; Update: never };
-      notifications: { Row: Notification; Insert: NotificationCreate; Update: { is_read?: boolean } };
+      notifications: { Row: Notification; Insert: NotificationCreate; Update: NotificationUpdate };
     };
     Views: {
       programs_overview: { Row: ProgramOverview };
@@ -988,8 +1025,64 @@ export interface Database {
       add_session: { Args: { p_measure_id: string; p_name: string; p_code?: string; p_start_date?: string; p_end_date?: string; p_budget?: number }; Returns: string };
       get_upcoming_deadlines: { Args: { p_days?: number; p_user_id?: string }; Returns: UpcomingDeadline[] };
       log_audit: { Args: { p_action_type: AuditActionType; p_entity_type: AuditEntityType; p_entity_id: string; p_entity_name?: string; p_old_values?: Record<string, unknown>; p_new_values?: Record<string, unknown>; p_description?: string }; Returns: string };
-      create_notification: { Args: { p_user_id: string; p_type: NotificationType; p_title: string; p_message?: string; p_entity_type?: string; p_entity_id?: string }; Returns: string };
       is_admin: { Args: Record<string, never>; Returns: boolean };
+      complete_document_upload_batch: {
+        Args: {
+          p_requirement_id: string;
+          p_upload_batch_id: string;
+          p_version_number: number;
+          p_uploaded_by: string;
+          p_rows: unknown;
+          p_ip_address?: string | null;
+        };
+        Returns: { created: boolean; file_count: number }[];
+      };
+      complete_reserved_document_upload_batch: {
+        Args: { p_upload_batch_id: string; p_actor_id: string; p_selected_file_ids: unknown; p_ip_address?: string | null };
+        Returns: { created: boolean; version_number: number; file_count: number }[];
+      };
+      review_document_request: {
+        Args: { p_request_id: string; p_action: 'approved' | 'rejected'; p_reason?: string | null; p_reviewed_by?: string | null; p_ip_address?: string | null };
+        Returns: { created: boolean; review_id: string; reviewed_version_number: number; action: string }[];
+      };
+      remove_project_member_if_unassigned: {
+        Args: { p_project_id: string; p_member_id: string };
+        Returns: { removed: boolean; consultant_id: string }[];
+      };
+      delete_project_activity_preserving_requests: {
+        Args: { project_id: string; phase_id: string; activity_id: string };
+        Returns: { deleted: boolean; moved_requests: number; demoted_requests: number }[];
+      };
+      delete_project_phase_preserving_requests: {
+        Args: { project_id: string; phase_id: string };
+        Returns: { deleted: boolean; deleted_activities: number; moved_requests: number; demoted_requests: number }[];
+      };
+      can_select_notification: { Args: { p_project_id: string; p_entity_type: string; p_entity_id: string }; Returns: boolean };
+      notification_unread_summary: { Args: Record<string, never>; Returns: unknown };
+      notification_entity_label: { Args: { p_entity_type: string; p_entity_id: string }; Returns: string | null };
+      mark_notifications_read: { Args: { p_ids?: string[] | null }; Returns: number };
+      mark_notifications_unread: { Args: { p_ids: string[] }; Returns: number };
+      dismiss_notifications: { Args: { p_ids: string[] }; Returns: number };
+      assignment_notifications_suppressed: { Args: Record<string, never>; Returns: boolean };
+      insert_notification_event: {
+        Args: {
+          p_project_id: string;
+          p_type: NotificationType;
+          p_entity_type: NotificationEntityType;
+          p_entity_id: string;
+          p_title: string;
+          p_item_count: number;
+          p_event_key: string;
+          p_recipient_id?: string | null;
+          p_include_admins?: boolean;
+          p_fallback_to_project_members?: boolean;
+          p_require_recipient?: boolean;
+          p_severity?: NotificationSeverity;
+          p_actor_name?: string | null;
+          p_entity_label?: string | null;
+        };
+        Returns: number;
+      };
     };
   };
 }

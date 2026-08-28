@@ -1,16 +1,18 @@
 'use client'
 
 import Link from "next/link"
-import { useEffect, useRef } from "react"
 import { usePathname, useRouter } from "next/navigation"
+import { useEffect, useRef } from "react"
 import {useAuth} from "@/app/providers/AuthProvider"
 import { usePrivateChatUnread } from "@/hooks/usePrivateChatUnread"
 import { useProjectChatUnread } from "@/app/providers/ProjectChatUnreadProvider"
+import NotificationsBell from "@/components/NotificationsBell"
 
 export default function Navbar() {
   const { loading: authLoading, user, profile, signOut } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
+  const pillsRef = useRef<HTMLDivElement>(null)
   const isLoggedIn = !authLoading && !!user
   // Chatul privat, calendarul general și șabloanele sunt suprafețe de echipă:
   // clientul nu are acces la niciuna.
@@ -32,29 +34,16 @@ export default function Navbar() {
     router.replace('/login')
   }
 
-  // Rândul de pastile se derulează, deci pastila paginii curente poate cădea în
-  // afara cadrului — pe telefon, unde din șapte se văd trei. O aducem în mijloc
-  // la fiecare schimbare de pagină, ca meniul să arate mereu unde ești.
-  //
-  // Pastila activă se găsește după chiar adresa ei, fără niciun atribut adăugat
-  // celor șapte link-uri. Pe o pagină din afara meniului (un proiect, de pildă)
-  // nu se potrivește nimic și nu se derulează nimic.
-  const pillRow = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const row = pillRow.current
-    const active = row?.querySelector<HTMLElement>(`a[href="${pathname}"]`)
-    if (!row || !active) return
-    const rowBox = row.getBoundingClientRect()
-    const pillBox = active.getBoundingClientRect()
-    row.scrollBy({ left: pillBox.left - rowBox.left - (rowBox.width - pillBox.width) / 2 })
-  }, [pathname, isLoggedIn, profile?.role])
-
   const isActive = (path: string) => pathname === path 
     ? "text-slate-900 bg-white shadow-sm border-slate-200/60" 
     : "text-slate-500 hover:text-slate-900 hover:bg-white/50"
 
+  useEffect(() => {
+    pillsRef.current?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+  }, [pathname, profile?.role])
+
   return (
-    <nav className="fixed top-0 left-0 w-full bg-white/80 backdrop-blur-xl border-b border-slate-200/60 h-16 flex items-center justify-between px-6 lg:px-12 z-50 transition-all">
+    <nav className="fixed top-0 left-0 w-full min-w-0 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 h-16 flex items-center justify-between px-6 lg:px-12 z-50 transition-all">
       
       <div className="flex-shrink-0">
         <Link href="/" className="group flex items-center gap-2.5">
@@ -67,21 +56,13 @@ export default function Navbar() {
         </Link>
       </div>
 
-      {/* `min-w-0` lasă rândul de pastile să se îngusteze sub lățimea lui
-          naturală; fără el, un element flex refuză să scadă sub conținut și
-          derularea de mai jos n-ar porni niciodată. */}
-      <div className="flex-1 min-w-0 flex justify-center px-4">
+      <div className="min-w-0 flex-1 flex justify-center px-2 sm:px-4">
         {isLoggedIn && (
-          // Se derulează lateral, nu se taie. Adminul are șapte pastile, peste
-          // 600px puse cap la cap, într-un ecran de telefon care oferă vreo 330:
-          // cu `overflow-hidden`, ultimele două — Utilizatori și Audit — nu erau
-          // doar tăiate, ci de neatins.
-          <div
-            ref={pillRow}
-            className="no-scrollbar flex max-w-full items-center gap-1 overflow-x-auto bg-slate-100/50 p-1 rounded-full border border-slate-200/50"
-          >
+          <div ref={pillsRef} className="min-w-0 max-w-full overflow-x-auto no-scrollbar rounded-full">
+          <div className="flex w-max min-w-full items-center justify-center gap-1 bg-slate-100/50 p-1 rounded-full border border-slate-200/50">
             <Link
               href="/"
+              data-active={pathname === '/' ? 'true' : undefined}
               className={`relative px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/')}`}
             >
               Proiecte
@@ -97,6 +78,7 @@ export default function Navbar() {
             {canUsePrivateChat && (
               <Link
                 href="/chat"
+                data-active={pathname === '/chat' ? 'true' : undefined}
                 className={`relative px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/chat')}`}
               >
                 Chat
@@ -113,6 +95,7 @@ export default function Navbar() {
             {isTeamMember && (
               <Link
                 href="/calendar"
+                data-active={pathname === '/calendar' ? 'true' : undefined}
                 className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/calendar')}`}
               >
                 Calendar
@@ -121,6 +104,7 @@ export default function Navbar() {
             {isTeamMember && (
               <Link
                 href={profile?.role === 'admin' ? '/admin' : '/admin/templates'}
+                data-active={pathname === (profile?.role === 'admin' ? '/admin' : '/admin/templates') ? 'true' : undefined}
                 className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive(profile?.role === 'admin' ? '/admin' : '/admin/templates')}`}
               >
                 Șabloane
@@ -130,18 +114,21 @@ export default function Navbar() {
               <>
                 <Link
                   href="/admin/proiecte"
+                  data-active={pathname === '/admin/proiecte' ? 'true' : undefined}
                   className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/admin/proiecte')}`}
                 >
                   Tablou de bord
                 </Link>
                 <Link
                   href="/admin/users"
+                  data-active={pathname === '/admin/users' ? 'true' : undefined}
                   className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/admin/users')}`}
                 >
                   Utilizatori
                 </Link>
                 <Link
                   href="/admin/audit"
+                  data-active={pathname === '/admin/audit' ? 'true' : undefined}
                   className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/admin/audit')}`}
                 >
                   Audit
@@ -149,12 +136,15 @@ export default function Navbar() {
               </>
             )}
           </div>
+          </div>
         )}
       </div>
 
-      <div className="flex-shrink-0 flex items-center gap-4 justify-end">
+      <div className="min-w-0 flex-shrink-0 flex items-center gap-3 justify-end">
         {user ? (
-          <div className="flex items-center gap-3 pl-4 border-l border-slate-200">
+          <>
+            {isLoggedIn && <NotificationsBell />}
+            <div className="flex items-center gap-3 pl-3 border-l border-slate-200">
             <div className="hidden lg:block text-right">
               <p className="text-xs font-semibold text-slate-900 truncate max-w-[150px]">
                 {profile?.email ?? (typeof user === 'object' && user && 'email' in user ? String(user.email) : '')}
@@ -170,7 +160,8 @@ export default function Navbar() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
               </svg>
             </button>
-          </div>
+            </div>
+          </>
         ) : (
           <div className="w-8"></div>
         )}
