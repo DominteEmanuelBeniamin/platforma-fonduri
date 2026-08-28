@@ -19,9 +19,6 @@ export async function POST(
     if (action !== 'approved' && action !== 'rejected') {
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
     }
-    if (action === 'rejected' && !notes) {
-      return NextResponse.json({ error: 'Notes are required for rejection' }, { status: 400 })
-    }
 
     const admin = createSupabaseServiceClient()
 
@@ -45,72 +42,33 @@ export async function POST(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const { data: latestFile, error: fileErr } = await admin
-      .from('files')
-      .select('id, version_number, created_at')
-      .eq('requirement_id', requestId)
-      .is('deleted_at', null)
-      .order('version_number', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    if (fileErr) {
-      console.error('last file fetch error:', fileErr)
-      return NextResponse.json({ error: 'Failed to load request files' }, { status: 500 })
-    }
-    if (!latestFile?.version_number) {
-      return NextResponse.json({ error: 'No uploaded files to review' }, { status: 400 })
-    }
-
-    const { error: reviewInsertErr } = await admin
-      .from('document_request_reviews')
-      .insert({
-        requirement_id: requestId,
-        action,
-        reason: action === 'rejected' ? notes : null,
-        reviewed_version_number: latestFile.version_number,
-        reviewed_by: access.user.id,
-      })
-
-    if (reviewInsertErr) {
-      console.error('document_request_reviews insert error:', reviewInsertErr)
-      return NextResponse.json({ error: 'Failed to save review history' }, { status: 500 })
-    }
-
-    const { error: updReqErr } = await admin
-      .from('document_requirements')
-      .update({ status: action })
-      .eq('id', requestId)
-      .is('deleted_at', null)
-
-    if (updReqErr) {
-      console.error('update requirement status error:', updReqErr)
-      return NextResponse.json({ error: 'Failed to update request status' }, { status: 500 })
-    }
-
     const ipAddress =
       request.headers.get('x-forwarded-for') ||
       request.headers.get('x-real-ip') ||
       null
 
-    await admin.from('audit_logs').insert({
-      user_id: access.user.id,
-      action_type: 'update',
-      entity_type: 'document',
-      entity_id: requestId,
-      entity_name: reqRow.name || 'Document',
-      old_values: {
-        status: reqRow.status,
-      },
-      new_values: {
-        status: action,
-        reviewed_version_number: latestFile.version_number,
-        reason: action === 'rejected' ? notes : undefined,
-      },
-      description: `${access.profile.email || 'User'} a ${action === 'approved' ? 'aprobat' : 'respins'} documentul "${reqRow.name || requestId}"${notes ? ` cu motivul: ${notes}` : ''}`,
-      ip_address: ipAddress,
+    const { data: reviewData, error: reviewError } = await admin.rpc('review_document_request', {
+      p_request_id: requestId,
+      p_action: action,
+      p_reason: notes,
+      p_reviewed_by: access.user.id,
+      p_ip_address: ipAddress,
     })
+
+    if (reviewError) {
+      console.error('review_document_request error:', reviewError)
+      const status = reviewError.message === 'Notes are required for rejection' ||
+        reviewError.message === 'No uploaded files to review' ? 400 :
+        reviewError.code === 'P0001' ? 409 : 500
+      return NextResponse.json({ error: reviewError.message }, { status })
+    }
+
+    const reviewResult = Array.isArray(reviewData) ? reviewData[0] : reviewData
+    const reviewId = typeof reviewResult?.review_id === 'string' ? reviewResult.review_id : null
+    if (!reviewId) {
+      console.error('review_document_request returned invalid data:', reviewData)
+      return NextResponse.json({ error: 'Failed to save review history' }, { status: 500 })
+    }
 
     return NextResponse.json({ ok: true })
   } catch (e: unknown) {

@@ -114,6 +114,13 @@ type PickedFile = {
   uploadError?: string
 }
 
+type PendingClientUploadCompletion = {
+  requestId: string
+  batchId: string
+  fileIds: string[]
+  failed: number
+}
+
 // Validare constante
 const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB
 const ALLOWED_TYPES = [
@@ -316,6 +323,7 @@ export default function DocumentRequests({
   const [uploadingFor, setUploadingFor] = useState<string | null>(null)
   const [clientFiles, setClientFiles] = useState<PickedFile[]>([])
   const [showFilePreview, setShowFilePreview] = useState(false)
+  const pendingClientUploadRef = useRef<PendingClientUploadCompletion | null>(null)
   const [requestToDelete, setRequestToDelete] = useState<DocumentRequest | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [missingAttachments, setMissingAttachments] = useState<Set<string>>(() => new Set())
@@ -550,6 +558,7 @@ export default function DocumentRequests({
     const files = Array.from(fileList ?? [])
     if (files.length === 0) return
 
+    pendingClientUploadRef.current = null
     const newFiles: PickedFile[] = files.map((file) => {
       const picked: PickedFile = {
         id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
@@ -578,11 +587,13 @@ export default function DocumentRequests({
 
   // Eliminare fișier individual
   const removeFile = (fileId: string) => {
+    pendingClientUploadRef.current = null
     setClientFiles(prev => prev.filter(f => f.id !== fileId))
   }
 
   // Clear all files
   const clearAllFiles = () => {
+    pendingClientUploadRef.current = null
     setClientFiles([])
     setUploadingFor(null)
     setShowFilePreview(false)
@@ -750,6 +761,17 @@ export default function DocumentRequests({
     resetRequestForm()
   }
 
+  const completeClientUpload = async (pending: PendingClientUploadCompletion) => {
+    const completeRes = await apiFetch(`/api/document-requests/${pending.requestId}/uploads/complete`, {
+      method: 'POST',
+      body: JSON.stringify({
+        batchId: pending.batchId,
+        fileIds: pending.fileIds,
+      }),
+    })
+    if (!completeRes.ok) throw new Error('Nu am putut finaliza încărcarea fișierelor.')
+  }
+
   // Upload improved cu progress tracking și error handling granular
   const uploadFilesToRequest = async (requestId: string, filesToUpload: PickedFile[]) => {
     // Doar fișierele valide
@@ -840,22 +862,16 @@ export default function DocumentRequests({
       throw new Error('Toate fișierele au eșuat la încărcare')
     }
 
-    // 4. Complete doar cu fișierele reușite
-    const completeRes = await apiFetch(`/api/document-requests/${requestId}/uploads/complete`, {
-      method: 'POST',
-      body: JSON.stringify({
-        batchId: init.batchId,
-        versionNumber: init.versionNumber,
-        uploaded: successful.map((s: any) => ({
-          storagePath: s.upload.storagePath,
-          originalName: s.file.name,
-          mimeType: s.file.type,
-          fileSize: s.file.size,
-          relativePath: s.file.relativePath,
-        })),
-      }),
-    })
-    if (!completeRes.ok) throw new Error('Nu am putut finaliza încărcarea fișierelor.')
+    // 4. Păstrăm payload-ul până la confirmarea completării, pentru retry fără init/re-upload
+    const pendingCompletion: PendingClientUploadCompletion = {
+      requestId,
+      batchId: init.batchId,
+      fileIds: successful.map((s: any) => s.upload.fileId),
+      failed: failed.length,
+    }
+    pendingClientUploadRef.current = pendingCompletion
+    await completeClientUpload(pendingCompletion)
+    pendingClientUploadRef.current = null
 
     return {
       total: uploadResults.length,
@@ -866,29 +882,42 @@ export default function DocumentRequests({
   }
 
   const handleClientUpload = async (requestId: string) => {
+    if (submitting) return
     const validFiles = clientFiles.filter(f => !f.validationError)
+    const pending = pendingClientUploadRef.current?.requestId === requestId
+      ? pendingClientUploadRef.current
+      : null
     
-    if (validFiles.length === 0) {
+    if (!pending && validFiles.length === 0) {
       showToast('Nu există fișiere valide. Verifică erorile de validare.', 'warning')
       return
     }
 
     setSubmitting(true)
     try {
-      const result = await uploadFilesToRequest(requestId, clientFiles)
-      
-      // Success message
-      if (result.failed === 0) {
-        showToast(`Au fost încărcate ${result.successful} fișiere.`, 'success')
-      } else {
-        showToast(`${result.successful} fișiere au fost încărcate, iar ${result.failed} au eșuat. Verifică lista fișierelor.`, 'warning')
+      const uploadResult = pending
+        ? await completeClientUpload(pending).then(() => {
+            pendingClientUploadRef.current = null
+            return {
+              total: pending.fileIds.length + pending.failed,
+              successful: pending.fileIds.length,
+              failed: pending.failed,
+              failures: [],
+            }
+          })
+        : await uploadFilesToRequest(requestId, clientFiles)
+      if (uploadResult) {
+        showToast(
+          uploadResult.failed === 0
+            ? `Au fost încărcate ${uploadResult.successful} fișiere.`
+            : `${uploadResult.successful} fișiere au fost încărcate, iar ${uploadResult.failed} au eșuat.`,
+          uploadResult.failed === 0 ? 'success' : 'warning'
+        )
       }
-
-      // Clear și refresh
       clearAllFiles()
       await fetchRequests()
-    } catch {
-      showToast('Nu am putut încărca fișierele. Reîncearcă.', 'error')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Nu am putut încărca fișierele. Reîncearcă.', 'error')
     } finally {
       setSubmitting(false)
     }

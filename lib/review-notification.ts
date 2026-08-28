@@ -38,6 +38,12 @@ export type ReviewNotificationSelection = {
   incompatibleRequestIds: string[]
 }
 
+export type ReviewNotificationEvent = {
+  requestId: string
+  title: string
+  eventKey: string
+}
+
 function compareReviews(left: ReviewNotificationReview, right: ReviewNotificationReview) {
   const leftTime = Date.parse(left.reviewed_at)
   const rightTime = Date.parse(right.reviewed_at)
@@ -86,4 +92,17 @@ export function selectReviewNotificationCandidates(input: {
   }
 
   return { candidates, incompatibleRequestIds }
+}
+
+export function buildReviewNotificationEvents(candidates: ReviewNotificationCandidate[]): ReviewNotificationEvent[] {
+  return candidates.map(candidate => {
+    const name = typeof candidate.request.name === 'string' && candidate.request.name
+      ? candidate.request.name
+      : candidate.requestId
+    return {
+      requestId: candidate.requestId,
+      title: `Document ${candidate.review.action === 'approved' ? 'aprobat' : 'respins'}: "${name}"`,
+      eventKey: `document-review:${candidate.review.id}`,
+    }
+  })
 }

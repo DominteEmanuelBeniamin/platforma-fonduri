@@ -58,13 +58,14 @@ function escapeHtml(value: string) {
 
 function daysLabel(days: number, absolute = false) {
   const value = absolute ? Math.abs(days) : days
-  return `${value} ${value === 1 ? 'zi' : 'zile'}`
+  return value === 1 ? 'o zi' : `${value} zile`
 }
 
 function urgencyText(item: ReminderEmailItem) {
-  return item.threshold === 'overdue'
-    ? `termen depășit cu ${daysLabel(item.days, true)}`
-    : `mai sunt ${daysLabel(item.days)}`
+  if (item.threshold === 'overdue') return `termen depășit cu ${daysLabel(item.days, true)}`
+  if (item.days === 0) return 'termenul este astăzi'
+  if (item.days === 1) return 'mai este o zi'
+  return `mai sunt ${daysLabel(item.days)}`
 }
 
 function sortItems(items: ReminderEmailItem[]) {
@@ -103,7 +104,10 @@ function subjectFor(audience: ReminderEmailAudience, item: ReminderEmailItem) {
   const prefix = item.threshold === 'overdue'
     ? 'Termen depășit'
     : audience === 'consultant' ? 'Reminder de gestionat' : 'Reminder document'
-  return sanitizeReminderSubject(`${prefix}: ${item.name} — ${urgencyText(item)} — ${item.projectTitle}`)
+  const urgency = item.threshold === 'overdue'
+    ? `cu ${daysLabel(item.days, true)}`
+    : urgencyText(item)
+  return sanitizeReminderSubject(`${prefix}: ${item.name} — ${urgency} — ${item.projectTitle}`)
 }
 
 export function renderReminderDigest(input: ReminderEmailDigestInput): ReminderEmailDigest {
@@ -116,10 +120,14 @@ export function renderReminderDigest(input: ReminderEmailDigestInput): ReminderE
       ? `Bună ziua, ${input.recipientName},`
       : `Salut, ${input.recipientName},`
     : input.audience === 'client' ? 'Bună ziua,' : 'Salut,'
-  const clientIntro = `Aveți ${items.length} ${items.length === 1 ? 'document' : 'documente'} care necesită atenție.`
+  const clientIntro = items.length === 1
+    ? 'Aveți un document care necesită atenție.'
+    : `Aveți ${items.length} documente care necesită atenție.`
   const activityItems = items.filter(item => item.entityType === 'activity')
   const overdueRequestItems = items.filter(item => item.entityType === 'request' && item.threshold === 'overdue')
-  const consultantIntro = `Ai ${items.length} ${items.length === 1 ? 'element' : 'elemente'} de gestionat.`
+  const consultantIntro = items.length === 1
+    ? 'Ai un element de gestionat.'
+    : `Ai ${items.length} elemente de gestionat.`
 
   const textSections = input.audience === 'client'
     ? [clientIntro, '', items.map(itemText).join('\n\n')]

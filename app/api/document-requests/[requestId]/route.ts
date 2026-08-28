@@ -7,6 +7,7 @@ import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { isRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
+import { buildAssignmentNotificationMetadata, isRealAssignmentChange } from '@/lib/notification-utils'
 
 // Inițializat în handler ca să preia env-ul la runtime, nu la cold-start
 
@@ -120,6 +121,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Cererea nu a fost găsită' }, { status: 404 })
     }
 
+    const currentRequest = req
     const access = await requireProjectAccess(request, req.project_id)
     if (!access.ok) return guardToResponse(access)
     if (access.profile.role === 'client') {
@@ -130,11 +132,15 @@ export async function PATCH(
       return NextResponse.json({ error: 'Document request is already published' }, { status: 400 })
     }
 
-    const { data: projectRow } = await admin
+    const { data: projectRow, error: projectError } = await admin
       .from('projects')
       .select('title, general_consultant_id')
       .eq('id', req.project_id)
       .maybeSingle()
+    if (projectError) {
+      console.error('PATCH document-requests project fetch error:', projectError)
+      return NextResponse.json({ error: 'Eroare la încărcarea proiectului' }, { status: 500 })
+    }
     const projectTitle = projectRow?.title ?? req.project_id
 
     // `general_consultant_id` se scrie fără nicio verificare de apartenență
@@ -142,12 +148,16 @@ export async function PATCH(
     // dacă persoana chiar e membru — aceeași condiție ca pentru `assigned_to`.
     let generalConsultantId: string | null = null
     if (!req.activity_id && projectRow?.general_consultant_id) {
-      const { data: generalMembership } = await admin
+      const { data: generalMembership, error: generalMembershipError } = await admin
         .from('project_members')
         .select('id')
         .eq('project_id', req.project_id)
         .eq('consultant_id', projectRow.general_consultant_id)
         .maybeSingle()
+      if (generalMembershipError) {
+        console.error('PATCH document-requests general membership error:', generalMembershipError)
+        return NextResponse.json({ error: 'Eroare la verificarea consultantului general' }, { status: 500 })
+      }
       if (generalMembership) generalConsultantId = projectRow.general_consultant_id
     }
 
@@ -251,16 +261,34 @@ export async function PATCH(
       diff.changedKeys.push('attachments')
     }
 
-    const { error: updateError } = await admin
+    const assignmentChanged = assigned_to !== undefined && assigned_to !== req.assigned_to
+    const assignmentEventAt = assignmentChanged ? new Date().toISOString() : null
+    let requestUpdate = admin
       .from('document_requirements')
       .update(updatePayload)
       .eq('id', requestId)
       .is('deleted_at', null)
+    if (assignmentChanged) {
+      requestUpdate = req.assigned_to === null
+        ? requestUpdate.is('assigned_to', null)
+        : requestUpdate.eq('assigned_to', req.assigned_to)
+    }
+    const { data: updatedRequest, error: updateError } = await requestUpdate
+      .select('*')
+      .maybeSingle()
 
     if (updateError) {
       console.error('PATCH document-requests update error:', updateError)
       return NextResponse.json({ error: 'Eroare la actualizarea cererii' }, { status: 500 })
     }
+    if (!updatedRequest) {
+      return NextResponse.json(
+        { error: assignmentChanged ? 'Cererea a fost modificată între timp. Reîncarcă și încearcă din nou.' : 'Cererea nu mai există' },
+        { status: assignmentChanged ? 409 : 404 },
+      )
+    }
+
+    await notifyAssignment()
 
     if (attachments !== undefined) {
       const { error: deleteAttachmentsError } = await admin
@@ -315,20 +343,29 @@ export async function PATCH(
     // Trimite email consultantului atribuit, doar când atribuirea chiar se
     // schimbă — altfel orice salvare care retrimite `assigned_to` îl anunță din
     // nou. (Ca la activități, care compară deja cu valoarea dinainte.)
-    if (assigned_to !== undefined && assigned_to !== null && assigned_to !== req.assigned_to) {
+    async function notifyAssignment() {
+      if (isRealAssignmentChange(currentRequest.assigned_to, assigned_to) && assignmentEventAt) {
+      const metadata = buildAssignmentNotificationMetadata({
+        projectId: currentRequest.project_id,
+        entityType: 'document_request',
+        entityId: requestId,
+        recipientId: assigned_to,
+        version: assignmentEventAt,
+      })
       try {
         // Proiectul e deja citit mai sus, în `projectRow`/`projectTitle`.
-        const { data: consultant } = await admin
+        const { data: consultant, error: consultantError } = await admin
           .from('profiles').select('full_name, email').eq('id', assigned_to).maybeSingle()
+        if (consultantError) throw consultantError
 
         if (consultant?.email) {
           const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
-          const projectUrl = `${appUrl}/projects/${req.project_id}`
+          const projectUrl = `${appUrl}/projects/${currentRequest.project_id}`
           const safeProjectTitle = escapeHtml(projectTitle)
-          const safeRequestName = escapeHtml(req.name ?? '')
+          const safeRequestName = escapeHtml(updatedRequest.name ?? '')
           const salut = consultant.full_name ? `Salut, ${escapeHtml(consultant.full_name)}!` : 'Salut!'
-          const deadline = req.deadline_at
-            ? new Date(req.deadline_at).toLocaleDateString('ro-RO', {
+          const deadline = updatedRequest.deadline_at
+            ? new Date(updatedRequest.deadline_at).toLocaleDateString('ro-RO', {
                 day: 'numeric',
                 month: 'long',
                 year: 'numeric',
@@ -358,7 +395,7 @@ export async function PATCH(
       <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin:0 0 28px;">
         <p style="margin:0 0 12px;color:#6b7280;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">Detalii cerere</p>
         <p style="margin:0 0 8px;color:#111827;font-size:16px;font-weight:600;">${safeRequestName}</p>
-        ${req.description ? `<p style="margin:0 0 10px;color:#4b5563;font-size:14px;line-height:1.6;">${escapeHtml(req.description)}</p>` : ''}
+        ${updatedRequest.description ? `<p style="margin:0 0 10px;color:#4b5563;font-size:14px;line-height:1.6;">${escapeHtml(updatedRequest.description)}</p>` : ''}
         ${deadline ? `<p style="margin:0;color:#d97706;font-size:13px;font-weight:500;">⏱ Termen limită: ${deadline}</p>` : ''}
       </div>
 
@@ -383,7 +420,7 @@ export async function PATCH(
             to: consultant.email,
             subject: sanitizeHeaderText(`Ți-a fost atribuită o cerere nouă — ${projectTitle}`),
             html,
-          })
+          }, { idempotencyKey: metadata.idempotencyKey })
           if (emailError) {
             console.error('Resend error:', emailError)
           }
@@ -391,6 +428,7 @@ export async function PATCH(
       } catch (emailError) {
         console.error('Email send error (non-blocking):', emailError)
       }
+    }
     }
 
     return NextResponse.json({ ok: true })

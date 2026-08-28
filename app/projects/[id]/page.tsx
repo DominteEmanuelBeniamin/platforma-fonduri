@@ -650,15 +650,13 @@ function ProjectDetailsContent() {
         setHighlightActivityId(targetActivityId)
         setTimeout(() => setHighlightActivityId(null), 2500)
         if (targetDocumentId) {
-          setAutoOpenRequestId(targetDocumentId)
-          setTimeout(() => setAutoOpenRequestId(null), 2500)
+          setSelectedDocumentRequestId(targetDocumentId)
         }
       } else {
         setHighlightGeneralRequests(true)
         setTimeout(() => setHighlightGeneralRequests(false), 2500)
         if (targetDocumentId) {
-          setAutoOpenRequestId(targetDocumentId)
-          setTimeout(() => setAutoOpenRequestId(null), 2500)
+          setSelectedDocumentRequestId(targetDocumentId)
         }
       }
     }, 250)
