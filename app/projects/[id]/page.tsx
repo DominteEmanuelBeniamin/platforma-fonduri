@@ -21,6 +21,7 @@ import {
   CalendarDays,
   Bell,
   BellOff,
+  Copy,
 } from 'lucide-react'
 
 import {
@@ -291,6 +292,42 @@ function ProjectDetailsContent() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // Duplicare (#15) din panoul central — aceleași endpointuri ca în bara din
+  // stânga. Reîmprospătăm doar fazele și cererile, ca pagina să nu treacă prin
+  // spinnerul care remontează tot (vezi garda de `loading` de mai jos).
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
+
+  const handleDuplicatePhase = async (phaseId: string, phaseName: string) => {
+    if (duplicatingId) return
+    setDuplicatingId(phaseId)
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/phases/${phaseId}/duplicate`, { method: 'POST' })
+      if (!res.ok) { showToast('Nu am putut duplica faza. Reîncearcă.', 'error'); return }
+      const { phase: copy } = await res.json()
+      await Promise.all([refreshPhases(), refreshDocs()])
+      if (copy?.id) setExpandedPhases(prev => new Set(prev).add(copy.id))
+      showToast(`Faza „${phaseName}” a fost duplicată. Copia este în pregătire.`, 'success')
+    } catch {
+      showToast('Nu am putut duplica faza. Reîncearcă.', 'error')
+    } finally { setDuplicatingId(null) }
+  }
+
+  const handleDuplicateActivity = async (phaseId: string, activityId: string, activityName: string) => {
+    if (duplicatingId) return
+    setDuplicatingId(activityId)
+    try {
+      const res = await apiFetch(
+        `/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}/duplicate`,
+        { method: 'POST' },
+      )
+      if (!res.ok) { showToast('Nu am putut duplica activitatea. Reîncearcă.', 'error'); return }
+      await Promise.all([refreshPhases(), refreshDocs()])
+      showToast(`Activitatea „${activityName}” a fost duplicată. Copia este în pregătire.`, 'success')
+    } catch {
+      showToast('Nu am putut duplica activitatea. Reîncearcă.', 'error')
+    } finally { setDuplicatingId(null) }
   }
 
   const refreshDocs = async () => {
@@ -1114,14 +1151,30 @@ function ProjectDetailsContent() {
                   subtitle={`${phase.activities?.length ?? 0} activit${phase.activities?.length === 1 ? 'ate' : 'ăți'}`}
                   color={phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)'}
                   headerRight={
-                    <PublishStatusControl
-                      status={phase.visibility ?? 'draft'}
-                      canPublish={canEdit}
-                      onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}`, {
-                        title: 'Publică faza?',
-                        description: 'Faza va deveni vizibilă clientului. Activitățile și cererile deja publicate din această fază vor deveni vizibile.',
-                      })}
-                    />
+                    <div className="flex items-center gap-2">
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => { void handleDuplicatePhase(phase.id, phase.name) }}
+                          disabled={duplicatingId === phase.id}
+                          title="Duplică faza cu tot ce conține"
+                          aria-label={`Duplică faza ${phase.name}`}
+                          className="flex-shrink-0 p-1.5 rounded-md text-[var(--p-ink-faint)] hover:text-[var(--p-accent)] hover:bg-[var(--p-accent-soft)] disabled:opacity-60"
+                        >
+                          {duplicatingId === phase.id
+                            ? <Loader2 className="w-4 h-4 animate-spin" />
+                            : <Copy className="w-4 h-4" />}
+                        </button>
+                      )}
+                      <PublishStatusControl
+                        status={phase.visibility ?? 'draft'}
+                        canPublish={canEdit}
+                        onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}`, {
+                          title: 'Publică faza?',
+                          description: 'Faza va deveni vizibilă clientului. Activitățile și cererile deja publicate din această fază vor deveni vizibile.',
+                        })}
+                      />
+                    </div>
                   }
                   open={expandedPhases.has(phase.id)}
                   onOpenChange={() => handleToggleExpand(phase.id)}
@@ -1149,6 +1202,8 @@ function ProjectDetailsContent() {
                           currentAssignee: activity.assigned_to,
                         })}
                         onSetDeadline={date => saveActivityDeadline(phase.id, activity.id, date)}
+                        onDuplicate={canEdit ? () => { void handleDuplicateActivity(phase.id, activity.id, activity.name) } : undefined}
+                        duplicating={duplicatingId === activity.id}
                         onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, {
                           title: 'Publică activitatea?',
                           description: phase.visibility === 'published'
