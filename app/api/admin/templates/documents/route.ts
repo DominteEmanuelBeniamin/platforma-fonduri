@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { normalizeRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
+import { copyStorageObject, findReferencedPaths, templateAttachmentPath } from '@/app/api/_utils/attachment-storage'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -33,7 +34,9 @@ export async function POST(req: NextRequest) {
     const attachmentItems = Array.isArray(attachments)
       ? attachments.filter((item: any) => item && typeof item.storage_path === 'string' && item.storage_path.trim())
       : null
-    const attachmentPath = attachmentItems?.[0]?.storage_path || attachment_path || null
+    let resolvedItems = attachmentItems
+    let resolvedLegacyPath = typeof attachment_path === 'string' && attachment_path.trim() ? attachment_path.trim() : null
+    let attachmentPath = resolvedItems?.[0]?.storage_path || resolvedLegacyPath || null
     const requirement_type = is_outgoing ? 'optional' : normalizeRequirementType(body?.requirement_type, is_mandatory)
 
     if (!template_activity_id || !name) {
@@ -52,6 +55,34 @@ export async function POST(req: NextRequest) {
     const templateAccess = await requireTemplateAccess(req, templateId, 'edit')
     if (!templateAccess.ok) {
       return NextResponse.json({ error: templateAccess.error }, { status: templateAccess.status })
+    }
+
+    // Duplicarea din editorul de șabloane se face în starea locală, deci copia
+    // ajunge aici cu calea fișierului-model al originalului. Două cerințe nu au
+    // voie să împartă același obiect din storage — ștergerea de pe una ar rupe-o
+    // pe cealaltă — așa că o cale deja folosită se copiază într-un obiect nou.
+    const incomingPaths = [
+      ...(resolvedItems ?? []).map((item: any) => item.storage_path.trim()),
+      ...(resolvedLegacyPath ? [resolvedLegacyPath] : []),
+    ]
+    const referencedPaths = await findReferencedPaths(supabaseAdmin, [...new Set(incomingPaths)])
+    if (referencedPaths.size > 0) {
+      const ownPath = async (path: string, originalName: unknown) => referencedPaths.has(path)
+        ? (await copyStorageObject(supabaseAdmin, path, templateAttachmentPath(
+            typeof originalName === 'string' ? originalName : null,
+          ))) ?? path
+        : path
+
+      if (resolvedItems) {
+        resolvedItems = await Promise.all(resolvedItems.map(async (item: any) => ({
+          ...item,
+          storage_path: await ownPath(item.storage_path.trim(), item.original_name),
+        })))
+      }
+      if (resolvedLegacyPath) {
+        resolvedLegacyPath = await ownPath(resolvedLegacyPath, attachment_original_name)
+      }
+      attachmentPath = resolvedItems?.[0]?.storage_path || resolvedLegacyPath || null
     }
 
     if (is_outgoing && !attachmentPath) {
@@ -82,7 +113,7 @@ export async function POST(req: NextRequest) {
         is_mandatory: requirementTypeToMandatory(requirement_type),
         order_index: finalOrderIndex,
         attachment_path: attachmentPath,
-        attachment_original_name: attachmentPath ? attachmentItems?.[0]?.original_name || attachment_original_name || null : null,
+        attachment_original_name: attachmentPath ? resolvedItems?.[0]?.original_name || attachment_original_name || null : null,
         is_outgoing,
         is_active: true,
       })
@@ -91,10 +122,10 @@ export async function POST(req: NextRequest) {
 
     if (error) throw error
 
-    if (doc && attachmentItems) {
+    if (doc && resolvedItems) {
       const { error: attachmentsError } = await supabaseAdmin
         .from('document_requirement_attachments')
-        .insert(attachmentItems.map((attachment: any, index: number) => ({
+        .insert(resolvedItems.map((attachment: any, index: number) => ({
           template_document_requirement_id: doc.id,
           storage_path: attachment.storage_path.trim(),
           original_name: typeof attachment.original_name === 'string' ? attachment.original_name : null,

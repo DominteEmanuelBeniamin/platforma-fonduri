@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
+import { copyStorageObject, templateAttachmentPath } from '@/app/api/_utils/attachment-storage'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -118,6 +119,26 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           .order('order_index')
 
         for (const doc of docs || []) {
+          // Fiecare fișier-model al copiei primește obiect propriu în storage.
+          // Altfel copia și originalul arată spre același obiect, iar ștergerea
+          // modelului de pe unul îl rupe pe celălalt.
+          const attachments = await Promise.all((doc.attachments ?? [])
+            .slice()
+            .sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0))
+            .map(async (attachment: any) => {
+              const copiedPath = await copyStorageObject(
+                supabaseAdmin,
+                attachment.storage_path,
+                templateAttachmentPath(attachment.original_name),
+              )
+              return { ...attachment, storage_path: copiedPath ?? attachment.storage_path }
+            }))
+          const legacyPath = attachments.length === 0 && doc.attachment_path
+            ? await copyStorageObject(supabaseAdmin, doc.attachment_path, templateAttachmentPath(doc.attachment_original_name))
+              ?? doc.attachment_path
+            : null
+          const firstPath = attachments[0]?.storage_path ?? legacyPath
+
           const { data: newDoc } = await supabaseAdmin
             .from('template_document_requirements')
             .insert({
@@ -127,18 +148,18 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
               is_mandatory: doc.is_mandatory,
               requirement_type: doc.requirement_type,
               order_index: doc.order_index,
-              attachment_path: doc.attachment_path,
-              attachment_original_name: doc.attachment_original_name,
+              attachment_path: firstPath,
+              attachment_original_name: attachments[0]?.original_name ?? doc.attachment_original_name,
               is_outgoing: Boolean(doc.is_outgoing),
               is_active: true,
             })
             .select('id')
             .single()
 
-          if (newDoc && doc.attachments?.length) {
+          if (newDoc && attachments.length) {
             await supabaseAdmin
               .from('document_requirement_attachments')
-              .insert(doc.attachments.map((attachment: any, index: number) => ({
+              .insert(attachments.map((attachment: any, index: number) => ({
                 template_document_requirement_id: newDoc.id,
                 storage_path: attachment.storage_path,
                 original_name: attachment.original_name,
