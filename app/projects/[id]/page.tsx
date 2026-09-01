@@ -1151,21 +1151,7 @@ function ProjectDetailsContent() {
                   subtitle={`${phase.activities?.length ?? 0} activit${phase.activities?.length === 1 ? 'ate' : 'ăți'}`}
                   color={phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)'}
                   headerRight={
-                    <div className="flex items-center gap-2">
-                      {canEdit && (
-                        <button
-                          type="button"
-                          onClick={() => { void handleDuplicatePhase(phase.id, phase.name) }}
-                          disabled={duplicatingId === phase.id}
-                          title="Duplică faza cu tot ce conține"
-                          aria-label={`Duplică faza ${phase.name}`}
-                          className="flex-shrink-0 p-1.5 rounded-md text-[var(--p-ink-faint)] hover:text-[var(--p-accent)] hover:bg-[var(--p-accent-soft)] disabled:opacity-60"
-                        >
-                          {duplicatingId === phase.id
-                            ? <Loader2 className="w-4 h-4 animate-spin" />
-                            : <Copy className="w-4 h-4" />}
-                        </button>
-                      )}
+                    <div className="flex items-center gap-2.5">
                       <PublishStatusControl
                         status={phase.visibility ?? 'draft'}
                         canPublish={canEdit}
@@ -1174,6 +1160,22 @@ function ProjectDetailsContent() {
                           description: 'Faza va deveni vizibilă clientului. Activitățile și cererile deja publicate din această fază vor deveni vizibile.',
                         })}
                       />
+                      {/* Acțiune secundară: după controlul de publicare, lângă
+                          butonul de închidere a fazei. */}
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => { void handleDuplicatePhase(phase.id, phase.name) }}
+                          disabled={duplicatingId === phase.id}
+                          title="Duplică faza cu tot ce conține"
+                          aria-label={`Duplică faza ${phase.name}`}
+                          className="flex-shrink-0 rounded p-0.5 text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface-2)] disabled:opacity-60"
+                        >
+                          {duplicatingId === phase.id
+                            ? <Loader2 className="w-4 h-4 animate-spin" />
+                            : <Copy className="w-4 h-4" />}
+                        </button>
+                      )}
                     </div>
                   }
                   open={expandedPhases.has(phase.id)}

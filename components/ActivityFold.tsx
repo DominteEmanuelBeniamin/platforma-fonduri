@@ -150,21 +150,6 @@ export default function ActivityFold({
 
         {/* Controlul își oprește singur propagarea pe ramurile interactive;
             pe cea pasivă, clickul trebuie să ajungă la rând. */}
-        {onDuplicate && (
-          <button
-            type="button"
-            onClick={e => { e.stopPropagation(); onDuplicate() }}
-            disabled={duplicating}
-            title="Duplică activitatea cu cererile ei"
-            aria-label={`Duplică activitatea ${activity.name}`}
-            className="flex-shrink-0 p-1 rounded-md text-[var(--p-ink-faint)] hover:text-[var(--p-accent)] hover:bg-[var(--p-accent-soft)] disabled:opacity-60"
-          >
-            {duplicating
-              ? <Loader2 className="w-4 h-4 animate-spin" />
-              : <Copy className="w-4 h-4" />}
-          </button>
-        )}
-
         <div className="flex-shrink-0">
           <PublishStatusControl
             status={visibility ?? 'draft'}
@@ -175,6 +160,23 @@ export default function ActivityFold({
             size="sm"
           />
         </div>
+
+        {/* Acțiune secundară: stă la capătul rândului, lângă chevron, ca
+            creionul și coșul de pe rândurile de cereri. */}
+        {onDuplicate && (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onDuplicate() }}
+            disabled={duplicating}
+            title="Duplică activitatea cu cererile ei"
+            aria-label={`Duplică activitatea ${activity.name}`}
+            className="flex-shrink-0 rounded p-0.5 text-[var(--p-ink-faint)] hover:text-[var(--p-accent)] hover:bg-[var(--p-surface-2)] disabled:opacity-60"
+          >
+            {duplicating
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              : <Copy className="w-3.5 h-3.5" />}
+          </button>
+        )}
         </div>
       </div>
       <Collapsible.Content>
