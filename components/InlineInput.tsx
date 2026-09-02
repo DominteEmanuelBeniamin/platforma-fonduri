@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Check, Loader2, X } from 'lucide-react'
 
 /**
@@ -23,12 +23,27 @@ export default function InlineInput({
   size?: 'sm' | 'md'
 }) {
   const [value, setValue] = useState(initialValue)
+  const inputRef = useRef<HTMLInputElement>(null)
   const iconSize = size === 'md' ? 'w-3.5 h-3.5' : 'w-3 h-3'
+
+  // La redenumire, numele intră selectat, cu punctul de focus la început:
+  // `autoFocus` singur lasă cursorul la coadă, iar pe un nume care nu încape în
+  // câmp se vedea doar sfârșitul lui — nu se știa ce se redenumește.
+  useEffect(() => {
+    const input = inputRef.current
+    if (!input || !initialValue) return
+    input.setSelectionRange(0, initialValue.length, 'backward')
+    // Selecția singură nu derulează câmpul înapoi: `autoFocus` a dus deja
+    // vederea la coada numelui.
+    input.scrollLeft = 0
+  }, [initialValue])
 
   return (
     <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
       <input
+        ref={inputRef}
         autoFocus
+        title={initialValue || undefined}
         value={value}
         onChange={e => setValue(e.target.value)}
         onKeyDown={e => {

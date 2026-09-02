@@ -21,6 +21,8 @@ import InlineDateEditor from '@/components/InlineDateEditor'
 import InlineInput from '@/components/InlineInput'
 import RowActionsMenu from '@/components/RowActionsMenu'
 import { useToast } from '@/app/providers/ToastProvider'
+import { serverMessage } from '@/lib/api-error'
+import { activityDuplicatedMessage, phaseDuplicatedMessage } from '@/lib/duplication-summary'
 import {
   activityDeletionConfirm,
   activityDeletionImpact,
@@ -76,6 +78,8 @@ interface ProjectPhasesSidebarProps {
   onToggleExpand: (phaseId: string) => void
   onRefresh: () => Promise<void> | void
   onReorderRefresh?: () => Promise<void> | void
+  /** Faze + cereri, fără spinner — după duplicare, unde apar și cereri noi. */
+  onDuplicateRefresh?: () => Promise<void> | void
   onTeamChange?: () => void
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>
   /** Pe mobil, sidebar-ul devine un drawer — controlat din pagina părinte. */
@@ -99,6 +103,7 @@ export default function ProjectPhasesSidebar({
   onToggleExpand,
   onRefresh,
   onReorderRefresh,
+  onDuplicateRefresh,
   onTeamChange,
   apiFetch,
   mobileOpen,
@@ -191,6 +196,11 @@ export default function ProjectPhasesSidebar({
   // redenumire. Reordonarea folosește deja refresh-ul de faze, fără spinner.
   const softRefresh = () => (onReorderRefresh ?? onRefresh)()
 
+  // Copia vine cu cereri de documente noi, iar `softRefresh` aduce doar fazele:
+  // fără cereri, panoul central ar arăta „0 cereri” pe copie până la reload, iar
+  // dialogul ei de ștergere ar tăcea despre cererile pe care le mută.
+  const duplicateRefresh = () => (onDuplicateRefresh ?? softRefresh)()
+
   const handleRename = async (url: string, id: string, name: string) => {
     setSavingRename(id)
     try {
@@ -224,12 +234,15 @@ export default function ProjectPhasesSidebar({
         method: 'POST',
       })
       if (res.ok) {
-        const { phase: copy } = await res.json()
-        await softRefresh()
+        const { phase: copy, activities_created, document_requests_created } = await res.json()
+        await duplicateRefresh()
         if (copy?.id) setRenamingId(copy.id)
-        showToast(`Faza „${phase.name}” a fost duplicată. Copia este în pregătire.`, 'success')
+        showToast(phaseDuplicatedMessage(phase.name, {
+          activities: activities_created ?? 0,
+          documentRequests: document_requests_created ?? 0,
+        }), 'success')
       } else {
-        showToast('Nu am putut duplica faza. Reîncearcă.', 'error')
+        showToast(await serverMessage(res, 'Nu am putut duplica faza. Reîncearcă.'), 'error')
       }
     } catch {
       showToast('Nu am putut duplica faza. Reîncearcă.', 'error')
@@ -245,12 +258,12 @@ export default function ProjectPhasesSidebar({
         { method: 'POST' }
       )
       if (res.ok) {
-        const { activity: copy } = await res.json()
-        await softRefresh()
+        const { activity: copy, document_requests_created } = await res.json()
+        await duplicateRefresh()
         if (copy?.id) setRenamingId(copy.id)
-        showToast(`Activitatea „${activity.name}” a fost duplicată. Copia este în pregătire.`, 'success')
+        showToast(activityDuplicatedMessage(activity.name, document_requests_created ?? 0), 'success')
       } else {
-        showToast('Nu am putut duplica activitatea. Reîncearcă.', 'error')
+        showToast(await serverMessage(res, 'Nu am putut duplica activitatea. Reîncearcă.'), 'error')
       }
     } catch {
       showToast('Nu am putut duplica activitatea. Reîncearcă.', 'error')
@@ -447,7 +460,7 @@ export default function ProjectPhasesSidebar({
                       isActive ? 'bg-[var(--p-accent-soft)]' : 'hover:bg-[var(--p-surface-2)]'
                     } ${draggedPhaseId === phase.id ? 'opacity-50' : ''}`}
                   >
-                    {canEdit && (
+                    {canEdit && renamingId !== phase.id && (
                       <span
                         draggable
                         onDragStart={e => handlePhaseDragStart(e, phase.id)}
@@ -459,11 +472,16 @@ export default function ProjectPhasesSidebar({
                         <GripVertical className="w-3.5 h-3.5" />
                       </span>
                     )}
-                    <span
-                      title={phase.visibility === 'published' ? 'Public — vizibil pentru client' : 'În pregătire — invizibil pentru client'}
-                      className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)' }}
-                    />
+                    {/* În redenumire, tot ce nu ține de câmp dispare: pe o
+                        coloană de 288 px, bulina, chevron-ul și mânerul de
+                        tragere lăsau vizibilă doar coada numelui. */}
+                    {renamingId !== phase.id && (
+                      <span
+                        title={phase.visibility === 'published' ? 'Public — vizibil pentru client' : 'În pregătire — invizibil pentru client'}
+                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)' }}
+                      />
+                    )}
                     {renamingId === phase.id ? (
                       <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
                         <InlineInput
@@ -479,23 +497,28 @@ export default function ProjectPhasesSidebar({
                         {phase.name}
                       </span>
                     )}
-                    <Collapsible.Trigger asChild>
-                      <button
-                        onClick={e => e.stopPropagation()}
-                        aria-label={isExpanded ? 'Restrânge faza' : 'Extinde faza'}
-                        className="p-0.5 rounded hover:bg-[var(--p-surface-2)] flex-shrink-0"
-                      >
-                        {isExpanded
-                          ? <ChevronDown className="w-3.5 h-3.5 text-[var(--p-ink-faint)]" />
-                          : <ChevronRight className="w-3.5 h-3.5 text-[var(--p-ink-faint)]" />
-                        }
-                      </button>
-                    </Collapsible.Trigger>
+                    {renamingId !== phase.id && (
+                      <Collapsible.Trigger asChild>
+                        <button
+                          onClick={e => e.stopPropagation()}
+                          aria-label={isExpanded ? 'Restrânge faza' : 'Extinde faza'}
+                          className="p-0.5 rounded hover:bg-[var(--p-surface-2)] flex-shrink-0"
+                        >
+                          {isExpanded
+                            ? <ChevronDown className="w-3.5 h-3.5 text-[var(--p-ink-faint)]" />
+                            : <ChevronRight className="w-3.5 h-3.5 text-[var(--p-ink-faint)]" />
+                          }
+                        </button>
+                      </Collapsible.Trigger>
+                    )}
                     {canEdit && renamingId !== phase.id && (
                       <RowActionsMenu
                         label={`Acțiuni pentru faza ${phase.name}`}
                         busy={duplicatingPhase === phase.id || deletingPhase === phase.id}
-                        className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 data-[open=true]:opacity-100 transition-opacity"
+                        // `group-hover` nu se declanșează pe touch, iar „⋯” e
+                        // singura cale spre Redenumește / Duplică / Șterge:
+                        // pe telefon rămâne vizibil.
+                        className="md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100 data-[open=true]:opacity-100 transition-opacity"
                         actions={[
                           {
                             label: 'Redenumește',
@@ -545,7 +568,7 @@ export default function ProjectPhasesSidebar({
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          {canEdit && (
+                          {canEdit && renamingId !== act.id && (
                             <span
                               draggable
                               onDragStart={e => handleActivityDragStart(e, phase, act.id)}
@@ -572,7 +595,7 @@ export default function ProjectPhasesSidebar({
                           )}
 
                           {/* Buton calendar — pentru admin/consultant */}
-                          {canEdit && (
+                          {canEdit && renamingId !== act.id && (
                             <button
                               onClick={e => {
                                 e.stopPropagation()
@@ -596,7 +619,7 @@ export default function ProjectPhasesSidebar({
                               label={`Acțiuni pentru activitatea ${act.name}`}
                               size="sm"
                               busy={duplicatingActivity === act.id || deletingActivity === act.id}
-                              className="opacity-0 group-hover/act:opacity-100 focus-within:opacity-100 data-[open=true]:opacity-100 transition-opacity"
+                              className="md:opacity-0 md:group-hover/act:opacity-100 focus-within:opacity-100 data-[open=true]:opacity-100 transition-opacity"
                               actions={[
                                 {
                                   label: 'Redenumește',

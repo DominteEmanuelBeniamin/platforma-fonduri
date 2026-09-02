@@ -39,6 +39,7 @@ export default function RowActionsMenu({
   label: string
   actions: RowAction[]
   busy?: boolean
+  /** Doar iconița e mai mică pe rândurile de activitate; ținta rămâne 32 px. */
   size?: 'sm' | 'md'
   className?: string
 }) {
@@ -55,7 +56,7 @@ export default function RowActionsMenu({
     if (!button) return
     const rect = button.getBoundingClientRect()
     const right = window.innerWidth - rect.right
-    const estimatedHeight = visible.length * 30 + 8
+    const estimatedHeight = visible.length * 32 + 8
     setPosition(rect.bottom + 4 + estimatedHeight > window.innerHeight - 8
       ? { right, bottom: window.innerHeight - rect.top + 4 }
       : { right, top: rect.bottom + 4 })
@@ -68,7 +69,21 @@ export default function RowActionsMenu({
       if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key === 'Escape') { setOpen(false); buttonRef.current?.focus(); return }
+      // Lista stă în `body`, la finalul documentului: ordinea naturală de
+      // tabulare ar sări peste ea și ar lăsa meniul deschis în urmă. Focusul se
+      // întoarce pe trigger *fără* `preventDefault`, deci Tab-ul continuă de
+      // acolo, în rândul următor, nu de la începutul paginii.
+      if (event.key === 'Tab') { setOpen(false); buttonRef.current?.focus(); return }
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+      event.preventDefault()
+      const items = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])]
+      if (items.length === 0) return
+      const at = items.indexOf(document.activeElement as HTMLButtonElement)
+      const next = event.key === 'ArrowDown'
+        ? (at + 1) % items.length
+        : (at - 1 + items.length) % items.length
+      items[next].focus()
     }
     document.addEventListener('mousedown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
@@ -82,6 +97,13 @@ export default function RowActionsMenu({
       window.removeEventListener('resize', place)
     }
   }, [open, place])
+
+  // La deschidere focusul trece pe primul item: altfel rămâne pe trigger, iar
+  // săgețile n-au de unde porni.
+  useEffect(() => {
+    if (!open) return
+    menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
+  }, [open])
 
   if (visible.length === 0) return null
 
@@ -102,7 +124,7 @@ export default function RowActionsMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         data-open={open}
-        className={`${size === 'sm' ? 'p-0.5' : 'p-1'} rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface-2)] disabled:opacity-60`}
+        className={`${size === 'sm' ? 'p-2.5' : 'p-2'} rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface-2)] disabled:opacity-60`}
       >
         {busy
           ? <Loader2 className={`${iconSize} animate-spin`} />
@@ -125,7 +147,7 @@ export default function RowActionsMenu({
               type="button"
               role="menuitem"
               onClick={() => { setOpen(false); action.onSelect() }}
-              className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left hover:bg-[var(--p-surface-2)] ${
+              className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-[var(--p-surface-2)] ${
                 action.danger ? 'text-[var(--p-danger)]' : 'text-[var(--p-ink)]'
               }`}
             >

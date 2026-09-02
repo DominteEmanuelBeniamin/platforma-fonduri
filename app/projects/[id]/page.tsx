@@ -55,6 +55,8 @@ import CalendarSurface from '@/components/calendar/CalendarSurface'
 import { buildSearchIndex, type SearchResult } from '@/lib/projectSearch'
 import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
 import { publishBlockers } from '@/lib/publish-rules'
+import { serverMessage } from '@/lib/api-error'
+import { activityDuplicatedMessage, phaseDuplicatedMessage } from '@/lib/duplication-summary'
 import {
   GENERAL_PHASE_ID,
   clearCalendarParams,
@@ -362,14 +364,20 @@ function ProjectDetailsContent() {
     setDuplicatingId(phaseId)
     try {
       const res = await apiFetch(`/api/projects/${projectId}/phases/${phaseId}/duplicate`, { method: 'POST' })
-      if (!res.ok) { showToast('Nu am putut duplica faza. Reîncearcă.', 'error'); return }
-      const { phase: copy } = await res.json()
-      await Promise.all([refreshPhases(), refreshDocs()])
+      if (!res.ok) {
+        showToast(await serverMessage(res, 'Nu am putut duplica faza. Reîncearcă.'), 'error')
+        return
+      }
+      const { phase: copy, activities_created, document_requests_created } = await res.json()
+      await refreshContent()
       if (copy?.id) {
         setExpandedPhases(prev => new Set(prev).add(copy.id))
         setRenamingId(copy.id)
       }
-      showToast(`Faza „${phaseName}” a fost duplicată. Copia este în pregătire.`, 'success')
+      showToast(phaseDuplicatedMessage(phaseName, {
+        activities: activities_created ?? 0,
+        documentRequests: document_requests_created ?? 0,
+      }), 'success')
     } catch {
       showToast('Nu am putut duplica faza. Reîncearcă.', 'error')
     } finally { setDuplicatingId(null) }
@@ -383,11 +391,14 @@ function ProjectDetailsContent() {
         `/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}/duplicate`,
         { method: 'POST' },
       )
-      if (!res.ok) { showToast('Nu am putut duplica activitatea. Reîncearcă.', 'error'); return }
-      const { activity: copy } = await res.json()
-      await Promise.all([refreshPhases(), refreshDocs()])
+      if (!res.ok) {
+        showToast(await serverMessage(res, 'Nu am putut duplica activitatea. Reîncearcă.'), 'error')
+        return
+      }
+      const { activity: copy, document_requests_created } = await res.json()
+      await refreshContent()
       if (copy?.id) setRenamingId(copy.id)
-      showToast(`Activitatea „${activityName}” a fost duplicată. Copia este în pregătire.`, 'success')
+      showToast(activityDuplicatedMessage(activityName, document_requests_created ?? 0), 'success')
     } catch {
       showToast('Nu am putut duplica activitatea. Reîncearcă.', 'error')
     } finally { setDuplicatingId(null) }
@@ -1065,6 +1076,7 @@ function ProjectDetailsContent() {
             onToggleExpand={handleToggleExpand}
             onRefresh={fetchAll}
             onReorderRefresh={refreshPhases}
+            onDuplicateRefresh={refreshContent}
             onTeamChange={fetchProjectMembers}
             apiFetch={apiFetch}
             isAdmin={isAdmin}
@@ -1214,16 +1226,14 @@ function ProjectDetailsContent() {
                   subtitle={`${phase.activities?.length ?? 0} activit${phase.activities?.length === 1 ? 'ate' : 'ăți'}`}
                   color={phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)'}
                   headerRight={
-                    <div className="flex items-center gap-2.5">
-                      <PublishStatusControl
-                        status={phase.visibility ?? 'draft'}
-                        canPublish={canEdit}
-                        onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}`, {
-                          title: 'Publică faza?',
-                          description: 'Faza va deveni vizibilă clientului. Activitățile și cererile deja publicate din această fază vor deveni vizibile.',
-                        })}
-                      />
-                    </div>
+                    <PublishStatusControl
+                      status={phase.visibility ?? 'draft'}
+                      canPublish={canEdit}
+                      onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}`, {
+                        title: 'Publică faza?',
+                        description: 'Faza va deveni vizibilă clientului. Activitățile și cererile deja publicate din această fază vor deveni vizibile.',
+                      })}
+                    />
                   }
                   actions={canEdit ? (
                     <RowActionsMenu
