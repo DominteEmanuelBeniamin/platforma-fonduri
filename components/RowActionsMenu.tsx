@@ -110,11 +110,14 @@ export default function RowActionsMenu({
       </button>
 
       {open && position && createPortal(
+        // `project-scope` aduce cu el token-urile `--p-*`: sunt definite pe
+        // domeniul paginii de proiect, iar aici, în `body`, fondul ar rămâne
+        // transparent, cu rândul de dedesubt citindu-se prin meniu.
         <div
           ref={menuRef}
           role="menu"
           style={{ position: 'fixed', right: position.right, top: position.top, bottom: position.bottom }}
-          className="z-50 min-w-[11rem] py-1 rounded-lg border border-[var(--p-border)] bg-[var(--p-surface)] shadow-[0_8px_24px_-8px_rgba(15,23,42,0.25)]"
+          className="project-scope z-50 min-w-[11rem] py-1 rounded-lg border border-[var(--p-border)] bg-[var(--p-surface)] shadow-[0_8px_24px_-8px_rgba(15,23,42,0.25)]"
         >
           {visible.map(action => (
             <button

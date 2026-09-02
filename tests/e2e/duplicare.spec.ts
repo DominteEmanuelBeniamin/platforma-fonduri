@@ -97,6 +97,11 @@ test('meniul activității nu se taie la marginea cardului', async ({ page }) =>
   })
   expect(painted).toBe('meniu')
 
+  // Token-urile `--p-*` stau pe `.project-scope`: în afara lui, fondul meniului
+  // ar fi „culoare invalidă", adică transparent, cu rândul citindu-se prin el.
+  const background = await page.getByRole('menu').evaluate(el => getComputedStyle(el).backgroundColor)
+  expect(background).toBe('rgb(255, 255, 255)')
+
   await page.keyboard.press('Escape')
   await expect(page.getByRole('menuitem')).toHaveCount(0)
 })
