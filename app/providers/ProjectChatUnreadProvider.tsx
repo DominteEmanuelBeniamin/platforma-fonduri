@@ -42,7 +42,7 @@ const { Provider, useSummary } = createUnreadSummaryProvider<ProjectChatUnreadSt
   },
   channelName: (userId) => `project-chat-unread-global-${userId}`,
   sources: [
-    { table: 'project_chat_messages' },
+    { table: 'project_chat_events' },
     { table: 'project_chat_reads' },
   ],
 })

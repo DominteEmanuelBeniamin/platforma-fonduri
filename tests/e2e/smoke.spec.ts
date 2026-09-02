@@ -37,6 +37,16 @@ function samplePdf(name: string) {
   return file
 }
 
+/** Un PNG 1x1 valid pentru probele chatului, fără fixture binar în repo. */
+function samplePng(name: string) {
+  const file = path.join(os.tmpdir(), name)
+  fs.writeFileSync(file, Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'base64',
+  ))
+  return file
+}
+
 function badFile(name: string) {
   const file = path.join(os.tmpdir(), name)
   fs.writeFileSync(file, 'nu sunt un tip permis\n')
@@ -56,6 +66,15 @@ async function openFirstPendingRequest(page: Page) {
   await rows.first().click()
   await page.waitForTimeout(3500)
   return name
+}
+
+async function openProjectChat(page: Page) {
+  await page.goto(`/projects/${PROJECT}`, { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(5000)
+  await page.getByRole('button', { name: /^Chat/ }).click()
+  const drawer = page.locator('aside')
+  await expect(drawer.getByRole('heading', { name: 'Chat proiect' })).toBeVisible()
+  return drawer
 }
 
 test('paginile atinse se încarcă fără erori de consolă', async ({ page }) => {
@@ -87,8 +106,65 @@ test('un tip de fișier nepermis e oprit în client, fără să atingă serverul
   expect(calls, 'validarea nu are voie să ajungă la server').toEqual([])
 })
 
+test('chatul redirecționează documentele spre cereri, fără inițiere de upload', async ({ page }) => {
+  test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)
+  const calls: string[] = []
+  page.on('request', r => {
+    if (r.url().includes(`/api/projects/${PROJECT}/chat/images/init`)) calls.push(r.url())
+  })
+
+  await login(page, 'CLIENT')
+  const drawer = await openProjectChat(page)
+  await drawer.locator('input[type=file]').setInputFiles(samplePdf('smoke-chat.pdf'))
+
+  await expect(drawer.getByText('Documentele se încarcă prin cererile dedicate.')).toBeVisible()
+  await expect(drawer.getByRole('button', { name: 'Alege cererea potrivită' })).toBeVisible()
+  expect(calls, 'un document nu trebuie trimis la endpointul imaginilor').toEqual([])
+})
+
+test('chatul respinge a șasea imagine înainte de upload', async ({ page }) => {
+  test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)
+  const calls: string[] = []
+  page.on('request', r => {
+    if (r.url().includes(`/api/projects/${PROJECT}/chat/images/init`)) calls.push(r.url())
+  })
+
+  await login(page, 'CLIENT')
+  const drawer = await openProjectChat(page)
+  const files = Array.from({ length: 6 }, (_, index) => samplePng(`smoke-chat-${index}.png`))
+  await drawer.locator('input[type=file]').setInputFiles(files)
+
+  await expect(drawer.getByText('Poți atașa maximum 5 imagini într-un mesaj.')).toBeVisible()
+  expect(calls, 'limita trebuie aplicată înainte de upload').toEqual([])
+})
+
 test.describe('upload real', () => {
   test.skip(!WRITES, 'scrie date reale — rulează cu E2E_WRITES=1')
+
+  test('staff trimite un mesaj chat doar cu imagine', async ({ page }) => {
+    test.skip(!STAFF_READY, `lipsesc proiectul sau credențialele staff din ${ENV_FILE}`)
+    const steps: Array<{ kind: string, status: number }> = []
+    page.on('response', r => {
+      const url = r.url()
+      if (url.includes(`/api/projects/${PROJECT}/chat/images/init`)) {
+        steps.push({ kind: 'init', status: r.status() })
+      } else if (url.endsWith(`/api/projects/${PROJECT}/chat/messages`) && r.request().method() === 'POST') {
+        steps.push({ kind: 'message', status: r.status() })
+      }
+    })
+
+    await login(page, 'STAFF')
+    const drawer = await openProjectChat(page)
+    const name = `smoke-chat-${Date.now()}.png`
+    await drawer.locator('input[type=file]').setInputFiles(samplePng(name))
+    await drawer.getByRole('button', { name: 'Trimite' }).click()
+
+    await expect(drawer.getByRole('img', { name })).toBeVisible({ timeout: 15_000 })
+    expect(steps, 'inițializarea și crearea mesajului trebuie să reușească').toEqual([
+      { kind: 'init', status: 200 },
+      { kind: 'message', status: 201 },
+    ])
+  })
 
   test('clientul încarcă din modalul cererii', async ({ page }) => {
     test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)

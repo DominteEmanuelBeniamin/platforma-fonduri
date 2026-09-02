@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { userErrorMessage } from '@/lib/user-error'
+import type { ChatImage, ChatImageReference } from '@/lib/project-chat-contracts'
 
 export type ChatProfile = {
   id: string
@@ -16,11 +17,13 @@ export type ChatMessage = {
   project_id: string
   created_by: string
   body: string | null
+  images: ChatImage[]
   created_at: string
   edited_at: string | null
   deleted_at: string | null
   profiles: ChatProfile | null
   is_deleted?: boolean
+  body_masked?: boolean
 }
 
 export type ProjectChatReadState = {
@@ -60,6 +63,11 @@ type ReadResponse = {
   readStates: ProjectChatReadState[]
 }
 
+export type SendMessageInput = {
+  body: string | null
+  images: ChatImageReference[]
+}
+
 const maxIso = (a: string | null, b: string | null) => {
   if (!a) return b
   if (!b) return a
@@ -82,6 +90,11 @@ const mergeReadState = (
     }
   })
 }
+
+const normalizeMessage = (message: ChatMessage): ChatMessage => ({
+  ...message,
+  images: Array.isArray(message.images) ? message.images : [],
+})
 
 export function useProjectChat(projectId: string, opts: UseProjectChatOptions = {}) {
   const { apiFetch, loading: authLoading, userId } = useAuth()
@@ -129,9 +142,10 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
     setMessages((prev) => {
       const existing = prev.find((x) => x.id === m.id)
 
+      const incoming = normalizeMessage(m)
       const merged: ChatMessage = existing
-        ? { ...existing, ...m, profiles: m.profiles ?? existing.profiles }
-        : m
+        ? { ...existing, ...incoming, profiles: incoming.profiles ?? existing.profiles }
+        : incoming
 
       const next = existing
         ? prev.map((x) => (x.id === m.id ? merged : x))
@@ -147,7 +161,7 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
     idsRef.current.add(m.id)
 
     setMessages((prev) => {
-      const next = prev.concat(m)
+      const next = prev.concat(normalizeMessage(m))
       next.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
       return next
     })
@@ -194,26 +208,30 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
   )
 
   const editMessage = useCallback(
-    async (messageId: string, body: string) => {
-      const trimmed = body.trim()
-      if (!trimmed) return
+    async (messageId: string, body: string | null) => {
+      const normalizedBody = typeof body === 'string' ? body.trim() || null : null
 
       setError(null)
       try {
         const res = await apiFetch(`/api/projects/${projectId}/chat/messages/${messageId}`, {
           method: 'PATCH',
-          body: JSON.stringify({ body: trimmed }),
+          body: JSON.stringify({ body: normalizedBody }),
         })
         const json = (await res.json().catch(() => null)) as PatchResponse | null
 
         if (!res.ok) {
           setError(userErrorMessage(res.status, 'Nu am putut edita mesajul.'))
-          return
+          return null
         }
 
-        if (json?.item) upsertOne(json.item)
+        if (json?.item) {
+          upsertOne(json.item)
+          return json.item
+        }
+        return null
       } catch {
         setError(userErrorMessage(undefined, 'Nu am putut edita mesajul.'))
+        return null
       }
     },
     [apiFetch, projectId, upsertOne]
@@ -235,7 +253,11 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
 
         const nowIso = new Date().toISOString()
         setMessages((prev) =>
-          prev.map((m) => (m.id === messageId ? { ...m, deleted_at: nowIso } : m))
+          prev.map((m) =>
+            m.id === messageId
+              ? { ...m, body: null, images: [], is_deleted: true, deleted_at: nowIso }
+              : m
+          )
         )
       } catch {
         setError(userErrorMessage(undefined, 'Nu am putut șterge mesajul.'))
@@ -265,7 +287,7 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
 
       const apiItems = json?.items ?? []
       const cursor = json?.nextCursor ?? null
-      const oldestFirst = apiItems.slice().reverse()
+      const oldestFirst = apiItems.slice().reverse().map(normalizeMessage)
 
       idsRef.current = new Set(oldestFirst.map((m) => m.id))
       setMessages(oldestFirst)
@@ -301,7 +323,7 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
 
       const apiItems = json?.items ?? []
       const cursor = json?.nextCursor ?? null
-      const oldestFirst = apiItems.slice().reverse()
+      const oldestFirst = apiItems.slice().reverse().map(normalizeMessage)
 
       setMessages((prev) => {
         const merged = [...oldestFirst, ...prev]
@@ -327,10 +349,30 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
     }
   }, [apiFetch, authLoading, initialLimit, loading, nextCursor, projectId])
 
+  const refreshMessage = useCallback(
+    async (messageId: string) => {
+      if (!projectId || authLoading) return null
+      try {
+        const res = await apiFetch(`/api/projects/${projectId}/chat/messages/${messageId}`, { method: 'GET' })
+        const json = (await res.json().catch(() => null)) as GetByIdResponse | null
+        if (!res.ok || !json?.item) return null
+        upsertOne(json.item)
+        return json.item
+      } catch {
+        return null
+      }
+    },
+    [apiFetch, authLoading, projectId, upsertOne]
+  )
+
   const sendMessage = useCallback(
-    async (body: string) => {
-      const trimmed = body.trim()
-      if (!trimmed) return
+    async (input: SendMessageInput | string) => {
+      const payload: SendMessageInput = typeof input === 'string'
+        ? { body: input, images: [] }
+        : input
+      const trimmed = payload.body?.trim() ?? ''
+      const body = trimmed || null
+      if (!body && payload.images.length === 0) return null
 
       setSending(true)
       setError(null)
@@ -338,19 +380,24 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
       try {
         const res = await apiFetch(`/api/projects/${projectId}/chat/messages`, {
           method: 'POST',
-          body: JSON.stringify({ body: trimmed }),
+          body: JSON.stringify({ body, images: payload.images }),
         })
         const json = (await res.json().catch(() => null)) as PostResponse | null
 
         if (!res.ok) {
           setError(userErrorMessage(res.status, 'Nu am putut trimite mesajul.'))
-          return
+          return null
         }
 
         const item = json?.item
-        if (item) pushOne(item)
+        if (item) {
+          pushOne(item)
+          return item
+        }
+        return null
       } catch {
         setError(userErrorMessage(undefined, 'Nu am putut trimite mesajul.'))
+        return null
       } finally {
         setSending(false)
       }
@@ -364,71 +411,39 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
 
     let cancelled = false
 
-    const fetchFullById = async (id: string) => {
-      const res = await apiFetch(`/api/projects/${projectId}/chat/messages/${id}`, { method: 'GET' })
-      const json = (await res.json().catch(() => null)) as GetByIdResponse | null
-      if (!res.ok) return null
-      return json?.item ?? null
-    }
-
     const channel = supabase
       .channel(`project-chat-${projectId}`)
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
-          table: 'project_chat_messages',
-          filter: `project_id=eq.${projectId}`,
-        },
-        async (payload) => {
-          try {
-            const row = payload.new as { id?: string; deleted_at?: string | null } | null
-            const id = row?.id
-            if (!id) return
-            if (row?.deleted_at) return
-            if (idsRef.current.has(id)) return
-
-            const item = await fetchFullById(id)
-            if (cancelled) return
-            if (item && !item.deleted_at) upsertOne(item)
-          } catch {
-            // ignore
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'project_chat_messages',
+          table: 'project_chat_events',
           filter: `project_id=eq.${projectId}`,
         },
         async (payload) => {
           try {
             const row = payload.new as {
-              id?: string
-              deleted_at?: string | null
+              message_id?: string
+              event_type?: 'created' | 'updated' | 'deleted'
             } | null
-
-            const id = row?.id
+            const id = row?.message_id
             if (!id) return
-
-            if (row?.deleted_at) {
+            if (row?.event_type === 'deleted') {
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === id
-                    ? { ...m, deleted_at: row.deleted_at ?? new Date().toISOString() }
+                    ? { ...m, body: null, images: [], is_deleted: true, deleted_at: new Date().toISOString() }
                     : m
                 )
               )
               return
             }
 
-            const item = await fetchFullById(id)
+            const res = await apiFetch(`/api/projects/${projectId}/chat/messages/${id}`, { method: 'GET' })
+            const json = (await res.json().catch(() => null)) as GetByIdResponse | null
             if (cancelled) return
-            if (item && !item.deleted_at) upsertOne(item)
+            if (json?.item) upsertOne(json.item)
           } catch {
             // ignore
           }
@@ -492,5 +507,6 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
     lastReadAt,
     readStates,
     refreshReadState,
+    refreshMessage,
   }
 }

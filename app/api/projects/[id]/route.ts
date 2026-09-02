@@ -296,6 +296,41 @@ export async function DELETE(
       ...(attachments ?? []).flatMap(r => (r.document_requirement_attachments ?? []).map((a: any) => a.storage_path)).filter((p): p is string => typeof p === 'string' && p.length > 0),
     ]))
 
+    // Chat uploads are not represented in `files`; sweep the private prefix so
+    // abandoned uploads are removed before the project row is deleted.
+    const chatPrefix = `projects/${projectId}/chat/`
+    const chatPaths: string[] = []
+    let cursor: string | undefined
+    while (true) {
+      const options = {
+        prefix: chatPrefix,
+        limit: 1000,
+        ...(cursor ? { cursor } : {}),
+        withHierarchy: false,
+      }
+      const { data: listed, error: listError } = await admin.storage
+        .from(bucket)
+        .listV2(options)
+
+      if (listError || !listed) {
+        console.error('Fetch project chat storage paths error:', { projectId, listError })
+        return NextResponse.json({ error: 'Failed to load project chat files' }, { status: 500 })
+      }
+
+      chatPaths.push(...(listed.objects ?? [])
+        .map((object: { key?: unknown }) => object.key)
+        .filter((key): key is string => typeof key === 'string' && key.startsWith(chatPrefix)))
+
+      if (!listed.hasNext) break
+      if (!listed.nextCursor || listed.nextCursor === cursor) {
+        console.error('Project chat storage listing returned an invalid cursor:', { projectId })
+        return NextResponse.json({ error: 'Failed to paginate project chat files' }, { status: 500 })
+      }
+      cursor = listed.nextCursor
+    }
+
+    const uniqueChatPaths = [...new Set(chatPaths)]
+
     const retainedAttachmentPaths = new Set<string>()
 
     if (candidatePaths.length > 0) {
@@ -335,12 +370,17 @@ export async function DELETE(
       })
     }
 
-    const uniquePaths = candidatePaths.filter(path => !retainedAttachmentPaths.has(path))
-
-    if (uniquePaths.length > 0) {
-      const { error: removeErr } = await admin.storage.from(bucket).remove(uniquePaths)
+    const uniquePaths = [
+      ...new Set([
+        ...candidatePaths.filter(path => !retainedAttachmentPaths.has(path)),
+        ...uniqueChatPaths,
+      ]),
+    ]
+    for (let offset = 0; offset < uniquePaths.length; offset += 1000) {
+      const batch = uniquePaths.slice(offset, offset + 1000)
+      const { error: removeErr } = await admin.storage.from(bucket).remove(batch)
       if (removeErr) {
-        console.error('Storage remove error:', removeErr)
+        console.error('Storage remove error:', { projectId, count: batch.length, removeErr })
         return NextResponse.json({ error: 'Failed to remove storage objects' }, { status: 500 })
       }
     }

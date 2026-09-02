@@ -10,6 +10,11 @@ interface UnifiedSearchDialogProps {
   onOpenChange: (open: boolean) => void
   index: SearchResult[]
   onSelect: (result: SearchResult) => void
+  title?: string
+  description?: string
+  placeholder?: string
+  initialStateText?: string
+  emptyStateText?: string
 }
 
 const TYPE_LABEL: Record<SearchResultType, string> = {
@@ -51,7 +56,17 @@ function matchSnippet(text: string | null, query: string, radius = 44) {
   return `${start > 0 ? '...' : ''}${text.slice(start, end)}${end < text.length ? '...' : ''}`
 }
 
-export default function UnifiedSearchDialog({ open, onOpenChange, index, onSelect }: UnifiedSearchDialogProps) {
+export default function UnifiedSearchDialog({
+  open,
+  onOpenChange,
+  index,
+  onSelect,
+  title = 'Căutare în proiect',
+  description = 'Caută faze, activități și cereri de documente',
+  placeholder = 'Caută faze, activități, cereri de documente...',
+  initialStateText = 'Scrie pentru a căuta prin proiect.',
+  emptyStateText,
+}: UnifiedSearchDialogProps) {
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
 
@@ -90,9 +105,9 @@ export default function UnifiedSearchDialog({ open, onOpenChange, index, onSelec
           onOpenAutoFocus={resetSearch}
           onKeyDown={handleKeyDown}
         >
-          <Dialog.Title className="sr-only">Căutare în proiect</Dialog.Title>
+          <Dialog.Title className="sr-only">{title}</Dialog.Title>
           <Dialog.Description className="sr-only">
-            Caută faze, activități și cereri de documente
+            {description}
           </Dialog.Description>
 
           <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--p-border)] flex-shrink-0">
@@ -104,7 +119,7 @@ export default function UnifiedSearchDialog({ open, onOpenChange, index, onSelec
                 setQuery(e.target.value)
                 setActiveIndex(0)
               }}
-              placeholder="Caută faze, activități, cereri de documente..."
+              placeholder={placeholder}
               className="flex-1 text-sm outline-none placeholder:text-[var(--p-ink-faint)] bg-transparent text-[var(--p-ink)]"
             />
             <Dialog.Close asChild>
@@ -120,9 +135,11 @@ export default function UnifiedSearchDialog({ open, onOpenChange, index, onSelec
 
           <div className="overflow-y-auto flex-1">
             {query.trim() === '' ? (
-              <p className="p-6 text-center text-sm text-[var(--p-ink-faint)]">Scrie pentru a căuta prin proiect.</p>
+              <p className="p-6 text-center text-sm text-[var(--p-ink-faint)]">{initialStateText}</p>
             ) : results.length === 0 ? (
-              <p className="p-6 text-center text-sm text-[var(--p-ink-faint)]">Niciun rezultat pentru „{query}”.</p>
+              <p className="p-6 text-center text-sm text-[var(--p-ink-faint)]">
+                {emptyStateText ?? `Niciun rezultat pentru „${query}”.`}
+              </p>
             ) : (
               <ul className="py-2">
                 {results.map((r, i) => {

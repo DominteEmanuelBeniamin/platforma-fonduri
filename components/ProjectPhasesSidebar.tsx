@@ -476,7 +476,7 @@ export default function ProjectPhasesSidebar({
                       </span>
                     )}
                     <span
-                      title={phase.visibility === 'published' ? 'Public — vizibil pentru client' : 'În pregătire — invizibil pentru client'}
+                      title={canEdit ? (phase.visibility === 'published' ? 'Public — vizibil pentru client' : 'În pregătire — invizibil pentru client') : undefined}
                       className="w-2 h-2 rounded-full flex-shrink-0"
                       style={{ backgroundColor: phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)' }}
                     />

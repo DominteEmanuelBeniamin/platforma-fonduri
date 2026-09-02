@@ -2,9 +2,37 @@ import { z } from 'zod'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { getClientIP, getUserAgent, logChatMessageAction, toMessagePreview } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { maskProjectChatBodiesForViewer } from '@/app/api/_utils/project-chat-links'
+import { serializeProjectChatMessages } from '@/app/api/_utils/project-chat-messages'
+import {
+  mimeTypeFromProjectChatImageName,
+  parseProjectChatMessageInput,
+  toStoredProjectChatImage,
+} from '@/lib/project-chat-images'
+import {
+  PROJECT_CHAT_BUCKET,
+  PROJECT_CHAT_MAX_IMAGE_BYTES,
+  type ChatImageReference,
+  type StoredChatImage,
+} from '@/lib/project-chat-contracts'
 
 const MAX_LIMIT = 200
 const DEFAULT_LIMIT = 50
+const MESSAGE_SELECT = `
+  id,
+  project_id,
+  created_by,
+  body,
+  images,
+  created_at,
+  edited_at,
+  deleted_at,
+  profiles:created_by (
+    id,
+    full_name,
+    email
+  )
+`
 
 const GetQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_LIMIT).default(DEFAULT_LIMIT),
@@ -13,153 +41,127 @@ const GetQuerySchema = z.object({
 
 type ParsedQueryOk = {
   ok: true
-  data: {
-    limit: number
-    cursor: string | undefined
-    cursorIso: string | null
-  }
+  data: { limit: number; cursor: string | undefined; cursorIso: string | null }
 }
 
-type ParsedQueryErr = {
-  ok: false
-  error: z.ZodError
-}
+type ParsedQueryErr = { ok: false; error: z.ZodError }
 
 export function parseQuery(request: Request): ParsedQueryOk | ParsedQueryErr {
   const url = new URL(request.url)
-
-  const raw = {
+  const parsed = GetQuerySchema.safeParse({
     limit: url.searchParams.get('limit') ?? undefined,
     cursor: url.searchParams.get('cursor') ?? undefined,
-  }
-
-  const parsed = GetQuerySchema.safeParse(raw)
+  })
   if (!parsed.success) return { ok: false, error: parsed.error }
-
-  const { limit, cursor } = parsed.data
-
-  // Normalizare pentru Postgres: întotdeauna ISO cu "Z"
-  const cursorIso = cursor ? new Date(cursor).toISOString() : null
-
   return {
     ok: true,
-    data: { limit, cursor, cursorIso },
+    data: {
+      limit: parsed.data.limit,
+      cursor: parsed.data.cursor,
+      cursorIso: parsed.data.cursor ? new Date(parsed.data.cursor).toISOString() : null,
+    },
   }
 }
 
-const CreateMessageSchema = z.object({
-  body: z.string().trim().min(1).max(5000),
-})
-
-type ChatMessageRow = {
+type ProjectChatMessageRow = {
   id: string
   project_id: string
   created_by: string
   body: string | null
+  images?: unknown
   created_at: string
   edited_at: string | null
   deleted_at: string | null
   profiles?: unknown
 }
 
-const maskRow = (m: ChatMessageRow) => {
-  if (!m?.deleted_at) return { ...m, is_deleted: false }
-  return {
-    ...m,
-    body: null,         // ✅ mascat
-    is_deleted: true,   // ✅ flag util
-  }
+async function inspectStoredImages(
+  admin: ReturnType<typeof createSupabaseServiceClient>,
+  images: ChatImageReference[],
+): Promise<StoredChatImage[] | null> {
+  const result = await Promise.all(images.map(async image => {
+    try {
+      const { data, error } = await admin.storage.from(PROJECT_CHAT_BUCKET).info(image.path)
+      if (error || !data) return null
+      const stored = toStoredProjectChatImage(image.path, image.name, data)
+      if (!stored || stored.size < 1 || stored.size > PROJECT_CHAT_MAX_IMAGE_BYTES) return null
+      const extensionMime = mimeTypeFromProjectChatImageName(stored.name)
+      if (extensionMime && extensionMime !== stored.mimeType) return null
+      return stored
+    } catch {
+      return null
+    }
+  }))
+  return result.every((image): image is StoredChatImage => image !== null) ? result : null
 }
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { id:projectId } = await params
-
-    const accessRes = await requireProjectAccess(request, projectId)
-    if (!accessRes.ok) return guardToResponse(accessRes)
+    const { id: projectId } = await params
+    const access = await requireProjectAccess(request, projectId)
+    if (!access.ok) return guardToResponse(access)
 
     const parsed = parseQuery(request)
     if (!parsed.ok) {
-      return Response.json(
-        { error: 'Invalid query params', details: z.treeifyError(parsed.error) }, 
-        { status: 400 }
-      )
+      return Response.json({ error: 'Invalid query params', details: z.treeifyError(parsed.error) }, { status: 400 })
     }
-
-    const { limit, cursorIso } = parsed.data
 
     const admin = createSupabaseServiceClient()
-
-    const requested = limit
-    const pageSize = requested + 1
-
-    let q = admin
+    const { limit, cursorIso } = parsed.data
+    let query = admin
       .from('project_chat_messages')
-      .select(`
-      id,
-      project_id,
-      created_by,
-      body,
-      created_at,
-      edited_at,
-      deleted_at,
-      profiles:created_by (
-        id,
-        full_name,
-        email
-      )
-    `)
+      .select(MESSAGE_SELECT)
       .eq('project_id', projectId)
       .order('created_at', { ascending: false })
-      .limit(pageSize)
-    
-    if (cursorIso) {
-      q = q.lt('created_at', cursorIso)
-    }
-    
-    const { data, error } = await q
+      .limit(limit + 1)
+    if (cursorIso) query = query.lt('created_at', cursorIso)
+
+    const { data, error } = await query
     if (error) {
       console.error('GET chat messages failed:', { projectId, error })
       return Response.json({ error: 'Failed to load chat messages' }, { status: 500 })
     }
-    
-    const rows = (data ?? []).map(maskRow)
-    const hasMore = rows.length > requested
-    const items = hasMore ? rows.slice(0, requested) : rows
-    
-    // nextCursor doar dacă mai există pagină
-    const nextCursor = hasMore ? (items[items.length - 1]?.created_at ?? null) : null
-    
-    return Response.json({ items, nextCursor }) 
-  } catch (err) {
-    console.error('GET chat messages unexpected error:', err)
+
+    const rows = (data ?? []) as ProjectChatMessageRow[]
+    const hasMore = rows.length > limit
+    const items = hasMore ? rows.slice(0, limit) : rows
+    const visibleItems = await maskProjectChatBodiesForViewer(
+      admin,
+      access.profile.role,
+      projectId,
+      items,
+    )
+    const serialized = await serializeProjectChatMessages(visibleItems, admin)
+    return Response.json({
+      items: serialized,
+      nextCursor: hasMore ? (items[items.length - 1]?.created_at ?? null) : null,
+    })
+  } catch (error) {
+    console.error('GET chat messages unexpected error:', error)
     return Response.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { id:projectId } = await params
+    const { id: projectId } = await params
+    const access = await requireProjectAccess(request, projectId)
+    if (!access.ok) return guardToResponse(access)
 
-    const accessRes = await requireProjectAccess(request, projectId)
-    if (!accessRes.ok) return guardToResponse(accessRes)
-
-    const bodyJson = await request.json().catch(() => null)
-    const parsed = CreateMessageSchema.safeParse(bodyJson)
-    if (!parsed.success) {
-      return Response.json(
-        { error: 'Invalid body', details: z.treeifyError(parsed.error) },
-        { status: 400 }
-      )
-    }
+    const parsed = parseProjectChatMessageInput(await request.json().catch(() => null), projectId, access.user.id)
+    if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 })
 
     const admin = createSupabaseServiceClient()
+    const storedImages = await inspectStoredImages(admin, parsed.data.images)
+    if (!storedImages) {
+      return Response.json({ error: 'One or more uploaded images are missing or invalid' }, { status: 400 })
+    }
 
     const { data: projectRow } = await admin
       .from('projects')
@@ -168,29 +170,15 @@ export async function POST(
       .maybeSingle()
     const projectTitle = projectRow?.title ?? projectId
 
-    const insertPayload = {
-      project_id: projectId,
-      created_by: accessRes.user.id,
-      body: parsed.data.body,
-    }
-
     const { data, error } = await admin
       .from('project_chat_messages')
-      .insert(insertPayload)
-      .select(`
-      id,
-      project_id,
-      created_by,
-      body,
-      created_at,
-      edited_at,
-      deleted_at,
-      profiles:created_by (
-        id,
-        full_name,
-        email
-      )
-    `)      
+      .insert({
+        project_id: projectId,
+        created_by: access.user.id,
+        body: parsed.data.body,
+        images: storedImages,
+      })
+      .select(MESSAGE_SELECT)
       .single()
 
     if (error || !data) {
@@ -199,29 +187,34 @@ export async function POST(
     }
 
     await logChatMessageAction({
-      actorId: accessRes.user.id,
+      actorId: access.user.id,
       actionType: 'create',
       projectId,
       messageId: data.id,
       messagePreview: toMessagePreview(data.body),
       newValues: {
-        id: data.id,
         project_id: data.project_id,
         project_title: projectTitle,
         created_by: data.created_by,
         body_preview: toMessagePreview(data.body),
-        created_at: data.created_at,
-        edited_at: data.edited_at,
-        deleted_at: data.deleted_at,
+        image_count: storedImages.length,
+        image_names: storedImages.map(image => image.name),
       },
-      description: `${accessRes.profile.email || 'User'} a trimis un mesaj în proiectul "${projectTitle}"`,
+      description: `${access.profile.email || 'User'} a trimis un mesaj în proiectul "${projectTitle}"`,
       ipAddress: getClientIP(request),
       userAgent: getUserAgent(request),
     })
 
-    return Response.json({ item: data }, { status: 201 })
-  } catch (err) {
-    console.error('POST chat message unexpected error:', err)
+    const visibleRows = await maskProjectChatBodiesForViewer(
+      admin,
+      access.profile.role,
+      projectId,
+      [data as ProjectChatMessageRow],
+    )
+    const [item] = await serializeProjectChatMessages(visibleRows, admin)
+    return Response.json({ item }, { status: 201 })
+  } catch (error) {
+    console.error('POST chat message unexpected error:', error)
     return Response.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }
