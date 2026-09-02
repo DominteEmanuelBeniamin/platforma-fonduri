@@ -10,6 +10,22 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+/**
+ * Calea veche `attachment_path`, copiată în obiect propriu. Sursa lipsă se
+ * tolerează — copia o moștenește, ca marcajul de fișier lipsă să rămână
+ * vizibil; orice altă eroare oprește duplicarea.
+ */
+async function copyLegacyTemplatePath(
+  fromPath: string,
+  originalName: string | null | undefined,
+): Promise<string> {
+  const copy = await copyStorageObject(supabaseAdmin, fromPath, templateAttachmentPath(originalName))
+  if (!copy.path && copy.reason === 'failed') {
+    throw new Error(`Nu am putut copia fișierul-model "${originalName ?? fromPath}".`)
+  }
+  return copy.path ?? fromPath
+}
+
 interface RouteParams {
   params: Promise<{ templateId: string }>
 }
@@ -126,16 +142,21 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             .slice()
             .sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0))
             .map(async (attachment: any) => {
-              const copiedPath = await copyStorageObject(
+              const copy = await copyStorageObject(
                 supabaseAdmin,
                 attachment.storage_path,
                 templateAttachmentPath(attachment.original_name),
               )
-              return { ...attachment, storage_path: copiedPath ?? attachment.storage_path }
+              // Sursa lipsă se tolerează — copia moștenește calea și marcajul.
+              // Orice altă eroare oprește: pe obiectul originalului n-are voie
+              // să rămână, fiindcă ștergerea de pe unul l-ar rupe pe celălalt.
+              if (!copy.path && copy.reason === 'failed') {
+                throw new Error(`Nu am putut copia fișierul-model "${attachment.original_name ?? attachment.storage_path}".`)
+              }
+              return { ...attachment, storage_path: copy.path ?? attachment.storage_path }
             }))
           const legacyPath = attachments.length === 0 && doc.attachment_path
-            ? await copyStorageObject(supabaseAdmin, doc.attachment_path, templateAttachmentPath(doc.attachment_original_name))
-              ?? doc.attachment_path
+            ? await copyLegacyTemplatePath(doc.attachment_path, doc.attachment_original_name)
             : null
           const firstPath = attachments[0]?.storage_path ?? legacyPath
 

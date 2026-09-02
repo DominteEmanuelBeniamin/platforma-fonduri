@@ -23,21 +23,40 @@ export function templateAttachmentPath(originalName: string | null | undefined) 
 }
 
 /**
- * Duplică obiectul din storage. Întoarce calea nouă, sau `null` dacă sursa nu
- * mai există — caz în care apelantul păstrează calea veche, ca marcajul de
- * fișier lipsă să rămână vizibil în loc să apară o cale nouă și goală.
+ * Rezultatul unei copieri: calea nouă, sau motivul pentru care n-a existat.
+ * Cele două eșecuri cer răspunsuri opuse, deci nu pot fi amândouă `null`:
+ * „missing” e o stare pe care copia o poate moșteni, „failed” e un accident
+ * după care copia n-are voie să rămână pe obiectul originalului.
+ */
+export type CopyResult =
+  | { path: string; reason?: undefined }
+  | { path: null; reason: 'missing' | 'failed' }
+
+/**
+ * Obiectul sursă chiar nu mai există, spre deosebire de un 5xx, un timeout sau
+ * o coliziune de nume. „Bucket not found” e o problemă de configurare, nu un
+ * fișier-model șters, deci nu intră aici.
+ */
+export function isMissingObjectError(message: string | null | undefined): boolean {
+  const text = (message ?? '').toLowerCase()
+  if (text.includes('bucket not found')) return false
+  return /not[\s_-]*found/.test(text) || /\b404\b/.test(text)
+}
+
+/**
+ * Duplică obiectul din storage. Când sursa nu mai există, apelantul păstrează
+ * calea veche împreună cu marcajul de fișier lipsă; la orice altă eroare
+ * duplicarea trebuie oprită, altfel copia rămâne pe obiectul originalului.
  */
 export async function copyStorageObject(
   admin: SupabaseClient,
   fromPath: string,
   toPath: string,
-): Promise<string | null> {
+): Promise<CopyResult> {
   const { error } = await admin.storage.from(ATTACHMENT_BUCKET).copy(fromPath, toPath)
-  if (error) {
-    console.error('copyStorageObject error:', { fromPath, toPath, error: error.message })
-    return null
-  }
-  return toPath
+  if (!error) return { path: toPath }
+  console.error('copyStorageObject error:', { fromPath, toPath, error: error.message })
+  return { path: null, reason: isMissingObjectError(error.message) ? 'missing' : 'failed' }
 }
 
 /**

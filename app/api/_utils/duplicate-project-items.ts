@@ -10,25 +10,40 @@
 // publicarea copiei până la completarea manuală a fiecărui element — exact
 // munca pe care duplicarea trebuie s-o elimine. Copierea nu trimite emailuri de
 // atribuire, fiindcă nimeni nu vede încă o ciornă.
+//
+// Nu există tranzacție peste toate inserturile, deci un eșec la jumătate e
+// întors explicit: `CopyLedger` ține minte ce s-a apucat să se creeze, iar
+// `rollbackCopy` șterge exact atât. Fără el, ruta întorcea 500 dar în proiect
+// rămânea o copie pe jumătate, pe care userul o găsea la următorul refresh.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { copyStorageObject, projectAttachmentPath } from './attachment-storage'
+import { ATTACHMENT_BUCKET, copyStorageObject, projectAttachmentPath } from './attachment-storage'
+import { slugify } from '@/lib/slug'
 
 export type DuplicationCounts = { activities: number; documentRequests: number }
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+/** Ce a creat duplicarea până acum — materialul de lucru al compensării. */
+type CopyLedger = { phaseId: string | null; activityIds: string[]; storagePaths: string[] }
+
+const newLedger = (): CopyLedger => ({ phaseId: null, activityIds: [], storagePaths: [] })
+
+/**
+ * Ca `Promise.all`, dar așteaptă toate firele înainte să arunce: compensarea
+ * are nevoie de lista completă a ce s-a creat, inclusiv de rândurile scrise de
+ * firele care încă erau în zbor când a picat primul.
+ */
+async function allSettledOrThrow<T>(tasks: Promise<T>[]): Promise<T[]> {
+  const results = await Promise.allSettled(tasks)
+  const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+  if (failed) throw failed.reason
+  return (results as PromiseFulfilledResult<T>[]).map(result => result.value)
 }
 
 /**
  * Face loc copiei imediat după original: tot ce vine după `orderIndex` urcă cu
- * o poziție. Actualizarea merge descrescător, ca ordinea să rămână citibilă și
- * în timpul operației.
+ * o poziție. Copia însăși stă deja pe `orderIndex + 1`, deci se exclude din
+ * mutare. Update-urile pleacă odată: `order_index` n-are constraint unic, deci
+ * ordinea lor nu contează, iar secvențial însemna un round-trip per frate.
  */
 async function shiftOrderAfter(
   admin: SupabaseClient,
@@ -36,22 +51,57 @@ async function shiftOrderAfter(
   scopeColumn: 'project_id' | 'phase_id',
   scopeValue: string,
   orderIndex: number,
+  exceptId: string,
 ) {
   const { data, error } = await admin
     .from(table)
     .select('id, order_index')
     .eq(scopeColumn, scopeValue)
     .gt('order_index', orderIndex)
-    .order('order_index', { ascending: false })
+    .neq('id', exceptId)
 
   if (error) throw error
 
-  for (const row of data ?? []) {
-    const { error: updateError } = await admin
-      .from(table)
-      .update({ order_index: (row.order_index ?? 0) + 1 })
-      .eq('id', row.id)
-    if (updateError) throw updateError
+  const results = await Promise.all((data ?? []).map(row =>
+    admin.from(table).update({ order_index: (row.order_index ?? 0) + 1 }).eq('id', row.id)))
+
+  const failed = results.find(result => result.error)
+  if (failed?.error) throw failed.error
+}
+
+/**
+ * Șterge ce a apucat duplicarea să creeze, în ordinea inversă a dependențelor.
+ * Își înghite propriile erori: peste eșecul original n-are ce adăuga un al
+ * doilea, iar ce nu s-a putut curăța rămâne în log.
+ */
+async function rollbackCopy(admin: SupabaseClient, ledger: CopyLedger) {
+  try {
+    // Faza copiată e nouă, deci tot ce atârnă de ea e tot copie.
+    const activityIds = ledger.phaseId
+      ? ((await admin.from('project_activities').select('id').eq('phase_id', ledger.phaseId)).data ?? [])
+          .map((activity: any) => activity.id)
+      : ledger.activityIds
+
+    if (activityIds.length > 0) {
+      const { data: requests } = await admin
+        .from('document_requirements').select('id').in('activity_id', activityIds)
+      const requestIds = (requests ?? []).map((request: any) => request.id)
+      if (requestIds.length > 0) {
+        await admin.from('document_requirement_attachments').delete().in('document_requirement_id', requestIds)
+        await admin.from('document_requirements').delete().in('id', requestIds)
+      }
+      await admin.from('project_activities').delete().in('id', activityIds)
+    }
+
+    if (ledger.phaseId) await admin.from('project_phases').delete().eq('id', ledger.phaseId)
+
+    // Doar obiectele chiar create de copiere: căile moștenite de la un
+    // fișier-model lipsă nu ajung niciodată în registru.
+    if (ledger.storagePaths.length > 0) {
+      await admin.storage.from(ATTACHMENT_BUCKET).remove(ledger.storagePaths)
+    }
+  } catch (error) {
+    console.error('rollbackCopy error:', error)
   }
 }
 
@@ -69,7 +119,6 @@ function modelAttachments(request: any): any[] {
     original_name: request.attachment_original_name,
     missing_at: request.attachment_missing_at,
     missing_checked_at: request.attachment_missing_checked_at,
-    source_template_attachment_id: null,
   }]
 }
 
@@ -84,6 +133,7 @@ async function duplicateDocumentRequests(
     sourceActivityId: string
     targetActivityId: string
     actorId: string
+    ledger: CopyLedger
   },
 ): Promise<number> {
   const { data: requests, error } = await admin
@@ -94,83 +144,106 @@ async function duplicateDocumentRequests(
     .order('order_index', { ascending: true })
 
   if (error) throw error
+  if (!requests || requests.length === 0) return 0
 
   const now = new Date().toISOString()
-  let created = 0
 
-  for (const request of requests ?? []) {
-    // Fiecare fișier-model primește obiect propriu în storage. Dacă sursa nu
-    // mai există, copia păstrează calea veche împreună cu marcajul de lipsă.
-    const attachments = await Promise.all(modelAttachments(request).map(async (attachment: any) => {
-      const copiedPath = await copyStorageObject(
+  const prepared = await allSettledOrThrow(requests.map(async (request: any) => {
+    // Fiecare fișier-model primește obiect propriu în storage.
+    const attachments = await allSettledOrThrow(modelAttachments(request).map(async (attachment: any) => {
+      const copy = await copyStorageObject(
         admin,
         attachment.storage_path,
         projectAttachmentPath(options.projectId, attachment.original_name),
       )
-      return { ...attachment, storage_path: copiedPath ?? attachment.storage_path, copied: copiedPath !== null }
+      if (copy.path) {
+        options.ledger.storagePaths.push(copy.path)
+        return { ...attachment, storage_path: copy.path }
+      }
+      if (copy.reason === 'failed') {
+        // Copia n-are voie să rămână pe obiectul originalului: ștergerea
+        // modelului de pe unul l-ar rupe pe celălalt.
+        throw new Error(`Nu am putut copia fișierul-model „${attachment.original_name ?? attachment.storage_path}”.`)
+      }
+      // Sursa chiar nu mai există: copia păstrează calea veche, dar marcată ca
+      // lipsă, ca golul să se vadă în loc să pară un fișier valid.
+      return { ...attachment, missing_at: attachment.missing_at ?? now, missing_checked_at: now }
     }))
-    const firstAttachment = attachments[0] ?? null
+    return { request, attachments }
+  }))
 
-    const { data: copy, error: insertError } = await admin
-      .from('document_requirements')
-      .insert({
-        project_id: options.projectId,
-        activity_id: options.targetActivityId,
-        name: request.name,
-        description: request.description,
-        is_mandatory: request.is_mandatory,
-        requirement_type: request.requirement_type,
-        is_outgoing: request.is_outgoing,
-        order_index: request.order_index,
-        attachment_path: firstAttachment?.storage_path ?? null,
-        attachment_original_name: firstAttachment?.original_name ?? null,
-        attachment_missing_at: request.attachment_missing_at,
-        attachment_missing_checked_at: request.attachment_missing_checked_at,
-        assigned_to: request.assigned_to ?? null,
-        assigned_by: request.assigned_to ? options.actorId : null,
-        assigned_at: request.assigned_to ? now : null,
-        deadline_at: request.deadline_at ?? null,
-        status: 'pending',
-        visibility: 'draft',
-        is_locked: false,
-        created_by: options.actorId,
-        // Copia e un element propriu al proiectului, nu o oglindă a șablonului:
-        // fără legătură la sursă, propagarea din șablon o ignoră.
-        source_template_document_requirement_id: null,
-      })
-      .select('id')
-      .single()
-
-    if (insertError) throw insertError
-    created += 1
-
-    if (copy && attachments.length > 0) {
-      const { error: attachmentError } = await admin
-        .from('document_requirement_attachments')
-        .insert(attachments.map((attachment: any, index: number) => ({
-          document_requirement_id: copy.id,
-          source_template_attachment_id: attachment.source_template_attachment_id ?? null,
-          storage_path: attachment.storage_path,
-          original_name: attachment.original_name,
-          mime_type: attachment.mime_type,
-          file_size: attachment.file_size,
-          order_index: index,
-          missing_at: attachment.missing_at,
-          missing_checked_at: attachment.missing_checked_at,
-          created_by: options.actorId,
-        })))
-      if (attachmentError) throw attachmentError
+  const rows = prepared.map(({ request, attachments }) => {
+    const first = attachments[0] ?? null
+    return {
+      project_id: options.projectId,
+      activity_id: options.targetActivityId,
+      name: request.name,
+      description: request.description,
+      is_mandatory: request.is_mandatory,
+      requirement_type: request.requirement_type,
+      is_outgoing: request.is_outgoing,
+      order_index: request.order_index,
+      attachment_path: first?.storage_path ?? null,
+      attachment_original_name: first?.original_name ?? null,
+      attachment_missing_at: first?.missing_at ?? null,
+      attachment_missing_checked_at: first?.missing_checked_at ?? null,
+      assigned_to: request.assigned_to ?? null,
+      assigned_by: request.assigned_to ? options.actorId : null,
+      assigned_at: request.assigned_to ? now : null,
+      deadline_at: request.deadline_at ?? null,
+      status: 'pending',
+      visibility: 'draft',
+      is_locked: false,
+      created_by: options.actorId,
+      // Copia e un element propriu al proiectului, nu o oglindă a șablonului:
+      // fără legătură la sursă, propagarea din șablon o ignoră.
+      source_template_document_requirement_id: null,
     }
+  })
+
+  // Un singur insert pentru toate cererile activității: PostgREST întoarce
+  // rândurile în ordinea trimisă, deci se împerechează cu `rows` după index.
+  const { data: copies, error: insertError } = await admin
+    .from('document_requirements')
+    .insert(rows)
+    .select('id')
+
+  if (insertError) throw insertError
+  if (!copies || copies.length !== rows.length) {
+    throw new Error('Inserarea cererilor de documente a întors alt număr de rânduri decât cel trimis.')
   }
 
-  return created
+  const attachmentRows = prepared.flatMap(({ attachments }, index) =>
+    attachments.map((attachment: any, order: number) => ({
+      document_requirement_id: copies[index].id,
+      // Legătura la șablon stă pe cerere, iar acolo e deja `null`; păstrată pe
+      // atașament ar contrazice intenția, chiar dacă propagarea n-o citește.
+      source_template_attachment_id: null,
+      storage_path: attachment.storage_path,
+      original_name: attachment.original_name,
+      mime_type: attachment.mime_type,
+      file_size: attachment.file_size,
+      order_index: order,
+      missing_at: attachment.missing_at,
+      missing_checked_at: attachment.missing_checked_at,
+      created_by: options.actorId,
+    })))
+
+  if (attachmentRows.length > 0) {
+    const { error: attachmentError } = await admin
+      .from('document_requirement_attachments')
+      .insert(attachmentRows)
+    if (attachmentError) throw attachmentError
+  }
+
+  return rows.length
 }
 
 /**
  * Copiază o activitate (cu cererile ei) într-o fază dată, pe poziția cerută.
  * Nu mută frații — apelantul decide unde aterizează copia.
  */
-export async function duplicateActivity(
+async function duplicateActivity(
   admin: SupabaseClient,
   options: {
     projectId: string
@@ -179,6 +252,7 @@ export async function duplicateActivity(
     name: string
     orderIndex: number
     actorId: string
+    ledger: CopyLedger
   },
 ): Promise<{ activity: any; documentRequests: number }> {
   const source = options.sourceActivity
@@ -202,12 +276,14 @@ export async function duplicateActivity(
     .single()
 
   if (error) throw error
+  options.ledger.activityIds.push(activity.id)
 
   const documentRequests = await duplicateDocumentRequests(admin, {
     projectId: options.projectId,
     sourceActivityId: source.id,
     targetActivityId: activity.id,
     actorId: options.actorId,
+    ledger: options.ledger,
   })
 
   return { activity, documentRequests }
@@ -228,58 +304,98 @@ export async function duplicatePhase(
 ): Promise<{ phase: any; counts: DuplicationCounts }> {
   const source = options.sourcePhase
   const sourceOrderIndex = source.order_index ?? 0
+  const ledger = newLedger()
 
-  await shiftOrderAfter(admin, 'project_phases', 'project_id', options.projectId, sourceOrderIndex)
+  try {
+    const { data: phase, error } = await admin
+      .from('project_phases')
+      .insert({
+        project_id: options.projectId,
+        project_status_id: source.project_status_id,
+        name: options.name,
+        slug: slugify(options.name),
+        description: source.description,
+        order_index: sourceOrderIndex + 1,
+        status: 'pending',
+        visibility: 'draft',
+        source_template_phase_id: null,
+      })
+      .select()
+      .single()
 
-  const { data: phase, error } = await admin
-    .from('project_phases')
-    .insert({
-      project_id: options.projectId,
-      project_status_id: source.project_status_id,
-      name: options.name,
-      slug: slugify(options.name),
-      description: source.description,
-      order_index: sourceOrderIndex + 1,
-      status: 'pending',
-      visibility: 'draft',
-      source_template_phase_id: null,
-    })
-    .select()
-    .single()
+    if (error) throw error
+    ledger.phaseId = phase.id
 
-  if (error) throw error
+    const { data: activities, error: activitiesError } = await admin
+      .from('project_activities')
+      .select('*')
+      .eq('phase_id', source.id)
+      .order('order_index', { ascending: true })
 
-  const { data: activities, error: activitiesError } = await admin
-    .from('project_activities')
-    .select('*')
-    .eq('phase_id', source.id)
-    .order('order_index', { ascending: true })
+    if (activitiesError) throw activitiesError
 
-  if (activitiesError) throw activitiesError
+    // Ordinea inserării nu contează: fiecare copie primește `order_index`
+    // explicit, deci activitățile pot pleca odată.
+    const created = await allSettledOrThrow((activities ?? []).map((sourceActivity: any, index: number) =>
+      duplicateActivity(admin, {
+        projectId: options.projectId,
+        targetPhaseId: phase.id,
+        sourceActivity,
+        name: sourceActivity.name,
+        orderIndex: sourceActivity.order_index ?? index + 1,
+        actorId: options.actorId,
+        ledger,
+      })))
 
-  const counts: DuplicationCounts = { activities: 0, documentRequests: 0 }
+    // Frații se mută abia acum, după ce copia e completă: până aici un eșec nu
+    // atinge ordinea existentă, deci compensarea n-are ce reface acolo.
+    await shiftOrderAfter(admin, 'project_phases', 'project_id', options.projectId, sourceOrderIndex, phase.id)
 
-  for (const [index, sourceActivity] of (activities ?? []).entries()) {
-    const { documentRequests } = await duplicateActivity(admin, {
-      projectId: options.projectId,
-      targetPhaseId: phase.id,
-      sourceActivity,
-      name: sourceActivity.name,
-      orderIndex: sourceActivity.order_index ?? index + 1,
-      actorId: options.actorId,
-    })
-    counts.activities += 1
-    counts.documentRequests += documentRequests
+    return {
+      phase,
+      counts: {
+        activities: created.length,
+        documentRequests: created.reduce((sum, item) => sum + item.documentRequests, 0),
+      },
+    }
+  } catch (error) {
+    await rollbackCopy(admin, ledger)
+    throw error
   }
-
-  return { phase, counts }
 }
 
-/** Face loc unei activități copiate imediat după originalul ei. */
-export async function shiftActivitiesAfter(
+/** Copiază o activitate imediat după originalul ei, mutând frații după copie. */
+export async function duplicateActivityAfterSource(
   admin: SupabaseClient,
-  phaseId: string,
-  orderIndex: number,
-) {
-  await shiftOrderAfter(admin, 'project_activities', 'phase_id', phaseId, orderIndex)
+  options: {
+    projectId: string
+    phaseId: string
+    sourceActivity: any
+    name: string
+    actorId: string
+  },
+): Promise<{ activity: any; documentRequests: number }> {
+  const sourceOrderIndex = options.sourceActivity.order_index ?? 0
+  const ledger = newLedger()
+
+  try {
+    const created = await duplicateActivity(admin, {
+      projectId: options.projectId,
+      targetPhaseId: options.phaseId,
+      sourceActivity: options.sourceActivity,
+      name: options.name,
+      orderIndex: sourceOrderIndex + 1,
+      actorId: options.actorId,
+      ledger,
+    })
+
+    await shiftOrderAfter(
+      admin, 'project_activities', 'phase_id', options.phaseId, sourceOrderIndex, created.activity.id,
+    )
+
+    return created
+  } catch (error) {
+    await rollbackCopy(admin, ledger)
+    throw error
+  }
 }

@@ -61,17 +61,33 @@ export async function POST(req: NextRequest) {
     // ajunge aici cu calea fișierului-model al originalului. Două cerințe nu au
     // voie să împartă același obiect din storage — ștergerea de pe una ar rupe-o
     // pe cealaltă — așa că o cale deja folosită se copiază într-un obiect nou.
+    //
+    // Un fișier abia încărcat vine cu un UUID proaspăt și fără `id` de rând
+    // existent, deci n-are cum să fie deja folosit — doar el se scoate din
+    // verificare. Altfel fiecare upload nou plătea trei SELECT-uri degeaba, pe
+    // drumul cald al editorului de șabloane.
+    const freshPaths = new Set((resolvedItems ?? [])
+      .filter((item: any) => !item.id)
+      .map((item: any) => item.storage_path.trim()))
     const incomingPaths = [
       ...(resolvedItems ?? []).map((item: any) => item.storage_path.trim()),
       ...(resolvedLegacyPath ? [resolvedLegacyPath] : []),
-    ]
-    const referencedPaths = await findReferencedPaths(supabaseAdmin, [...new Set(incomingPaths)])
+    ].filter((path: string) => !freshPaths.has(path))
+    const referencedPaths = incomingPaths.length > 0
+      ? await findReferencedPaths(supabaseAdmin, [...new Set(incomingPaths)])
+      : new Set<string>()
     if (referencedPaths.size > 0) {
-      const ownPath = async (path: string, originalName: unknown) => referencedPaths.has(path)
-        ? (await copyStorageObject(supabaseAdmin, path, templateAttachmentPath(
-            typeof originalName === 'string' ? originalName : null,
-          ))) ?? path
-        : path
+      const ownPath = async (path: string, originalName: unknown) => {
+        if (!referencedPaths.has(path)) return path
+        const copy = await copyStorageObject(supabaseAdmin, path, templateAttachmentPath(
+          typeof originalName === 'string' ? originalName : null,
+        ))
+        // Fără obiect propriu, cele două cerințe ar împărți același fișier.
+        if (!copy.path && copy.reason === 'failed') {
+          throw new Error('Nu am putut copia fișierul-model. Reîncearcă.')
+        }
+        return copy.path ?? path
+      }
 
       if (resolvedItems) {
         resolvedItems = await Promise.all(resolvedItems.map(async (item: any) => ({
