@@ -70,6 +70,37 @@ test('meniul de acțiuni oferă redenumire și duplicare', async ({ page }) => {
   await expect(page.getByRole('menuitem', { name: 'Duplică' })).toHaveCount(0)
 })
 
+test('meniul activității nu se taie la marginea cardului', async ({ page }) => {
+  const admin = serviceClient()
+  test.skip(!admin, 'lipsesc datele de service din .env.local, deci nu pot alege o fază cu activități')
+  const target = await phaseWithActivities(admin!, PROJECT)
+  test.skip(!target, 'proiectul de test nu are nicio fază cu activități')
+
+  await login(page)
+  await openPhasesView(page)
+  await expandPhaseInCenter(page, target!.phaseName)
+
+  await page.getByRole('button', { name: `Acțiuni pentru activitatea ${target!.activity.name}`, exact: true })
+    .last().click()
+
+  // Cardul activității are `overflow-hidden`, pentru colțurile rotunjite: dacă
+  // meniul ar sta înăuntru, s-ar tăia la marginea cardului. Se vede doar prin
+  // ce e chiar desenat în colțul de jos al meniului, nu din `toBeVisible`:
+  // dreptunghiul unui element tăiat rămâne întreg.
+  await expect(page.getByRole('menu')).toBeVisible()
+  const painted = await page.evaluate(() => {
+    const menu = document.querySelector('[role="menu"]')
+    if (!menu) return 'meniul a dispărut'
+    const box = menu.getBoundingClientRect()
+    const atCorner = document.elementFromPoint(box.left + box.width / 2, box.bottom - 4)
+    return menu.contains(atCorner) ? 'meniu' : `tăiat de <${atCorner?.tagName.toLowerCase() ?? 'nimic'}>`
+  })
+  expect(painted).toBe('meniu')
+
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menuitem')).toHaveCount(0)
+})
+
 test.describe('duplicare cu scriere reală', () => {
   test.skip(!WRITES, 'necesită E2E_WRITES=1 — testele duplică în proiectul real')
 
