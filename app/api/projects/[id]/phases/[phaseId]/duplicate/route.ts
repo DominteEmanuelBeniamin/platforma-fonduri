@@ -16,18 +16,24 @@ interface RouteParams {
 }
 
 // POST /api/projects/[id]/phases/[phaseId]/duplicate - Duplicare fază cu tot ce conține (#15)
+//
+// Erorile pleacă și pe `message`, nu doar pe `error`: `apiFetch` rescrie `error`
+// cu un text generic, deci motivul real ar rămâne pe server (#70).
 export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     const { id: projectId, phaseId } = await params
 
     const auth = await requireProjectAccess(req, projectId)
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status })
+      return NextResponse.json({ error: auth.error, message: auth.error }, { status: auth.status })
     }
 
     // Duplicarea e o creare, deci merge după aceleași drepturi ca adăugarea (#10)
     if (auth.access.role === 'client') {
-      return NextResponse.json({ error: 'Nu ai permisiunea să duplici faze' }, { status: 403 })
+      return NextResponse.json(
+        { error: 'Nu ai permisiunea să duplici faze', message: 'Nu ai permisiunea să duplici faze' },
+        { status: 403 },
+      )
     }
 
     const { data: phases, error: phasesError } = await supabaseAdmin
@@ -39,7 +45,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const source = (phases ?? []).find(phase => phase.id === phaseId)
     if (!source) {
-      return NextResponse.json({ error: 'Faza nu există în acest proiect' }, { status: 404 })
+      return NextResponse.json(
+        { error: 'Faza nu există în acest proiect', message: 'Faza nu există în acest proiect' },
+        { status: 404 },
+      )
     }
 
     const name = buildCopyName(source.name, (phases ?? []).map(phase => phase.name))
@@ -84,6 +93,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }, { status: 201 })
   } catch (error: any) {
     console.error('POST /api/projects/[id]/phases/[phaseId]/duplicate error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: error.message, message: error.message }, { status: 500 })
   }
 }

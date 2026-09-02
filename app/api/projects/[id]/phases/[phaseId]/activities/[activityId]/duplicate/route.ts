@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
-import { duplicateActivity, shiftActivitiesAfter } from '@/app/api/_utils/duplicate-project-items'
+import { duplicateActivityAfterSource } from '@/app/api/_utils/duplicate-project-items'
 import { buildCopyName } from '@/lib/duplicate-name'
 
 const supabaseAdmin = createClient(
@@ -16,17 +16,23 @@ interface RouteParams {
 }
 
 // POST /api/projects/[id]/phases/[phaseId]/activities/[activityId]/duplicate (#15)
+//
+// Erorile pleacă și pe `message`, nu doar pe `error`: `apiFetch` rescrie `error`
+// cu un text generic, deci motivul real ar rămâne pe server (#70).
 export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     const { id: projectId, phaseId, activityId } = await params
 
     const auth = await requireProjectAccess(req, projectId)
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status })
+      return NextResponse.json({ error: auth.error, message: auth.error }, { status: auth.status })
     }
 
     if (auth.access.role === 'client') {
-      return NextResponse.json({ error: 'Nu ai permisiunea să duplici activități' }, { status: 403 })
+      return NextResponse.json(
+        { error: 'Nu ai permisiunea să duplici activități', message: 'Nu ai permisiunea să duplici activități' },
+        { status: 403 },
+      )
     }
 
     // project_activities nu are project_id — verifică apartenența fazei la proiect
@@ -38,7 +44,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       .maybeSingle()
 
     if (!phase) {
-      return NextResponse.json({ error: 'Faza nu există în acest proiect' }, { status: 404 })
+      return NextResponse.json(
+        { error: 'Faza nu există în acest proiect', message: 'Faza nu există în acest proiect' },
+        { status: 404 },
+      )
     }
 
     const { data: activities, error: activitiesError } = await supabaseAdmin
@@ -50,20 +59,19 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const source = (activities ?? []).find(activity => activity.id === activityId)
     if (!source) {
-      return NextResponse.json({ error: 'Activitatea nu există în această fază' }, { status: 404 })
+      return NextResponse.json(
+        { error: 'Activitatea nu există în această fază', message: 'Activitatea nu există în această fază' },
+        { status: 404 },
+      )
     }
 
-    const sourceOrderIndex = source.order_index ?? 0
     const name = buildCopyName(source.name, (activities ?? []).map(activity => activity.name))
 
-    await shiftActivitiesAfter(supabaseAdmin, phaseId, sourceOrderIndex)
-
-    const { activity, documentRequests } = await duplicateActivity(supabaseAdmin, {
+    const { activity, documentRequests } = await duplicateActivityAfterSource(supabaseAdmin, {
       projectId,
-      targetPhaseId: phaseId,
+      phaseId,
       sourceActivity: source,
       name,
-      orderIndex: sourceOrderIndex + 1,
       actorId: auth.user.id,
     })
 
@@ -99,6 +107,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }, { status: 201 })
   } catch (error: any) {
     console.error('POST /api/projects/[id]/phases/[phaseId]/activities/[activityId]/duplicate error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: error.message, message: error.message }, { status: 500 })
   }
 }
