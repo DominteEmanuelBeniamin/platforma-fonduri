@@ -71,6 +71,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     const body = await req.json()
     const { name, description, project_status_id, order_index, status, visibility } = body
+    const isPublishing = visibility === 'published'
 
     if (visibility !== undefined && visibility !== 'published') {
       return NextResponse.json({ error: 'Invalid visibility transition' }, { status: 400 })
@@ -98,7 +99,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       .eq('project_id', projectId)
       .maybeSingle()
 
-    if (visibility === 'published') {
+    if (isPublishing) {
       if (!before || before.visibility !== 'draft') {
         return NextResponse.json({ error: 'Phase is already published' }, { status: 400 })
       }
@@ -119,13 +120,13 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     await logAction({
       actorId: auth.user.id,
-      actionType: 'update',
+      actionType: isPublishing ? 'publish' : 'update',
       entityType: 'project_phase',
       entityId: phaseId,
       entityName: phase.name,
       oldValues: before ? { ...before, project_title: projectTitle } : null,
       newValues: { ...updateData, project_id: projectId, project_title: projectTitle },
-      description: `Modificare faza "${phase.name}" in proiectul "${projectTitle}"`,
+      description: `${isPublishing ? 'Publicare' : 'Modificare'} fază "${phase.name}" în proiectul "${projectTitle}"`,
       request: req,
     })
 

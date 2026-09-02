@@ -134,6 +134,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     const body = await req.json()
     const { name, description, order_index, status, assigned_to, deadline_at, visibility } = body
+    const isPublishing = visibility === 'published'
 
     if (visibility !== undefined && visibility !== 'published') {
       return NextResponse.json({ error: 'Invalid visibility transition' }, { status: 400 })
@@ -201,7 +202,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       }
     }
 
-    if (visibility === 'published' && before.visibility !== 'draft') {
+    if (isPublishing && before.visibility !== 'draft') {
       return NextResponse.json({ error: 'Activity is already published' }, { status: 400 })
     }
 
@@ -215,7 +216,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       incomingAssignee: assigned_to,
     }
 
-    if (visibility === 'published') {
+    if (isPublishing) {
       const blockers = publishBlockers(publishState)
       if (blockers.length > 0) {
         return NextResponse.json(publishBlockedError(blockers), { status: 400 })
@@ -231,7 +232,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         )
       }
     }
-    if (visibility === 'published') updateData.visibility = 'published'
+    if (isPublishing) updateData.visibility = 'published'
 
     const assignmentChanged = assigned_to !== undefined && assigned_to !== before.assigned_to
     if (assignmentChanged) {
@@ -282,13 +283,13 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     await logAction({
       actorId: auth.user.id,
-      actionType: 'update',
+      actionType: isPublishing ? 'publish' : 'update',
       entityType: 'project_activity',
       entityId: activityId,
       entityName: activity.name,
       oldValues: before ? { ...before, project_title: projectTitle } : null,
       newValues: { ...updateData, project_id: projectId, project_title: projectTitle },
-      description: `Modificare activitate "${activity.name}" in proiectul "${projectTitle}"`,
+      description: `${isPublishing ? 'Publicare' : 'Modificare'} activitate "${activity.name}" în proiectul "${projectTitle}"`,
       request: req,
     })
 

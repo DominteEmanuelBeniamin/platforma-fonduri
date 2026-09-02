@@ -18,8 +18,8 @@ export type FileReviewStatus = 'pending' | 'approved' | 'rejected';
 export type ReminderLogStatus = 'claimed' | 'sent' | 'skipped';
 export type ReminderLogSource = 'cron' | 'manual' | 'legacy';
 export type ReminderThreshold = '1_week' | '3_days' | '1_day' | 'same_day' | 'overdue';
-export type AuditActionType = 'create' | 'update' | 'delete' | 'login' | 'logout' | 'deadline_reminder_digest';
-export type AuditEntityType = 'project' | 'document' | 'user' | 'file' | 'team_member' | 'phase' | 'activity' | 'template' | 'deadline_reminder_digest';
+export type AuditActionType = string;
+export type AuditEntityType = string;
 
 export type NotificationType = 'publication' | 'assignment' | 'deadline' | 'document_action';
 export type NotificationEntityType = 'project' | 'phase' | 'activity' | 'document_request';
@@ -675,8 +675,8 @@ export interface ActivityDocumentFileReview {
 export interface AuditLog {
   id: string;
   user_id: string | null;
-  action_type: AuditActionType;
-  entity_type: AuditEntityType;
+  action_type: string;
+  entity_type: string;
   entity_id: string | null;
   entity_name: string | null;
   old_values: Record<string, unknown> | null;
@@ -1058,7 +1058,7 @@ export interface Database {
       revert_project_phase: { Args: { p_project_id: string; p_target_phase_slug: string }; Returns: boolean };
       add_session: { Args: { p_measure_id: string; p_name: string; p_code?: string; p_start_date?: string; p_end_date?: string; p_budget?: number }; Returns: string };
       get_upcoming_deadlines: { Args: { p_days?: number; p_user_id?: string }; Returns: UpcomingDeadline[] };
-      log_audit: { Args: { p_action_type: AuditActionType; p_entity_type: AuditEntityType; p_entity_id: string; p_entity_name?: string; p_old_values?: Record<string, unknown>; p_new_values?: Record<string, unknown>; p_description?: string }; Returns: string };
+      log_audit: { Args: { p_action_type: string; p_entity_type: string; p_entity_id: string; p_entity_name?: string; p_old_values?: Record<string, unknown>; p_new_values?: Record<string, unknown>; p_description?: string }; Returns: string };
       is_admin: { Args: Record<string, never>; Returns: boolean };
       claim_reminder_slot: {
         Args: {

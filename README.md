@@ -16,6 +16,10 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Database baseline
+
+Migrările din repository sunt delta-uri aplicate peste schema Supabase existentă. `public.audit_logs` trebuie să existe înainte de migrările din 2026-05-26; validează schema reală cu `npm run audit:check`. O bază goală are nevoie de un baseline complet al întregii scheme, care nu se improvizează doar pentru audit. Nu există în repository un dump canonic publicat; acesta rămâne o datorie operațională.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
