@@ -10,7 +10,7 @@ export const avatarColors = [
     { from: '#f97316', to: '#ea580c' },
     { from: '#ef4444', to: '#dc2626' },
   ]
-  
+
   export const getInitials = (name?: string | null, email?: string | null): string => {
     if (name && name.trim()) {
       const words = name.trim().split(/\s+/)
@@ -20,11 +20,10 @@ export const avatarColors = [
     if (email) return email.charAt(0).toUpperCase()
     return '?'
   }
-  
+
   export const getAvatarColor = (identifier: string) => {
     const hash = identifier.split('').reduce((acc, char) => {
       return char.charCodeAt(0) + ((acc << 5) - acc)
     }, 0)
     return avatarColors[Math.abs(hash) % avatarColors.length]
   }
-  

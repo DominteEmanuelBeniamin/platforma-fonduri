@@ -27,6 +27,7 @@ import { getAvatarColor, getInitials } from "@/lib/avatar";
 import { FeedbackMessage } from "@/components/FeedbackMessage";
 import UnifiedSearchDialog from "@/components/UnifiedSearchDialog";
 import type { SearchResult } from "@/lib/projectSearch";
+import { reconcileProjectChatComposerSuccess } from "@/lib/project-chat-composer";
 import { buildProjectChatHref, splitProjectChatBody, UNRESOLVED_LINK_TEXT } from "@/lib/project-chat-links";
 import { PROJECT_CHAT_MAX_IMAGES, PROJECT_CHAT_MAX_IMAGE_BYTES } from "@/lib/project-chat-contracts";
 import type { ChatImage } from "@/lib/project-chat-contracts";
@@ -47,7 +48,6 @@ type PendingImage = {
   name: string;
   mimeType: ChatImage['mimeType'];
   previewUrl: string;
-  path?: string;
 };
 
 type ImageUpload = {
@@ -56,6 +56,39 @@ type ImageUpload = {
   signedUploadUrl: string;
   token: string;
   mimeType?: ChatImage['mimeType'];
+};
+
+type SendAttemptPhase = 'initializing' | 'uploading' | 'posting' | 'settled';
+
+type SendAttempt = {
+  id: string;
+  projectId: string;
+  phase: SendAttemptPhase;
+  controller: AbortController;
+  attachments: PendingImage[];
+  initializedPaths: string[];
+  cleanupPromise: Promise<void> | null;
+  settled: Promise<void>;
+  resolveSettled: () => void;
+};
+
+const createSendAttempt = (projectId: string, attachments: PendingImage[]): SendAttempt => {
+  let resolveSettled!: () => void;
+  const settled = new Promise<void>((resolve) => {
+    resolveSettled = resolve;
+  });
+
+  return {
+    id: crypto.randomUUID(),
+    projectId,
+    phase: 'initializing',
+    controller: new AbortController(),
+    attachments: attachments.slice(),
+    initializedPaths: [],
+    cleanupPromise: null,
+    settled,
+    resolveSettled,
+  };
 };
 
 const IMAGE_MIMES: Record<string, ChatImage['mimeType']> = {
@@ -126,6 +159,9 @@ export default function ProjectChatDrawer({
   useLayoutEffect(() => {
     mountedRef.current = true;
     setIsMounted(true);
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -140,11 +176,10 @@ export default function ProjectChatDrawer({
   const openBoundaryCapturedRef = useRef(false);
   const userPinnedToBottomRef = useRef(true);
   const imageRetryRef = useRef<Set<string>>(new Set());
+  const textRef = useRef('');
   const attachmentsRef = useRef<PendingImage[]>([]);
-
-  useEffect(() => {
-    attachmentsRef.current = attachments;
-  }, [attachments]);
+  const activeAttemptRef = useRef<SendAttempt | null>(null);
+  const closePromiseRef = useRef<Promise<void> | null>(null);
 
   const canSend = !authLoading && !sending && !uploading && (text.trim().length > 0 || attachments.length > 0);
 
@@ -169,38 +204,65 @@ export default function ProjectChatDrawer({
     cleanupPathsRef.current = cleanupPaths;
   }, [cleanupPaths]);
 
+  const cleanupAttemptPaths = useCallback((attempt: SendAttempt) => {
+    if (!attempt.cleanupPromise) {
+      const paths = [...new Set(attempt.initializedPaths)];
+      attempt.cleanupPromise = cleanupPathsRef.current(paths, attempt.projectId);
+    }
+    return attempt.cleanupPromise;
+  }, []);
+
   useEffect(() => {
+    textRef.current = '';
+    attachmentsRef.current = [];
     setAttachments([]);
     setText('');
     setPreview(null);
     setComposerError(null);
     setShowRequestCta(false);
     return () => {
+      const attempt = activeAttemptRef.current;
+      if (attempt?.projectId === projectId) {
+        activeAttemptRef.current = null;
+        // The project can change without going through `closeDrawer`. Preserve
+        // the same commit-safety rule here: only pre-POST work is abortable.
+        if (attempt.phase !== 'posting') attempt.controller.abort();
+        void attempt.settled;
+      }
       const items = attachmentsRef.current;
       items.forEach((item) => URL.revokeObjectURL(item.previewUrl));
-      const paths = items.map((item) => item.path).filter((path): path is string => !!path);
-      if (paths.length) void cleanupPathsRef.current(paths, projectId);
+      attachmentsRef.current = [];
     };
   }, [projectId]);
 
-  const clearAttachments = useCallback((items: PendingImage[] = attachments) => {
-    items.forEach((item) => URL.revokeObjectURL(item.previewUrl));
-    setAttachments([]);
-  }, [attachments]);
-
   const closeDrawer = useCallback(() => {
-    const paths = attachments.map((item) => item.path).filter((path): path is string => !!path);
-    void cleanupPaths(paths);
-    clearAttachments();
-    onClose();
-  }, [attachments, cleanupPaths, clearAttachments, onClose]);
+    if (closePromiseRef.current) return closePromiseRef.current;
+
+    const closePromise = (async () => {
+      const attempt = activeAttemptRef.current;
+      if (attempt && attempt.phase !== 'settled') {
+        // Once the POST has started, aborting the browser request cannot prove
+        // the server did not commit it. Let it settle; uploads are safe to
+        // abort because their paths are owned by this attempt and cleaned up.
+        if (attempt.phase !== 'posting') attempt.controller.abort();
+        await attempt.settled;
+      }
+      onClose();
+    })().finally(() => {
+      if (closePromiseRef.current === closePromise) closePromiseRef.current = null;
+    });
+
+    closePromiseRef.current = closePromise;
+    return closePromise;
+  }, [onClose]);
 
   const addFiles = (incoming: File[]) => {
-    if (!incoming.length || uploading || sending) return;
+    if (!incoming.length || activeAttemptRef.current || uploading || sending) return;
     setComposerError(null);
     setShowRequestCta(false);
 
-    if (attachments.length + incoming.length > PROJECT_CHAT_MAX_IMAGES) {
+    const currentAttachments = attachmentsRef.current;
+    if (currentAttachments.length + incoming.length > PROJECT_CHAT_MAX_IMAGES) {
       setComposerError(`Poți atașa maximum ${PROJECT_CHAT_MAX_IMAGES} imagini într-un mesaj.`);
       return;
     }
@@ -234,15 +296,20 @@ export default function ProjectChatDrawer({
         previewUrl: URL.createObjectURL(file),
       });
     }
-    if (valid.length) setAttachments((prev) => prev.concat(valid));
+    if (valid.length) {
+      const next = currentAttachments.concat(valid);
+      attachmentsRef.current = next;
+      setAttachments(next);
+    }
   };
 
   const removeAttachment = (id: string) => {
-    const item = attachments.find((entry) => entry.id === id);
+    const item = attachmentsRef.current.find((entry) => entry.id === id);
     if (!item) return;
-    if (item.path) void cleanupPaths([item.path]);
     URL.revokeObjectURL(item.previewUrl);
-    setAttachments((prev) => prev.filter((entry) => entry.id !== id));
+    const next = attachmentsRef.current.filter((entry) => entry.id !== id);
+    attachmentsRef.current = next;
+    setAttachments(next);
   };
 
   const openDocumentRequestSearch = () => {
@@ -250,17 +317,20 @@ export default function ProjectChatDrawer({
     setSearchOpen(true);
   };
 
-  const handleSearchSelect = (result: SearchResult) => {
+  const handleSearchSelect = async (result: SearchResult) => {
     if (searchFilter === 'all') {
       const href = buildProjectChatHref(projectId, result);
       const textarea = textareaRef.current;
-      const start = textarea?.selectionStart ?? text.length;
+      const currentText = textRef.current;
+      const start = textarea?.selectionStart ?? currentText.length;
       const end = textarea?.selectionEnd ?? start;
-      const before = text.slice(0, start);
-      const after = text.slice(end);
+      const before = currentText.slice(0, start);
+      const after = currentText.slice(end);
       const prefix = before && !/\s$/.test(before) ? ' ' : '';
       const suffix = after && !/^\s/.test(after) ? ' ' : '';
-      setText(`${before}${prefix}${href}${suffix}${after}`);
+      const nextText = `${before}${prefix}${href}${suffix}${after}`;
+      textRef.current = nextText;
+      setText(nextText);
       setSearchOpen(false);
       setTimeout(() => {
         textareaRef.current?.focus();
@@ -268,7 +338,7 @@ export default function ProjectChatDrawer({
       return;
     }
     setSearchOpen(false);
-    closeDrawer();
+    await closeDrawer();
     onNavigate?.(result);
   };
 
@@ -356,9 +426,9 @@ export default function ProjectChatDrawer({
         <button
           key={index}
           type="button"
-          onClick={(event) => {
+          onClick={async (event) => {
             event.stopPropagation();
-            closeDrawer();
+            await closeDrawer();
             onNavigate?.(result);
           }}
           className={`group/link inline-flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
@@ -638,30 +708,68 @@ export default function ProjectChatDrawer({
   }, [latestUnreadIncomingCreatedAt, markAsRead, messages.length, open]);
 
   const handleSend = async () => {
-    if (!canSend) return;
+    if (!canSend || activeAttemptRef.current) return;
+
+    const attempt = createSendAttempt(projectId, attachmentsRef.current);
+    activeAttemptRef.current = attempt;
     setUploading(true);
     setComposerError(null);
-    setUploadProgress(attachments.length ? { done: 0, total: attachments.length } : null);
-    const initializedPaths: string[] = [];
+    setUploadProgress(attempt.attachments.length ? { done: 0, total: attempt.attachments.length } : null);
+
+    const assertActive = () => {
+      if (
+        attempt.controller.signal.aborted ||
+        activeAttemptRef.current?.id !== attempt.id
+      ) {
+        const error = new Error('Project chat send attempt aborted');
+        error.name = 'AbortError';
+        throw error;
+      }
+    };
+
     try {
       let references: { path: string; name: string }[] = [];
-      if (attachments.length) {
+      if (attempt.attachments.length) {
         const initResponse = await apiFetch(`/api/projects/${projectId}/chat/images/init`, {
           method: 'POST',
           body: JSON.stringify({
-            files: attachments.map(({ name, file, mimeType }) => ({ name, size: file.size, type: mimeType })),
+            files: attempt.attachments.map(({ name, file, mimeType }) => ({ name, size: file.size, type: mimeType })),
           }),
+          signal: attempt.controller.signal,
         });
         const initJson = await initResponse.json().catch(() => null) as { uploads?: ImageUpload[] } | null;
-        if (!initResponse.ok || !initJson?.uploads || initJson.uploads.length !== attachments.length) {
+        const receivedUploads = Array.isArray(initJson?.uploads) ? initJson.uploads : [];
+
+        // The init response owns every returned path. Record the entire batch
+        // before validating it or starting the first PUT so every failure path
+        // can clean the complete allocation exactly once.
+        attempt.initializedPaths = receivedUploads
+          .map(upload => upload?.path)
+          .filter((path): path is string => typeof path === 'string' && path.length > 0);
+
+        if (!initResponse.ok || receivedUploads.length !== attempt.attachments.length) {
           throw new Error('upload init failed');
         }
-        const uploads = initJson.uploads.slice().sort((a, b) => a.clientFileId - b.clientFileId);
+        const uploads = receivedUploads.slice().sort((a, b) => a.clientFileId - b.clientFileId);
+        if (new Set(attempt.initializedPaths).size !== uploads.length) {
+          throw new Error('upload init failed');
+        }
         for (const [index, upload] of uploads.entries()) {
-          const attachment = attachments[index];
-          if (!attachment || !upload.path || !upload.signedUploadUrl) throw new Error('upload init failed');
-          initializedPaths.push(upload.path);
-          setAttachments((prev) => prev.map((item) => item.id === attachment.id ? { ...item, path: upload.path } : item));
+          if (
+            upload.clientFileId !== index ||
+            !upload.path ||
+            !upload.signedUploadUrl ||
+            !attempt.attachments[index]
+          ) {
+            throw new Error('upload init failed');
+          }
+        }
+
+        assertActive();
+        attempt.phase = 'uploading';
+        for (const [index, upload] of uploads.entries()) {
+          assertActive();
+          const attachment = attempt.attachments[index];
           const putResponse = await fetch(upload.signedUploadUrl, {
             method: 'PUT',
             headers: {
@@ -669,28 +777,82 @@ export default function ProjectChatDrawer({
               Authorization: `Bearer ${upload.token || token || ''}`,
             },
             body: attachment.file,
+            signal: attempt.controller.signal,
           });
           if (!putResponse.ok) throw new Error('upload failed');
-          setUploadProgress({ done: index + 1, total: uploads.length });
+          assertActive();
+          if (mountedRef.current) setUploadProgress({ done: index + 1, total: uploads.length });
         }
-        references = uploads.map((upload, index) => ({ path: upload.path, name: attachments[index].name }));
+        references = uploads.map((upload, index) => ({
+          path: upload.path,
+          name: attempt.attachments[index].name,
+        }));
+      }
+
+      assertActive();
+      attempt.phase = 'posting';
+      const sentText = textRef.current;
+      if (mountedRef.current) {
+        setUploading(false);
+        setUploadProgress(null);
       }
 
       // Eșecul trimiterii e raportat de hook prin `error`; dacă l-am dubla aici
       // cu `composerError`, userul ar vedea două mesaje diferite pentru același
       // eșec. `composerError` rămâne strict pentru partea de upload.
-      const item = await sendMessage({ body: text, images: references });
-      if (!item) return;
-      setText('');
-      clearAttachments();
+      const item = await sendMessage(
+        { body: sentText, images: references },
+        { signal: attempt.controller.signal },
+      );
+      if (!item) {
+        await cleanupAttemptPaths(attempt);
+        return;
+      }
+
+      const reconciliation = reconcileProjectChatComposerSuccess({
+        attemptId: attempt.id,
+        activeAttemptId: activeAttemptRef.current?.id ?? null,
+        sentText,
+        currentText: textRef.current,
+        sentAttachmentIds: attempt.attachments.map(attachment => attachment.id),
+        currentAttachmentIds: attachmentsRef.current.map(attachment => attachment.id),
+      });
+      if (!reconciliation) return;
+
+      const remainingIds = new Set(reconciliation.attachmentIds);
+      const currentAttachments = attachmentsRef.current;
+      currentAttachments
+        .filter(attachment => !remainingIds.has(attachment.id))
+        .forEach(attachment => URL.revokeObjectURL(attachment.previewUrl));
+      const remainingAttachments = currentAttachments.filter(attachment => remainingIds.has(attachment.id));
+
+      textRef.current = reconciliation.text;
+      attachmentsRef.current = remainingAttachments;
+      if (mountedRef.current) {
+        setText(reconciliation.text);
+        setAttachments(remainingAttachments);
+      }
       setTimeout(() => scrollToBottom(false), 0);
     } catch {
-      await cleanupPaths(initializedPaths);
-      setAttachments((prev) => prev.map((item) => ({ ...item, path: undefined })));
-      setComposerError('Nu am putut încărca imaginile. Reîncearcă.');
+      await cleanupAttemptPaths(attempt);
+      if (
+        mountedRef.current &&
+        activeAttemptRef.current?.id === attempt.id &&
+        !attempt.controller.signal.aborted &&
+        attempt.phase !== 'posting'
+      ) {
+        setComposerError('Nu am putut încărca imaginile. Reîncearcă.');
+      }
     } finally {
-      setUploading(false);
-      setUploadProgress(null);
+      attempt.phase = 'settled';
+      if (activeAttemptRef.current?.id === attempt.id) {
+        activeAttemptRef.current = null;
+        if (mountedRef.current) {
+          setUploading(false);
+          setUploadProgress(null);
+        }
+      }
+      attempt.resolveSettled();
     }
   };
 
@@ -1219,7 +1381,10 @@ export default function ProjectChatDrawer({
             <textarea
               ref={textareaRef}
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                textRef.current = e.target.value;
+                setText(e.target.value);
+              }}
               onKeyDown={onTextareaKeyDown}
               onPaste={(event) => {
                 const fileItems = Array.from(event.clipboardData.items).filter((item) => item.kind === 'file');

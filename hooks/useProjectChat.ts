@@ -68,6 +68,14 @@ export type SendMessageInput = {
   images: ChatImageReference[]
 }
 
+export type SendMessageOptions = {
+  signal?: AbortSignal
+}
+
+const isAbortError = (error: unknown, signal?: AbortSignal) =>
+  signal?.aborted === true ||
+  (error instanceof Error && error.name === 'AbortError')
+
 const maxIso = (a: string | null, b: string | null) => {
   if (!a) return b
   if (!b) return a
@@ -109,8 +117,10 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
   const [readStates, setReadStates] = useState<ProjectChatReadState[]>([])
 
   const idsRef = useRef<Set<string>>(new Set())
+  const sendRequestIdRef = useRef(0)
 
   const resetState = useCallback(() => {
+    sendRequestIdRef.current += 1
     idsRef.current = new Set()
     setMessages([])
     setNextCursor(null)
@@ -366,13 +376,18 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
   )
 
   const sendMessage = useCallback(
-    async (input: SendMessageInput | string) => {
+    async (input: SendMessageInput | string, options: SendMessageOptions = {}) => {
       const payload: SendMessageInput = typeof input === 'string'
         ? { body: input, images: [] }
         : input
       const trimmed = payload.body?.trim() ?? ''
       const body = trimmed || null
       if (!body && payload.images.length === 0) return null
+      if (options.signal?.aborted) return null
+
+      const requestId = ++sendRequestIdRef.current
+      const isCurrentRequest = () =>
+        sendRequestIdRef.current === requestId && !options.signal?.aborted
 
       setSending(true)
       setError(null)
@@ -381,8 +396,11 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
         const res = await apiFetch(`/api/projects/${projectId}/chat/messages`, {
           method: 'POST',
           body: JSON.stringify({ body, images: payload.images }),
+          signal: options.signal,
         })
         const json = (await res.json().catch(() => null)) as PostResponse | null
+
+        if (!isCurrentRequest()) return null
 
         if (!res.ok) {
           setError(userErrorMessage(res.status, 'Nu am putut trimite mesajul.'))
@@ -395,11 +413,13 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
           return item
         }
         return null
-      } catch {
-        setError(userErrorMessage(undefined, 'Nu am putut trimite mesajul.'))
+      } catch (caught) {
+        if (!isAbortError(caught, options.signal) && isCurrentRequest()) {
+          setError(userErrorMessage(undefined, 'Nu am putut trimite mesajul.'))
+        }
         return null
       } finally {
-        setSending(false)
+        if (sendRequestIdRef.current === requestId) setSending(false)
       }
     },
     [apiFetch, projectId, pushOne]

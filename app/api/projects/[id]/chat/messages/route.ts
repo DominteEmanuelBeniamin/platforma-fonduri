@@ -16,6 +16,7 @@ import {
   type ChatImageReference,
   type StoredChatImage,
 } from '@/lib/project-chat-contracts'
+import { insertProjectChatMessageWithCleanup } from '@/lib/project-chat-post'
 
 const MAX_LIMIT = 200
 const DEFAULT_LIMIT = 50
@@ -96,6 +97,27 @@ async function inspectStoredImages(
   return result.every((image): image is StoredChatImage => image !== null) ? result : null
 }
 
+async function cleanupUnreferencedPostImages(
+  admin: ReturnType<typeof createSupabaseServiceClient>,
+  projectId: string,
+  userId: string,
+  paths: readonly string[],
+): Promise<void> {
+  try {
+    // The insert may have committed even when its HTTP response was lost. The
+    // reference check makes this cleanup safe for that ambiguous outcome: a
+    // path stored by the newly-created message is skipped instead of removed.
+    await removeUnreferencedProjectChatImages(admin, projectId, paths)
+  } catch (cleanupError) {
+    console.error('POST chat message orphan image cleanup failed:', {
+      projectId,
+      userId,
+      count: paths.length,
+      error: cleanupError,
+    })
+  }
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -167,45 +189,50 @@ export async function POST(
       // fișiere mari sub o dimensiune declarată mică. Trecem prin verificarea de
       // referințe, nu prin `remove` direct — nimic nu împiedică lotul respins să
       // conțină și un path pe care îl mai ține un mesaj trimis mai devreme.
-      try {
-        await removeUnreferencedProjectChatImages(
-          admin,
-          projectId,
-          parsed.data.images.map(image => image.path),
-        )
-      } catch (cleanupError) {
-        console.error('POST chat message orphan image cleanup failed:', {
-          projectId,
-          userId: access.user.id,
-          count: parsed.data.images.length,
-          error: cleanupError,
-        })
-      }
+      await cleanupUnreferencedPostImages(
+        admin,
+        projectId,
+        access.user.id,
+        parsed.data.images.map(image => image.path),
+      )
       return Response.json({ error: 'One or more uploaded images are missing or invalid' }, { status: 400 })
     }
 
-    const { data: projectRow } = await admin
-      .from('projects')
-      .select('title')
-      .eq('id', projectId)
-      .maybeSingle()
-    const projectTitle = projectRow?.title ?? projectId
+    const imagePaths = parsed.data.images.map(image => image.path)
+    let projectTitle = projectId
+    const insertion = await insertProjectChatMessageWithCleanup(async () => {
+      const { data: projectRow } = await admin
+        .from('projects')
+        .select('title')
+        .eq('id', projectId)
+        .maybeSingle()
+      projectTitle = projectRow?.title ?? projectId
 
-    const { data, error } = await admin
-      .from('project_chat_messages')
-      .insert({
-        project_id: projectId,
-        created_by: access.user.id,
-        body: parsed.data.body,
-        images: storedImages,
-      })
-      .select(MESSAGE_SELECT)
-      .single()
+      const result = await admin
+        .from('project_chat_messages')
+        .insert({
+          project_id: projectId,
+          created_by: access.user.id,
+          body: parsed.data.body,
+          images: storedImages,
+        })
+        .select(MESSAGE_SELECT)
+        .single()
 
-    if (error || !data) {
-      console.error('POST chat message failed:', { projectId, error })
+      return {
+        data: result.data as ProjectChatMessageRow | null,
+        error: result.error,
+      }
+    }, () => cleanupUnreferencedPostImages(admin, projectId, access.user.id, imagePaths))
+
+    if (!insertion.ok) {
+      console.error(
+        insertion.kind === 'transport' ? 'POST chat message transport failed:' : 'POST chat message failed:',
+        { projectId, error: insertion.error },
+      )
       return Response.json({ error: 'Failed to create chat message' }, { status: 500 })
     }
+    const data = insertion.data
 
     await logChatMessageAction({
       actorId: access.user.id,
@@ -230,7 +257,7 @@ export async function POST(
       admin,
       access.profile.role,
       projectId,
-      [data as ProjectChatMessageRow],
+      [data],
     )
     const [item] = await serializeProjectChatMessages(visibleRows, admin)
     return Response.json({ item }, { status: 201 })

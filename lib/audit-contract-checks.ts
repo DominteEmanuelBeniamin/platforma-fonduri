@@ -21,6 +21,26 @@ export const AUDIT_REQUIRED_COLUMNS = [
   'created_at',
 ] as const
 
+type AuditRequiredColumnName = typeof AUDIT_REQUIRED_COLUMNS[number]
+
+export const AUDIT_REQUIRED_COLUMN_CONTRACT: Record<
+  AuditRequiredColumnName,
+  { type: string; nullable: boolean }
+> = {
+  id: { type: 'uuid', nullable: false },
+  user_id: { type: 'uuid', nullable: true },
+  action_type: { type: 'text', nullable: false },
+  entity_type: { type: 'text', nullable: false },
+  entity_id: { type: 'uuid', nullable: true },
+  entity_name: { type: 'text', nullable: true },
+  old_values: { type: 'jsonb', nullable: true },
+  new_values: { type: 'jsonb', nullable: true },
+  description: { type: 'text', nullable: true },
+  ip_address: { type: 'text', nullable: true },
+  user_agent: { type: 'text', nullable: true },
+  created_at: { type: 'timestamp with time zone', nullable: true },
+}
+
 export const AUDIT_REQUIRED_INDEXES = [
   'idx_audit_logs_entity',
   'idx_audit_logs_user_created',
@@ -59,12 +79,35 @@ export function auditContractProblems(contract: unknown): string[] {
     return ['public.audit_logs nu există']
   }
 
-  const columnNames = new Set((value.columns ?? [])
-    .map(column => column?.name)
-    .filter((name): name is string => typeof name === 'string'))
-  const missingColumns = AUDIT_REQUIRED_COLUMNS.filter(column => !columnNames.has(column))
+  const columns = new Map((value.columns ?? [])
+    .filter((column): column is NonNullable<AuditLogsContract['columns']>[number] & { name: string } => (
+      typeof column?.name === 'string'
+    ))
+    .map(column => [column.name, column]))
+  const missingColumns = AUDIT_REQUIRED_COLUMNS.filter(column => !columns.has(column))
   if (missingColumns.length) {
     problems.push(`coloane lipsă în public.audit_logs: ${missingColumns.join(', ')}`)
+  }
+
+  for (const name of AUDIT_REQUIRED_COLUMNS) {
+    const actual = columns.get(name)
+    if (!actual) continue
+
+    const expected = AUDIT_REQUIRED_COLUMN_CONTRACT[name]
+    if (actual.type !== expected.type) {
+      problems.push(
+        `coloana public.audit_logs.${name} are tipul ${String(actual.type)}; așteptat ${expected.type}`,
+      )
+    }
+    if (actual.nullable !== expected.nullable) {
+      const actualNullability = actual.nullable === true
+        ? 'nullable'
+        : actual.nullable === false ? 'NOT NULL' : String(actual.nullable)
+      problems.push(
+        `coloana public.audit_logs.${name} este ${actualNullability}; `
+        + `așteptat ${expected.nullable ? 'nullable' : 'NOT NULL'}`,
+      )
+    }
   }
 
   const indexNames = new Set((value.indexes ?? []).filter((name): name is string => typeof name === 'string'))
