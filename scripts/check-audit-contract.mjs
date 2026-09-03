@@ -137,9 +137,20 @@ if (!url || !serviceKey) {
         if (!triggerContract) fail('triggerul audit_logs_append_only lipsește sau nu este BEFORE UPDATE OR DELETE FOR EACH ROW')
     }
 
-    const rows = []
-    const pageSize = 1000
-    for (let offset = 0; ; offset += pageSize) {
+    // Valorile distincte se agregă în DB. Citirea rând cu rând a jurnalului
+    // funcționa, dar creștea la nesfârșit odată cu el — iar `audit_logs` e
+    // append-only, deci nu se micșorează niciodată. Dacă migrarea cu RPC-ul nu
+    // e încă aplicată, cădem înapoi pe scanarea paginată, ca verificarea să nu
+    // devină un blocaj de deployment.
+    let rows = null
+    const { data: distinctRows, error: distinctError } = await admin.rpc('audit_log_distinct_types')
+    if (!distinctError && Array.isArray(distinctRows)) {
+      rows = distinctRows
+    } else {
+      console.error('audit:check — RPC audit_log_distinct_types indisponibil, se scanează paginat:', probeError(distinctError))
+      rows = []
+      const pageSize = 1000
+      for (let offset = 0; ; offset += pageSize) {
         // Only action_type/entity_type are read; payloads, descriptions and
         // user-identifying columns never leave Supabase during this check.
         const data = await readProbe('public.audit_logs action_type/entity_type nu poate fi citit', () => admin
@@ -150,6 +161,7 @@ if (!url || !serviceKey) {
         if (data === null) break
         rows.push(...(data ?? []))
         if (!data || data.length < pageSize) break
+      }
     }
 
     const actionTypes = [...new Set(rows.map(row => row.action_type))]
