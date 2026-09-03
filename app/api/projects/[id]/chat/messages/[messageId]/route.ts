@@ -3,8 +3,11 @@ import { getClientIP, getUserAgent, logChatMessageAction, toMessagePreview } fro
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { maskProjectChatBodiesForViewer } from '@/app/api/_utils/project-chat-links'
 import { serializeProjectChatMessages } from '@/app/api/_utils/project-chat-messages'
+import {
+  removeUnreferencedProjectChatImages,
+  storedChatImages,
+} from '@/app/api/_utils/project-chat-image-refs'
 import { isProjectChatImagePath } from '@/lib/project-chat-images'
-import { PROJECT_CHAT_BUCKET, type StoredChatImage } from '@/lib/project-chat-contracts'
 
 const MESSAGE_SELECT = `
   id,
@@ -34,20 +37,8 @@ type ProjectChatMessageRow = {
   profiles?: unknown
 }
 
-function imageRows(value: unknown): StoredChatImage[] {
-  if (!Array.isArray(value)) return []
-  return value.filter((image): image is StoredChatImage => {
-    if (!image || typeof image !== 'object') return false
-    const row = image as Partial<StoredChatImage>
-    return typeof row.path === 'string' &&
-      typeof row.name === 'string' &&
-      typeof row.mimeType === 'string' &&
-      typeof row.size === 'number'
-  })
-}
-
 function imageAuditFields(value: unknown) {
-  const images = imageRows(value)
+  const images = storedChatImages(value)
   return {
     image_count: images.length,
     image_names: images.map(image => image.name),
@@ -82,30 +73,16 @@ function canMutateMessage(role: string, callerId: string, messageCreatedBy: stri
 async function cleanupUnreferencedImages(
   admin: ReturnType<typeof createSupabaseServiceClient>,
   projectId: string,
+  ownerId: string,
   images: unknown,
 ) {
-  const candidates = [...new Set(imageRows(images)
+  // Proprietarul vine din `created_by`, nu din path-ul verificat: extras din
+  // path, segmentul de user s-ar fi validat pe el însuși, iar verificarea ar fi
+  // arătat că apără ceva ce de fapt nu apăra.
+  const candidates = storedChatImages(images)
     .map(image => image.path)
-    .filter(path => isProjectChatImagePath(path, projectId, path.split('/')[3] ?? '')))]
-  if (candidates.length === 0) return
-
-  const referenced = new Set<string>()
-  for (const path of candidates) {
-    const { data, error } = await admin
-      .from('project_chat_messages')
-      .select('id')
-      .eq('project_id', projectId)
-      .is('deleted_at', null)
-      .contains('images', [{ path }])
-      .limit(1)
-    if (error) throw error
-    if ((data ?? []).length > 0) referenced.add(path)
-  }
-
-  const removable = candidates.filter(path => !referenced.has(path))
-  if (removable.length === 0) return
-  const { error } = await admin.storage.from(PROJECT_CHAT_BUCKET).remove(removable)
-  if (error) throw error
+    .filter(path => isProjectChatImagePath(path, projectId, ownerId))
+  await removeUnreferencedProjectChatImages(admin, projectId, candidates)
 }
 
 function parsePatchBody(value: unknown): { ok: true; body: string | null } | { ok: false; error: string } {
@@ -171,7 +148,7 @@ export async function PATCH(
     }
     if (!message) return Response.json({ error: 'Message not found' }, { status: 404 })
     if (message.deleted_at) return Response.json({ error: 'Message is deleted' }, { status: 409 })
-    if (parsed.body === null && imageRows(message.images).length === 0) {
+    if (parsed.body === null && storedChatImages(message.images).length === 0) {
       return Response.json({ error: 'Message body or images are required' }, { status: 400 })
     }
     if (!canMutateMessage(access.profile.role, access.user.id, message.created_by)) {
@@ -267,7 +244,7 @@ export async function DELETE(
     }
 
     try {
-      await cleanupUnreferencedImages(admin, projectId, message.images)
+      await cleanupUnreferencedImages(admin, projectId, message.created_by, message.images)
     } catch (storageError) {
       console.error('DELETE chat message image cleanup failed:', {
         projectId,

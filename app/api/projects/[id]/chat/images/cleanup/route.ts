@@ -1,9 +1,8 @@
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
-import {
-  isProjectChatImagePath,
-} from '@/lib/project-chat-images'
-import { PROJECT_CHAT_BUCKET, PROJECT_CHAT_MAX_IMAGES } from '@/lib/project-chat-contracts'
+import { removeUnreferencedProjectChatImages } from '@/app/api/_utils/project-chat-image-refs'
+import { isProjectChatImagePath } from '@/lib/project-chat-images'
+import { PROJECT_CHAT_MAX_IMAGES } from '@/lib/project-chat-contracts'
 
 export async function POST(
   request: Request,
@@ -27,48 +26,20 @@ export async function POST(
     return Response.json({ error: 'paths[] must not contain duplicates' }, { status: 400 })
   }
 
-  const admin = createSupabaseServiceClient()
-  const referencedPaths: string[] = []
   try {
-    for (const path of uniquePaths) {
-      const { data, error } = await admin
-        .from('project_chat_messages')
-        .select('id')
-        .eq('project_id', projectId)
-        .is('deleted_at', null)
-        .contains('images', [{ path }])
-        .limit(1)
-
-      if (error) throw error
-      if ((data ?? []).length > 0) referencedPaths.push(path)
-    }
+    const { removed, skipped } = await removeUnreferencedProjectChatImages(
+      createSupabaseServiceClient(),
+      projectId,
+      uniquePaths,
+    )
+    return Response.json({ ok: true, removedPaths: removed, skippedPaths: skipped })
   } catch (error) {
-    console.error('Project chat image cleanup reference check failed:', {
+    console.error('Project chat image cleanup failed:', {
       projectId,
       userId: access.user.id,
       count: uniquePaths.length,
       error,
     })
-    return Response.json({ error: 'Failed to check image references' }, { status: 500 })
+    return Response.json({ error: 'Failed to remove unused images' }, { status: 500 })
   }
-
-  const removablePaths = uniquePaths.filter(path => !referencedPaths.includes(path))
-  if (removablePaths.length > 0) {
-    const { error } = await admin.storage.from(PROJECT_CHAT_BUCKET).remove(removablePaths)
-    if (error) {
-      console.error('Project chat image cleanup storage removal failed:', {
-        projectId,
-        userId: access.user.id,
-        count: removablePaths.length,
-        error,
-      })
-      return Response.json({ error: 'Failed to remove unused images' }, { status: 500 })
-    }
-  }
-
-  return Response.json({
-    ok: true,
-    removedPaths: removablePaths,
-    skippedPaths: referencedPaths,
-  })
 }

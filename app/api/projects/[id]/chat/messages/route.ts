@@ -9,6 +9,7 @@ import {
   parseProjectChatMessageInput,
   toStoredProjectChatImage,
 } from '@/lib/project-chat-images'
+import { removeUnreferencedProjectChatImages } from '@/app/api/_utils/project-chat-image-refs'
 import {
   PROJECT_CHAT_BUCKET,
   PROJECT_CHAT_MAX_IMAGE_BYTES,
@@ -160,6 +161,26 @@ export async function POST(
     const admin = createSupabaseServiceClient()
     const storedImages = await inspectStoredImages(admin, parsed.data.images)
     if (!storedImages) {
+      // Dimensiunea trimisă la `init` vine de la client, deci abia aici se află
+      // cât s-a urcat de fapt. Obiectele respinse se șterg pe loc: altfel un
+      // client care nu mai cheamă `/cleanup` ar putea umple bucket-ul urcând
+      // fișiere mari sub o dimensiune declarată mică. Trecem prin verificarea de
+      // referințe, nu prin `remove` direct — nimic nu împiedică lotul respins să
+      // conțină și un path pe care îl mai ține un mesaj trimis mai devreme.
+      try {
+        await removeUnreferencedProjectChatImages(
+          admin,
+          projectId,
+          parsed.data.images.map(image => image.path),
+        )
+      } catch (cleanupError) {
+        console.error('POST chat message orphan image cleanup failed:', {
+          projectId,
+          userId: access.user.id,
+          count: parsed.data.images.length,
+          error: cleanupError,
+        })
+      }
       return Response.json({ error: 'One or more uploaded images are missing or invalid' }, { status: 400 })
     }
 
