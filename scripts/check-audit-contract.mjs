@@ -45,96 +45,23 @@ if (!url || !serviceKey) {
 
   try {
     const { AUDIT_ACTION_LABELS, AUDIT_ENTITY_LABELS } = await import(catalogUrl)
+    const { auditContractProblems } = await import(
+      pathToFileURL(join(root, 'lib/audit-contract-checks.ts')).href)
 
-    // PostgREST must expose metadata for a truthful schema check. Supabase
-    // projects commonly do not expose information_schema; that is a failed
-    // check, not a reason to infer the schema from TypeScript or migrations.
-    const columns = await readProbe('information_schema.columns nu poate fi citit prin PostgREST (limitare de acces sau schemă neexpusă)', () => admin
-      .schema('information_schema')
-      .from('columns')
-      .select('column_name,data_type,udt_name,is_nullable,column_default,ordinal_position')
-      .eq('table_schema', 'public')
-      .eq('table_name', 'audit_logs')
-      .order('ordinal_position'))
-
-    if (columns && !columns.length) {
-      fail('public.audit_logs nu există sau nu este vizibilă în information_schema.columns')
-    }
-    if (columns) {
-      const requiredColumns = [
-        'id',
-        'user_id',
-        'action_type',
-        'entity_type',
-        'entity_id',
-        'entity_name',
-        'old_values',
-        'new_values',
-        'description',
-        'ip_address',
-        'user_agent',
-        'created_at',
-      ]
-      const columnNames = new Set(columns.map(column => column.column_name))
-      const missingColumns = requiredColumns.filter(column => !columnNames.has(column))
-      if (missingColumns.length) fail(`coloane lipsă în public.audit_logs: ${missingColumns.join(', ')}`)
-    }
-
-    const catalog = admin.schema('pg_catalog')
-    const indexes = await readProbe('pg_indexes nu poate fi citit prin PostgREST (limitare de acces sau schemă neexpusă)', () => catalog
-        .from('pg_indexes')
-        .select('indexname,indexdef')
-        .eq('schemaname', 'public')
-        .eq('tablename', 'audit_logs'))
-    let missingIndexes = []
-    if (indexes) {
-        const requiredIndexes = [
-          'idx_audit_logs_entity',
-          'idx_audit_logs_user_created',
-          'idx_audit_logs_action_created',
-          'idx_audit_logs_created',
-        ]
-        const indexNames = new Set(indexes.map(index => index.indexname))
-        missingIndexes = requiredIndexes.filter(index => !indexNames.has(index))
-        if (missingIndexes.length) fail(`indexuri lipsă pe public.audit_logs: ${missingIndexes.join(', ')}`)
-    }
-
-    const namespaces = await readProbe('pg_namespace nu poate fi citit prin PostgREST (limitare de acces sau schemă neexpusă)', () => catalog
-        .from('pg_namespace')
-        .select('oid,nspname')
-        .eq('nspname', 'public')
-        .limit(1))
-    const publicOid = namespaces?.[0]?.oid
-    if (namespaces && !publicOid) fail('schema public nu a fost găsită în pg_namespace')
-
-    const tables = await readProbe('pg_class nu poate fi citit prin PostgREST (limitare de acces sau schemă neexpusă)', () => catalog
-      .from('pg_class')
-      .select('oid,relname,relnamespace')
-      .eq('relname', 'audit_logs')
-      .limit(20))
-    const auditLogsOid = publicOid && tables
-      ? tables.find(table => String(table.relnamespace) === String(publicOid))?.oid
-      : null
-    if (tables && !auditLogsOid) fail('tabela public.audit_logs nu a fost găsită în pg_class')
-
-    const triggers = await readProbe('pg_trigger nu poate fi citit prin PostgREST (limitare de acces sau schemă neexpusă)', () => catalog
-          .from('pg_trigger')
-          .select('tgname,tgrelid,tgenabled,tgtype,tgisinternal')
-          .eq('tgname', 'audit_logs_append_only')
-          .limit(20))
-    let trigger = null
-    let triggerContract = false
-    if (triggers) {
-        trigger = auditLogsOid
-          ? triggers.find(row => String(row.tgrelid) === String(auditLogsOid))
-          : null
-        const triggerType = Number(trigger?.tgtype)
-        triggerContract = Boolean(trigger)
-          && (triggerType & 1) !== 0 // FOR EACH ROW
-          && (triggerType & 2) !== 0 // BEFORE
-          && (triggerType & 8) !== 0 // DELETE
-          && (triggerType & 16) !== 0 // UPDATE
-        if (!triggerContract) fail('triggerul audit_logs_append_only lipsește sau nu este BEFORE UPDATE OR DELETE FOR EACH ROW')
+    // Faptele structurale vin dintr-un RPC `SECURITY DEFINER`, nu din
+    // `information_schema`/`pg_catalog`: PostgREST nu le expune pe proiectele
+    // Supabase, deci probele scrise peste ele nu puteau reuși niciodată —
+    // scriptul ieșea mereu cu 1 fără să confirme nimic. Regulile stau în
+    // `lib/audit-contract-checks.ts`, ca să poată fi testate fără Supabase.
+    let contract = null
+    const { data: contractRow, error: contractError } = await admin.rpc('audit_logs_contract')
+    if (contractError || !contractRow) {
+      fail('structura nu poate fi verificată: aplică migrarea '
+        + '`supabase/migrations/20260903000000_audit_contract_probes.sql`'
+        + (contractError ? ` (${probeError(contractError)})` : ''))
+    } else {
+      contract = contractRow
+      for (const problem of auditContractProblems(contract)) fail(problem)
     }
 
     // Valorile distincte se agregă în DB. Citirea rând cu rând a jurnalului
@@ -172,16 +99,11 @@ if (!url || !serviceKey) {
     const unrenderableEntities = entityTypes.filter(type => typeof type !== 'string' || !type.trim())
 
     console.log(JSON.stringify({
-        ...(columns !== null ? {
-        columns: columns.map(column => ({
-          name: column.column_name,
-          dataType: column.data_type,
-          nullable: column.is_nullable,
-          default: column.column_default,
-        })),
-        } : {}),
-        ...(indexes !== null ? { indexes: { present: indexes.map(index => index.indexname), missing: missingIndexes } } : {}),
-        ...(triggers !== null ? { appendOnlyTrigger: { present: Boolean(trigger), contract: triggerContract } } : {}),
+        ...(contract ? {
+          columns: contract.columns ?? [],
+          indexes: contract.indexes ?? [],
+          appendOnlyTrigger: contract.append_only_trigger ?? null,
+        } : { contract: 'neverificat' }),
         actionTypes: {
           known: actionTypes.filter(type => typeof type === 'string' && Object.hasOwn(AUDIT_ACTION_LABELS, type)),
           unknown: unknownActions,
