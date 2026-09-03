@@ -17,6 +17,21 @@ export function storedChatImages(value: unknown): StoredChatImage[] {
 }
 
 /**
+ * Un termen `cs` pentru o cale, ghilimelat.
+ *
+ * PostgREST desparte valorile filtrelor după paranteze și virgule, iar numele
+ * de fișier acceptate de sanitizare le conțin pe primele — Windows numește
+ * duplicatele „poza (1).png". Nequotată, o astfel de cale rupea filtrul, cu
+ * `22P02: invalid input syntax for type json`: ștergerea unui mesaj nu mai
+ * scotea pozele din bucket, iar ruta de cleanup întorcea 500. Ghilimelele nu
+ * sunt o precauție teoretică, deci nu se scot.
+ */
+export function projectChatImagePathFilter(path: string): string {
+  const json = JSON.stringify([{ path }])
+  return `images.cs."${json.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
+/**
  * Ce path-uri mai sunt folosite de un mesaj viu din proiect.
  *
  * O singură interogare pentru tot lotul, nu una pe imagine: `images` e un
@@ -35,7 +50,7 @@ export async function referencedProjectChatImagePaths(
     .select('images')
     .eq('project_id', projectId)
     .is('deleted_at', null)
-    .or(paths.map(path => `images.cs.${JSON.stringify([{ path }])}`).join(','))
+    .or(paths.map(projectChatImagePathFilter).join(','))
 
   if (error) throw error
 
