@@ -330,7 +330,13 @@ export default function ProjectChatDrawer({
           </span>
         );
       }
-      const result = searchIndex.find((entry) => buildProjectChatHref(projectId, entry) === part.href);
+      // Rezolvat după id, nu după egalitate de href: href-ul e scris o dată și
+      // îngheață poziția de atunci, iar o mutare a activității sau a cererii ar
+      // face chip-ul „Element indisponibil” pentru un element care există.
+      // Navigarea folosește tot `result`, deci pleacă din poziția de acum.
+      const result = searchIndex.find(
+        (entry) => entry.type === part.reference.type && entry.id === part.reference.id,
+      );
       if (!result) return unavailableReference(index);
       const typeLabel = result.type === 'phase' ? 'Fază' : result.type === 'activity' ? 'Activitate' : 'Cerere';
       return (

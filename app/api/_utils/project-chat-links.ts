@@ -58,20 +58,20 @@ function visiblePhase(
   return phase?.id === phaseId && phase.project_id === projectId && phase.visibility === 'published'
 }
 
+/**
+ * Vizibilitatea se judecă după părintele **de acum** al activității, nu după
+ * cel din href: activitatea poate fi mutată în altă fază după ce linkul a fost
+ * scris, iar linkul trebuie să rămână valid.
+ */
 function visibleActivity(
-  phaseId: string,
   activityId: string,
   projectId: string,
   phases: ReadonlyMap<string, ProjectChatPhaseVisibilityRow>,
   activities: ReadonlyMap<string, ProjectChatActivityVisibilityRow>,
 ): boolean {
   const activity = activities.get(activityId)
-  return Boolean(
-    activity?.id === activityId &&
-      activity.phase_id === phaseId &&
-      activity.visibility === 'published' &&
-      visiblePhase(phaseId, projectId, phases),
-  )
+  if (!activity || activity.visibility !== 'published') return false
+  return visiblePhase(activity.phase_id, projectId, phases)
 }
 
 function visibleReference(
@@ -90,22 +90,20 @@ function visibleReference(
   }
 
   if (reference.type === 'activity') {
-    return visibleActivity(reference.phaseId, reference.activityId, projectId, maps.phases, maps.activities)
+    return visibleActivity(reference.activityId, projectId, maps.phases, maps.activities)
   }
 
   const request = maps.requests.get(reference.requestId)
   if (!request || request.id !== reference.requestId || request.project_id !== projectId) return false
   if (request.deleted_at || request.visibility !== 'published') return false
 
-  if (reference.phaseId === '__general__') {
-    return reference.activityId === null && request.activity_id == null
-  }
-
-  return Boolean(
-    reference.activityId &&
-      request.activity_id === reference.activityId &&
-      visibleActivity(reference.phaseId, reference.activityId, projectId, maps.phases, maps.activities),
-  )
+  // Lanțul se verifică pe poziția de acum a cererii, nu pe cea din href. O
+  // cerere mutată la altă activitate — sau ajunsă la „Cereri generale” fiindcă
+  // i s-a șters activitatea (`safe_parent_deletion` pune `activity_id = null`)
+  // — rămâne o cerere vizibilă, deci linkul către ea nu trebuie mascat.
+  return request.activity_id == null
+    ? true
+    : visibleActivity(request.activity_id, projectId, maps.phases, maps.activities)
 }
 
 /**
@@ -224,29 +222,34 @@ export async function maskProjectChatBodiesForViewer<T extends ProjectChatBodyRo
     .filter(row => !row.deleted_at && !row.is_deleted && typeof row.body === 'string')
     .flatMap(row => extractProjectChatLinks(row.body!, projectId).map(link => link.reference))
 
-  const phaseIds = [...new Set(references.flatMap(reference =>
-    reference.type === 'phase' || reference.type === 'activity'
-      ? [reference.phaseId]
-      : reference.phaseId === '__general__' ? [] : [reference.phaseId],
-  ))]
-  const activityIds = [...new Set(references.flatMap(reference =>
-    reference.type === 'activity' || (reference.type === 'document_request' && reference.activityId)
-      ? [reference.type === 'activity' ? reference.activityId : reference.activityId!]
-      : [],
-  ))]
+  if (references.length === 0) return [...rows]
+
+  // Trei pași în lanț, nu trei cereri paralele: părintele fiecărui element se
+  // citește din rândul lui de acum, nu din href. Altfel o cerere mutată la altă
+  // activitate — sau la „Cereri generale”, când i se șterge activitatea — ar
+  // apărea ca „Element indisponibil” deși e vizibilă.
   const requestIds = [...new Set(references
     .filter((reference): reference is Extract<ProjectChatLinkReference, { type: 'document_request' }> => reference.type === 'document_request')
     .map(reference => reference.requestId))]
+  const requests = mapRows((await loadBatch(
+    admin, 'document_requirements', 'id, project_id, activity_id, visibility, deleted_at', requestIds,
+  )).rows, toRequest)
 
-  const [phaseResult, activityResult, requestResult] = await Promise.all([
-    loadBatch(admin, 'project_phases', 'id, project_id, visibility', phaseIds),
-    loadBatch(admin, 'project_activities', 'id, phase_id, visibility', activityIds),
-    loadBatch(admin, 'document_requirements', 'id, project_id, activity_id, visibility, deleted_at', requestIds),
-  ])
+  const activityIds = [...new Set([
+    ...references.flatMap(reference => reference.type === 'activity' ? [reference.activityId] : []),
+    ...[...requests.values()].map(request => request.activity_id).filter((id): id is string => !!id),
+  ])]
+  const activities = mapRows((await loadBatch(
+    admin, 'project_activities', 'id, phase_id, visibility', activityIds,
+  )).rows, toActivity)
 
-  return maskProjectChatBodiesFromVisibilityMaps(rows, projectId, {
-    phases: mapRows(phaseResult.rows, toPhase),
-    activities: mapRows(activityResult.rows, toActivity),
-    requests: mapRows(requestResult.rows, toRequest),
-  })
+  const phaseIds = [...new Set([
+    ...references.flatMap(reference => reference.type === 'phase' ? [reference.phaseId] : []),
+    ...[...activities.values()].map(activity => activity.phase_id),
+  ])]
+  const phases = mapRows((await loadBatch(
+    admin, 'project_phases', 'id, project_id, visibility', phaseIds,
+  )).rows, toPhase)
+
+  return maskProjectChatBodiesFromVisibilityMaps(rows, projectId, { phases, activities, requests })
 }
