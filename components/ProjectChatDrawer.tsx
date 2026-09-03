@@ -973,7 +973,14 @@ export default function ProjectChatDrawer({
                                         <button
                                           key={image.path}
                                           type="button"
-                                          className="overflow-hidden rounded-xl bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                          // `min-h` cât timp poza se încarcă: cu
+                                          // înălțime automată, bula ar porni de la
+                                          // zero și ar sări când imaginea se
+                                          // decodează, exact în momentul în care
+                                          // lista derulează la capăt.
+                                          className={`overflow-hidden rounded-xl bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                                            m.images!.length === 1 ? "min-h-32" : ""
+                                          }`}
                                           onClick={() => setPreview({ messageId: m.id, image })}
                                         >
                                           <img

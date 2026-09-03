@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Locator, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -37,14 +37,39 @@ function samplePdf(name: string) {
   return file
 }
 
-/** Un PNG 1x1 valid pentru probele chatului, fără fixture binar în repo. */
+/**
+ * Un PNG 60x40 (3:2) valid, fără fixture binar în repo. Proporția nu e
+ * decorativă: testele de mai jos măsoară randarea, iar un pătrat ar fi trecut
+ * și peste o tăiere forțată.
+ */
+const SAMPLE_PNG_RATIO = 60 / 40
 function samplePng(name: string) {
   const file = path.join(os.tmpdir(), name)
   fs.writeFileSync(file, Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'iVBORw0KGgoAAAANSUhEUgAAADwAAAAoCAIAAAAt2Q6oAAAAfklEQVR42mP89e0Dw1ADTAxDEIw6etTRo44edfSoo0cdTXXA' +
+    '8vHdi6HnaPpYY2jhQbkh50/sGMrJA5lTGBZBuYn9q1aMZsRRR486etTRo44edfSoo4dRgwne1hlNHqOOpjVgfP3kxtDLiKun' +
+    'tI8mj1FHjzp61NGjjh519KijARXLErxt1IfLAAAAAElFTkSuQmCC',
     'base64',
   ))
   return file
+}
+
+/**
+ * Imaginile randate în firul de discuție, fără miniaturile din composer:
+ * `alt` e același nume de fișier în ambele locuri.
+ */
+const sentImages = (drawer: Locator, name: string) =>
+  drawer.locator(`.overflow-y-auto img[alt="${name}"]`)
+
+/** Geometria de după decodare: până atunci înălțimea automată e încă 0. */
+async function renderedBox(image: Locator) {
+  await expect(image).toHaveJSProperty('complete', true, { timeout: 20_000 })
+  await expect
+    .poll(() => image.evaluate((el: HTMLImageElement) => el.naturalWidth), { timeout: 20_000 })
+    .toBeGreaterThan(0)
+  const box = await image.boundingBox()
+  if (!box) throw new Error('imaginea nu are geometrie')
+  return box
 }
 
 function badFile(name: string) {
@@ -72,7 +97,8 @@ async function openProjectChat(page: Page) {
   await page.goto(`/projects/${PROJECT}`, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(5000)
   await page.getByRole('button', { name: /^Chat/ }).click()
-  const drawer = page.locator('aside')
+  // Scopat pe titlu: `aside` prinde și bara laterală cu fazele proiectului.
+  const drawer = page.locator('aside').filter({ has: page.getByRole('heading', { name: 'Chat proiect' }) })
   await expect(drawer.getByRole('heading', { name: 'Chat proiect' })).toBeVisible()
   return drawer
 }
@@ -159,11 +185,44 @@ test.describe('upload real', () => {
     await drawer.locator('input[type=file]').setInputFiles(samplePng(name))
     await drawer.getByRole('button', { name: 'Trimite' }).click()
 
-    await expect(drawer.getByRole('img', { name })).toBeVisible({ timeout: 15_000 })
+    await expect(sentImages(drawer, name)).toHaveCount(1, { timeout: 15_000 })
     expect(steps, 'inițializarea și crearea mesajului trebuie să reușească').toEqual([
       { kind: 'init', status: 200 },
       { kind: 'message', status: 201 },
     ])
+
+    // Cu înălțime fixă și `w-full`, bula se strângea pe lățimea intrinsecă a
+    // pozei: o fotografie de 1500x1000 ajungea la 144x96 px într-un drawer de
+    // 520, iar una portret la 64x96. Ambele praguri de aici ar fi picat atunci.
+    const box = await renderedBox(sentImages(drawer, name))
+    expect(box.width, 'poza nu trebuie randată ca miniatură').toBeGreaterThan(240)
+    expect(
+      box.width / box.height,
+      'o singură poză își păstrează proporția, nu e tăiată la o înălțime fixă',
+    ).toBeCloseTo(SAMPLE_PNG_RATIO, 1)
+  })
+
+  test('mai multe imagini se așază într-o grilă de pătrate', async ({ page }) => {
+    test.skip(!STAFF_READY, `lipsesc proiectul sau credențialele staff din ${ENV_FILE}`)
+
+    await login(page, 'STAFF')
+    const drawer = await openProjectChat(page)
+    const stamp = Date.now()
+    const names = [`smoke-grid-a-${stamp}.png`, `smoke-grid-b-${stamp}.png`]
+    await drawer.locator('input[type=file]').setInputFiles(names.map(samplePng))
+    await drawer.getByRole('button', { name: 'Trimite' }).click()
+
+    await expect(sentImages(drawer, names[1])).toHaveCount(1, { timeout: 20_000 })
+    const boxes = await Promise.all(names.map(name => renderedBox(sentImages(drawer, name))))
+
+    // Cu mai multe poze, consecvența bate proporția: altfel o grilă cu un
+    // peisaj și un portret iese cu două celule de înălțimi diferite.
+    for (const [index, box] of boxes.entries()) {
+      expect(box.width / box.height, `celula ${index + 1} trebuie să fie pătrată`).toBeCloseTo(1, 1)
+    }
+    expect(boxes[0].width, 'celulele au aceeași lățime').toBeCloseTo(boxes[1].width, 0)
+    expect(boxes[0].y, 'cele două poze stau pe același rând').toBeCloseTo(boxes[1].y, 0)
+    expect(boxes[0].width, 'nici în grilă nu sunt miniaturi').toBeGreaterThan(100)
   })
 
   test('clientul încarcă din modalul cererii', async ({ page }) => {
