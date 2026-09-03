@@ -156,6 +156,15 @@ export default function ProjectChatDrawer({
     }
   }, [apiFetch, projectId]);
 
+  // `cleanupPaths` depinde de `apiFetch`, care depinde de `token`. Ținut în
+  // dependențele efectului de mai jos, o reînnoire de sesiune (orară) ar fi
+  // golit composerul sub degetele userului și ar fi șters din bucket imaginile
+  // deja urcate. Resetarea ține strict de schimbarea proiectului.
+  const cleanupPathsRef = useRef(cleanupPaths);
+  useEffect(() => {
+    cleanupPathsRef.current = cleanupPaths;
+  }, [cleanupPaths]);
+
   useEffect(() => {
     setAttachments([]);
     setText('');
@@ -166,9 +175,9 @@ export default function ProjectChatDrawer({
       const items = attachmentsRef.current;
       items.forEach((item) => URL.revokeObjectURL(item.previewUrl));
       const paths = items.map((item) => item.path).filter((path): path is string => !!path);
-      if (paths.length) void cleanupPaths(paths, projectId);
+      if (paths.length) void cleanupPathsRef.current(paths, projectId);
     };
-  }, [cleanupPaths, projectId]);
+  }, [projectId]);
 
   const clearAttachments = useCallback((items: PendingImage[] = attachments) => {
     items.forEach((item) => URL.revokeObjectURL(item.previewUrl));
@@ -464,9 +473,8 @@ export default function ProjectChatDrawer({
   }, [messages, readStates, userId]);
 
   const startEdit = (id: string, currentBody?: string | null) => {
-    if (!currentBody) return;
     setEditingId(id);
-    setEditText(currentBody);
+    setEditText(currentBody ?? "");
   };
 
   const cancelEdit = () => {
@@ -628,15 +636,18 @@ export default function ProjectChatDrawer({
         references = uploads.map((upload, index) => ({ path: upload.path, name: attachments[index].name }));
       }
 
+      // Eșecul trimiterii e raportat de hook prin `error`; dacă l-am dubla aici
+      // cu `composerError`, userul ar vedea două mesaje diferite pentru același
+      // eșec. `composerError` rămâne strict pentru partea de upload.
       const item = await sendMessage({ body: text, images: references });
-      if (!item) throw new Error('message failed');
+      if (!item) return;
       setText('');
       clearAttachments();
       setTimeout(() => scrollToBottom(false), 0);
     } catch {
       await cleanupPaths(initializedPaths);
       setAttachments((prev) => prev.map((item) => ({ ...item, path: undefined })));
-      setComposerError('Nu am putut încărca imaginile sau trimite mesajul. Reîncearcă.');
+      setComposerError('Nu am putut încărca imaginile. Reîncearcă.');
     } finally {
       setUploading(false);
     }
@@ -686,7 +697,25 @@ export default function ProjectChatDrawer({
         className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm cursor-default"
       />
 
-      <aside className="absolute right-0 top-0 h-full w-full sm:w-[min(520px,90vw)] bg-white shadow-2xl flex flex-col sm:rounded-l-2xl overflow-hidden animate-in slide-in-from-right duration-300">
+      {/* Drag & drop pe tot drawerul, nu doar pe lista de mesaje: ținta
+          intuitivă e composerul, iar acolo un drop fără handler ar fi lăsat
+          browserul să navigheze la fișier și să piardă mesajul scris. */}
+      <aside
+        onDragEnter={(event) => {
+          event.preventDefault();
+          if (!uploading && !sending) setDragActive(true);
+        }}
+        onDragOver={(event) => event.preventDefault()}
+        onDragLeave={(event) => {
+          if (event.currentTarget === event.target) setDragActive(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragActive(false);
+          addFiles(Array.from(event.dataTransfer.files));
+        }}
+        className="absolute right-0 top-0 h-full w-full sm:w-[min(520px,90vw)] bg-white shadow-2xl flex flex-col sm:rounded-l-2xl overflow-hidden animate-in slide-in-from-right duration-300"
+      >
         <div className="z-10 bg-white/80 backdrop-blur-md border-b border-slate-100 pt-[env(safe-area-inset-top)]">
           <div className="h-16 px-4 flex items-center justify-between">
             <button
@@ -718,19 +747,6 @@ export default function ProjectChatDrawer({
         <div
           ref={listRef}
           onClick={() => setOpenMenuId(null)}
-          onDragEnter={(event) => {
-            event.preventDefault();
-            if (!uploading && !sending) setDragActive(true);
-          }}
-          onDragOver={(event) => event.preventDefault()}
-          onDragLeave={(event) => {
-            if (event.currentTarget === event.target) setDragActive(false);
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            setDragActive(false);
-            addFiles(Array.from(event.dataTransfer.files));
-          }}
           className="flex-1 overflow-y-auto p-4 bg-slate-50/50"
         >
           {dragActive && (
@@ -900,7 +916,8 @@ export default function ProjectChatDrawer({
                             </button>
                             <button
                               onClick={() => saveEdit(m.id)}
-                              className="px-3 py-1.5 text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 rounded-lg shadow-md"
+                              disabled={!editText.trim() && !m.images?.length}
+                              className="px-3 py-1.5 text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 rounded-lg shadow-md disabled:opacity-40 disabled:hover:bg-slate-900"
                             >
                               Salvează
                             </button>
@@ -1000,12 +1017,16 @@ export default function ProjectChatDrawer({
                                   }`}
                                   onClick={(e) => e.stopPropagation()}
                                 >
-                                  {!m.body_masked && m.body && (
+                                  {/* Un mesaj poate rămâne legitim fără text (doar
+                                      imagini). Condiționat pe `m.body`, butonul ar
+                                      fi dispărut definitiv și n-ai mai fi putut
+                                      adăuga text înapoi. */}
+                                  {!m.body_masked && (
                                     <button
                                       className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg hover:bg-slate-50 text-slate-700"
                                       onClick={() => {
                                         setOpenMenuId(null);
-                                        startEdit(m.id, m.body);
+                                        startEdit(m.id, m.body ?? "");
                                       }}
                                     >
                                       <Pencil className="w-4 h-4 text-slate-400" />{" "}

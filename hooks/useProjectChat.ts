@@ -440,6 +440,13 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
               return
             }
 
+            // Autorul are deja mesajul complet din răspunsul POST-ului; fără
+            // scurtătura asta, fiecare mesaj trimis producea un GET inutil la
+            // fiecare participant, inclusiv la cel care tocmai l-a scris. La
+            // `updated` refetch-ul e obligatoriu — acolo se aplică din nou
+            // autorizarea, mascarea și semnarea URL-urilor.
+            if (row?.event_type === 'created' && idsRef.current.has(id)) return
+
             const res = await apiFetch(`/api/projects/${projectId}/chat/messages/${id}`, { method: 'GET' })
             const json = (await res.json().catch(() => null)) as GetByIdResponse | null
             if (cancelled) return
