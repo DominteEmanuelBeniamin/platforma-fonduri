@@ -225,6 +225,38 @@ test.describe('upload real', () => {
     expect(boxes[0].width, 'nici în grilă nu sunt miniaturi').toBeGreaterThan(100)
   })
 
+  test('textul și poza nu stau în aceeași bulă', async ({ page }) => {
+    test.skip(!STAFF_READY, `lipsesc proiectul sau credențialele staff din ${ENV_FILE}`)
+
+    await login(page, 'STAFF')
+    const drawer = await openProjectChat(page)
+    const stamp = Date.now()
+    const name = `smoke-caption-${stamp}.png`
+    const body = `smoke-caption-${stamp}`
+    await drawer.locator('input[type=file]').setInputFiles(samplePng(name))
+    await drawer.locator('textarea').fill(body)
+    await drawer.getByRole('button', { name: 'Trimite' }).click()
+
+    const image = sentImages(drawer, name)
+    await expect(image).toHaveCount(1, { timeout: 20_000 })
+    await expect(drawer.getByText(body)).toBeVisible()
+
+    // Primul strămoș comun al pozei și al textului trebuie să fie coloana
+    // grupului — transparentă. Dacă e o bulă, are fundal pictat, iar poza a
+    // ajuns înghesuită în bula de text.
+    const background = await image.evaluate((el, text) => {
+      let node: HTMLElement | null = el.parentElement
+      while (node && !node.textContent?.includes(text)) node = node.parentElement
+      return node ? getComputedStyle(node).backgroundColor : null
+    }, body)
+    expect(background, 'poza nu are voie să stea în bula de text').toBe('rgba(0, 0, 0, 0)')
+
+    // Și geometric: bula de text se termină deasupra pozei, nu în jurul ei.
+    const textBox = await (await drawer.getByText(body).boundingBox())
+    const imageBox = await renderedBox(image)
+    expect(textBox!.y + textBox!.height, 'textul stă deasupra pozei').toBeLessThanOrEqual(imageBox.y)
+  })
+
   test('clientul încarcă din modalul cererii', async ({ page }) => {
     test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)
     const steps: number[] = []

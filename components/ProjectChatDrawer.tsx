@@ -925,7 +925,10 @@ export default function ProjectChatDrawer({
                         </div>
                       ) : (
                         <>
-                          {/* Bula de mesaj */}
+                          {/* Textul și pozele sunt două elemente distincte, nu un
+                              singur bloc: o poză înghesuită în bula de text arăta
+                              ca un atașament al ei, nu ca o imagine de sine
+                              stătătoare. Meniul „⋯" și marcajele rămân pe grup. */}
                           <div
                             onContextMenu={(e) => {
                               if (window.innerWidth < 640) {
@@ -933,37 +936,44 @@ export default function ProjectChatDrawer({
                                 setOpenMenuId(m.id);
                               }
                             }}
-                            className={`relative overflow-hidden text-[14px] leading-relaxed transition-colors ${
-                              // Un mesaj doar cu imagini nu are text de căptușit:
-                              // `px-4 py-2.5` îl împacheta într-o ramă groasă,
-                              // navy la mesajele proprii.
-                              !m.deleted_at && !m.body && m.images?.length ? "p-1" : "px-4 py-2.5"
-                            } ${
-                              m.body_masked
-                                ? "border border-amber-200 bg-amber-50 text-slate-700 shadow-none"
-                                : isMe
-                                ? "bg-slate-900 text-white"
-                                : "border border-slate-100 bg-white text-slate-800 shadow-sm"
-                            } ${bubbleRadius}`}
+                            className={`flex flex-col gap-1.5 ${isMe ? "items-end" : "items-start"}`}
                           >
                             {m.deleted_at ? (
-                              <span className="italic text-slate-400/80 text-sm">
-                                Acest mesaj a fost șters.
-                              </span>
+                              <div
+                                className={`px-4 py-2.5 text-[14px] leading-relaxed ${
+                                  isMe ? "bg-slate-900" : "border border-slate-100 bg-white shadow-sm"
+                                } ${bubbleRadius}`}
+                              >
+                                <span className="italic text-slate-400/80 text-sm">
+                                  Acest mesaj a fost șters.
+                                </span>
+                              </div>
                             ) : (
                               <>
-                                {m.body && <div className="whitespace-pre-wrap break-words">{renderBody(m.body, !!m.body_masked, !!isMe)}</div>}
-                                {m.body_masked && (
-                                  <p className="mt-1.5 text-[11px] leading-snug text-amber-800/75">
-                                    Nu este publicat sau nu mai este disponibil.
-                                  </p>
+                                {(m.body || m.body_masked) && (
+                                  <div
+                                    className={`px-4 py-2.5 text-[14px] leading-relaxed transition-colors ${
+                                      m.body_masked
+                                        ? "border border-amber-200 bg-amber-50 text-slate-700"
+                                        : isMe
+                                        ? "bg-slate-900 text-white"
+                                        : "border border-slate-100 bg-white text-slate-800 shadow-sm"
+                                    } ${bubbleRadius}`}
+                                  >
+                                    {m.body && (
+                                      <div className="whitespace-pre-wrap break-words">
+                                        {renderBody(m.body, !!m.body_masked, !!isMe)}
+                                      </div>
+                                    )}
+                                    {m.body_masked && (
+                                      <p className="mt-1.5 text-[11px] leading-snug text-amber-800/75">
+                                        Nu este publicat sau nu mai este disponibil.
+                                      </p>
+                                    )}
+                                  </div>
                                 )}
-                                {/* Lățime cerută explicit: cu înălțime fixă și
-                                    `w-full`, bula se strângea pe lățimea intrinsecă
-                                    a pozei, iar o fotografie de 1500x1000 ajungea la
-                                    144x96 px într-un drawer de 520. */}
                                 {!!m.images?.length && (
-                                  <div className={`grid w-64 gap-1 sm:w-72 ${m.body ? 'mt-2' : ''} ${m.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                  <div className={`grid w-64 gap-1 sm:w-72 ${m.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
                                     {m.images.map((image) => {
                                       const imageKey = imageRetryKey(m.id, image);
                                       if (unavailableImages.has(imageKey)) {
