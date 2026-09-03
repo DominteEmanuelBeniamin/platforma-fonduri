@@ -2,7 +2,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireProjectAccess } from '@/app/api/_utils/auth'
-import { logAction } from '@/app/api/_utils/audit'
+import { logActions } from '@/app/api/_utils/audit'
+import { duplicationAuditEntries } from '@/app/api/_utils/duplication-audit'
 import { duplicateActivityAfterSource } from '@/app/api/_utils/duplicate-project-items'
 import { buildCopyName } from '@/lib/duplicate-name'
 
@@ -83,60 +84,44 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       .maybeSingle()
     const projectTitle = projectRow?.title ?? projectId
 
-    await logAction({
-      actorId: auth.user.id,
-      actionType: 'create',
-      entityType: 'project_activity',
-      entityId: activity.id,
-      entityName: activity.name,
-      newValues: {
-        ...activity,
-        project_id: projectId,
-        project_title: projectTitle,
-        phase_name: phase.name,
-        source_activity_id: source.id,
-        source_activity_name: source.name,
-        document_requests_created: documentRequests.length,
-        created_by: auth.user.id,
-        duplication: {
-          source_kind: 'persistent',
-          source_entity_type: 'project_activity',
-          source_id: source.id,
-          source_name: source.name,
-        },
-      },
-      description: `Duplicare activitate "${source.name}" -> "${activity.name}" in faza "${phase.name}" (proiect "${projectTitle}", ${documentRequests.length} cereri de documente)`,
-      request: req,
-    })
-
-    for (const item of audit.documentRequests) {
-      await logAction({
+    // Un singur insert pentru activitate si cererile ei copiate; randul
+    // activitatii e mai bogat decat cel generat pentru descendenti, deci
+    // ramane aici, iar lista partajata primeste doar cererile.
+    await logActions([
+      {
         actorId: auth.user.id,
         actionType: 'create',
-        entityType: 'document_request',
-        entityId: item.copyId,
-        entityName: item.copyName,
+        entityType: 'project_activity',
+        entityId: activity.id,
+        entityName: activity.name,
         newValues: {
+          ...activity,
           project_id: projectId,
           project_title: projectTitle,
-          phase_id: item.phaseId,
-          phase_name: item.phaseName,
-          activity_id: item.activityId,
-          activity_name: item.activityName,
-          source_activity_id: item.sourceActivityId,
-          source_activity_name: item.sourceActivityName,
+          phase_name: phase.name,
+          source_activity_id: source.id,
+          source_activity_name: source.name,
+          document_requests_created: documentRequests.length,
           created_by: auth.user.id,
           duplication: {
             source_kind: 'persistent',
-            source_entity_type: 'document_request',
-            source_id: item.sourceId,
-            source_name: item.sourceName,
+            source_entity_type: 'project_activity',
+            source_id: source.id,
+            source_name: source.name,
           },
         },
-        description: `Duplicare cerere de document "${item.sourceName}" -> "${item.copyName}" în activitatea "${item.activityName ?? activity.name}" (proiect "${projectTitle}")`,
+        description: `Duplicare activitate "${source.name}" -> "${activity.name}" in faza "${phase.name}" (proiect "${projectTitle}", ${documentRequests.length} cereri de documente)`,
         request: req,
-      })
-    }
+      },
+      ...duplicationAuditEntries({ activities: [], documentRequests: audit.documentRequests }, {
+        projectId,
+        projectTitle,
+        actorId: auth.user.id,
+        request: req,
+        fallbackPhaseName: phase.name,
+        fallbackActivityName: activity.name,
+      }),
+    ])
 
     return NextResponse.json({
       activity,

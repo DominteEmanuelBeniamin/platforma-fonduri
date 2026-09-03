@@ -2,7 +2,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireProjectAccess } from '@/app/api/_utils/auth'
-import { logAction } from '@/app/api/_utils/audit'
+import { logActions } from '@/app/api/_utils/audit'
+import { duplicationAuditEntries } from '@/app/api/_utils/duplication-audit'
 import { duplicatePhase } from '@/app/api/_utils/duplicate-project-items'
 import { buildCopyName } from '@/lib/duplicate-name'
 
@@ -67,87 +68,43 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       .maybeSingle()
     const projectTitle = projectRow?.title ?? projectId
 
-    await logAction({
-      actorId: auth.user.id,
-      actionType: 'create',
-      entityType: 'project_phase',
-      entityId: phase.id,
-      entityName: phase.name,
-      newValues: {
-        ...phase,
-        project_id: projectId,
-        project_title: projectTitle,
-        source_phase_id: source.id,
-        source_phase_name: source.name,
-        activities_created: counts.activities,
-        document_requests_created: counts.documentRequests,
-        created_by: auth.user.id,
-        duplication: {
-          source_kind: 'persistent',
-          source_entity_type: 'project_phase',
-          source_id: source.id,
-          source_name: source.name,
+    // Un singur insert pentru tot ce s-a creat: faza, activitatile ei si
+    // cererile lor. Cate un logAction per element insemna peste o suta de
+    // round-trip-uri secventiale inainte de raspuns, pe o faza mare.
+    await logActions([
+      {
+        actorId: auth.user.id,
+        actionType: 'create',
+        entityType: 'project_phase',
+        entityId: phase.id,
+        entityName: phase.name,
+        newValues: {
+          ...phase,
+          project_id: projectId,
+          project_title: projectTitle,
+          source_phase_id: source.id,
+          source_phase_name: source.name,
+          activities_created: counts.activities,
+          document_requests_created: counts.documentRequests,
+          created_by: auth.user.id,
+          duplication: {
+            source_kind: 'persistent',
+            source_entity_type: 'project_phase',
+            source_id: source.id,
+            source_name: source.name,
+          },
         },
+        description: `Duplicare faza "${source.name}" -> "${phase.name}" in proiectul "${projectTitle}" (${counts.activities} activitati, ${counts.documentRequests} cereri de documente)`,
+        request: req,
       },
-      description: `Duplicare faza "${source.name}" -> "${phase.name}" in proiectul "${projectTitle}" (${counts.activities} activitati, ${counts.documentRequests} cereri de documente)`,
-      request: req,
-    })
-
-    for (const item of audit.activities) {
-      await logAction({
+      ...duplicationAuditEntries(audit, {
+        projectId,
+        projectTitle,
         actorId: auth.user.id,
-        actionType: 'create',
-        entityType: 'project_activity',
-        entityId: item.copyId,
-        entityName: item.copyName,
-        newValues: {
-          project_id: projectId,
-          project_title: projectTitle,
-          phase_id: item.phaseId,
-          phase_name: item.phaseName,
-          source_activity_id: item.sourceId,
-          source_activity_name: item.sourceName,
-          created_by: auth.user.id,
-          duplication: {
-            source_kind: 'persistent',
-            source_entity_type: 'project_activity',
-            source_id: item.sourceId,
-            source_name: item.sourceName,
-          },
-        },
-        description: `Duplicare activitate "${item.sourceName}" -> "${item.copyName}" în faza "${item.phaseName ?? phase.name}" (proiect "${projectTitle}")`,
         request: req,
-      })
-    }
-
-    for (const item of audit.documentRequests) {
-      await logAction({
-        actorId: auth.user.id,
-        actionType: 'create',
-        entityType: 'document_request',
-        entityId: item.copyId,
-        entityName: item.copyName,
-        newValues: {
-          project_id: projectId,
-          project_title: projectTitle,
-          phase_id: item.phaseId,
-          phase_name: item.phaseName,
-          activity_id: item.activityId,
-          activity_name: item.activityName,
-          source_activity_id: item.sourceActivityId,
-          source_activity_name: item.sourceActivityName,
-          created_by: auth.user.id,
-          duplication: {
-            source_kind: 'persistent',
-            source_entity_type: 'document_request',
-            source_id: item.sourceId,
-            source_name: item.sourceName,
-          },
-        },
-        description: `Duplicare cerere de document "${item.sourceName}" -> "${item.copyName}" în activitatea "${item.activityName ?? ''}" (proiect "${projectTitle}")`,
-        request: req,
-      })
-    }
+        fallbackPhaseName: phase.name,
+      }),
+    ])
 
     return NextResponse.json({
       phase,
