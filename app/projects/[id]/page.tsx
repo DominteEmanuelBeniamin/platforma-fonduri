@@ -125,6 +125,8 @@ function ProjectDetailsContent() {
   const appliedDeepLink = useRef<string | null>(null)
   const handledDeepLink = useRef<string | null>(null)
   const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** Ancoră de evidențiat după ce se închide fișa cererii deschise din chat. */
+  const pendingRevealAnchor = useRef<string | null>(null)
   const highlightAnimation = useRef<Animation | null>(null)
 
   const revealTarget = useCallback((anchor: string, delay = 120) => {
@@ -802,15 +804,19 @@ function ProjectDetailsContent() {
     if (result.activityId) {
       setExpandedActivityIds(prev => new Set(prev).add(result.activityId!))
     }
-    if (result.type === 'document_request') setSelectedDocumentRequestId(result.id)
-    const anchor = result.type === 'document_request'
-      ? `request-${result.id}`
-      : result.type === 'activity'
-        ? `activity-${result.id}`
-        : `phase-${result.id}`
-    revealTarget(anchor)
+    if (result.type === 'document_request') {
+      // Fișa cererii acoperă pagina, deci inelul desenat acum s-ar consuma sub
+      // ea. Îl amânăm până se închide modalul, ca userul să vadă atunci din ce
+      // activitate venea cererea.
+      setSelectedDocumentRequestId(result.id)
+      pendingRevealAnchor.current = `request-${result.id}`
+    } else {
+      revealTarget(result.type === 'activity' ? `activity-${result.id}` : `phase-${result.id}`)
+    }
     if (!projectId) return
-    router.push(buildProjectChatHref(projectId, result), { scroll: false })
+    // `replace`, ca peste tot altundeva în pagină: cu `push`, o plimbare prin
+    // cinci linkuri din chat cerea cinci apăsări de Back ca să ieși din proiect.
+    router.replace(buildProjectChatHref(projectId, result), { scroll: false })
   }
 
   // ─── Loading / error ──────────────────────────────────────────────────────
@@ -1333,7 +1339,12 @@ function ProjectDetailsContent() {
         <DocumentModal
           request={selectedDocumentRequest}
           projectId={projectId!}
-          onClose={() => setSelectedDocumentRequestId(null)}
+          onClose={() => {
+            setSelectedDocumentRequestId(null)
+            const anchor = pendingRevealAnchor.current
+            pendingRevealAnchor.current = null
+            if (anchor) revealTarget(anchor)
+          }}
           onUpdate={refreshDocs}
           clientEmail={project?.profiles?.email ?? null}
           clientName={project?.profiles?.full_name ?? null}

@@ -45,7 +45,10 @@ export default function PublishStatusControl({
   const isDraft = status === 'draft'
   const textClass = size === 'sm' ? 'text-xs' : 'text-[13px]'
 
-  if (!canPublish && !isDraft && !showPublishedStatus) return null
+  // Cine nu poate publica și pentru care nu vrem statusuri de publicare nu are
+  // ce vedea, nici „Public", nici „În pregătire". Legat doar de `published`,
+  // condiția se sprijinea tăcut pe filtrarea draft-urilor de pe server.
+  if (!canPublish && !showPublishedStatus) return null
 
   if (!canPublish || !isDraft) {
     return (

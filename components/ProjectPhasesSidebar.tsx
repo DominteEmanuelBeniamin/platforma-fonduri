@@ -475,11 +475,16 @@ export default function ProjectPhasesSidebar({
                         <GripVertical className="w-3.5 h-3.5" />
                       </span>
                     )}
-                    <span
-                      title={canEdit ? (phase.visibility === 'published' ? 'Public — vizibil pentru client' : 'În pregătire — invizibil pentru client') : undefined}
-                      className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)' }}
-                    />
+                    {/* Publicarea e un detaliu de echipă. Clientul vede doar faze
+                        publicate, deci bulina i-ar fi mereu verde: un semn fără
+                        înțeles, pe care nici tooltipul nu i-l explica. */}
+                    {canEdit && (
+                      <span
+                        title={phase.visibility === 'published' ? 'Public — vizibil pentru client' : 'În pregătire — invizibil pentru client'}
+                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)' }}
+                      />
+                    )}
                     <span className={`flex-1 text-sm font-medium truncate ${isActive ? 'text-[var(--p-accent-ink)]' : 'text-[var(--p-ink)]'}`}>
                       {phase.name}
                     </span>
