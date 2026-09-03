@@ -65,9 +65,38 @@ AS $$
   )
 $$;
 
+-- Numărătorile pentru pagina de audit, agregate în DB.
+--
+-- Citite rând cu rând prin PostgREST, se opreau tăcut la lotul implicit de 1000:
+-- pe un jurnal de câteva mii de intrări, cardurile „Autentificări" și
+-- „Modificări" ajungeau să arate 0 fiindcă `login` și `update` nici nu apucau
+-- să intre în lot.
+CREATE OR REPLACE FUNCTION public.audit_log_counts()
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT jsonb_build_object(
+    'total', (SELECT count(*) FROM public.audit_logs),
+    'recent', (SELECT count(*) FROM public.audit_logs WHERE created_at >= now() - interval '7 days'),
+    'by_action', (
+      SELECT coalesce(jsonb_object_agg(t.action_type, t.n), '{}'::jsonb)
+      FROM (SELECT action_type, count(*) AS n FROM public.audit_logs GROUP BY action_type) AS t
+    ),
+    'by_entity', (
+      SELECT coalesce(jsonb_object_agg(t.entity_type, t.n), '{}'::jsonb)
+      FROM (SELECT entity_type, count(*) AS n FROM public.audit_logs GROUP BY entity_type) AS t
+    )
+  )
+$$;
+
 -- Numai service_role: jurnalul de audit și structura lui rămân închise pentru
 -- sesiunile de browser, la fel ca tabela din spate.
 REVOKE ALL ON FUNCTION public.audit_log_distinct_types() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.audit_logs_contract() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.audit_log_counts() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.audit_log_distinct_types() TO service_role;
 GRANT EXECUTE ON FUNCTION public.audit_logs_contract() TO service_role;
+GRANT EXECUTE ON FUNCTION public.audit_log_counts() TO service_role;

@@ -194,12 +194,25 @@ test.describe('upload real', () => {
     // Cu înălțime fixă și `w-full`, bula se strângea pe lățimea intrinsecă a
     // pozei: o fotografie de 1500x1000 ajungea la 144x96 px într-un drawer de
     // 520, iar una portret la 64x96. Ambele praguri de aici ar fi picat atunci.
-    const box = await renderedBox(sentImages(drawer, name))
+    const image = sentImages(drawer, name)
+    const box = await renderedBox(image)
     expect(box.width, 'poza nu trebuie randată ca miniatură').toBeGreaterThan(240)
     expect(
       box.width / box.height,
       'o singură poză își păstrează proporția, nu e tăiată la o înălțime fixă',
     ).toBeCloseTo(SAMPLE_PNG_RATIO, 1)
+
+    // Escape închidea și lightbox-ul, și tot chatul: Radix își trata singur
+    // evenimentul, iar handlerul drawerului prindea aceeași apăsare cu starea
+    // deja golită.
+    await image.click()
+    await expect(page.getByRole('button', { name: 'Descarcă' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('button', { name: 'Descarcă' })).toBeHidden()
+    await expect(
+      drawer.getByRole('heading', { name: 'Chat proiect' }),
+      'Escape închide doar previzualizarea, nu și chatul',
+    ).toBeVisible()
   })
 
   test('mai multe imagini se așază într-o grilă de pătrate', async ({ page }) => {
@@ -223,6 +236,28 @@ test.describe('upload real', () => {
     expect(boxes[0].width, 'celulele au aceeași lățime').toBeCloseTo(boxes[1].width, 0)
     expect(boxes[0].y, 'cele două poze stau pe același rând').toBeCloseTo(boxes[1].y, 0)
     expect(boxes[0].width, 'nici în grilă nu sunt miniaturi').toBeGreaterThan(100)
+
+    // Lightbox-ul se plimbă prin pozele aceluiași mesaj, cu butoane și taste.
+    await sentImages(drawer, names[0]).click()
+    await expect(page.getByText('1 din 2')).toBeVisible()
+    await page.getByRole('button', { name: 'Imaginea următoare' }).click()
+    await expect(page.getByText('2 din 2')).toBeVisible()
+    await page.keyboard.press('ArrowLeft')
+    await expect(page.getByText('1 din 2')).toBeVisible()
+    await page.keyboard.press('Escape')
+
+    // La editare rămâne vizibil la ce se referă textul.
+    await sentImages(drawer, names[0]).hover()
+    await drawer.locator('button:visible')
+      .filter({ has: page.locator('svg.lucide-ellipsis, svg.lucide-more-horizontal') })
+      .last().click()
+    await drawer.getByRole('button', { name: 'Editează' }).click()
+    await expect(drawer.getByRole('button', { name: 'Salvează' })).toBeVisible()
+    await expect(
+      sentImages(drawer, names[0]),
+      'pozele rămân vizibile cât editezi textul',
+    ).toBeVisible()
+    await drawer.getByRole('button', { name: 'Anulează' }).click()
   })
 
   test('textul și poza nu stau în aceeași bulă', async ({ page }) => {

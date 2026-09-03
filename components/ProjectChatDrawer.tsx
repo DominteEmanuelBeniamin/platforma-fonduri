@@ -16,6 +16,8 @@ import {
   Download,
   EyeOff,
   ArrowUpRight,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import * as Dialog from '@radix-ui/react-dialog';
 import { useAuth } from "@/app/providers/AuthProvider";
@@ -111,6 +113,8 @@ export default function ProjectChatDrawer({
   const [showRequestCta, setShowRequestCta] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [uploading, setUploading] = useState(false);
+  /** Câte imagini s-au urcat din câte, cât ține trimiterea. */
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchFilter, setSearchFilter] = useState<'all' | 'document_request'>('all');
   const [preview, setPreview] = useState<{ messageId: string; image: ChatImage } | null>(null);
@@ -373,6 +377,27 @@ export default function ProjectChatDrawer({
     });
   };
 
+  /** Pozele mesajului deschis în lightbox, ca să te poți plimba prin ele. */
+  const previewSiblings = useMemo(() => {
+    if (!preview) return [];
+    return messages.find((m) => m.id === preview.messageId)?.images ?? [];
+  }, [messages, preview]);
+  const previewIndex = preview
+    ? previewSiblings.findIndex((image) => image.path === preview.image.path)
+    : -1;
+
+  const stepPreview = useCallback((delta: number) => {
+    setPreview((current) => {
+      if (!current) return current;
+      const siblings = messages.find((m) => m.id === current.messageId)?.images ?? [];
+      if (siblings.length < 2) return current;
+      const index = siblings.findIndex((image) => image.path === current.image.path);
+      if (index < 0) return current;
+      const next = (index + delta + siblings.length) % siblings.length;
+      return { ...current, image: siblings[next] };
+    });
+  }, [messages]);
+
   const downloadImage = async (messageId: string, image: ChatImage, retried = false) => {
     let current = image;
     if (!current.signedUrl) {
@@ -515,22 +540,35 @@ export default function ProjectChatDrawer({
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
+      if (preview && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        e.preventDefault();
+        stepPreview(e.key === "ArrowRight" ? 1 : -1);
+        return;
+      }
       if (e.key !== "Escape") return;
+      // În captură, deci înaintea oricui altcuiva. O apăsare de Escape închidea
+      // și lightbox-ul, și tot chatul: Radix își trata singur evenimentul,
+      // React reabona sincron listenerul de aici, iar acesta prindea aceeași
+      // apăsare, de data asta cu starea deja golită. Aici starea e sigur cea
+      // dinainte, iar `stopPropagation` nu-l mai lasă pe Radix să acționeze
+      // a doua oară.
       if (searchOpen) {
         e.preventDefault();
+        e.stopPropagation();
         setSearchOpen(false);
         return;
       }
       if (preview) {
         e.preventDefault();
+        e.stopPropagation();
         setPreview(null);
         return;
       }
       if (!editingId) closeDrawer();
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, closeDrawer, editingId, preview, searchOpen]);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [open, closeDrawer, editingId, preview, searchOpen, stepPreview]);
 
   useEffect(() => {
     if (!open) return;
@@ -603,6 +641,7 @@ export default function ProjectChatDrawer({
     if (!canSend) return;
     setUploading(true);
     setComposerError(null);
+    setUploadProgress(attachments.length ? { done: 0, total: attachments.length } : null);
     const initializedPaths: string[] = [];
     try {
       let references: { path: string; name: string }[] = [];
@@ -632,6 +671,7 @@ export default function ProjectChatDrawer({
             body: attachment.file,
           });
           if (!putResponse.ok) throw new Error('upload failed');
+          setUploadProgress({ done: index + 1, total: uploads.length });
         }
         references = uploads.map((upload, index) => ({ path: upload.path, name: attachments[index].name }));
       }
@@ -650,6 +690,7 @@ export default function ProjectChatDrawer({
       setComposerError('Nu am putut încărca imaginile. Reîncearcă.');
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -899,185 +940,183 @@ export default function ProjectChatDrawer({
                         isMe ? "flex-row-reverse" : "flex-row"
                       }`}
                     >
-                      {isEditing ? (
-                        <div className="w-full min-w-[280px] bg-white rounded-2xl border-2 border-slate-900 shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                          <textarea
-                            autoFocus
-                            value={editText}
-                            onChange={(e) => setEditText(e.target.value)}
-                            className="w-full resize-none bg-transparent px-4 py-3 text-[14px] text-slate-800 focus:outline-none min-h-[100px]"
-                          />
-                          <div className="flex justify-end gap-2 p-2 bg-slate-50 border-t border-slate-100">
-                            <button
-                              onClick={cancelEdit}
-                              className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-200 rounded-lg"
-                            >
-                              Anulează
-                            </button>
-                            <button
-                              onClick={() => saveEdit(m.id)}
-                              disabled={!editText.trim() && !m.images?.length}
-                              className="px-3 py-1.5 text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 rounded-lg shadow-md disabled:opacity-40 disabled:hover:bg-slate-900"
-                            >
-                              Salvează
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          {/* Textul și pozele sunt două elemente distincte, nu un
-                              singur bloc: o poză înghesuită în bula de text arăta
-                              ca un atașament al ei, nu ca o imagine de sine
-                              stătătoare. Meniul „⋯" și marcajele rămân pe grup. */}
-                          <div
-                            onContextMenu={(e) => {
-                              if (window.innerWidth < 640) {
-                                e.preventDefault();
-                                setOpenMenuId(m.id);
-                              }
-                            }}
-                            className={`flex flex-col gap-1.5 ${isMe ? "items-end" : "items-start"}`}
-                          >
-                            {m.deleted_at ? (
-                              <div
-                                className={`px-4 py-2.5 text-[14px] leading-relaxed ${
-                                  isMe ? "bg-slate-900" : "border border-slate-100 bg-white shadow-sm"
-                                } ${bubbleRadius}`}
-                              >
-                                <span className="italic text-slate-400/80 text-sm">
-                                  Acest mesaj a fost șters.
-                                </span>
-                              </div>
-                            ) : (
-                              <>
-                                {(m.body || m.body_masked) && (
-                                  <div
-                                    className={`px-4 py-2.5 text-[14px] leading-relaxed transition-colors ${
-                                      m.body_masked
-                                        ? "border border-amber-200 bg-amber-50 text-slate-700"
-                                        : isMe
-                                        ? "bg-slate-900 text-white"
-                                        : "border border-slate-100 bg-white text-slate-800 shadow-sm"
-                                    } ${bubbleRadius}`}
-                                  >
-                                    {m.body && (
-                                      <div className="whitespace-pre-wrap break-words">
-                                        {renderBody(m.body, !!m.body_masked, !!isMe)}
-                                      </div>
-                                    )}
-                                    {m.body_masked && (
-                                      <p className="mt-1.5 text-[11px] leading-snug text-amber-800/75">
-                                        Nu este publicat sau nu mai este disponibil.
-                                      </p>
-                                    )}
-                                  </div>
-                                )}
-                                {!!m.images?.length && (
-                                  <div className={`grid w-64 gap-1 sm:w-72 ${m.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-                                    {m.images.map((image) => {
-                                      const imageKey = imageRetryKey(m.id, image);
-                                      if (unavailableImages.has(imageKey)) {
-                                        return <span key={image.path} className="col-span-full text-xs italic text-slate-400">Imagine indisponibilă</span>;
-                                      }
-                                      return image.signedUrl ? (
-                                        <button
-                                          key={image.path}
-                                          type="button"
-                                          // `min-h` cât timp poza se încarcă: cu
-                                          // înălțime automată, bula ar porni de la
-                                          // zero și ar sări când imaginea se
-                                          // decodează, exact în momentul în care
-                                          // lista derulează la capăt.
-                                          className={`overflow-hidden rounded-xl bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                                            m.images!.length === 1 ? "min-h-32" : ""
-                                          }`}
-                                          onClick={() => setPreview({ messageId: m.id, image })}
-                                        >
-                                          <img
-                                            src={image.signedUrl}
-                                            alt={image.name}
-                                            className={m.images!.length === 1
-                                              ? "h-auto max-h-80 w-full object-cover"
-                                              : "aspect-square w-full object-cover"}
-                                            onError={() => { void requestImageRefresh(m.id, image); }}
-                                          />
-                                        </button>
-                                      ) : (
-                                        <span key={image.path} className="col-span-full text-xs text-slate-400">Se încarcă imaginea...</span>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </div>
-
-                          {/* Butonul de meniu (MoreHorizontal) - poziționat dinamic */}
-                          {!m.deleted_at && (isAdmin || isMe) && (
+                        {/* Textul și pozele sunt două elemente distincte, nu un
+                            singur bloc: o poză înghesuită în bula de text arăta
+                            ca un atașament al ei, nu ca o imagine de sine
+                            stătătoare. Meniul „⋯" și marcajele rămân pe grup. */}
+                        <div
+                          onContextMenu={(e) => {
+                            if (window.innerWidth < 640) {
+                              e.preventDefault();
+                              setOpenMenuId(m.id);
+                            }
+                          }}
+                          className={`flex flex-col gap-1.5 ${isMe ? "items-end" : "items-start"}`}
+                        >
+                          {m.deleted_at ? (
                             <div
-                              className={`relative flex-shrink-0 transition-opacity ${
-                                openMenuId === m.id
-                                  ? "opacity-100"
-                                  : "opacity-0 group-hover/bubble:opacity-100"
-                              }`}
+                              className={`px-4 py-2.5 text-[14px] leading-relaxed ${
+                                isMe ? "bg-slate-900" : "border border-slate-100 bg-white shadow-sm"
+                              } ${bubbleRadius}`}
                             >
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenMenuId(
-                                    openMenuId === m.id ? null : m.id
-                                  );
-                                }}
-                                className={`p-1.5 rounded-full transition-colors ${
-                                  openMenuId === m.id
-                                    ? "bg-slate-200 text-slate-800"
-                                    : "text-slate-400 hover:text-slate-700 hover:bg-slate-200/50"
-                                }`}
-                              >
-                                <MoreHorizontal className="w-[18px] h-[18px]" />
-                              </button>
-
-                              {/* Meniul Dropdown - se deschide spre interiorul chat-ului */}
-                              {openMenuId === m.id && (
-                                <div
-                                  className={`absolute bottom-full mb-2 z-50 min-w-[140px] bg-white rounded-xl shadow-xl border border-slate-100 p-1.5 ${
-                                    isMe ? "right-0" : "left-0"
-                                  }`}
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  {/* Un mesaj poate rămâne legitim fără text (doar
-                                      imagini). Condiționat pe `m.body`, butonul ar
-                                      fi dispărut definitiv și n-ai mai fi putut
-                                      adăuga text înapoi. */}
-                                  {!m.body_masked && (
+                              <span className="italic text-slate-400/80 text-sm">
+                                Acest mesaj a fost șters.
+                              </span>
+                            </div>
+                          ) : (
+                            <>
+                              {isEditing ? (
+                                // Doar bula de text e înlocuită: editai un mesaj
+                                // cu poze fără să mai vezi la ce se referă.
+                                <div className="w-full min-w-[280px] overflow-hidden rounded-2xl border-2 border-slate-900 bg-white shadow-xl animate-in fade-in zoom-in-95 duration-200">
+                                  <textarea
+                                    autoFocus
+                                    value={editText}
+                                    onChange={(e) => setEditText(e.target.value)}
+                                    className="w-full resize-none bg-transparent px-4 py-3 text-[14px] text-slate-800 focus:outline-none min-h-[100px]"
+                                  />
+                                  <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 p-2">
                                     <button
-                                      className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg hover:bg-slate-50 text-slate-700"
-                                      onClick={() => {
-                                        setOpenMenuId(null);
-                                        startEdit(m.id, m.body ?? "");
-                                      }}
+                                      onClick={cancelEdit}
+                                      className="rounded-lg px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-200"
                                     >
-                                      <Pencil className="w-4 h-4 text-slate-400" />{" "}
-                                      Editează
+                                      Anulează
                                     </button>
+                                    <button
+                                      onClick={() => saveEdit(m.id)}
+                                      disabled={!editText.trim() && !m.images?.length}
+                                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-slate-900"
+                                    >
+                                      Salvează
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (m.body || m.body_masked) && (
+                                <div
+                                  className={`px-4 py-2.5 text-[14px] leading-relaxed transition-colors ${
+                                    m.body_masked
+                                      ? "border border-amber-200 bg-amber-50 text-slate-700"
+                                      : isMe
+                                      ? "bg-slate-900 text-white"
+                                      : "border border-slate-100 bg-white text-slate-800 shadow-sm"
+                                  } ${bubbleRadius}`}
+                                >
+                                  {m.body && (
+                                    <div className="whitespace-pre-wrap break-words">
+                                      {renderBody(m.body, !!m.body_masked, !!isMe)}
+                                    </div>
                                   )}
-                                  <button
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg hover:bg-rose-50 text-rose-600"
-                                    onClick={async () => {
-                                      setOpenMenuId(null);
-                                      if (await confirm({ title: "Ștergi mesajul?", description: "Mesajul va fi eliminat din conversație.", confirmText: "Șterge mesajul" }))
-                                        await deleteMessage(m.id);
-                                    }}
-                                  >
-                                    <Trash2 className="w-4 h-4 text-rose-500" />{" "}
-                                    Șterge
-                                  </button>
+                                  {m.body_masked && (
+                                    <p className="mt-1.5 text-[11px] leading-snug text-amber-800/75">
+                                      Nu este publicat sau nu mai este disponibil.
+                                    </p>
+                                  )}
                                 </div>
                               )}
-                            </div>
+                              {!!m.images?.length && (
+                                <div className={`grid w-64 gap-1 sm:w-72 ${m.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                  {m.images.map((image) => {
+                                    const imageKey = imageRetryKey(m.id, image);
+                                    if (unavailableImages.has(imageKey)) {
+                                      return <span key={image.path} className="col-span-full text-xs italic text-slate-400">Imagine indisponibilă</span>;
+                                    }
+                                    return image.signedUrl ? (
+                                      <button
+                                        key={image.path}
+                                        type="button"
+                                        // `min-h` cât timp poza se încarcă: cu
+                                        // înălțime automată, bula ar porni de la
+                                        // zero și ar sări când imaginea se
+                                        // decodează, exact în momentul în care
+                                        // lista derulează la capăt.
+                                        className={`overflow-hidden rounded-xl bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                                          m.images!.length === 1 ? "min-h-32" : ""
+                                        }`}
+                                        onClick={() => setPreview({ messageId: m.id, image })}
+                                      >
+                                        <img
+                                          src={image.signedUrl}
+                                          alt={image.name}
+                                          className={m.images!.length === 1
+                                            ? "h-auto max-h-80 w-full object-cover"
+                                            : "aspect-square w-full object-cover"}
+                                          onError={() => { void requestImageRefresh(m.id, image); }}
+                                        />
+                                      </button>
+                                    ) : (
+                                      <span key={image.path} className="col-span-full text-xs text-slate-400">Se încarcă imaginea...</span>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </>
                           )}
-                        </>
-                      )}
+                        </div>
+
+                        {/* Butonul de meniu (MoreHorizontal) - poziționat dinamic */}
+                        {!m.deleted_at && (isAdmin || isMe) && (
+                          <div
+                            className={`relative flex-shrink-0 transition-opacity ${
+                              openMenuId === m.id
+                                ? "opacity-100"
+                                : "opacity-0 group-hover/bubble:opacity-100"
+                            }`}
+                          >
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenMenuId(
+                                  openMenuId === m.id ? null : m.id
+                                );
+                              }}
+                              className={`p-1.5 rounded-full transition-colors ${
+                                openMenuId === m.id
+                                  ? "bg-slate-200 text-slate-800"
+                                  : "text-slate-400 hover:text-slate-700 hover:bg-slate-200/50"
+                              }`}
+                            >
+                              <MoreHorizontal className="w-[18px] h-[18px]" />
+                            </button>
+
+                            {/* Meniul Dropdown - se deschide spre interiorul chat-ului */}
+                            {openMenuId === m.id && (
+                              <div
+                                className={`absolute bottom-full mb-2 z-50 min-w-[140px] bg-white rounded-xl shadow-xl border border-slate-100 p-1.5 ${
+                                  isMe ? "right-0" : "left-0"
+                                }`}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {/* Un mesaj poate rămâne legitim fără text (doar
+                                    imagini). Condiționat pe `m.body`, butonul ar
+                                    fi dispărut definitiv și n-ai mai fi putut
+                                    adăuga text înapoi. */}
+                                {!m.body_masked && (
+                                  <button
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg hover:bg-slate-50 text-slate-700"
+                                    onClick={() => {
+                                      setOpenMenuId(null);
+                                      startEdit(m.id, m.body ?? "");
+                                    }}
+                                  >
+                                    <Pencil className="w-4 h-4 text-slate-400" />{" "}
+                                    Editează
+                                  </button>
+                                )}
+                                <button
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg hover:bg-rose-50 text-rose-600"
+                                  onClick={async () => {
+                                    setOpenMenuId(null);
+                                    if (await confirm({ title: "Ștergi mesajul?", description: "Mesajul va fi eliminat din conversație.", confirmText: "Șterge mesajul" }))
+                                      await deleteMessage(m.id);
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4 text-rose-500" />{" "}
+                                  Șterge
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                     </div>
                   </div>
 
@@ -1130,6 +1169,11 @@ export default function ProjectChatDrawer({
                 </div>
               ))}
             </div>
+          )}
+          {uploadProgress && uploadProgress.total > 0 && (
+            <p className="mb-2 px-1 text-xs text-slate-500" role="status">
+              Se încarcă {Math.min(uploadProgress.done + 1, uploadProgress.total)} din {uploadProgress.total}…
+            </p>
           )}
           {composerError && (
             <div className="mb-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
@@ -1194,7 +1238,6 @@ export default function ProjectChatDrawer({
               placeholder="Scrie un mesaj..."
               className="flex-1 bg-transparent resize-none px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none max-h-[120px]"
               rows={1}
-              disabled={uploading || sending}
             />
             <button
               type="button"
@@ -1222,15 +1265,42 @@ export default function ProjectChatDrawer({
           <Dialog.Content className="fixed left-1/2 top-1/2 z-[1000001] max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-5xl -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl bg-white p-3 shadow-2xl focus:outline-none sm:max-h-[94vh] sm:w-[calc(100%-2rem)] sm:rounded-2xl sm:p-4">
             <Dialog.Title className="mb-2 truncate pr-8 text-sm font-semibold text-slate-900 sm:mb-3">
               {preview?.image.name ?? 'Imagine'}
+              {previewSiblings.length > 1 && previewIndex >= 0 && (
+                <span className="ml-2 font-normal text-slate-400">
+                  {previewIndex + 1} din {previewSiblings.length}
+                </span>
+              )}
             </Dialog.Title>
             <Dialog.Description className="sr-only">Previzualizare imagine din chat</Dialog.Description>
             {preview && preview.image.signedUrl && !unavailableImages.has(imageRetryKey(preview.messageId, preview.image)) ? (
-              <img
-                src={preview.image.signedUrl}
-                alt={preview.image.name}
-                className="mx-auto max-h-[calc(100dvh-7rem)] w-auto max-w-full object-contain sm:max-h-[calc(94vh-7.5rem)]"
-                onError={() => { void requestImageRefresh(preview.messageId, preview.image); }}
-              />
+              <div className="relative">
+                <img
+                  src={preview.image.signedUrl}
+                  alt={preview.image.name}
+                  className="mx-auto max-h-[calc(100dvh-7rem)] w-auto max-w-full object-contain sm:max-h-[calc(94vh-7.5rem)]"
+                  onError={() => { void requestImageRefresh(preview.messageId, preview.image); }}
+                />
+                {previewSiblings.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Imaginea anterioară"
+                      onClick={() => stepPreview(-1)}
+                      className="absolute left-1 top-1/2 -translate-y-1/2 rounded-full bg-slate-900/60 p-2 text-white transition-colors hover:bg-slate-900/80 focus:outline-none focus:ring-2 focus:ring-white"
+                    >
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Imaginea următoare"
+                      onClick={() => stepPreview(1)}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full bg-slate-900/60 p-2 text-white transition-colors hover:bg-slate-900/80 focus:outline-none focus:ring-2 focus:ring-white"
+                    >
+                      <ChevronRight className="h-5 w-5" />
+                    </button>
+                  </>
+                )}
+              </div>
             ) : (
               <p className="py-12 text-center text-sm text-slate-500">Imagine indisponibilă</p>
             )}

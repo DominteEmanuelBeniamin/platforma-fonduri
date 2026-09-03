@@ -133,46 +133,29 @@ export async function POST(request: Request) {
     if (body?.action === 'stats') {
       const admin = createSupabaseServiceClient()
 
-      // Statistici pe tip de acțiune
-      const { data: actionStats } = await admin
-        .from('audit_logs')
-        .select('action_type')
-      
-      // Statistici pe tip de entitate
-      const { data: entityStats } = await admin
-        .from('audit_logs')
-        .select('entity_type')
+      // Agregat în DB, nu rând cu rând: citite prin PostgREST, statisticile se
+      // opreau tăcut la lotul implicit de 1000, iar pe un jurnal de câteva mii
+      // de intrări „Autentificări" și „Modificări" ajungeau să arate 0.
+      const { data: counts, error: countsError } = await admin.rpc('audit_log_counts')
+      if (countsError || !counts) {
+        console.error('[audit_log_failure]', { op: 'stats', error: countsError?.message })
+        return NextResponse.json({
+          error: 'Statisticile nu pot fi calculate: aplică migrarea audit_contract_probes.',
+        }, { status: 503 })
+      }
 
-      // Total logs
-      const { count: totalLogs } = await admin
-        .from('audit_logs')
-        .select('*', { count: 'exact', head: true })
-
-      // Logs din ultima săptămână
-      const oneWeekAgo = new Date()
-      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7)
-      
-      const { count: recentLogs } = await admin
-        .from('audit_logs')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', oneWeekAgo.toISOString())
-
-      // Agregăm statisticile
-      const actionCounts: Record<string, number> = {}
-      actionStats?.forEach((log: { action_type: string }) => {
-        actionCounts[log.action_type] = (actionCounts[log.action_type] || 0) + 1
-      })
-
-      const entityCounts: Record<string, number> = {}
-      entityStats?.forEach((log: { entity_type: string }) => {
-        entityCounts[log.entity_type] = (entityCounts[log.entity_type] || 0) + 1
-      })
+      const stats = counts as {
+        total?: number
+        recent?: number
+        by_action?: Record<string, number>
+        by_entity?: Record<string, number>
+      }
 
       return NextResponse.json({
-        totalLogs: totalLogs || 0,
-        recentLogs: recentLogs || 0,
-        byAction: actionCounts,
-        byEntity: entityCounts
+        totalLogs: stats.total ?? 0,
+        recentLogs: stats.recent ?? 0,
+        byAction: stats.by_action ?? {},
+        byEntity: stats.by_entity ?? {},
       })
     }
 
