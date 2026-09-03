@@ -933,7 +933,12 @@ export default function ProjectChatDrawer({
                                 setOpenMenuId(m.id);
                               }
                             }}
-                            className={`relative px-4 py-2.5 text-[14px] leading-relaxed transition-colors ${
+                            className={`relative overflow-hidden text-[14px] leading-relaxed transition-colors ${
+                              // Un mesaj doar cu imagini nu are text de căptușit:
+                              // `px-4 py-2.5` îl împacheta într-o ramă groasă,
+                              // navy la mesajele proprii.
+                              !m.deleted_at && !m.body && m.images?.length ? "p-1" : "px-4 py-2.5"
+                            } ${
                               m.body_masked
                                 ? "border border-amber-200 bg-amber-50 text-slate-700 shadow-none"
                                 : isMe
@@ -953,8 +958,12 @@ export default function ProjectChatDrawer({
                                     Nu este publicat sau nu mai este disponibil.
                                   </p>
                                 )}
+                                {/* Lățime cerută explicit: cu înălțime fixă și
+                                    `w-full`, bula se strângea pe lățimea intrinsecă
+                                    a pozei, iar o fotografie de 1500x1000 ajungea la
+                                    144x96 px într-un drawer de 520. */}
                                 {!!m.images?.length && (
-                                  <div className={`mt-2 grid gap-1.5 ${m.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                  <div className={`grid w-64 gap-1 sm:w-72 ${m.body ? 'mt-2' : ''} ${m.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
                                     {m.images.map((image) => {
                                       const imageKey = imageRetryKey(m.id, image);
                                       if (unavailableImages.has(imageKey)) {
@@ -964,13 +973,15 @@ export default function ProjectChatDrawer({
                                         <button
                                           key={image.path}
                                           type="button"
-                                          className="overflow-hidden rounded-lg bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                          className="overflow-hidden rounded-xl bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                           onClick={() => setPreview({ messageId: m.id, image })}
                                         >
                                           <img
                                             src={image.signedUrl}
                                             alt={image.name}
-                                            className="h-24 w-full object-cover"
+                                            className={m.images!.length === 1
+                                              ? "h-auto max-h-80 w-full object-cover"
+                                              : "aspect-square w-full object-cover"}
                                             onError={() => { void requestImageRefresh(m.id, image); }}
                                           />
                                         </button>
