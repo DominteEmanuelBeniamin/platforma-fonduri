@@ -17,10 +17,36 @@
 // rămânea o copie pe jumătate, pe care userul o găsea la următorul refresh.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { ATTACHMENT_BUCKET, copyStorageObject, projectAttachmentPath } from './attachment-storage'
-import { slugify } from '@/lib/slug'
+import { ATTACHMENT_BUCKET, copyStorageObject, projectAttachmentPath } from './attachment-storage.ts'
+import { slugify } from '../../../lib/slug.ts'
 
 export type DuplicationCounts = { activities: number; documentRequests: number }
+
+export type DuplicationAuditPair = {
+  copyId: string
+  copyName: string
+  sourceId: string
+  sourceName: string
+}
+
+export type DuplicationAuditNode = {
+  copyId: string
+  copyName: string
+  sourceId: string
+  sourceName: string
+  phaseId: string
+  phaseName: string | null
+  activityId?: string
+  activityName?: string
+  sourceActivityId?: string
+  sourceActivityName?: string
+}
+
+export type DuplicationAudit = {
+  phase?: DuplicationAuditPair
+  activities: DuplicationAuditNode[]
+  documentRequests: DuplicationAuditNode[]
+}
 
 /** Ce a creat duplicarea până acum — materialul de lucru al compensării. */
 type CopyLedger = { phaseId: string | null; activityIds: string[]; storagePaths: string[] }
@@ -40,33 +66,28 @@ async function allSettledOrThrow<T>(tasks: Promise<T>[]): Promise<T[]> {
 }
 
 /**
- * Face loc copiei imediat după original: tot ce vine după `orderIndex` urcă cu
- * o poziție. Copia însăși stă deja pe `orderIndex + 1`, deci se exclude din
- * mutare. Update-urile pleacă odată: `order_index` n-are constraint unic, deci
- * ordinea lor nu contează, iar secvențial însemna un round-trip per frate.
+ * Face loc copiei imediat după original printr-un singur UPDATE în PostgreSQL.
+ * Funcția RPC validează apartenența sursei și a copiei și exclude copia.
  */
 async function shiftOrderAfter(
   admin: SupabaseClient,
   table: 'project_phases' | 'project_activities',
-  scopeColumn: 'project_id' | 'phase_id',
   scopeValue: string,
-  orderIndex: number,
+  sourceId: string,
   exceptId: string,
 ) {
-  const { data, error } = await admin
-    .from(table)
-    .select('id, order_index')
-    .eq(scopeColumn, scopeValue)
-    .gt('order_index', orderIndex)
-    .neq('id', exceptId)
-
+  const { error } = table === 'project_phases'
+    ? await admin.rpc('shift_project_phases_after_duplicate', {
+        p_project_id: scopeValue,
+        p_source_phase_id: sourceId,
+        p_copy_phase_id: exceptId,
+      })
+    : await admin.rpc('shift_project_activities_after_duplicate', {
+        p_phase_id: scopeValue,
+        p_source_activity_id: sourceId,
+        p_copy_activity_id: exceptId,
+      })
   if (error) throw error
-
-  const results = await Promise.all((data ?? []).map(row =>
-    admin.from(table).update({ order_index: (row.order_index ?? 0) + 1 }).eq('id', row.id)))
-
-  const failed = results.find(result => result.error)
-  if (failed?.error) throw failed.error
 }
 
 /**
@@ -132,10 +153,14 @@ async function duplicateDocumentRequests(
     projectId: string
     sourceActivityId: string
     targetActivityId: string
+    targetPhaseId: string
+    phaseName?: string | null
+    activityName: string
+    sourceActivityName: string
     actorId: string
     ledger: CopyLedger
   },
-): Promise<number> {
+): Promise<DuplicationAuditNode[]> {
   const { data: requests, error } = await admin
     .from('document_requirements')
     .select('*, attachments:document_requirement_attachments(*)')
@@ -144,7 +169,7 @@ async function duplicateDocumentRequests(
     .order('order_index', { ascending: true })
 
   if (error) throw error
-  if (!requests || requests.length === 0) return 0
+  if (!requests || requests.length === 0) return []
 
   const now = new Date().toISOString()
 
@@ -175,6 +200,7 @@ async function duplicateDocumentRequests(
   const rows = prepared.map(({ request, attachments }) => {
     const first = attachments[0] ?? null
     return {
+      id: crypto.randomUUID(),
       project_id: options.projectId,
       activity_id: options.targetActivityId,
       name: request.name,
@@ -201,21 +227,17 @@ async function duplicateDocumentRequests(
     }
   })
 
-  // Un singur insert pentru toate cererile activității: PostgREST întoarce
-  // rândurile în ordinea trimisă, deci se împerechează cu `rows` după index.
-  const { data: copies, error: insertError } = await admin
+  // UUID-urile sunt pregătite în payload, deci maparea nu depinde de ordinea
+  // unui eventual RETURNING bulk.
+  const { error: insertError } = await admin
     .from('document_requirements')
     .insert(rows)
-    .select('id')
 
   if (insertError) throw insertError
-  if (!copies || copies.length !== rows.length) {
-    throw new Error('Inserarea cererilor de documente a întors alt număr de rânduri decât cel trimis.')
-  }
 
   const attachmentRows = prepared.flatMap(({ attachments }, index) =>
     attachments.map((attachment: any, order: number) => ({
-      document_requirement_id: copies[index].id,
+      document_requirement_id: rows[index].id,
       // Legătura la șablon stă pe cerere, iar acolo e deja `null`; păstrată pe
       // atașament ar contrazice intenția, chiar dacă propagarea n-o citește.
       source_template_attachment_id: null,
@@ -236,7 +258,18 @@ async function duplicateDocumentRequests(
     if (attachmentError) throw attachmentError
   }
 
-  return rows.length
+  return rows.map((copy, index) => ({
+    copyId: copy.id,
+    copyName: copy.name,
+    sourceId: prepared[index].request.id,
+    sourceName: prepared[index].request.name,
+    phaseId: options.targetPhaseId,
+    phaseName: options.phaseName ?? null,
+    activityId: options.targetActivityId,
+    activityName: options.activityName,
+    sourceActivityId: options.sourceActivityId,
+    sourceActivityName: options.sourceActivityName,
+  }))
 }
 
 /**
@@ -252,9 +285,10 @@ async function duplicateActivity(
     name: string
     orderIndex: number
     actorId: string
+    phaseName?: string | null
     ledger: CopyLedger
   },
-): Promise<{ activity: any; documentRequests: number }> {
+): Promise<{ activity: any; documentRequests: DuplicationAuditNode[]; audit: DuplicationAudit }> {
   const source = options.sourceActivity
 
   const { data: activity, error } = await admin
@@ -282,11 +316,28 @@ async function duplicateActivity(
     projectId: options.projectId,
     sourceActivityId: source.id,
     targetActivityId: activity.id,
+    targetPhaseId: options.targetPhaseId,
+    phaseName: options.phaseName,
+    activityName: activity.name,
+    sourceActivityName: source.name,
     actorId: options.actorId,
     ledger: options.ledger,
   })
 
-  return { activity, documentRequests }
+  const activityAudit: DuplicationAuditNode = {
+    copyId: activity.id,
+    copyName: activity.name,
+    sourceId: source.id,
+    sourceName: source.name,
+    phaseId: options.targetPhaseId,
+    phaseName: options.phaseName ?? null,
+  }
+
+  return {
+    activity,
+    documentRequests,
+    audit: { activities: [activityAudit], documentRequests },
+  }
 }
 
 /**
@@ -301,19 +352,21 @@ export async function duplicatePhase(
     name: string
     actorId: string
   },
-): Promise<{ phase: any; counts: DuplicationCounts }> {
+): Promise<{ phase: any; counts: DuplicationCounts; audit: DuplicationAudit }> {
   const source = options.sourcePhase
   const sourceOrderIndex = source.order_index ?? 0
   const ledger = newLedger()
 
   try {
+    const phaseId = crypto.randomUUID()
     const { data: phase, error } = await admin
       .from('project_phases')
       .insert({
+        id: phaseId,
         project_id: options.projectId,
         project_status_id: source.project_status_id,
         name: options.name,
-        slug: slugify(options.name),
+        slug: `${slugify(options.name)}-${phaseId}`,
         description: source.description,
         order_index: sourceOrderIndex + 1,
         status: 'pending',
@@ -344,18 +397,29 @@ export async function duplicatePhase(
         name: sourceActivity.name,
         orderIndex: sourceActivity.order_index ?? index + 1,
         actorId: options.actorId,
+        phaseName: phase.name,
         ledger,
       })))
 
     // Frații se mută abia acum, după ce copia e completă: până aici un eșec nu
     // atinge ordinea existentă, deci compensarea n-are ce reface acolo.
-    await shiftOrderAfter(admin, 'project_phases', 'project_id', options.projectId, sourceOrderIndex, phase.id)
+    await shiftOrderAfter(admin, 'project_phases', options.projectId, source.id, phase.id)
 
     return {
       phase,
       counts: {
         activities: created.length,
-        documentRequests: created.reduce((sum, item) => sum + item.documentRequests, 0),
+        documentRequests: created.reduce((sum, item) => sum + item.documentRequests.length, 0),
+      },
+      audit: {
+        phase: {
+          copyId: phase.id,
+          copyName: phase.name,
+          sourceId: source.id,
+          sourceName: source.name,
+        },
+        activities: created.flatMap(item => item.audit.activities),
+        documentRequests: created.flatMap(item => item.audit.documentRequests),
       },
     }
   } catch (error) {
@@ -373,8 +437,9 @@ export async function duplicateActivityAfterSource(
     sourceActivity: any
     name: string
     actorId: string
+    phaseName?: string | null
   },
-): Promise<{ activity: any; documentRequests: number }> {
+): Promise<{ activity: any; documentRequests: DuplicationAuditNode[]; audit: DuplicationAudit }> {
   const sourceOrderIndex = options.sourceActivity.order_index ?? 0
   const ledger = newLedger()
 
@@ -386,11 +451,12 @@ export async function duplicateActivityAfterSource(
       name: options.name,
       orderIndex: sourceOrderIndex + 1,
       actorId: options.actorId,
+      phaseName: options.phaseName,
       ledger,
     })
 
     await shiftOrderAfter(
-      admin, 'project_activities', 'phase_id', options.phaseId, sourceOrderIndex, created.activity.id,
+      admin, 'project_activities', options.phaseId, options.sourceActivity.id, created.activity.id,
     )
 
     return created

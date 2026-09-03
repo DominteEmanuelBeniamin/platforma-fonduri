@@ -1,215 +1,147 @@
-// Smoke pentru duplicarea fazelor și activităților (#15).
+// Smoke pentru duplicarea fazelor și activităților (#89).
 //
-// Rulează peste dev server-ul pornit separat (`npm run dev`) și peste datele
-// reale: duplică o fază și o activitate prin API, verifică rezultatul în baza
-// de date, apoi șterge tot ce a creat și pune ordinea la loc. Proiectul rămâne
-// exact cum era înainte.
-//
-//   node scripts/smoke-duplicare.mjs [phase_id]
+// Rulează numai cu configurația E2E dedicată și E2E_WRITES=1. Proiectul este
+// creat de fixture la fiecare rulare; nu există ID-uri reale sau fallback la
+// `.env.local`. Node este pornit cu --experimental-strip-types pentru helperul
+// TypeScript comun (a se actualiza scriptul package de către orchestrator).
 
-import nextEnv from '@next/env'
-import { readFileSync } from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
+import {
+  cleanupCreated,
+  createCreatedRegistry,
+  createTemporaryProject,
+  destroyTemporaryProject,
+  e2eEnv,
+  protectSourceStoragePath,
+  registerCreatedActivity,
+  registerCreatedPhase,
+  requireE2EConfig,
+  serviceClient,
+  storagePathsForPhase,
+  verifyServerUsesFixture,
+} from '../tests/e2e/helpers/project-state.ts'
 
-const { loadEnvConfig } = nextEnv
-loadEnvConfig(process.cwd())
-
-// conturile de test stau separat, în .env.e2e.local
-for (const line of readFileSync('.env.e2e.local', 'utf-8').split('\n')) {
-  const match = line.match(/^([A-Za-z0-9_]+)=(.*)$/)
-  if (match) process.env[match[1]] ??= match[2].trim()
-}
-
-const BASE = process.env.SMOKE_BASE_URL || 'http://localhost:3000'
-const PHASE_ID = process.argv[2] || '0aa6b64b-d81b-4ab1-bb6f-b2789f38c5c8'
-
-const admin = createClient(
-  process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { auth: { autoRefreshToken: false, persistSession: false } },
-)
-const anon = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-  { auth: { autoRefreshToken: false, persistSession: false } },
-)
+const config = requireE2EConfig(e2eEnv())
+const admin = serviceClient()
+if (!admin) throw new Error('Clientul service E2E lipsește din configurația dedicată')
 
 const results = []
 const check = (label, ok, detail = '') => {
   results.push({ ok, label })
   console.log(`${ok ? '✓' : '✗'} ${label}${detail ? ' — ' + detail : ''}`)
 }
-
-const { data: session, error: signInError } = await anon.auth.signInWithPassword({
-  email: process.env.E2E_STAFF_EMAIL,
-  password: process.env.E2E_STAFF_PASSWORD,
-})
-if (signInError) throw signInError
-const token = session.session.access_token
-const api = (path, options = {}) => fetch(`${BASE}${path}`, {
-  ...options,
-  headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(options.headers || {}) },
-})
-
-// ── Starea dinainte ──────────────────────────────────────────────────────────
-const { data: phase } = await admin.from('project_phases').select('*').eq('id', PHASE_ID).maybeSingle()
-if (!phase) {
-  console.error(`Faza ${PHASE_ID} nu există. Dă alt id ca argument.`)
-  process.exit(1)
+const readOne = async (query, label) => {
+  const result = await query
+  if (result.error) throw new Error(`${label}: ${result.error.message || result.error}`)
+  if (!result.data) throw new Error(`${label}: rând lipsă`)
+  return result.data
 }
-const projectId = phase.project_id
-const { data: phasesBefore } = await admin.from('project_phases').select('id, order_index').eq('project_id', projectId).order('order_index')
-const { data: actsBefore } = await admin.from('project_activities').select('*').eq('phase_id', PHASE_ID).order('order_index')
-const { data: reqsBefore } = await admin.from('document_requirements').select('*').in('activity_id', actsBefore.map(a => a.id)).is('deleted_at', null)
-const { data: filesBefore } = await admin.from('files').select('id').in('requirement_id', reqsBefore.map(r => r.id))
-const { data: attsBefore } = await admin.from('document_requirement_attachments').select('*').in('document_requirement_id', reqsBefore.map(r => r.id))
-const sourceActivity = actsBefore[0]
+const readMany = async (query, label) => {
+  const result = await query
+  if (result.error) throw new Error(`${label}: ${result.error.message || result.error}`)
+  return result.data ?? []
+}
 
-console.log(`Faza test: „${phase.name}” — ${actsBefore.length} activități, ${reqsBefore.length} cereri, ${attsBefore.length} fișiere-model, ${filesBefore.length} fișiere de client\n`)
+let fixture = null
+let copies = null
+let staffToken = ''
+let clientToken = ''
 
-const created = { phases: [], activities: [], requests: [], storagePaths: [] }
-const BUCKET = 'project-files'
+async function signIn() {
+  const anon = createClient(config.supabaseUrl, config.anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+  const staff = await anon.auth.signInWithPassword({ email: config.staffEmail, password: config.staffPassword })
+  if (staff.error || !staff.data.session) throw staff.error || new Error('autentificarea staff a eșuat')
+  staffToken = staff.data.session.access_token
+  const client = await anon.auth.signInWithPassword({ email: config.clientEmail, password: config.clientPassword })
+  if (client.error || !client.data.session) throw client.error || new Error('autentificarea client a eșuat')
+  clientToken = client.data.session.access_token
+}
 
-async function storageObjectExists(path) {
-  const { data, error } = await admin.storage.from(BUCKET).createSignedUrl(path, 60)
-  if (error || !data?.signedUrl) return false
-  const res = await fetch(data.signedUrl, { method: 'HEAD' }).catch(() => null)
-  return Boolean(res?.ok)
+async function api(path, options = {}) {
+  return fetch(`${config.baseUrl}${path}`, {
+    ...options,
+    headers: { Authorization: `Bearer ${staffToken}`, 'Content-Type': 'application/json', ...(options.headers || {}) },
+  })
+}
+
+async function cleanupAll() {
+  const failures = []
+  try {
+    if (admin && copies) await cleanupCreated(admin, copies)
+  } catch (error) {
+    failures.push(error)
+  } finally {
+    try {
+      if (admin && fixture) await destroyTemporaryProject(admin, fixture)
+    } catch (error) {
+      failures.push(error)
+    } finally {
+      copies = null
+      fixture = null
+    }
+  }
+  if (failures.length) {
+    throw new Error(failures.map(error => error instanceof Error ? error.message : String(error)).join('\n'))
+  }
 }
 
 try {
-  // ── Duplicare fază ─────────────────────────────────────────────────────────
-  const phaseRes = await api(`/api/projects/${projectId}/phases/${PHASE_ID}/duplicate`, { method: 'POST' })
-  const phaseBody = await phaseRes.json()
-  check('POST duplicate fază → 201', phaseRes.status === 201, `status ${phaseRes.status}`)
-  if (!phaseRes.ok) throw new Error(JSON.stringify(phaseBody))
+  await signIn()
+  fixture = await createTemporaryProject(admin, config)
+  await verifyServerUsesFixture(config, fixture.projectId)
+  copies = createCreatedRegistry(fixture.projectId)
+  const sourcePaths = await storagePathsForPhase(admin, fixture.phaseId)
+  for (const path of sourcePaths) protectSourceStoragePath(copies, path)
 
-  const copy = phaseBody.phase
-  created.phases.push(copy.id)
+  const sourcePhase = await readOne(admin.from('project_phases').select('*').eq('id', fixture.phaseId).single(), 'citirea fazei fixture')
+  const sourceActivity = await readOne(admin.from('project_activities').select('*').eq('id', fixture.activityId).single(), 'citirea activității fixture')
+  const sourceRequests = await readMany(admin.from('document_requirements').select('*').eq('activity_id', fixture.activityId).is('deleted_at', null), 'citirea cererilor fixture')
 
-  check('nume „(copie)”', copy.name === `${phase.name} (copie)`, copy.name)
-  check('copia e în pregătire (draft)', copy.visibility === 'draft', `sursa era ${phase.visibility}`)
-  check('status resetat la pending', copy.status === 'pending')
-  check('fără legătură la șablon', copy.source_template_phase_id === null)
-  check('clientul nu a fost notificat', copy.client_notified_at === null)
-  check('aterizează imediat după original', copy.order_index === phase.order_index + 1)
+  const phaseResponse = await api(`/api/projects/${fixture.projectId}/phases/${fixture.phaseId}/duplicate`, { method: 'POST' })
+  const phaseBody = await phaseResponse.json()
+  registerCreatedPhase(copies, phaseBody.phase?.id)
+  check('POST duplicate fază → 201', phaseResponse.status === 201, `status ${phaseResponse.status}`)
+  if (!phaseResponse.ok) throw new Error(JSON.stringify(phaseBody))
+  const phaseCopy = phaseBody.phase
+  check('copia fazei este draft și apare după original', phaseCopy.visibility === 'draft' && phaseCopy.order_index === sourcePhase.order_index + 1)
 
-  const { data: phasesAfter } = await admin.from('project_phases').select('id, order_index').eq('project_id', projectId).order('order_index')
-  check('fazele de după s-au decalat cu o poziție',
-    phasesBefore.filter(p => p.order_index > phase.order_index)
-      .every(p => phasesAfter.find(x => x.id === p.id)?.order_index === p.order_index + 1))
-  check('nicio poziție dublată', new Set(phasesAfter.map(p => p.order_index)).size === phasesAfter.length)
+  const copyActivities = await readMany(admin.from('project_activities').select('*').eq('phase_id', phaseCopy.id).order('order_index'), 'citirea activităților copii')
+  check('activitatea s-a copiat cu termen și responsabil', copyActivities.length === 1 && copyActivities[0].deadline_at === sourceActivity.deadline_at && copyActivities[0].assigned_to === sourceActivity.assigned_to)
+  const copyRequests = await readMany(admin.from('document_requirements').select('*').in('activity_id', copyActivities.map(item => item.id)).is('deleted_at', null), 'citirea cererilor copii')
+  check('cererile s-au copiat', copyRequests.length === sourceRequests.length)
+  check('fișierele clientului nu s-au copiat', (await readMany(admin.from('files').select('id').in('requirement_id', copyRequests.map(item => item.id)), 'verificarea fișierelor client')).length === 0)
+  const copyAttachments = await readMany(admin.from('document_requirement_attachments').select('storage_path').in('document_requirement_id', copyRequests.map(item => item.id)), 'verificarea modelelor copii')
+  check('modelul are obiect storage propriu', copyAttachments.length === 1 && !sourcePaths.includes(copyAttachments[0].storage_path))
 
-  const { data: copyActs } = await admin.from('project_activities').select('*').eq('phase_id', copy.id).order('order_index')
-  created.activities.push(...copyActs.map(a => a.id))
-  check('activitățile s-au copiat', copyActs.length === actsBefore.length, `${copyActs.length}/${actsBefore.length}`)
-  check('activitățile păstrează numele originale', copyActs.every((a, i) => a.name === actsBefore[i].name))
-  check('activitățile copiate sunt draft', copyActs.every(a => a.visibility === 'draft'))
-  check('termenele activităților se copiază (#70 cere termen la publicare)',
-    copyActs.every((a, i) => a.deadline_at === actsBefore[i].deadline_at),
-    `sursa: ${actsBefore.map(a => a.deadline_at ?? 'gol').join(', ')} | copia: ${copyActs.map(a => a.deadline_at ?? 'gol').join(', ')}`)
-  check('atribuirea păstrată', copyActs.every((a, i) => a.assigned_to === actsBefore[i].assigned_to))
-  check('status activități resetat', copyActs.every(a => a.status === 'pending' && a.completed_at === null))
+  const activityResponse = await api(`/api/projects/${fixture.projectId}/phases/${fixture.phaseId}/activities/${fixture.activityId}/duplicate`, { method: 'POST' })
+  const activityBody = await activityResponse.json()
+  registerCreatedActivity(copies, activityBody.activity?.id, fixture.phaseId)
+  check('POST duplicate activitate → 201', activityResponse.status === 201, `status ${activityResponse.status}`)
+  if (!activityResponse.ok) throw new Error(JSON.stringify(activityBody))
+  const directRequests = await readMany(admin.from('document_requirements').select('id').eq('activity_id', activityBody.activity.id).is('deleted_at', null), 'citirea cererilor activității copii')
+  check('activitatea duplicată are cererile sursei', directRequests.length === sourceRequests.length)
 
-  const { data: copyReqs } = await admin.from('document_requirements').select('*').in('activity_id', copyActs.map(a => a.id)).is('deleted_at', null)
-  created.requests.push(...copyReqs.map(r => r.id))
-  check('cererile de documente s-au copiat', copyReqs.length === reqsBefore.length, `${copyReqs.length}/${reqsBefore.length}`)
-  check('cererile copiate sunt draft', copyReqs.every(r => r.visibility === 'draft'))
-  const deadlineSet = list => list.map(r => `${r.name}|${r.deadline_at ?? 'gol'}`).sort().join(' // ')
-  check('termenele cererilor se copiază', deadlineSet(copyReqs) === deadlineSet(reqsBefore))
-  check('cererile nu sunt blocate și n-au reminder trimis', copyReqs.every(r => !r.is_locked && r.reminder_sent_at === null))
-  check('tipul cererii păstrat', copyReqs.every(r => reqsBefore.some(o =>
-    o.name === r.name && o.requirement_type === r.requirement_type && o.is_outgoing === r.is_outgoing)))
-
-  const { data: copyFiles } = await admin.from('files').select('id').in('requirement_id', copyReqs.map(r => r.id))
-  check('FĂRĂ fișierele încărcate de client', (copyFiles ?? []).length === 0, `originalul are ${filesBefore.length}`)
-
-  const { data: attsCopy } = await admin.from('document_requirement_attachments').select('*').in('document_requirement_id', copyReqs.map(r => r.id))
-  created.storagePaths.push(...attsCopy.map(a => a.storage_path))
-  created.storagePaths.push(...copyReqs.map(r => r.attachment_path).filter(Boolean))
-  check('fișierele-model s-au copiat', attsCopy.length === attsBefore.length, `${attsCopy.length}/${attsBefore.length}`)
-  check('fiecare fișier-model are obiect propriu în storage',
-    attsCopy.every(a => !attsBefore.some(o => o.storage_path === a.storage_path)),
-    attsCopy.map(a => a.storage_path.split('/').pop()).join(', '))
-  check('obiectele copiate există în storage',
-    (await Promise.all(attsCopy.map(a => storageObjectExists(a.storage_path)))).every(Boolean))
-  check('obiectele originalului au rămas neatinse',
-    (await Promise.all(attsBefore.map(a => storageObjectExists(a.storage_path)))).every(Boolean))
-
-  // ── Duplicare activitate ───────────────────────────────────────────────────
-  const actRes = await api(`/api/projects/${projectId}/phases/${PHASE_ID}/activities/${sourceActivity.id}/duplicate`, { method: 'POST' })
-  const actBody = await actRes.json()
-  check('POST duplicate activitate → 201', actRes.status === 201, `status ${actRes.status}`)
-  if (actRes.ok) {
-    const actCopy = actBody.activity
-    created.activities.push(actCopy.id)
-    check('nume activitate „(copie)”', actCopy.name === `${sourceActivity.name} (copie)`, actCopy.name)
-    check('copia e draft, cu termenul și responsabilul preluate',
-      actCopy.visibility === 'draft'
-        && actCopy.deadline_at === sourceActivity.deadline_at
-        && actCopy.assigned_to === sourceActivity.assigned_to)
-    check('aterizează după originalul ei', actCopy.order_index === (sourceActivity.order_index ?? 0) + 1)
-    check('rămâne în aceeași fază', actCopy.phase_id === PHASE_ID)
-    const { data: actCopyReqs } = await admin.from('document_requirements').select('id').eq('activity_id', actCopy.id).is('deleted_at', null)
-    created.requests.push(...actCopyReqs.map(r => r.id))
-    check('cererile activității s-au copiat',
-      actCopyReqs.length === reqsBefore.filter(r => r.activity_id === sourceActivity.id).length)
-    const { data: actCopyAtts } = await admin.from('document_requirement_attachments').select('storage_path').in('document_requirement_id', actCopyReqs.map(r => r.id))
-    created.storagePaths.push(...(actCopyAtts ?? []).map(a => a.storage_path))
-    const { data: actCopyFiles } = await admin.from('files').select('id').in('requirement_id', actCopyReqs.map(r => r.id))
-    check('FĂRĂ fișiere de client pe copia activității', (actCopyFiles ?? []).length === 0)
-  }
-
-  // ── Drepturi: clientul nu poate duplica ────────────────────────────────────
-  const clientAuth = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, { auth: { persistSession: false } })
-  const { data: clientSession, error: clientError } = await clientAuth.auth.signInWithPassword({
-    email: process.env.E2E_CLIENT_EMAIL, password: process.env.E2E_CLIENT_PASSWORD,
+  const forbidden = await fetch(`${config.baseUrl}/api/projects/${fixture.projectId}/phases/${fixture.phaseId}/duplicate`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${clientToken}`, 'Content-Type': 'application/json' },
   })
-  if (clientError) {
-    check('login client pentru testul de drepturi', false, clientError.message)
-  } else {
-    const forbidden = await fetch(`${BASE}/api/projects/${projectId}/phases/${PHASE_ID}/duplicate`, {
-      method: 'POST', headers: { Authorization: `Bearer ${clientSession.session.access_token}` },
-    })
-    check('clientul e respins', forbidden.status === 403 || forbidden.status === 404, `status ${forbidden.status}`)
-  }
-
-  // ── Audit (#22) ────────────────────────────────────────────────────────────
-  const { data: auditRows } = await admin.from('audit_logs').select('description')
-    .in('entity_id', [...created.phases, ...created.activities])
-  check('acțiunile apar în jurnalul de audit', (auditRows ?? []).length >= 2)
+  check('clientul este respins', forbidden.status === 403 || forbidden.status === 404, `status ${forbidden.status}`)
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error)
+  results.push({ ok: false, label: 'execuția smoke' })
 } finally {
-  // ── Curățare ───────────────────────────────────────────────────────────────
-  if (created.storagePaths.length) {
-    await admin.storage.from(BUCKET).remove([...new Set(created.storagePaths)])
+  try {
+    await cleanupAll()
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error)
+    results.push({ ok: false, label: 'cleanup smoke' })
   }
-  if (created.requests.length) {
-    await admin.from('document_requirement_attachments').delete().in('document_requirement_id', created.requests)
-    await admin.from('files').delete().in('requirement_id', created.requests)
-    await admin.from('document_requirements').delete().in('id', created.requests)
-  }
-  if (created.activities.length) await admin.from('project_activities').delete().in('id', created.activities)
-  if (created.phases.length) await admin.from('project_phases').delete().in('id', created.phases)
-  await admin.from('audit_logs').delete().in('entity_id', [...created.phases, ...created.activities])
-  for (const p of phasesBefore) await admin.from('project_phases').update({ order_index: p.order_index }).eq('id', p.id)
-  for (const a of actsBefore) await admin.from('project_activities').update({ order_index: a.order_index }).eq('id', a.id)
-
-  const { data: phasesFinal } = await admin.from('project_phases').select('id, order_index').eq('project_id', projectId).order('order_index')
-  const { data: actsFinal } = await admin.from('project_activities').select('id').eq('phase_id', PHASE_ID)
-  const { data: reqsFinal } = await admin.from('document_requirements').select('id').in('activity_id', actsBefore.map(a => a.id)).is('deleted_at', null)
-  const { data: filesFinal } = await admin.from('files').select('id').in('requirement_id', reqsBefore.map(r => r.id))
-  check('curățare: proiectul a rămas exact cum era',
-    phasesFinal.length === phasesBefore.length
-      && phasesFinal.every((p, i) => p.id === phasesBefore[i].id && p.order_index === phasesBefore[i].order_index)
-      && actsFinal.length === actsBefore.length
-      && reqsFinal.length === reqsBefore.length
-      && filesFinal.length === filesBefore.length,
-    `faze ${phasesFinal.length}/${phasesBefore.length}, activități ${actsFinal.length}/${actsBefore.length}, cereri ${reqsFinal.length}/${reqsBefore.length}, fișiere ${filesFinal.length}/${filesBefore.length}`)
-
-  const failed = results.filter(r => !r.ok)
+  const failed = results.filter(result => !result.ok)
   console.log(`\n${results.length - failed.length}/${results.length} verificări trecute`)
   if (failed.length) {
-    console.log('EȘUATE:', failed.map(f => f.label).join(' | '))
+    console.log('EȘUATE:', failed.map(result => result.label).join(' | '))
     process.exitCode = 1
   }
 }

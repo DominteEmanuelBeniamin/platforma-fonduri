@@ -16,6 +16,13 @@ import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { useToast } from '@/app/providers/ToastProvider'
 import { buildCopyName } from '@/lib/duplicate-name'
+import { serverMessage } from '@/lib/api-error'
+import {
+  duplicationFromSource,
+  isPersistentTemplateId,
+  resolveDuplicationForSave,
+} from '@/app/api/_utils/template-duplication'
+import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
 
 interface ProjectStatus {
   id: string
@@ -35,6 +42,8 @@ interface DocumentRequirement {
   templateFileName: string | null
   templateFileMissingAt?: string | null
   templateFileRemoved?: boolean
+  duplication?: TemplateDuplication
+  sourceLocalId?: string
 }
 
 interface TemplateAttachment {
@@ -60,6 +69,8 @@ interface TemplateActivity {
   document_requirements: DocumentRequirement[]
   expanded: boolean
   default_consultant_id?: string
+  duplication?: TemplateDuplication
+  sourceLocalId?: string
 }
 
 interface TemplatePhase {
@@ -68,6 +79,8 @@ interface TemplatePhase {
   project_status_id: string
   activities: TemplateActivity[]
   expanded: boolean
+  duplication?: TemplateDuplication
+  sourceLocalId?: string
 }
 
 interface Template {
@@ -189,7 +202,7 @@ function generateSlug(text: string): string {
 
 // IDs din DB sunt UUID (36 chars cu cratime), cele locale sunt scurte
 function isDbId(id: string): boolean {
-  return id.length === 36 && id.includes('-')
+  return isPersistentTemplateId(id)
 }
 
 function hasPropagationChanges(project: TemplatePropagationPreviewProject) {
@@ -419,6 +432,7 @@ export default function AdminTemplatesPage() {
     id: generateId(),
     templateFiles: [...(doc.templateFiles ?? [])],
     templateAttachments: (doc.templateAttachments ?? []).map(attachment => ({ ...attachment })),
+    ...duplicationFromSource(doc, 'template_document'),
   })
 
   const cloneActivity = (activity: TemplateActivity, name: string): TemplateActivity => ({
@@ -427,6 +441,7 @@ export default function AdminTemplatesPage() {
     name,
     expanded: true,
     document_requirements: activity.document_requirements.map(cloneDocRequirement),
+    ...duplicationFromSource(activity, 'template_activity'),
   })
 
   const duplicatePhase = (phaseId: string) => {
@@ -439,6 +454,7 @@ export default function AdminTemplatesPage() {
       name: buildCopyName(source.name, phases.map(p => p.name)),
       expanded: true,
       activities: source.activities.map(activity => cloneActivity(activity, activity.name)),
+      ...duplicationFromSource(source, 'template_phase'),
     }
     setPhases([...phases.slice(0, index + 1), copy, ...phases.slice(index + 1)])
   }
@@ -879,15 +895,11 @@ export default function AdminTemplatesPage() {
     setSaving(true)
     try {
       const safeParseError = async (res: Response, fallback: string) => {
-        try {
-          const data = await res.json()
-          return data.error || data.message || fallback
-        } catch {
-          return `${fallback} (${res.status})`
-        }
+        return serverMessage(res, `${fallback} (${res.status})`)
       }
 
       let templateId: string
+      const savedIds = new Map<string, string>()
 
       if (editingTemplate) {
         // PATCH template existent
@@ -966,11 +978,13 @@ export default function AdminTemplatesPage() {
               name: phase.name,
               slug: generateSlug(phase.name) || `faza-${pIdx + 1}`,
               order_index: pIdx + 1,
+              duplication: resolveDuplicationForSave(phase, savedIds),
             })
           })
           if (!phaseRes.ok) throw new Error(await safeParseError(phaseRes, `Eroare la salvare faza "${phase.name}"`))
           const phaseData = await phaseRes.json()
           phaseId = phaseData.phase.id
+          savedIds.set(phase.id, phaseId)
         }
 
         // Salvează activitățile
@@ -1012,11 +1026,13 @@ export default function AdminTemplatesPage() {
                 name: activity.name,
                 order_index: aIdx + 1,
                 default_consultant_id: activity.default_consultant_id || null,
+                duplication: resolveDuplicationForSave(activity, savedIds),
               })
             })
             if (!actRes.ok) throw new Error(await safeParseError(actRes, `Eroare la salvare activitate "${activity.name}"`))
             const actData = await actRes.json()
             activityId = actData.activity.id
+            savedIds.set(activity.id, activityId)
           }
 
           // Salvează documentele
@@ -1072,9 +1088,12 @@ export default function AdminTemplatesPage() {
                   attachments: attachmentPayload,
                   attachment_path: firstAttachment?.storage_path || null,
                   attachment_original_name: firstAttachment?.original_name || null,
+                  duplication: resolveDuplicationForSave(doc, savedIds),
                 })
               })
               if (!docRes.ok) throw new Error(await safeParseError(docRes, `Eroare la salvare document "${doc.name}"`))
+              const docData = await docRes.json()
+              savedIds.set(doc.id, docData.document.id)
             }
           }
         }
@@ -1086,8 +1105,8 @@ export default function AdminTemplatesPage() {
 
       resetForm()
       fetchData()
-    } catch {
-      showToast('Nu am putut salva template-ul. Reîncearcă.', 'error')
+    } catch (error: any) {
+      showToast(error?.message || 'Nu am putut salva template-ul. Reîncearcă.', 'error')
     } finally {
       setSaving(false)
     }
