@@ -1148,7 +1148,7 @@ function ProjectDetailsContent() {
                   id={phase.id}
                   title={phase.name}
                   subtitle={`${phase.activities?.length ?? 0} activit${phase.activities?.length === 1 ? 'ate' : 'ăți'}`}
-                  color={phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)'}
+                  color={canEdit ? (phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)') : undefined}
                   headerRight={
                     <PublishStatusControl
                       status={phase.visibility ?? 'draft'}

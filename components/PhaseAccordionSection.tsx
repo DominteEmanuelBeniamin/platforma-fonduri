@@ -9,7 +9,7 @@ interface PhaseAccordionSectionProps {
   id: string
   title: string
   subtitle?: string | null
-  /** Culoarea punctului din stânga titlului (statusul fazei). Ignorată dacă e furnizat `icon`. */
+  /** Culoarea bulinei de vizibilitate. Lipsă = fără bulină. Ignorată dacă e furnizat `icon`. */
   color?: string | null
   icon?: ReactNode
   /** Slot opțional în dreapta titlului, înainte de chevron (ex: status + buton publicare). */
@@ -38,12 +38,14 @@ export default function PhaseAccordionSection({
     >
       <div className="w-full grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-x-3.5 gap-y-2 px-5 sm:px-6 py-4 sm:py-5">
         <div className="min-w-0 flex items-start gap-3.5 text-left">
-          {icon ?? (
+          {/* Fără `color` nu se desenează nimic: bulina spune dacă faza e
+              publicată, iar clientul vede oricum numai faze publicate. */}
+          {icon ?? (color ? (
             <span
               className="w-3 h-3 rounded-full flex-shrink-0"
-              style={{ backgroundColor: color || '#6B7280' }}
+              style={{ backgroundColor: color }}
             />
-          )}
+          ) : null)}
           <div className="min-w-0 flex-1">
             <h2 className="font-display text-lg font-semibold text-[var(--p-ink)] break-words tracking-tight">{title}</h2>
             {subtitle && <p className="text-xs text-[var(--p-ink-soft)] break-words">{subtitle}</p>}
