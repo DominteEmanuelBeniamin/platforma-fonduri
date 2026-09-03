@@ -296,25 +296,25 @@ export async function DELETE(
       ...(attachments ?? []).flatMap(r => (r.document_requirement_attachments ?? []).map((a: any) => a.storage_path)).filter((p): p is string => typeof p === 'string' && p.length > 0),
     ]))
 
-    // Chat uploads are not represented in `files`; sweep the private prefix so
-    // abandoned uploads are removed before the project row is deleted.
+    // Imaginile de chat nu apar în `files`; măturăm prefixul privat ca să nu
+    // rămână uploaduri abandonate. `listV2` e marcat `@experimental` în SDK, iar
+    // obiectele rămase se pot mătura oricând după prefix — deci un eșec de
+    // listare nu are voie să oprească ștergerea proiectului.
     const chatPrefix = `projects/${projectId}/chat/`
     const chatPaths: string[] = []
     let cursor: string | undefined
     while (true) {
-      const options = {
-        prefix: chatPrefix,
-        limit: 1000,
-        ...(cursor ? { cursor } : {}),
-        withHierarchy: false,
-      }
       const { data: listed, error: listError } = await admin.storage
         .from(bucket)
-        .listV2(options)
+        .listV2({
+          prefix: chatPrefix,
+          limit: 1000,
+          ...(cursor ? { cursor } : {}),
+        })
 
       if (listError || !listed) {
         console.error('Fetch project chat storage paths error:', { projectId, listError })
-        return NextResponse.json({ error: 'Failed to load project chat files' }, { status: 500 })
+        break
       }
 
       chatPaths.push(...(listed.objects ?? [])
@@ -324,7 +324,7 @@ export async function DELETE(
       if (!listed.hasNext) break
       if (!listed.nextCursor || listed.nextCursor === cursor) {
         console.error('Project chat storage listing returned an invalid cursor:', { projectId })
-        return NextResponse.json({ error: 'Failed to paginate project chat files' }, { status: 500 })
+        break
       }
       cursor = listed.nextCursor
     }
