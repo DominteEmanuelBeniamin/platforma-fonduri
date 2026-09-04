@@ -1018,6 +1018,14 @@ export interface Database {
       templates_overview: { Row: TemplateOverview }; // NOU
     };
     Functions: {
+      shift_project_phases_after_duplicate: {
+        Args: { p_project_id: string; p_source_phase_id: string; p_copy_phase_id: string };
+        Returns: unknown;
+      };
+      shift_project_activities_after_duplicate: {
+        Args: { p_phase_id: string; p_source_activity_id: string; p_copy_activity_id: string };
+        Returns: unknown;
+      };
       import_template_to_project: { Args: { p_project_id: string; p_template_id: string }; Returns: boolean }; // NOU
       advance_project_status: { Args: { p_project_id: string }; Returns: { previous_status: string; new_status: string; success: boolean }[] }; // NOU
       advance_project_phase: { Args: { p_project_id: string; p_complete_current?: boolean }; Returns: { previous_phase: string; current_phase: string; success: boolean }[] };

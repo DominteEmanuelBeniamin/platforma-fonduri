@@ -2,32 +2,42 @@ import { test, expect, type Locator, type Page, type Route } from '@playwright/t
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import {
+  createTemporaryProject,
+  destroyTemporaryProject,
+  e2eEnv,
+  requireE2EConfig,
+  serviceClient,
+  verifyServerUsesFixture,
+  type TemporaryProjectFixture,
+} from './helpers/project-state'
 
-/**
- * Smoke peste dev server-ul pornit separat (`npm run dev`), cu conturi reale
- * din `.env.e2e.local`. Testele care scriu (upload) rulează numai cu
- * `E2E_WRITES=1`, fiindcă lasă fișiere și versiuni adevărate în proiect.
- */
+/** Smoke E2E peste serverul din configurația dedicată, cu proiect efemer. */
+const CONFIG = requireE2EConfig(e2eEnv())
+const admin = serviceClient()
 
-const ENV_FILE = '.env.e2e.local'
-const creds: Record<string, string> = fs.existsSync(ENV_FILE)
-  ? Object.fromEntries(fs.readFileSync(ENV_FILE, 'utf8').split('\n')
-      .filter(l => l.includes('=') && !l.trim().startsWith('#'))
-      .map(l => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim()] }))
-  : {}
+async function login(page: Page, who: 'CLIENT' | 'STAFF') {
+  await page.goto('/login', { waitUntil: 'domcontentloaded' })
+  await page.locator('input[type=email]').fill(who === 'CLIENT' ? CONFIG.clientEmail : CONFIG.staffEmail)
+  await page.locator('input[type=password]').fill(who === 'CLIENT' ? CONFIG.clientPassword : CONFIG.staffPassword)
+  await page.getByRole('button', { name: 'Intră în cont' }).click()
+  await page.waitForURL('/', { timeout: 25_000 })
+  await page.waitForTimeout(1500)
+}
 
-const localEnv: Record<string, string> = fs.existsSync('.env.local')
-  ? Object.fromEntries(fs.readFileSync('.env.local', 'utf8').split('\n')
-      .filter(l => l.includes('=') && !l.trim().startsWith('#'))
-      .map(l => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim()] }))
-  : {}
-
-const PROJECT = creds.E2E_PROJECT_ID || ''
-const WRITES = process.env.E2E_WRITES === '1'
-const STAFF_READY = !!(PROJECT && creds.E2E_STAFF_EMAIL && creds.E2E_STAFF_PASSWORD)
-const CLIENT_READY = !!(PROJECT && creds.E2E_CLIENT_EMAIL && creds.E2E_CLIENT_PASSWORD)
-const SUPABASE_URL = localEnv.NEXT_PUBLIC_SUPABASE_URL || ''
-const SUPABASE_ANON_KEY = localEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+async function createFixture(): Promise<TemporaryProjectFixture> {
+  if (!admin) throw new Error('Clientul service E2E lipsește din configurația dedicată')
+  const fixture = await createTemporaryProject(admin, CONFIG)
+  try {
+    await verifyServerUsesFixture(CONFIG, fixture.projectId)
+    return fixture
+  } catch (error) {
+    await destroyTemporaryProject(admin, fixture).catch(cleanupError => {
+      console.error('Cleanup fixture E2E eșuat:', cleanupError)
+    })
+    throw error
+  }
+}
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -71,16 +81,7 @@ async function browserAccessToken(page: Page) {
   })
 }
 
-async function login(page: Page, who: 'CLIENT' | 'STAFF') {
-  await page.goto('/login', { waitUntil: 'domcontentloaded' })
-  await page.locator('input[type=email]').fill(creds[`E2E_${who}_EMAIL`])
-  await page.locator('input[type=password]').fill(creds[`E2E_${who}_PASSWORD`])
-  await page.getByRole('button', { name: 'Intră în cont' }).click()
-  await page.waitForURL('/', { timeout: 25_000 })
-  await page.waitForTimeout(1500)
-}
-
-/** Un PDF minim, ca upload-ul să treacă validarea fără să care un fixture în repo. */
+/** Un PDF minim, ca upload-ul să treacă validarea fără fixture în repo. */
 function samplePdf(name: string) {
   const file = path.join(os.tmpdir(), name)
   fs.writeFileSync(file, '%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n')
@@ -128,23 +129,19 @@ function badFile(name: string) {
   return file
 }
 
-/**
- * Nu fixa numele cererii: testele de upload chiar mută cererea din „De încărcat”
- * în „În verificare”, deci un nume scris în cod se evaporă după prima rulare.
- */
-async function openFirstPendingRequest(page: Page) {
-  await page.goto(`/projects/${PROJECT}`, { waitUntil: 'domcontentloaded' })
+async function openFirstPendingRequest(page: Page, projectId: string) {
+  await page.goto(`/projects/${projectId}`, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(5000)
   const rows = page.locator('button').filter({ hasText: 'De încărcat' })
-  test.skip(await rows.count() === 0, 'clientul nu mai are nicio cerere „De încărcat” în proiect')
+  if (await rows.count() === 0) throw new Error('Fixture-ul E2E nu are cerere „De încărcat”')
   const name = (await rows.first().innerText()).split('\n')[0].trim()
   await rows.first().click()
   await page.waitForTimeout(3500)
   return name
 }
 
-async function openProjectChat(page: Page) {
-  await page.goto(`/projects/${PROJECT}`, { waitUntil: 'domcontentloaded' })
+async function openProjectChat(page: Page, projectId: string) {
+  await page.goto(`/projects/${projectId}`, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(5000)
   await page.getByRole('button', { name: /^Chat/ }).click()
   // Scopat pe titlu: `aside` prinde și bara laterală cu fazele proiectului.
@@ -172,18 +169,19 @@ type ComposerMockOptions = {
 
 async function mockComposerRequests(
   page: Page,
+  projectId: string,
   options: ComposerMockOptions = {},
 ): Promise<ComposerMocks> {
   const state: ComposerMocks = { initPaths: [], posts: [], cleanupCalls: [] }
 
-  await page.route(`**/api/projects/${PROJECT}/chat/images/init`, async (route) => {
+  await page.route(`**/api/projects/${projectId}/chat/images/init`, async (route) => {
     if (route.request().method() !== 'POST') return route.continue()
     const request = route.request().postDataJSON() as {
       files?: Array<{ name?: string; type?: string }>
     }
     const initAttempt = state.initPaths.length + 1
     const paths = (request.files ?? []).map((file, index) =>
-      `projects/${PROJECT}/chat/e2e-user/attempt-${initAttempt}-${index}-${file.name ?? 'image.png'}`)
+      `projects/${projectId}/chat/e2e-user/attempt-${initAttempt}-${index}-${file.name ?? 'image.png'}`)
     state.initPaths.push(paths)
 
     await route.fulfill({
@@ -193,7 +191,7 @@ async function mockComposerRequests(
         uploads: paths.map((uploadPath, index) => ({
           clientFileId: index,
           path: uploadPath,
-          signedUploadUrl: `http://localhost:3000/__e2e__/chat-upload/${encodeURIComponent(uploadPath)}`,
+          signedUploadUrl: `${CONFIG.baseUrl}/__e2e__/chat-upload/${encodeURIComponent(uploadPath)}`,
           token: `e2e-token-${initAttempt}-${index}`,
           mimeType: request.files?.[index]?.type ?? 'image/png',
         })),
@@ -207,7 +205,7 @@ async function mockComposerRequests(
     await route.fulfill({ status: 200, body: '' })
   })
 
-  await page.route(`**/api/projects/${PROJECT}/chat/images/cleanup`, async (route) => {
+  await page.route(`**/api/projects/${projectId}/chat/images/cleanup`, async (route) => {
     if (route.request().method() !== 'POST') return route.continue()
     const request = route.request().postDataJSON() as { paths?: string[] }
     const paths = request.paths ?? []
@@ -220,7 +218,7 @@ async function mockComposerRequests(
     })
   })
 
-  await page.route(`**/api/projects/${PROJECT}/chat/messages`, async (route) => {
+  await page.route(`**/api/projects/${projectId}/chat/messages`, async (route) => {
     if (route.request().method() !== 'POST') return route.continue()
     const body = route.request().postDataJSON() as ComposerPost
     state.posts.push(body)
@@ -228,286 +226,349 @@ async function mockComposerRequests(
     await route.fulfill({
       status: 201,
       contentType: 'application/json',
-      body: JSON.stringify({ item: mockChatMessage(PROJECT, body.body) }),
+      body: JSON.stringify({ item: mockChatMessage(projectId, body.body) }),
     })
   })
 
   return state
 }
 
-test('paginile atinse se încarcă fără erori de consolă', async ({ page }) => {
-  test.skip(!STAFF_READY, `lipsesc proiectul sau credențialele staff din ${ENV_FILE}`)
-  const errors: string[] = []
-  page.on('pageerror', e => errors.push(e.message))
-  page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
-
-  await login(page, 'STAFF')
-  for (const url of ['/', '/notificari', `/projects/${PROJECT}`]) {
-    await page.goto(url, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(4000)
-  }
-  expect(errors).toEqual([])
-})
-
-test('un tip de fișier nepermis e oprit în client, fără să atingă serverul', async ({ page }) => {
-  test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)
-  const calls: string[] = []
-  page.on('request', r => { if (r.url().includes('uploads/init')) calls.push(r.url()) })
-
-  await login(page, 'CLIENT')
-  await openFirstPendingRequest(page)
-  await page.locator('input[type=file]:not([webkitdirectory])').first()
-    .setInputFiles(badFile('smoke-e2e.xyz'))
-  await page.waitForTimeout(1500)
-
-  await expect(page.getByText('Tip de fișier nepermis').first()).toBeVisible()
-  expect(calls, 'validarea nu are voie să ajungă la server').toEqual([])
-})
-
-test('chatul redirecționează documentele spre cereri, fără inițiere de upload', async ({ page }) => {
-  test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)
-  const calls: string[] = []
-  page.on('request', r => {
-    if (r.url().includes(`/api/projects/${PROJECT}/chat/images/init`)) calls.push(r.url())
+test.describe('smoke fără scriere de business', () => {
+  let fixture: TemporaryProjectFixture | null = null
+  test.beforeEach(async () => { fixture = await createFixture() })
+  test.afterEach(async () => {
+    try {
+      if (admin && fixture) await destroyTemporaryProject(admin, fixture)
+    } finally {
+      fixture = null
+    }
   })
 
-  await login(page, 'CLIENT')
-  const drawer = await openProjectChat(page)
-  await drawer.locator('input[type=file]').setInputFiles(samplePdf('smoke-chat.pdf'))
+  test('paginile atinse se încarcă fără erori de consolă', async ({ page }) => {
+    const errors: string[] = []
+    page.on('pageerror', e => errors.push(e.message))
+    page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
 
-  await expect(drawer.getByText('Documentele se încarcă prin cererile dedicate.')).toBeVisible()
-  await expect(drawer.getByRole('button', { name: 'Alege cererea potrivită' })).toBeVisible()
-  expect(calls, 'un document nu trebuie trimis la endpointul imaginilor').toEqual([])
-})
-
-test('chatul respinge a șasea imagine înainte de upload', async ({ page }) => {
-  test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)
-  const calls: string[] = []
-  page.on('request', r => {
-    if (r.url().includes(`/api/projects/${PROJECT}/chat/images/init`)) calls.push(r.url())
+    await login(page, 'STAFF')
+    for (const url of ['/', '/notificari', `/projects/${fixture!.projectId}`]) {
+      await page.goto(url, { waitUntil: 'domcontentloaded' })
+      await page.waitForTimeout(4000)
+    }
+    expect(errors).toEqual([])
   })
 
-  await login(page, 'CLIENT')
-  const drawer = await openProjectChat(page)
-  const files = Array.from({ length: 6 }, (_, index) => samplePng(`smoke-chat-${index}.png`))
-  await drawer.locator('input[type=file]').setInputFiles(files)
+  test('un tip de fișier nepermis e oprit în client, fără să atingă serverul', async ({ page }) => {
+    const calls: string[] = []
+    page.on('request', request => { if (request.url().includes('uploads/init')) calls.push(request.url()) })
 
-  await expect(drawer.getByText('Poți atașa maximum 5 imagini într-un mesaj.')).toBeVisible()
-  expect(calls, 'limita trebuie aplicată înainte de upload').toEqual([])
+    await login(page, 'CLIENT')
+    await openFirstPendingRequest(page, fixture!.projectId)
+    await page.locator('input[type=file]:not([webkitdirectory])').first()
+      .setInputFiles(badFile(`smoke-e2e-${fixture!.projectId}.xyz`))
+    await page.waitForTimeout(1500)
+
+    await expect(page.getByText('Tip de fișier nepermis').first()).toBeVisible()
+    expect(calls, 'validarea nu are voie să ajungă la server').toEqual([])
+  })
 })
 
-test('mesajele brute nu sunt citibile direct prin PostgREST', async ({ page }) => {
-  test.skip(
-    !CLIENT_READY || !SUPABASE_URL || !SUPABASE_ANON_KEY,
-    `lipsesc proiectul, credențialele client sau configurarea Supabase din ${ENV_FILE}/.env.local`,
-  )
-
-  await login(page, 'CLIENT')
-  const accessToken = await browserAccessToken(page)
-  expect(accessToken, 'sesiunea autentificată trebuie să expună tokenul Supabase').toBeTruthy()
-
-  const apiResponse = await page.context().request.get(`/api/projects/${PROJECT}/chat/messages?limit=1`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+test.describe('chat de proiect, cu răspunsuri simulate', () => {
+  let fixture: TemporaryProjectFixture | null = null
+  test.beforeEach(async () => { fixture = await createFixture() })
+  test.afterEach(async () => {
+    try {
+      if (admin && fixture) await destroyTemporaryProject(admin, fixture)
+    } finally {
+      fixture = null
+    }
   })
-  expect(apiResponse.status(), 'API-ul autorizat trebuie să rămână funcțional').toBe(200)
 
-  const directResponse = await page.context().request.get(
-    `${SUPABASE_URL}/rest/v1/project_chat_messages?select=body,images&limit=1`,
-    {
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${accessToken}`,
+  test('chatul redirecționează documentele spre cereri, fără inițiere de upload', async ({ page }) => {
+    const projectId = fixture!.projectId
+    const calls: string[] = []
+    page.on('request', r => {
+      if (r.url().includes(`/api/projects/${projectId}/chat/images/init`)) calls.push(r.url())
+    })
+
+    await login(page, 'CLIENT')
+    const drawer = await openProjectChat(page, projectId)
+    await drawer.locator('input[type=file]').setInputFiles(samplePdf(`smoke-chat-${projectId}.pdf`))
+
+    await expect(drawer.getByText('Documentele se încarcă prin cererile dedicate.')).toBeVisible()
+    await expect(drawer.getByRole('button', { name: 'Alege cererea potrivită' })).toBeVisible()
+    expect(calls, 'un document nu trebuie trimis la endpointul imaginilor').toEqual([])
+  })
+
+  test('chatul respinge a șasea imagine înainte de upload', async ({ page }) => {
+    const projectId = fixture!.projectId
+    const calls: string[] = []
+    page.on('request', r => {
+      if (r.url().includes(`/api/projects/${projectId}/chat/images/init`)) calls.push(r.url())
+    })
+
+    await login(page, 'CLIENT')
+    const drawer = await openProjectChat(page, projectId)
+    const files = Array.from({ length: 6 }, (_, index) => samplePng(`smoke-chat-${index}.png`))
+    await drawer.locator('input[type=file]').setInputFiles(files)
+
+    await expect(drawer.getByText('Poți atașa maximum 5 imagini într-un mesaj.')).toBeVisible()
+    expect(calls, 'limita trebuie aplicată înainte de upload').toEqual([])
+  })
+
+  test('mesajele brute nu sunt citibile direct prin PostgREST', async ({ page }) => {
+    const projectId = fixture!.projectId
+
+    await login(page, 'CLIENT')
+    const accessToken = await browserAccessToken(page)
+    expect(accessToken, 'sesiunea autentificată trebuie să expună tokenul Supabase').toBeTruthy()
+
+    const apiResponse = await page.context().request.get(`/api/projects/${projectId}/chat/messages?limit=1`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    expect(apiResponse.status(), 'API-ul autorizat trebuie să rămână funcțional').toBe(200)
+
+    const directResponse = await page.context().request.get(
+      `${CONFIG.supabaseUrl}/rest/v1/project_chat_messages?select=body,images&limit=1`,
+      {
+        headers: {
+          apikey: CONFIG.anonKey,
+          Authorization: `Bearer ${accessToken}`,
+        },
       },
-    },
-  )
-  const directBody = await directResponse.json().catch(() => null) as { code?: string } | null
-  expect(directResponse.status(), 'PostgREST trebuie să refuze rolul authenticated').toBe(403)
-  expect(directBody?.code, 'refuzul trebuie să fie o eroare de privilegii PostgreSQL').toBe('42501')
-})
-
-test('textul actualizat în timpul PUT-ului intră în POST', async ({ page }) => {
-  test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)
-  const putStarted = deferred<void>()
-  const releasePut = deferred<void>()
-  const postSeen = deferred<ComposerPost>()
-  await mockComposerRequests(page, {
-    onPut: async (route) => {
-      putStarted.resolve()
-      await releasePut.promise
-      await route.fulfill({ status: 200, body: '' })
-    },
-    onPost: async (route, body) => {
-      postSeen.resolve(body)
-      await route.fulfill({
-        status: 201,
-        contentType: 'application/json',
-        body: JSON.stringify({ item: mockChatMessage(PROJECT, body.body) }),
-      })
-    },
+    )
+    const directBody = await directResponse.json().catch(() => null) as { code?: string } | null
+    expect(directResponse.status(), 'PostgREST trebuie să refuze rolul authenticated').toBe(403)
+    expect(directBody?.code, 'refuzul trebuie să fie o eroare de privilegii PostgreSQL').toBe('42501')
   })
 
-  await login(page, 'CLIENT')
-  const drawer = await openProjectChat(page)
-  await drawer.locator('input[type=file]').setInputFiles(samplePng('chat-put-lent.png'))
-  await drawer.getByRole('button', { name: 'Trimite' }).click()
-  await putStarted.promise
-
-  await drawer.locator('textarea').fill('Text scris cât imaginea se încarcă')
-  releasePut.resolve()
-
-  expect((await postSeen.promise).body).toBe('Text scris cât imaginea se încarcă')
-  await expect(drawer.locator('textarea')).toHaveValue('')
-})
-
-test('sufixul tastat după pornirea POST-ului rămâne draft', async ({ page }) => {
-  test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)
-  const postStarted = deferred<ComposerPost>()
-  const releasePost = deferred<void>()
-  await mockComposerRequests(page, {
-    onPost: async (route, body) => {
-      postStarted.resolve(body)
-      await releasePost.promise
-      await route.fulfill({
-        status: 201,
-        contentType: 'application/json',
-        body: JSON.stringify({ item: mockChatMessage(PROJECT, body.body) }),
-      })
-    },
-  })
-
-  await login(page, 'CLIENT')
-  const drawer = await openProjectChat(page)
-  const textarea = drawer.locator('textarea')
-  await textarea.fill('Mesajul trimis')
-  await drawer.getByRole('button', { name: 'Trimite' }).click()
-  expect((await postStarted.promise).body).toBe('Mesajul trimis')
-
-  await textarea.press('End')
-  await textarea.type(' — draft nou')
-  releasePost.resolve()
-
-  await expect(textarea).toHaveValue(' — draft nou')
-})
-
-test('POST 500 curăță o singură dată și retry-ul folosește path-uri noi', async ({ page }) => {
-  test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)
-  const state = await mockComposerRequests(page, {
-    onPost: async (route, body, attempt) => {
-      if (attempt === 1) {
+  test('textul actualizat în timpul PUT-ului intră în POST', async ({ page }) => {
+    const projectId = fixture!.projectId
+    const putStarted = deferred<void>()
+    const releasePut = deferred<void>()
+    const postSeen = deferred<ComposerPost>()
+    await mockComposerRequests(page, projectId, {
+      onPut: async (route) => {
+        putStarted.resolve()
+        await releasePut.promise
+        await route.fulfill({ status: 200, body: '' })
+      },
+      onPost: async (route, body) => {
+        postSeen.resolve(body)
         await route.fulfill({
-          status: 500,
+          status: 201,
           contentType: 'application/json',
-          body: JSON.stringify({ error: 'e2e failure' }),
+          body: JSON.stringify({ item: mockChatMessage(projectId, body.body) }),
         })
-        return
-      }
-      await route.fulfill({
-        status: 201,
-        contentType: 'application/json',
-        body: JSON.stringify({ item: mockChatMessage(PROJECT, body.body) }),
-      })
-    },
+      },
+    })
+
+    await login(page, 'CLIENT')
+    const drawer = await openProjectChat(page, projectId)
+    await drawer.locator('input[type=file]').setInputFiles(samplePng('chat-put-lent.png'))
+    await drawer.getByRole('button', { name: 'Trimite' }).click()
+    await putStarted.promise
+
+    await drawer.locator('textarea').fill('Text scris cât imaginea se încarcă')
+    releasePut.resolve()
+
+    expect((await postSeen.promise).body).toBe('Text scris cât imaginea se încarcă')
+    await expect(drawer.locator('textarea')).toHaveValue('')
   })
 
-  await login(page, 'CLIENT')
-  const drawer = await openProjectChat(page)
-  const name = 'chat-retry.png'
-  await drawer.locator('input[type=file]').setInputFiles(samplePng(name))
-  await drawer.locator('textarea').fill('Mesaj pentru retry')
-  await drawer.getByRole('button', { name: 'Trimite' }).click()
+  test('sufixul tastat după pornirea POST-ului rămâne draft', async ({ page }) => {
+    const projectId = fixture!.projectId
+    const postStarted = deferred<ComposerPost>()
+    const releasePost = deferred<void>()
+    await mockComposerRequests(page, projectId, {
+      onPost: async (route, body) => {
+        postStarted.resolve(body)
+        await releasePost.promise
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ item: mockChatMessage(projectId, body.body) }),
+        })
+      },
+    })
 
-  await expect.poll(() => state.cleanupCalls.length).toBe(1)
-  expect(state.cleanupCalls[0]).toEqual(state.initPaths[0])
-  await expect(drawer.locator('textarea')).toHaveValue('Mesaj pentru retry')
-  await expect(drawer.locator(`img[alt="${name}"]`)).toBeVisible()
+    await login(page, 'CLIENT')
+    const drawer = await openProjectChat(page, projectId)
+    const textarea = drawer.locator('textarea')
+    await textarea.fill('Mesajul trimis')
+    await drawer.getByRole('button', { name: 'Trimite' }).click()
+    expect((await postStarted.promise).body).toBe('Mesajul trimis')
 
-  await drawer.getByRole('button', { name: 'Trimite' }).click()
-  await expect.poll(() => state.posts.length).toBe(2)
-  await expect.poll(() => state.initPaths.length).toBe(2)
-  expect(state.initPaths[1]).not.toEqual(state.initPaths[0])
-  expect(state.posts[1].images.map((image) => image.path)).toEqual(state.initPaths[1])
-  expect(state.cleanupCalls, 'path-urile primei încercări se curăță exact o dată').toHaveLength(1)
-})
+    await textarea.press('End')
+    await textarea.type(' — draft nou')
+    releasePost.resolve()
 
-test('închiderea în timpul PUT-ului face abort și cleanup înainte să ascundă drawerul', async ({ page }) => {
-  test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)
-  const putStarted = deferred<void>()
-  const finishPutAsAborted = deferred<void>()
-  const cleanupStarted = deferred<string[]>()
-  const releaseCleanup = deferred<void>()
-  const state = await mockComposerRequests(page, {
-    onPut: async (route) => {
-      putStarted.resolve()
-      await finishPutAsAborted.promise
-      await route.abort('aborted').catch(() => undefined)
-    },
-    onCleanup: async (route, paths) => {
-      cleanupStarted.resolve(paths)
-      await releaseCleanup.promise
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ ok: true, removedPaths: paths, skippedPaths: [] }),
-      })
-    },
+    await expect(textarea).toHaveValue(' — draft nou')
   })
 
-  await login(page, 'CLIENT')
-  const drawer = await openProjectChat(page)
-  await drawer.locator('input[type=file]').setInputFiles(samplePng('chat-close-put.png'))
-  await drawer.getByRole('button', { name: 'Trimite' }).click()
-  await putStarted.promise
+  test('POST 500 curăță o singură dată și retry-ul folosește path-uri noi', async ({ page }) => {
+    const projectId = fixture!.projectId
+    const state = await mockComposerRequests(page, projectId, {
+      onPost: async (route, body, attempt) => {
+        if (attempt === 1) {
+          await route.fulfill({
+            status: 500,
+            contentType: 'application/json',
+            body: JSON.stringify({ error: 'e2e failure' }),
+          })
+          return
+        }
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ item: mockChatMessage(projectId, body.body) }),
+        })
+      },
+    })
 
-  await drawer.getByRole('button', { name: 'Închide chatul' }).click()
-  finishPutAsAborted.resolve()
-  expect(await cleanupStarted.promise).toEqual(state.initPaths[0])
-  await expect(drawer, 'drawerul rămâne deschis până se termină cleanup-ul').toBeVisible()
-  expect(state.posts, 'după abort nu mai pornește POST-ul mesajului').toHaveLength(0)
+    await login(page, 'CLIENT')
+    const drawer = await openProjectChat(page, projectId)
+    const name = 'chat-retry.png'
+    await drawer.locator('input[type=file]').setInputFiles(samplePng(name))
+    await drawer.locator('textarea').fill('Mesaj pentru retry')
+    await drawer.getByRole('button', { name: 'Trimite' }).click()
 
-  releaseCleanup.resolve()
-  await expect(drawer).toBeHidden()
-  expect(state.cleanupCalls).toHaveLength(1)
-})
+    await expect.poll(() => state.cleanupCalls.length).toBe(1)
+    expect(state.cleanupCalls[0]).toEqual(state.initPaths[0])
+    await expect(drawer.locator('textarea')).toHaveValue('Mesaj pentru retry')
+    await expect(drawer.locator(`img[alt="${name}"]`)).toBeVisible()
 
-test('închiderea în timpul POST-ului așteaptă răspunsul', async ({ page }) => {
-  test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)
-  const postStarted = deferred<ComposerPost>()
-  const releasePost = deferred<void>()
-  await mockComposerRequests(page, {
-    onPost: async (route, body) => {
-      postStarted.resolve(body)
-      await releasePost.promise
-      await route.fulfill({
-        status: 201,
-        contentType: 'application/json',
-        body: JSON.stringify({ item: mockChatMessage(PROJECT, body.body) }),
-      })
-    },
+    await drawer.getByRole('button', { name: 'Trimite' }).click()
+    await expect.poll(() => state.posts.length).toBe(2)
+    await expect.poll(() => state.initPaths.length).toBe(2)
+    expect(state.initPaths[1]).not.toEqual(state.initPaths[0])
+    expect(state.posts[1].images.map((image) => image.path)).toEqual(state.initPaths[1])
+    expect(state.cleanupCalls, 'path-urile primei încercări se curăță exact o dată').toHaveLength(1)
   })
 
-  await login(page, 'CLIENT')
-  const drawer = await openProjectChat(page)
-  await drawer.locator('textarea').fill('Mesaj cu POST lent')
-  await drawer.getByRole('button', { name: 'Trimite' }).click()
-  await postStarted.promise
+  test('închiderea în timpul PUT-ului face abort și cleanup înainte să ascundă drawerul', async ({ page }) => {
+    const projectId = fixture!.projectId
+    const putStarted = deferred<void>()
+    const finishPutAsAborted = deferred<void>()
+    const cleanupStarted = deferred<string[]>()
+    const releaseCleanup = deferred<void>()
+    const state = await mockComposerRequests(page, projectId, {
+      onPut: async (route) => {
+        putStarted.resolve()
+        await finishPutAsAborted.promise
+        await route.abort('aborted').catch(() => undefined)
+      },
+      onCleanup: async (route, paths) => {
+        cleanupStarted.resolve(paths)
+        await releaseCleanup.promise
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, removedPaths: paths, skippedPaths: [] }),
+        })
+      },
+    })
 
-  await drawer.getByRole('button', { name: 'Închide chatul' }).click()
-  await expect(drawer, 'drawerul nu se închide cât POST-ul e nedeterminat').toBeVisible()
+    await login(page, 'CLIENT')
+    const drawer = await openProjectChat(page, projectId)
+    await drawer.locator('input[type=file]').setInputFiles(samplePng('chat-close-put.png'))
+    await drawer.getByRole('button', { name: 'Trimite' }).click()
+    await putStarted.promise
 
-  releasePost.resolve()
-  await expect(drawer).toBeHidden()
+    await drawer.getByRole('button', { name: 'Închide chatul' }).click()
+    finishPutAsAborted.resolve()
+    expect(await cleanupStarted.promise).toEqual(state.initPaths[0])
+    await expect(drawer, 'drawerul rămâne deschis până se termină cleanup-ul').toBeVisible()
+    expect(state.posts, 'după abort nu mai pornește POST-ul mesajului').toHaveLength(0)
+
+    releaseCleanup.resolve()
+    await expect(drawer).toBeHidden()
+    expect(state.cleanupCalls).toHaveLength(1)
+  })
+
+  test('închiderea în timpul POST-ului așteaptă răspunsul', async ({ page }) => {
+    const projectId = fixture!.projectId
+    const postStarted = deferred<ComposerPost>()
+    const releasePost = deferred<void>()
+    await mockComposerRequests(page, projectId, {
+      onPost: async (route, body) => {
+        postStarted.resolve(body)
+        await releasePost.promise
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ item: mockChatMessage(projectId, body.body) }),
+        })
+      },
+    })
+
+    await login(page, 'CLIENT')
+    const drawer = await openProjectChat(page, projectId)
+    await drawer.locator('textarea').fill('Mesaj cu POST lent')
+    await drawer.getByRole('button', { name: 'Trimite' }).click()
+    await postStarted.promise
+
+    await drawer.getByRole('button', { name: 'Închide chatul' }).click()
+    await expect(drawer, 'drawerul nu se închide cât POST-ul e nedeterminat').toBeVisible()
+
+    releasePost.resolve()
+    await expect(drawer).toBeHidden()
+  })
 })
 
-test.describe('upload real', () => {
-  test.skip(!WRITES, 'scrie date reale — rulează cu E2E_WRITES=1')
+test.describe('upload real pe proiect efemer', () => {
+  let fixture: TemporaryProjectFixture | null = null
+  test.beforeEach(async () => { fixture = await createFixture() })
+  test.afterEach(async () => {
+    try {
+      if (admin && fixture) await destroyTemporaryProject(admin, fixture)
+    } finally {
+      fixture = null
+    }
+  })
+
+  test('clientul încarcă din modalul cererii', async ({ page }) => {
+    const steps: number[] = []
+    page.on('response', response => {
+      if (response.url().includes('uploads/init') || response.url().includes('uploads/complete')) steps.push(response.status())
+    })
+
+    await login(page, 'CLIENT')
+    await openFirstPendingRequest(page, fixture!.projectId)
+    const dialog = page.locator('[role=dialog]')
+    await expect(dialog).toBeVisible()
+    await dialog.locator('input[type=file]:not([webkitdirectory])').first()
+      .setInputFiles(samplePdf(`smoke-e2e-${fixture!.projectId}.pdf`))
+    await dialog.getByRole('button', { name: /^Încarcă \(1\)$/ }).click()
+    await page.waitForTimeout(12_000)
+
+    expect(steps, 'init și complete trebuie să răspundă 200').toEqual([200, 200])
+    await expect(page.getByText(new RegExp(`smoke-e2e-${fixture!.projectId}\\.pdf`)).first()).toBeVisible()
+  })
+
+  test('clientul încarcă din panoul paginii', async ({ page }) => {
+    const steps: number[] = []
+    page.on('response', response => {
+      if (response.url().includes('uploads/init') || response.url().includes('uploads/complete')) steps.push(response.status())
+    })
+
+    await login(page, 'CLIENT')
+    await openFirstPendingRequest(page, fixture!.projectId)
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(1500)
+    await expect(page.locator('[role=dialog]')).toHaveCount(0)
+
+    await page.locator('input[type=file]:not([webkitdirectory])').first()
+      .setInputFiles(samplePdf(`smoke-e2e-panel-${fixture!.projectId}.pdf`))
+    await page.getByRole('button', { name: /^Încarcă \(1\)$/ }).first().click()
+    await page.waitForTimeout(12_000)
+
+    expect(steps).toEqual([200, 200])
+  })
 
   test('Realtime propagă create, update și delete numai prin events', async ({ browser }) => {
-    test.skip(
-      !STAFF_READY || !CLIENT_READY,
-      `lipsesc proiectul sau credențialele staff/client din ${ENV_FILE}`,
-    )
-    const staffContext = await browser.newContext({ baseURL: 'http://localhost:3000' })
-    const clientContext = await browser.newContext({ baseURL: 'http://localhost:3000' })
+    const projectId = fixture!.projectId
+    const staffContext = await browser.newContext({ baseURL: CONFIG.baseUrl })
+    const clientContext = await browser.newContext({ baseURL: CONFIG.baseUrl })
     const staffPage = await staffContext.newPage()
     const clientPage = await clientContext.newPage()
     let messageId: string | null = null
@@ -516,8 +577,8 @@ test.describe('upload real', () => {
     try {
       await Promise.all([login(staffPage, 'STAFF'), login(clientPage, 'CLIENT')])
       const [staffDrawer, clientDrawer] = await Promise.all([
-        openProjectChat(staffPage),
-        openProjectChat(clientPage),
+        openProjectChat(staffPage, projectId),
+        openProjectChat(clientPage, projectId),
       ])
       staffToken = await browserAccessToken(staffPage)
       expect(staffToken).toBeTruthy()
@@ -526,7 +587,7 @@ test.describe('upload real', () => {
       const createdBody = `realtime-create-${stamp}`
       const updatedBody = `realtime-update-${stamp}`
       const createResponse = await staffContext.request.post(
-        `/api/projects/${PROJECT}/chat/messages`,
+        `/api/projects/${projectId}/chat/messages`,
         {
           headers: { Authorization: `Bearer ${staffToken}` },
           data: { body: createdBody, images: [] },
@@ -539,7 +600,7 @@ test.describe('upload real', () => {
       await expect(clientDrawer.getByText(createdBody, { exact: true })).toBeVisible({ timeout: 15_000 })
 
       const patchResponse = await staffContext.request.patch(
-        `/api/projects/${PROJECT}/chat/messages/${messageId}`,
+        `/api/projects/${projectId}/chat/messages/${messageId}`,
         {
           headers: { Authorization: `Bearer ${staffToken}` },
           data: { body: updatedBody },
@@ -550,7 +611,7 @@ test.describe('upload real', () => {
       await expect(clientDrawer.getByText(createdBody, { exact: true })).toHaveCount(0)
 
       const deleteResponse = await staffContext.request.delete(
-        `/api/projects/${PROJECT}/chat/messages/${messageId}`,
+        `/api/projects/${projectId}/chat/messages/${messageId}`,
         { headers: { Authorization: `Bearer ${staffToken}` } },
       )
       expect(deleteResponse.status()).toBe(200)
@@ -563,7 +624,7 @@ test.describe('upload real', () => {
     } finally {
       if (messageId && staffToken) {
         await staffContext.request.delete(
-          `/api/projects/${PROJECT}/chat/messages/${messageId}`,
+          `/api/projects/${projectId}/chat/messages/${messageId}`,
           { headers: { Authorization: `Bearer ${staffToken}` } },
         ).catch(() => undefined)
       }
@@ -572,19 +633,19 @@ test.describe('upload real', () => {
   })
 
   test('staff trimite un mesaj chat doar cu imagine', async ({ page }) => {
-    test.skip(!STAFF_READY, `lipsesc proiectul sau credențialele staff din ${ENV_FILE}`)
+    const projectId = fixture!.projectId
     const steps: Array<{ kind: string, status: number }> = []
     page.on('response', r => {
       const url = r.url()
-      if (url.includes(`/api/projects/${PROJECT}/chat/images/init`)) {
+      if (url.includes(`/api/projects/${projectId}/chat/images/init`)) {
         steps.push({ kind: 'init', status: r.status() })
-      } else if (url.endsWith(`/api/projects/${PROJECT}/chat/messages`) && r.request().method() === 'POST') {
+      } else if (url.endsWith(`/api/projects/${projectId}/chat/messages`) && r.request().method() === 'POST') {
         steps.push({ kind: 'message', status: r.status() })
       }
     })
 
     await login(page, 'STAFF')
-    const drawer = await openProjectChat(page)
+    const drawer = await openProjectChat(page, projectId)
     const name = `smoke-chat-${Date.now()}.png`
     await drawer.locator('input[type=file]').setInputFiles(samplePng(name))
     await drawer.getByRole('button', { name: 'Trimite' }).click()
@@ -620,10 +681,10 @@ test.describe('upload real', () => {
   })
 
   test('mai multe imagini se așază într-o grilă de pătrate', async ({ page }) => {
-    test.skip(!STAFF_READY, `lipsesc proiectul sau credențialele staff din ${ENV_FILE}`)
+    const projectId = fixture!.projectId
 
     await login(page, 'STAFF')
-    const drawer = await openProjectChat(page)
+    const drawer = await openProjectChat(page, projectId)
     const stamp = Date.now()
     const names = [`smoke-grid-a-${stamp}.png`, `smoke-grid-b-${stamp}.png`]
     await drawer.locator('input[type=file]').setInputFiles(names.map(samplePng))
@@ -665,10 +726,10 @@ test.describe('upload real', () => {
   })
 
   test('textul și poza nu stau în aceeași bulă', async ({ page }) => {
-    test.skip(!STAFF_READY, `lipsesc proiectul sau credențialele staff din ${ENV_FILE}`)
+    const projectId = fixture!.projectId
 
     await login(page, 'STAFF')
-    const drawer = await openProjectChat(page)
+    const drawer = await openProjectChat(page, projectId)
     const stamp = Date.now()
     const name = `smoke-caption-${stamp}.png`
     const body = `smoke-caption-${stamp}`
@@ -691,55 +752,13 @@ test.describe('upload real', () => {
     expect(background, 'poza nu are voie să stea în bula de text').toBe('rgba(0, 0, 0, 0)')
 
     // Și geometric: bula de text se termină deasupra pozei, nu în jurul ei.
-    const textBox = await (await drawer.getByText(body).boundingBox())
+    const textBox = await drawer.getByText(body).boundingBox()
     const imageBox = await renderedBox(image)
     expect(textBox!.y + textBox!.height, 'textul stă deasupra pozei').toBeLessThanOrEqual(imageBox.y)
-  })
-
-  test('clientul încarcă din modalul cererii', async ({ page }) => {
-    test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)
-    const steps: number[] = []
-    page.on('response', r => {
-      if (r.url().includes('uploads/init') || r.url().includes('uploads/complete')) steps.push(r.status())
-    })
-
-    await login(page, 'CLIENT')
-    await openFirstPendingRequest(page)
-    const dialog = page.locator('[role=dialog]')
-    await expect(dialog).toBeVisible()
-    await dialog.locator('input[type=file]:not([webkitdirectory])').first()
-      .setInputFiles(samplePdf('smoke-e2e.pdf'))
-    await dialog.getByRole('button', { name: /^Încarcă \(1\)$/ }).click()
-    await page.waitForTimeout(12_000)
-
-    expect(steps, 'init și complete trebuie să răspundă 200').toEqual([200, 200])
-    await expect(page.getByText('smoke-e2e.pdf').first()).toBeVisible()
-  })
-
-  test('clientul încarcă din panoul paginii', async ({ page }) => {
-    test.skip(!CLIENT_READY, `lipsesc proiectul sau credențialele client din ${ENV_FILE}`)
-    const steps: number[] = []
-    page.on('response', r => {
-      if (r.url().includes('uploads/init') || r.url().includes('uploads/complete')) steps.push(r.status())
-    })
-
-    await login(page, 'CLIENT')
-    await openFirstPendingRequest(page)
-    await page.keyboard.press('Escape') // panoul din pagină, nu modalul
-    await page.waitForTimeout(1500)
-    await expect(page.locator('[role=dialog]')).toHaveCount(0)
-
-    await page.locator('input[type=file]:not([webkitdirectory])').first()
-      .setInputFiles(samplePdf('smoke-e2e.pdf'))
-    await page.getByRole('button', { name: /^Încarcă \(1\)$/ }).first().click()
-    await page.waitForTimeout(12_000)
-
-    expect(steps).toEqual([200, 200])
   })
 })
 
 test('filtrul de categorii se poate folosi numai din tastatură', async ({ page }) => {
-  test.skip(!STAFF_READY, `lipsesc proiectul sau credențialele staff din ${ENV_FILE}`)
   await login(page, 'STAFF')
   await page.goto('/notificari', { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(4000)
@@ -753,8 +772,7 @@ test('filtrul de categorii se poate folosi numai din tastatură', async ({ page 
 
   const first = await combo.getAttribute('aria-activedescendant')
   await page.keyboard.press('ArrowDown')
-  expect(await combo.getAttribute('aria-activedescendant'),
-    'săgeata trebuie să mute opțiunea activă').not.toBe(first)
+  expect(await combo.getAttribute('aria-activedescendant'), 'săgeata trebuie să mute opțiunea activă').not.toBe(first)
 
   await page.keyboard.press('Home')
   await page.keyboard.press('ArrowDown')
@@ -763,8 +781,7 @@ test('filtrul de categorii se poate folosi numai din tastatură', async ({ page 
 
   await expect(combo).toHaveAttribute('aria-expanded', 'false')
   await expect(combo).toContainText('Publicări')
-  expect(await combo.evaluate(el => el === document.activeElement),
-    'focusul se întoarce pe control după alegere').toBe(true)
+  expect(await combo.evaluate(el => el === document.activeElement), 'focusul se întoarce pe control după alegere').toBe(true)
 
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Escape')

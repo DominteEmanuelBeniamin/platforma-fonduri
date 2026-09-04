@@ -5,6 +5,7 @@ import { ChevronRight, Clock } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { ProjectActivity } from '@/components/ProjectPhasesSidebar'
 import PublishStatusControl from '@/components/PublishStatusControl'
+import InlineInput from '@/components/InlineInput'
 
 interface Member {
   id: string
@@ -26,6 +27,13 @@ interface ActivityFoldProps {
   onPublish: () => void
   publishBlockers?: string[]
   onSetDeadline?: (value: string) => Promise<void> | void
+  /** Acțiunile secundare ale rândului (meniul „⋯”), la capătul din dreapta. */
+  actions?: ReactNode
+  /** Numele devine câmp editabil, pentru redenumire pe loc. */
+  renaming?: boolean
+  renameLoading?: boolean
+  onRenameSubmit?: (name: string) => void
+  onRenameCancel?: () => void
   children: ReactNode
 }
 
@@ -49,6 +57,11 @@ export default function ActivityFold({
   onPublish,
   publishBlockers,
   onSetDeadline,
+  actions,
+  renaming,
+  renameLoading,
+  onRenameSubmit,
+  onRenameCancel,
   children,
 }: ActivityFoldProps) {
   const deadline = activity.deadline_at ? new Date(activity.deadline_at) : null
@@ -74,7 +87,20 @@ export default function ActivityFold({
         className="grid grid-cols-[minmax(0,1fr)_auto] sm:flex sm:items-center gap-x-2.5 gap-y-2 px-3.5 py-3 cursor-pointer hover:bg-[var(--p-surface-2)] transition-colors"
       >
         <div className="min-w-0 flex flex-wrap items-center gap-2.5 text-left">
-          <span className="basis-full sm:basis-auto text-sm font-semibold text-[var(--p-ink)] break-words">{activity.name}</span>
+          {renaming && onRenameSubmit && onRenameCancel ? (
+            <div className="basis-full sm:basis-auto sm:min-w-[16rem]">
+              <InlineInput
+                size="md"
+                initialValue={activity.name}
+                placeholder="Nume activitate..."
+                loading={!!renameLoading}
+                onConfirm={onRenameSubmit}
+                onCancel={onRenameCancel}
+              />
+            </div>
+          ) : (
+            <span className="basis-full sm:basis-auto text-sm font-semibold text-[var(--p-ink)] break-words">{activity.name}</span>
+          )}
           {deadlineLabel && (
             <span
               className={`hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold px-1.5 py-0.5 rounded-md flex-shrink-0 ${
@@ -150,6 +176,9 @@ export default function ActivityFold({
             size="sm"
           />
         </div>
+
+        {/* Acțiuni secundare: la capătul rândului, lângă chevron. */}
+        {actions}
         </div>
       </div>
       <Collapsible.Content>

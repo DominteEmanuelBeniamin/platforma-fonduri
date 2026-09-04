@@ -21,6 +21,8 @@ import {
   CalendarDays,
   Bell,
   BellOff,
+  Copy,
+  Trash2,
 } from 'lucide-react'
 
 import {
@@ -33,7 +35,14 @@ import {
 } from '@/lib/automatic-reminders'
 import ProjectChatDrawer from '@/components/ProjectChatDrawer'
 import ProjectPhasesSidebar from '@/components/ProjectPhasesSidebar'
-import type { ProjectPhase } from '@/components/ProjectPhasesSidebar'
+import RowActionsMenu from '@/components/RowActionsMenu'
+import {
+  activityDeletionConfirm,
+  activityDeletionImpact,
+  phaseDeletionConfirm,
+  phaseDeletionImpact,
+} from '@/lib/deletion-impact'
+import type { ProjectActivity, ProjectPhase } from '@/components/ProjectPhasesSidebar'
 import DocumentRequests from '@/components/DocumentRequests'
 import DocumentModal from '@/components/DocumentModal'
 import ProjectDocumentsView from '@/components/ProjectDocumentsView'
@@ -47,6 +56,8 @@ import { buildSearchIndex, type SearchResult } from '@/lib/projectSearch'
 import { buildProjectChatHref } from '@/lib/project-chat-links'
 import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
 import { publishBlockers } from '@/lib/publish-rules'
+import { serverMessage } from '@/lib/api-error'
+import { activityDuplicatedMessage, phaseDuplicatedMessage } from '@/lib/duplication-summary'
 import {
   GENERAL_PHASE_ID,
   clearCalendarParams,
@@ -323,6 +334,106 @@ function ProjectDetailsContent() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // Duplicare (#15) din panoul central — aceleași endpointuri ca în bara din
+  // stânga. Reîmprospătăm doar fazele și cererile, ca pagina să nu treacă prin
+  // spinnerul care remontează tot (vezi garda de `loading` de mai jos).
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [savingRename, setSavingRename] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const renameItem = async (url: string, id: string, name: string) => {
+    setSavingRename(id)
+    try {
+      const res = await apiFetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (!res.ok) { showToast('Nu am putut salva numele. Reîncearcă.', 'error'); return }
+      setRenamingId(null)
+      await refreshPhases()
+    } catch {
+      showToast('Nu am putut salva numele. Reîncearcă.', 'error')
+    } finally { setSavingRename(null) }
+  }
+
+  const deleteItem = async (url: string, id: string, errorMessage: string) => {
+    setDeletingId(id)
+    try {
+      const res = await apiFetch(url, { method: 'DELETE' })
+      if (!res.ok) { showToast(errorMessage, 'error'); return }
+      await Promise.all([refreshPhases(), refreshDocs()])
+    } catch {
+      showToast(errorMessage, 'error')
+    } finally { setDeletingId(null) }
+  }
+
+  const askToDeletePhase = async (phase: ProjectPhase) => {
+    const confirmed = await confirm(phaseDeletionConfirm(phase, phaseDeletionImpact(allDocRequests, phase)))
+    if (confirmed) {
+      await deleteItem(`/api/projects/${projectId}/phases/${phase.id}`, phase.id, 'Nu am putut șterge faza. Reîncearcă.')
+    }
+  }
+
+  const askToDeleteActivity = async (phase: ProjectPhase, activity: ProjectActivity) => {
+    const confirmed = await confirm(
+      activityDeletionConfirm(activity, activityDeletionImpact(allDocRequests, phase, activity)),
+    )
+    if (confirmed) {
+      await deleteItem(
+        `/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`,
+        activity.id,
+        'Nu am putut șterge activitatea. Reîncearcă.',
+      )
+    }
+  }
+
+  const handleDuplicatePhase = async (phaseId: string, phaseName: string) => {
+    if (duplicatingId) return
+    setDuplicatingId(phaseId)
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/phases/${phaseId}/duplicate`, { method: 'POST' })
+      if (!res.ok) {
+        showToast(await serverMessage(res, 'Nu am putut duplica faza. Reîncearcă.'), 'error')
+        return
+      }
+      const { phase: copy, activities_created, document_requests_created } = await res.json()
+      await refreshContent()
+      if (copy?.id) {
+        setExpandedPhases(prev => new Set(prev).add(copy.id))
+        setRenamingId(copy.id)
+      }
+      showToast(phaseDuplicatedMessage(phaseName, {
+        activities: activities_created ?? 0,
+        documentRequests: document_requests_created ?? 0,
+      }), 'success')
+    } catch {
+      showToast('Nu am putut duplica faza. Reîncearcă.', 'error')
+    } finally { setDuplicatingId(null) }
+  }
+
+  const handleDuplicateActivity = async (phaseId: string, activityId: string, activityName: string) => {
+    if (duplicatingId) return
+    setDuplicatingId(activityId)
+    try {
+      const res = await apiFetch(
+        `/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}/duplicate`,
+        { method: 'POST' },
+      )
+      if (!res.ok) {
+        showToast(await serverMessage(res, 'Nu am putut duplica activitatea. Reîncearcă.'), 'error')
+        return
+      }
+      const { activity: copy, document_requests_created } = await res.json()
+      await refreshContent()
+      if (copy?.id) setRenamingId(copy.id)
+      showToast(activityDuplicatedMessage(activityName, document_requests_created ?? 0), 'success')
+    } catch {
+      showToast('Nu am putut duplica activitatea. Reîncearcă.', 'error')
+    } finally { setDuplicatingId(null) }
   }
 
   const refreshDocs = async () => {
@@ -1001,6 +1112,7 @@ function ProjectDetailsContent() {
             onToggleExpand={handleToggleExpand}
             onRefresh={fetchAll}
             onReorderRefresh={refreshPhases}
+            onDuplicateRefresh={refreshContent}
             onTeamChange={fetchProjectMembers}
             apiFetch={apiFetch}
             isAdmin={isAdmin}
@@ -1160,6 +1272,35 @@ function ProjectDetailsContent() {
                       })}
                     />
                   }
+                  actions={canEdit ? (
+                    <RowActionsMenu
+                      label={`Acțiuni pentru faza ${phase.name}`}
+                      busy={duplicatingId === phase.id || deletingId === phase.id}
+                      actions={[
+                        {
+                          label: 'Redenumește',
+                          icon: <Pencil className="w-3 h-3" />,
+                          onSelect: () => setRenamingId(phase.id),
+                        },
+                        {
+                          label: 'Duplică',
+                          icon: <Copy className="w-3 h-3" />,
+                          onSelect: () => { void handleDuplicatePhase(phase.id, phase.name) },
+                        },
+                        {
+                          label: 'Șterge',
+                          icon: <Trash2 className="w-3 h-3" />,
+                          danger: true,
+                          hidden: !isAdmin,
+                          onSelect: () => { void askToDeletePhase(phase) },
+                        },
+                      ]}
+                    />
+                  ) : undefined}
+                  renaming={renamingId === phase.id}
+                  renameLoading={savingRename === phase.id}
+                  onRenameSubmit={name => { void renameItem(`/api/projects/${projectId}/phases/${phase.id}`, phase.id, name) }}
+                  onRenameCancel={() => setRenamingId(null)}
                   open={expandedPhases.has(phase.id)}
                   onOpenChange={() => handleToggleExpand(phase.id)}
                 >
@@ -1185,6 +1326,35 @@ function ProjectDetailsContent() {
                           currentAssignee: activity.assigned_to,
                         })}
                         onSetDeadline={date => saveActivityDeadline(phase.id, activity.id, date)}
+                        actions={canEdit ? (
+                          <RowActionsMenu
+                            label={`Acțiuni pentru activitatea ${activity.name}`}
+                            busy={duplicatingId === activity.id || deletingId === activity.id}
+                            actions={[
+                              {
+                                label: 'Redenumește',
+                                icon: <Pencil className="w-3 h-3" />,
+                                onSelect: () => setRenamingId(activity.id),
+                              },
+                              {
+                                label: 'Duplică',
+                                icon: <Copy className="w-3 h-3" />,
+                                onSelect: () => { void handleDuplicateActivity(phase.id, activity.id, activity.name) },
+                              },
+                              {
+                                label: 'Șterge',
+                                icon: <Trash2 className="w-3 h-3" />,
+                                danger: true,
+                                hidden: !isAdmin,
+                                onSelect: () => { void askToDeleteActivity(phase, activity) },
+                              },
+                            ]}
+                          />
+                        ) : undefined}
+                        renaming={renamingId === activity.id}
+                        renameLoading={savingRename === activity.id}
+                        onRenameSubmit={name => { void renameItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, activity.id, name) }}
+                        onRenameCancel={() => setRenamingId(null)}
                         onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, {
                           title: 'Publică activitatea?',
                           description: phase.visibility === 'published'

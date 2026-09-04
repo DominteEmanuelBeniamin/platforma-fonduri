@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
+import { slugify } from '@/lib/slug'
 import { isClientVisibleActivity, isClientVisiblePhase } from '@/lib/client-visibility'
 
 const supabaseAdmin = createClient(
@@ -87,13 +88,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Numele este obligatoriu' }, { status: 400 })
     }
 
-    // Generate slug
-    const slug = name
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
+    const slug = slugify(name)
 
     // Calculate order_index if not provided
     let finalOrderIndex = order_index

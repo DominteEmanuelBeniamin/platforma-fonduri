@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // app/api/_utils/audit.ts
-import { createSupabaseServiceClient } from './supabase'
+import { createSupabaseServiceClient } from './supabase.ts'
 
 type AuditActionType =
   | 'create'
@@ -130,6 +130,59 @@ export interface LogActionParams {
   userAgent?: string
 }
 
+/** Rândul de audit_logs pentru o acțiune, cu payload-urile deja curățate. */
+function auditRow(params: LogActionParams) {
+  return {
+    user_id: params.actorId,
+    action_type: params.actionType,
+    entity_type: params.entityType,
+    entity_id: params.entityId ?? null,
+    entity_name: params.entityName ?? null,
+    old_values: truncatePayload(params.oldValues ?? null),
+    new_values: truncatePayload(params.newValues ?? null),
+    description: params.description,
+    ip_address:
+      params.ipAddress ??
+      (params.request ? getClientIP(params.request) : 'unknown'),
+    user_agent:
+      params.userAgent ??
+      (params.request ? getUserAgent(params.request) : 'unknown'),
+  }
+}
+
+/**
+ * Scrie mai multe intrari deodata: un singur insert, nu unul per element.
+ * Duplicarea unei faze mari producea peste o suta de inserturi secventiale
+ * inainte de raspuns, deci userul astepta auditul mai mult decat copierea.
+ *
+ * Insertul in bloc e totul-sau-nimic, asa ca la eroare se reincearca rand cu
+ * rand: un singur rand refuzat n-are voie sa stearga restul istoricului. Ca si
+ * `logAction`, nu arunca — auditul nu blocheaza operatia pe care o descrie.
+ */
+export async function logActions(entries: LogActionParams[]): Promise<void> {
+  if (entries.length === 0) return
+  if (entries.length === 1) return logAction(entries[0])
+
+  try {
+    const admin = createSupabaseServiceClient()
+    const { error } = await admin.from('audit_logs').insert(entries.map(auditRow))
+    if (!error) return
+
+    console.error('[audit_log_failure]', {
+      batch: entries.length,
+      error: error.message,
+      retry: 'per rand',
+    })
+    await Promise.all(entries.map(entry => logAction(entry)))
+  } catch (e) {
+    const err = e as Error
+    console.error('[audit_log_failure]', {
+      batch: entries.length,
+      error: err?.message ?? String(e),
+    })
+  }
+}
+
 /**
  * Helper generic pentru a scrie o intrare in audit_logs.
  * Sanitizeaza chei sensibile si truncheaza payload-uri peste 32 KB.
@@ -139,28 +192,7 @@ export async function logAction(params: LogActionParams): Promise<void> {
   try {
     const admin = createSupabaseServiceClient()
 
-    const ipAddress =
-      params.ipAddress ??
-      (params.request ? getClientIP(params.request) : 'unknown')
-    const userAgent =
-      params.userAgent ??
-      (params.request ? getUserAgent(params.request) : 'unknown')
-
-    const oldValues = truncatePayload(params.oldValues ?? null)
-    const newValues = truncatePayload(params.newValues ?? null)
-
-    const { error } = await admin.from('audit_logs').insert({
-      user_id: params.actorId,
-      action_type: params.actionType,
-      entity_type: params.entityType,
-      entity_id: params.entityId ?? null,
-      entity_name: params.entityName ?? null,
-      old_values: oldValues,
-      new_values: newValues,
-      description: params.description,
-      ip_address: ipAddress,
-      user_agent: userAgent,
-    })
+    const { error } = await admin.from('audit_logs').insert(auditRow(params))
 
     if (error) {
       console.error('[audit_log_failure]', {

@@ -78,6 +78,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
 
     const updateData: Record<string, any> = {}
+    // Numele se schimbă singur, fără slug: `(project_id, slug)` e unic, iar două
+    // nume care se deosebesc doar prin diacritice sau punctuație dau același
+    // slug — redenumirea ar pica cu 500, definitiv, pe un câmp pe care aplicația
+    // nu-l citește nicăieri. Slug-ul rămâne cel de la creare (#15).
     if (name !== undefined) updateData.name = name
     if (description !== undefined) updateData.description = description
     if (project_status_id !== undefined) updateData.project_status_id = project_status_id

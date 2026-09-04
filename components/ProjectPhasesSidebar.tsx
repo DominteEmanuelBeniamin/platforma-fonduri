@@ -9,16 +9,26 @@ import {
   FolderOpen,
   GripVertical,
   Plus,
-  Loader2,
   X,
-  Check,
   Trash2,
   Calendar,
+  Copy,
+  Pencil,
 } from 'lucide-react'
 
 import TeamManager from '@/components/TeamManager'
 import InlineDateEditor from '@/components/InlineDateEditor'
+import InlineInput from '@/components/InlineInput'
+import RowActionsMenu from '@/components/RowActionsMenu'
 import { useToast } from '@/app/providers/ToastProvider'
+import { serverMessage } from '@/lib/api-error'
+import { activityDuplicatedMessage, phaseDuplicatedMessage } from '@/lib/duplication-summary'
+import {
+  activityDeletionConfirm,
+  activityDeletionImpact,
+  phaseDeletionConfirm,
+  phaseDeletionImpact,
+} from '@/lib/deletion-impact'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,52 +62,6 @@ interface DocumentRequestPreview {
   visibility?: 'draft' | 'published'
 }
 
-// ─── Inline input ─────────────────────────────────────────────────────────────
-
-function InlineInput({
-  placeholder,
-  onConfirm,
-  onCancel,
-  loading,
-}: {
-  placeholder: string
-  onConfirm: (value: string) => void
-  onCancel: () => void
-  loading: boolean
-}) {
-  const [value, setValue] = useState('')
-
-  return (
-    <div className="flex items-center gap-1 mt-1">
-      <input
-        autoFocus
-        value={value}
-        onChange={e => setValue(e.target.value)}
-        onKeyDown={e => {
-          if (e.key === 'Enter' && value.trim()) onConfirm(value.trim())
-          if (e.key === 'Escape') onCancel()
-        }}
-        placeholder={placeholder}
-        disabled={loading}
-        className="flex-1 text-xs px-2 py-1.5 border border-[var(--p-accent)]/40 rounded-md focus:outline-none focus:ring-1 focus:ring-[var(--p-accent)] bg-[var(--p-surface)] text-[var(--p-ink)] placeholder:text-[var(--p-ink-faint)]"
-      />
-      <button
-        onClick={() => value.trim() && onConfirm(value.trim())}
-        disabled={loading || !value.trim()}
-        className="p-1 rounded bg-[var(--p-success-soft)] text-[var(--p-success)] hover:opacity-80 disabled:opacity-40"
-      >
-        {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
-      </button>
-      <button
-        onClick={onCancel}
-        className="p-1 rounded bg-[var(--p-surface-2)] text-[var(--p-ink-soft)] hover:opacity-80"
-      >
-        <X className="w-3 h-3" />
-      </button>
-    </div>
-  )
-}
-
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface ProjectPhasesSidebarProps {
@@ -114,6 +78,8 @@ interface ProjectPhasesSidebarProps {
   onToggleExpand: (phaseId: string) => void
   onRefresh: () => Promise<void> | void
   onReorderRefresh?: () => Promise<void> | void
+  /** Faze + cereri, fără spinner — după duplicare, unde apar și cereri noi. */
+  onDuplicateRefresh?: () => Promise<void> | void
   onTeamChange?: () => void
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>
   /** Pe mobil, sidebar-ul devine un drawer — controlat din pagina părinte. */
@@ -137,6 +103,7 @@ export default function ProjectPhasesSidebar({
   onToggleExpand,
   onRefresh,
   onReorderRefresh,
+  onDuplicateRefresh,
   onTeamChange,
   apiFetch,
   mobileOpen,
@@ -150,6 +117,14 @@ export default function ProjectPhasesSidebar({
 
   const [deletingPhase, setDeletingPhase] = useState<string | null>(null)
   const [deletingActivity, setDeletingActivity] = useState<string | null>(null)
+
+  const [duplicatingPhase, setDuplicatingPhase] = useState<string | null>(null)
+  const [duplicatingActivity, setDuplicatingActivity] = useState<string | null>(null)
+
+  // redenumire inline: id-ul elementului editat (fazele și activitățile au
+  // id-uri distincte, deci o singură stare ajunge pentru amândouă)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [savingRename, setSavingRename] = useState<string | null>(null)
 
   // deadline edit state: activityId → true/false (popup deschis)
   const [editingDeadline, setEditingDeadline] = useState<string | null>(null)
@@ -216,42 +191,83 @@ export default function ProjectPhasesSidebar({
     } finally { setAddingActivity(prev => ({ ...prev, [phaseId]: false })) }
   }
 
-  const requestWarning = (moved: number, demoted: number) => {
-    const parts: string[] = []
-    if (moved > 0) {
-      parts.push(moved === 1
-        ? 'Cererea de documente asociată va fi mutată la „Cereri generale”, împreună cu fișierele sale.'
-        : `Cele ${moved} cereri de documente asociate vor fi mutate la „Cereri generale”, împreună cu fișierele lor.`)
-    }
-    if (demoted > 0) {
-      parts.push(demoted === 1
-        ? 'Dintre acestea, o cerere marcată ca publicată va reveni la starea „În pregătire” și va rămâne invizibilă clientului.'
-        : `Dintre acestea, ${demoted} cereri marcate ca publicate vor reveni la starea „În pregătire” și vor rămâne invizibile clientului.`)
-    }
-    return parts.join(' ')
+  // `onRefresh` (fetchAll) readuce pagina la spinner și remontează sidebar-ul
+  // (app/projects/[id]/page.tsx:787), ceea ce ar închide pe loc câmpul de
+  // redenumire. Reordonarea folosește deja refresh-ul de faze, fără spinner.
+  const softRefresh = () => (onReorderRefresh ?? onRefresh)()
+
+  // Copia vine cu cereri de documente noi, iar `softRefresh` aduce doar fazele:
+  // fără cereri, panoul central ar arăta „0 cereri” pe copie până la reload, iar
+  // dialogul ei de ștergere ar tăcea despre cererile pe care le mută.
+  const duplicateRefresh = () => (onDuplicateRefresh ?? softRefresh)()
+
+  const handleRename = async (url: string, id: string, name: string) => {
+    setSavingRename(id)
+    try {
+      const res = await apiFetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (res.ok) { setRenamingId(null); await softRefresh() }
+      else { showToast('Nu am putut salva numele. Reîncearcă.', 'error') }
+    } catch {
+      showToast('Nu am putut salva numele. Reîncearcă.', 'error')
+    } finally { setSavingRename(null) }
   }
-  const deletionImpactForActivity = (phase: ProjectPhase, activity: ProjectActivity) => {
-    const requests = documentRequests.filter(request => request.activity_id === activity.id && !request.deleted_at)
-    return {
-      moved: requests.length,
-      demoted: requests.filter(request =>
-        request.visibility === 'published'
-        && (phase.visibility !== 'published' || activity.visibility !== 'published')
-      ).length,
-    }
+
+  const handleRenamePhase = (phaseId: string, name: string) =>
+    handleRename(`/api/projects/${projectId}/phases/${phaseId}`, phaseId, name)
+
+  const handleRenameActivity = (phaseId: string, activityId: string, name: string) =>
+    handleRename(`/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`, activityId, name)
+
+  // Duplicare (#15): copia preia structura și cererile de documente, dar nu și
+  // fișierele încărcate de client, și rămâne „în pregătire” până o publici.
+  // După copiere numele intră direct în editare, ca redenumirea să fie primul
+  // lucru posibil — iar focusul aduce copia în ecran.
+  const handleDuplicatePhase = async (phase: ProjectPhase) => {
+    if (duplicatingPhase) return
+    setDuplicatingPhase(phase.id)
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/phases/${phase.id}/duplicate`, {
+        method: 'POST',
+      })
+      if (res.ok) {
+        const { phase: copy, activities_created, document_requests_created } = await res.json()
+        await duplicateRefresh()
+        if (copy?.id) setRenamingId(copy.id)
+        showToast(phaseDuplicatedMessage(phase.name, {
+          activities: activities_created ?? 0,
+          documentRequests: document_requests_created ?? 0,
+        }), 'success')
+      } else {
+        showToast(await serverMessage(res, 'Nu am putut duplica faza. Reîncearcă.'), 'error')
+      }
+    } catch {
+      showToast('Nu am putut duplica faza. Reîncearcă.', 'error')
+    } finally { setDuplicatingPhase(null) }
   }
-  const deletionImpactForPhase = (phase: ProjectPhase) => {
-    const activityVisibility = new Map((phase.activities ?? []).map(activity => [activity.id, activity.visibility]))
-    const requests = documentRequests.filter(request =>
-      request.activity_id && activityVisibility.has(request.activity_id) && !request.deleted_at
-    )
-    return {
-      moved: requests.length,
-      demoted: requests.filter(request =>
-        request.visibility === 'published'
-        && (phase.visibility !== 'published' || activityVisibility.get(request.activity_id!) !== 'published')
-      ).length,
-    }
+
+  const handleDuplicateActivity = async (phaseId: string, activity: ProjectActivity) => {
+    if (duplicatingActivity) return
+    setDuplicatingActivity(activity.id)
+    try {
+      const res = await apiFetch(
+        `/api/projects/${projectId}/phases/${phaseId}/activities/${activity.id}/duplicate`,
+        { method: 'POST' }
+      )
+      if (res.ok) {
+        const { activity: copy, document_requests_created } = await res.json()
+        await duplicateRefresh()
+        if (copy?.id) setRenamingId(copy.id)
+        showToast(activityDuplicatedMessage(activity.name, document_requests_created ?? 0), 'success')
+      } else {
+        showToast(await serverMessage(res, 'Nu am putut duplica activitatea. Reîncearcă.'), 'error')
+      }
+    } catch {
+      showToast('Nu am putut duplica activitatea. Reîncearcă.', 'error')
+    } finally { setDuplicatingActivity(null) }
   }
 
   const handleDeletePhase = async (phaseId: string) => {
@@ -279,34 +295,15 @@ export default function ProjectPhasesSidebar({
 
   const askToDeletePhase = async (phase: ProjectPhase) => {
     if (deletingPhase === phase.id) return
-    const impact = deletionImpactForPhase(phase)
-    const activityCount = phase.activities?.length ?? 0
-    const activityLabel = activityCount === 1
-      ? 'activitatea asociată'
-      : `cele ${activityCount} activități asociate`
-    const deletionDescription = activityCount === 0
-      ? `Faza „${phase.name}” va fi ștearsă definitiv.`
-      : `Faza „${phase.name}” și ${activityLabel} vor fi șterse definitiv.`
-    const confirmed = await confirm({
-      title: `Ștergi faza „${phase.name}”?`,
-      description: [deletionDescription, requestWarning(impact.moved, impact.demoted)].filter(Boolean).join(' '),
-      confirmText: 'Șterge faza',
-    })
+    const confirmed = await confirm(phaseDeletionConfirm(phase, phaseDeletionImpact(documentRequests, phase)))
     if (confirmed) await handleDeletePhase(phase.id)
   }
 
   const askToDeleteActivity = async (phase: ProjectPhase, activity: ProjectActivity) => {
     if (deletingActivity === activity.id) return
-    const impact = deletionImpactForActivity(phase, activity)
-    const description = [
-      `Activitatea „${activity.name}” va fi ștearsă definitiv.`,
-      requestWarning(impact.moved, impact.demoted),
-    ].filter(Boolean).join(' ')
-    const confirmed = await confirm({
-      title: `Ștergi activitatea „${activity.name}”?`,
-      description,
-      confirmText: 'Șterge activitatea',
-    })
+    const confirmed = await confirm(
+      activityDeletionConfirm(activity, activityDeletionImpact(documentRequests, phase, activity)),
+    )
     if (confirmed) await handleDeleteActivity(phase.id, activity.id)
   }
 
@@ -463,7 +460,7 @@ export default function ProjectPhasesSidebar({
                       isActive ? 'bg-[var(--p-accent-soft)]' : 'hover:bg-[var(--p-surface-2)]'
                     } ${draggedPhaseId === phase.id ? 'opacity-50' : ''}`}
                   >
-                    {canEdit && (
+                    {canEdit && renamingId !== phase.id && (
                       <span
                         draggable
                         onDragStart={e => handlePhaseDragStart(e, phase.id)}
@@ -477,40 +474,74 @@ export default function ProjectPhasesSidebar({
                     )}
                     {/* Publicarea e un detaliu de echipă. Clientul vede doar faze
                         publicate, deci bulina i-ar fi mereu verde: un semn fără
-                        înțeles, pe care nici tooltipul nu i-l explica. */}
-                    {canEdit && (
+                        înțeles, pe care nici tooltipul nu i-l explica. Iar în
+                        redenumire, tot ce nu ține de câmp dispare: pe o coloană
+                        de 288 px, bulina, chevron-ul și mânerul de tragere
+                        lăsau vizibilă doar coada numelui. */}
+                    {canEdit && renamingId !== phase.id && (
                       <span
                         title={phase.visibility === 'published' ? 'Public — vizibil pentru client' : 'În pregătire — invizibil pentru client'}
                         className="w-2 h-2 rounded-full flex-shrink-0"
                         style={{ backgroundColor: phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)' }}
                       />
                     )}
-                    <span className={`flex-1 text-sm font-medium truncate ${isActive ? 'text-[var(--p-accent-ink)]' : 'text-[var(--p-ink)]'}`}>
-                      {phase.name}
-                    </span>
-                    <Collapsible.Trigger asChild>
-                      <button
-                        onClick={e => e.stopPropagation()}
-                        aria-label={isExpanded ? 'Restrânge faza' : 'Extinde faza'}
-                        className="p-0.5 rounded hover:bg-[var(--p-surface-2)] flex-shrink-0"
-                      >
-                        {isExpanded
-                          ? <ChevronDown className="w-3.5 h-3.5 text-[var(--p-ink-faint)]" />
-                          : <ChevronRight className="w-3.5 h-3.5 text-[var(--p-ink-faint)]" />
-                        }
-                      </button>
-                    </Collapsible.Trigger>
-                    {isAdmin && (
-                      <button
-                        onClick={e => { e.stopPropagation(); void askToDeletePhase(phase) }}
-                        disabled={deletingPhase === phase.id}
-                        aria-label={`Șterge faza ${phase.name}`}
-                        className="p-1 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-danger)] hover:bg-[var(--p-danger-soft)] opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 disabled:opacity-60"
-                      >
-                        {deletingPhase === phase.id
-                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          : <Trash2 className="w-3.5 h-3.5" />}
-                      </button>
+                    {renamingId === phase.id ? (
+                      <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
+                        <InlineInput
+                          initialValue={phase.name}
+                          placeholder="Nume fază..."
+                          loading={savingRename === phase.id}
+                          onConfirm={name => handleRenamePhase(phase.id, name)}
+                          onCancel={() => setRenamingId(null)}
+                        />
+                      </div>
+                    ) : (
+                      <span className={`flex-1 text-sm font-medium truncate ${isActive ? 'text-[var(--p-accent-ink)]' : 'text-[var(--p-ink)]'}`}>
+                        {phase.name}
+                      </span>
+                    )}
+                    {renamingId !== phase.id && (
+                      <Collapsible.Trigger asChild>
+                        <button
+                          onClick={e => e.stopPropagation()}
+                          aria-label={isExpanded ? 'Restrânge faza' : 'Extinde faza'}
+                          className="p-0.5 rounded hover:bg-[var(--p-surface-2)] flex-shrink-0"
+                        >
+                          {isExpanded
+                            ? <ChevronDown className="w-3.5 h-3.5 text-[var(--p-ink-faint)]" />
+                            : <ChevronRight className="w-3.5 h-3.5 text-[var(--p-ink-faint)]" />
+                          }
+                        </button>
+                      </Collapsible.Trigger>
+                    )}
+                    {canEdit && renamingId !== phase.id && (
+                      <RowActionsMenu
+                        label={`Acțiuni pentru faza ${phase.name}`}
+                        busy={duplicatingPhase === phase.id || deletingPhase === phase.id}
+                        // `group-hover` nu se declanșează pe touch, iar „⋯” e
+                        // singura cale spre Redenumește / Duplică / Șterge:
+                        // pe telefon rămâne vizibil.
+                        className="md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100 data-[open=true]:opacity-100 transition-opacity"
+                        actions={[
+                          {
+                            label: 'Redenumește',
+                            icon: <Pencil className="w-3 h-3" />,
+                            onSelect: () => setRenamingId(phase.id),
+                          },
+                          {
+                            label: 'Duplică',
+                            icon: <Copy className="w-3 h-3" />,
+                            onSelect: () => { void handleDuplicatePhase(phase) },
+                          },
+                          {
+                            label: 'Șterge',
+                            icon: <Trash2 className="w-3 h-3" />,
+                            danger: true,
+                            hidden: !isAdmin,
+                            onSelect: () => { void askToDeletePhase(phase) },
+                          },
+                        ]}
+                      />
                     )}
                 </div>
 
@@ -540,7 +571,7 @@ export default function ProjectPhasesSidebar({
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          {canEdit && (
+                          {canEdit && renamingId !== act.id && (
                             <span
                               draggable
                               onDragStart={e => handleActivityDragStart(e, phase, act.id)}
@@ -552,10 +583,22 @@ export default function ProjectPhasesSidebar({
                               <GripVertical className="w-3 h-3" />
                             </span>
                           )}
-                          <span className="text-xs text-[var(--p-ink-soft)] truncate flex-1">{act.name}</span>
+                          {renamingId === act.id ? (
+                            <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
+                              <InlineInput
+                                initialValue={act.name}
+                                placeholder="Nume activitate..."
+                                loading={savingRename === act.id}
+                                onConfirm={name => handleRenameActivity(phase.id, act.id, name)}
+                                onCancel={() => setRenamingId(null)}
+                              />
+                            </div>
+                          ) : (
+                            <span className="text-xs text-[var(--p-ink-soft)] truncate flex-1">{act.name}</span>
+                          )}
 
                           {/* Buton calendar — pentru admin/consultant */}
-                          {canEdit && (
+                          {canEdit && renamingId !== act.id && (
                             <button
                               onClick={e => {
                                 e.stopPropagation()
@@ -574,17 +617,32 @@ export default function ProjectPhasesSidebar({
                             </button>
                           )}
 
-                          {isAdmin && (
-                            <button
-                              onClick={e => { e.stopPropagation(); void askToDeleteActivity(phase, act) }}
-                              disabled={deletingActivity === act.id}
-                              aria-label={`Șterge activitatea ${act.name}`}
-                              className="p-0.5 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-danger)] hover:bg-[var(--p-danger-soft)] opacity-0 group-hover/act:opacity-100 transition-opacity flex-shrink-0 disabled:opacity-60"
-                            >
-                              {deletingActivity === act.id
-                                ? <Loader2 className="w-3 h-3 animate-spin" />
-                                : <Trash2 className="w-3 h-3" />}
-                            </button>
+                          {canEdit && renamingId !== act.id && (
+                            <RowActionsMenu
+                              label={`Acțiuni pentru activitatea ${act.name}`}
+                              size="sm"
+                              busy={duplicatingActivity === act.id || deletingActivity === act.id}
+                              className="md:opacity-0 md:group-hover/act:opacity-100 focus-within:opacity-100 data-[open=true]:opacity-100 transition-opacity"
+                              actions={[
+                                {
+                                  label: 'Redenumește',
+                                  icon: <Pencil className="w-3 h-3" />,
+                                  onSelect: () => setRenamingId(act.id),
+                                },
+                                {
+                                  label: 'Duplică',
+                                  icon: <Copy className="w-3 h-3" />,
+                                  onSelect: () => { void handleDuplicateActivity(phase.id, act) },
+                                },
+                                {
+                                  label: 'Șterge',
+                                  icon: <Trash2 className="w-3 h-3" />,
+                                  danger: true,
+                                  hidden: !isAdmin,
+                                  onSelect: () => { void askToDeleteActivity(phase, act) },
+                                },
+                              ]}
+                            />
                           )}
                         </div>
 

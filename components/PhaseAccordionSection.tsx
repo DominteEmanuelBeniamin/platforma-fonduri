@@ -3,6 +3,7 @@
 import * as Collapsible from '@radix-ui/react-collapsible'
 import { X } from 'lucide-react'
 import type { ReactNode } from 'react'
+import InlineInput from '@/components/InlineInput'
 
 interface PhaseAccordionSectionProps {
   /** Id-ul fazei sau sentinel-ul pentru cereri generale — folosit ca ancoră `phase-${id}`. */
@@ -14,6 +15,13 @@ interface PhaseAccordionSectionProps {
   icon?: ReactNode
   /** Slot opțional în dreapta titlului, înainte de chevron (ex: status + buton publicare). */
   headerRight?: ReactNode
+  /** Acțiunile secundare ale rândului (meniul „⋯”), la capătul din dreapta. */
+  actions?: ReactNode
+  /** Titlul devine câmp editabil, pentru redenumire pe loc. */
+  renaming?: boolean
+  renameLoading?: boolean
+  onRenameSubmit?: (name: string) => void
+  onRenameCancel?: () => void
   open: boolean
   onOpenChange: () => void
   children: ReactNode
@@ -26,6 +34,11 @@ export default function PhaseAccordionSection({
   color,
   icon,
   headerRight,
+  actions,
+  renaming,
+  renameLoading,
+  onRenameSubmit,
+  onRenameCancel,
   open,
   onOpenChange,
   children,
@@ -47,13 +60,27 @@ export default function PhaseAccordionSection({
             />
           ) : null)}
           <div className="min-w-0 flex-1">
-            <h2 className="font-display text-lg font-semibold text-[var(--p-ink)] break-words tracking-tight">{title}</h2>
+            {renaming && onRenameSubmit && onRenameCancel ? (
+              <InlineInput
+                size="md"
+                initialValue={title}
+                placeholder="Nume fază..."
+                loading={!!renameLoading}
+                onConfirm={onRenameSubmit}
+                onCancel={onRenameCancel}
+              />
+            ) : (
+              <h2 className="font-display text-lg font-semibold text-[var(--p-ink)] break-words tracking-tight">{title}</h2>
+            )}
             {subtitle && <p className="text-xs text-[var(--p-ink-soft)] break-words">{subtitle}</p>}
           </div>
         </div>
-        <button type="button" onClick={onOpenChange} aria-label="Închide faza" className="sm:col-start-3 sm:row-start-1 flex-shrink-0 p-0.5 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface)]">
-          <X className="w-4 h-4" />
-        </button>
+        <div className="sm:col-start-3 sm:row-start-1 flex items-center gap-1 flex-shrink-0">
+          {actions}
+          <button type="button" onClick={onOpenChange} aria-label="Închide faza" className="p-0.5 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface)]">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
         {headerRight && <div className="col-span-2 sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:self-center">{headerRight}</div>}
       </div>
       <Collapsible.Content>

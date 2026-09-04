@@ -57,7 +57,7 @@ if (!url || !serviceKey) {
     const { data: contractRow, error: contractError } = await admin.rpc('audit_logs_contract')
     if (contractError || !contractRow) {
       fail('structura nu poate fi verificată: aplică migrarea '
-        + '`supabase/migrations/20260903000000_audit_contract_probes.sql`'
+        + '`supabase/migrations/20260903000002_audit_contract_probes.sql`'
         + (contractError ? ` (${probeError(contractError)})` : ''))
     } else {
       contract = contractRow

@@ -8,13 +8,21 @@ import { createPortal } from 'react-dom'
 import {
   Layers, Activity, FileText, ArrowLeft, Plus, Trash2,
   ChevronDown, ChevronRight, Check, X, Paperclip, Upload,
-  Loader2, Edit2, AlertCircle, GripVertical
+  Loader2, Edit2, AlertCircle, GripVertical, Copy
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS, REQUIREMENT_BADGE, normalizeRequirementType } from '@/lib/requirement-type'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { useToast } from '@/app/providers/ToastProvider'
+import { buildCopyName } from '@/lib/duplicate-name'
+import { serverMessage } from '@/lib/api-error'
+import {
+  duplicationFromSource,
+  isPersistentTemplateId,
+  resolveDuplicationForSave,
+} from '@/app/api/_utils/template-duplication'
+import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
 
 interface ProjectStatus {
   id: string
@@ -34,6 +42,8 @@ interface DocumentRequirement {
   templateFileName: string | null
   templateFileMissingAt?: string | null
   templateFileRemoved?: boolean
+  duplication?: TemplateDuplication
+  sourceLocalId?: string
 }
 
 interface TemplateAttachment {
@@ -59,6 +69,8 @@ interface TemplateActivity {
   document_requirements: DocumentRequirement[]
   expanded: boolean
   default_consultant_id?: string
+  duplication?: TemplateDuplication
+  sourceLocalId?: string
 }
 
 interface TemplatePhase {
@@ -67,6 +79,8 @@ interface TemplatePhase {
   project_status_id: string
   activities: TemplateActivity[]
   expanded: boolean
+  duplication?: TemplateDuplication
+  sourceLocalId?: string
 }
 
 interface Template {
@@ -188,7 +202,7 @@ function generateSlug(text: string): string {
 
 // IDs din DB sunt UUID (36 chars cu cratime), cele locale sunt scurte
 function isDbId(id: string): boolean {
-  return id.length === 36 && id.includes('-')
+  return isPersistentTemplateId(id)
 }
 
 function hasPropagationChanges(project: TemplatePropagationPreviewProject) {
@@ -409,6 +423,54 @@ export default function AdminTemplatesPage() {
 
   const removePhase = (phaseId: string) => {
     setPhases(phases.filter(p => p.id !== phaseId))
+  }
+
+  // Duplicare (#15). Copia primește id-uri locale noi, deci salvarea o creează
+  // ca element nou, cu tot cu cererile de documente și fișierele-model.
+  const cloneDocRequirement = (doc: DocumentRequirement): DocumentRequirement => ({
+    ...doc,
+    id: generateId(),
+    templateFiles: [...(doc.templateFiles ?? [])],
+    templateAttachments: (doc.templateAttachments ?? []).map(attachment => ({ ...attachment })),
+    ...duplicationFromSource(doc, 'template_document'),
+  })
+
+  const cloneActivity = (activity: TemplateActivity, name: string): TemplateActivity => ({
+    ...activity,
+    id: generateId(),
+    name,
+    expanded: true,
+    document_requirements: activity.document_requirements.map(cloneDocRequirement),
+    ...duplicationFromSource(activity, 'template_activity'),
+  })
+
+  const duplicatePhase = (phaseId: string) => {
+    const index = phases.findIndex(p => p.id === phaseId)
+    if (index === -1) return
+    const source = phases[index]
+    const copy: TemplatePhase = {
+      ...source,
+      id: generateId(),
+      name: buildCopyName(source.name, phases.map(p => p.name)),
+      expanded: true,
+      activities: source.activities.map(activity => cloneActivity(activity, activity.name)),
+      ...duplicationFromSource(source, 'template_phase'),
+    }
+    setPhases([...phases.slice(0, index + 1), copy, ...phases.slice(index + 1)])
+  }
+
+  const duplicateActivity = (phaseId: string, activityId: string) => {
+    setPhases(phases.map(p => {
+      if (p.id !== phaseId) return p
+      const index = p.activities.findIndex(a => a.id === activityId)
+      if (index === -1) return p
+      const source = p.activities[index]
+      const copy = cloneActivity(source, buildCopyName(source.name, p.activities.map(a => a.name)))
+      return {
+        ...p,
+        activities: [...p.activities.slice(0, index + 1), copy, ...p.activities.slice(index + 1)],
+      }
+    }))
   }
 
   const addActivity = (phaseId: string) => {
@@ -833,15 +895,11 @@ export default function AdminTemplatesPage() {
     setSaving(true)
     try {
       const safeParseError = async (res: Response, fallback: string) => {
-        try {
-          const data = await res.json()
-          return data.error || data.message || fallback
-        } catch {
-          return `${fallback} (${res.status})`
-        }
+        return serverMessage(res, `${fallback} (${res.status})`)
       }
 
       let templateId: string
+      const savedIds = new Map<string, string>()
 
       if (editingTemplate) {
         // PATCH template existent
@@ -920,11 +978,13 @@ export default function AdminTemplatesPage() {
               name: phase.name,
               slug: generateSlug(phase.name) || `faza-${pIdx + 1}`,
               order_index: pIdx + 1,
+              duplication: resolveDuplicationForSave(phase, savedIds),
             })
           })
           if (!phaseRes.ok) throw new Error(await safeParseError(phaseRes, `Eroare la salvare faza "${phase.name}"`))
           const phaseData = await phaseRes.json()
           phaseId = phaseData.phase.id
+          savedIds.set(phase.id, phaseId)
         }
 
         // Salvează activitățile
@@ -966,11 +1026,13 @@ export default function AdminTemplatesPage() {
                 name: activity.name,
                 order_index: aIdx + 1,
                 default_consultant_id: activity.default_consultant_id || null,
+                duplication: resolveDuplicationForSave(activity, savedIds),
               })
             })
             if (!actRes.ok) throw new Error(await safeParseError(actRes, `Eroare la salvare activitate "${activity.name}"`))
             const actData = await actRes.json()
             activityId = actData.activity.id
+            savedIds.set(activity.id, activityId)
           }
 
           // Salvează documentele
@@ -1026,9 +1088,12 @@ export default function AdminTemplatesPage() {
                   attachments: attachmentPayload,
                   attachment_path: firstAttachment?.storage_path || null,
                   attachment_original_name: firstAttachment?.original_name || null,
+                  duplication: resolveDuplicationForSave(doc, savedIds),
                 })
               })
               if (!docRes.ok) throw new Error(await safeParseError(docRes, `Eroare la salvare document "${doc.name}"`))
+              const docData = await docRes.json()
+              savedIds.set(doc.id, docData.document.id)
             }
           }
         }
@@ -1040,8 +1105,8 @@ export default function AdminTemplatesPage() {
 
       resetForm()
       fetchData()
-    } catch {
-      showToast('Nu am putut salva template-ul. Reîncearcă.', 'error')
+    } catch (error: any) {
+      showToast(error?.message || 'Nu am putut salva template-ul. Reîncearcă.', 'error')
     } finally {
       setSaving(false)
     }
@@ -1337,6 +1402,14 @@ export default function AdminTemplatesPage() {
                             <option key={s.id} value={s.id}>{s.name}</option>
                           ))}
                         </select>
+                        <button
+                          onClick={() => duplicatePhase(phase.id)}
+                          title="Duplică faza cu tot ce conține"
+                          aria-label={`Duplică faza ${phase.name || phaseIdx + 1}`}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
                         <button onClick={() => requestDeletePhase(phase)} className="p-1.5 text-slate-400 hover:text-red-600">
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -1395,6 +1468,14 @@ export default function AdminTemplatesPage() {
                                 </select>
                                 <button onClick={() => updateActivity(phase.id, activity.id, { expanded: !activity.expanded })} className="p-1 text-slate-400">
                                   {activity.expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                                </button>
+                                <button
+                                  onClick={() => duplicateActivity(phase.id, activity.id)}
+                                  title="Duplică activitatea cu cererile ei"
+                                  aria-label={`Duplică activitatea ${activity.name}`}
+                                  className="p-1 text-slate-400 hover:text-indigo-600"
+                                >
+                                  <Copy className="w-4 h-4" />
                                 </button>
                                 <button onClick={() => requestDeleteActivity(phase.id, activity)} className="p-1 text-slate-400 hover:text-red-500">
                                   <X className="w-4 h-4" />

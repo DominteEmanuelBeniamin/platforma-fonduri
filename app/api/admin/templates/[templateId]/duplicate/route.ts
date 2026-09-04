@@ -3,11 +3,28 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
+import { copyStorageObject, templateAttachmentPath } from '@/app/api/_utils/attachment-storage'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+/**
+ * Calea veche `attachment_path`, copiată în obiect propriu. Sursa lipsă se
+ * tolerează — copia o moștenește, ca marcajul de fișier lipsă să rămână
+ * vizibil; orice altă eroare oprește duplicarea.
+ */
+async function copyLegacyTemplatePath(
+  fromPath: string,
+  originalName: string | null | undefined,
+): Promise<string> {
+  const copy = await copyStorageObject(supabaseAdmin, fromPath, templateAttachmentPath(originalName))
+  if (!copy.path && copy.reason === 'failed') {
+    throw new Error(`Nu am putut copia fișierul-model "${originalName ?? fromPath}".`)
+  }
+  return copy.path ?? fromPath
+}
 
 interface RouteParams {
   params: Promise<{ templateId: string }>
@@ -118,6 +135,31 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           .order('order_index')
 
         for (const doc of docs || []) {
+          // Fiecare fișier-model al copiei primește obiect propriu în storage.
+          // Altfel copia și originalul arată spre același obiect, iar ștergerea
+          // modelului de pe unul îl rupe pe celălalt.
+          const attachments = await Promise.all((doc.attachments ?? [])
+            .slice()
+            .sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0))
+            .map(async (attachment: any) => {
+              const copy = await copyStorageObject(
+                supabaseAdmin,
+                attachment.storage_path,
+                templateAttachmentPath(attachment.original_name),
+              )
+              // Sursa lipsă se tolerează — copia moștenește calea și marcajul.
+              // Orice altă eroare oprește: pe obiectul originalului n-are voie
+              // să rămână, fiindcă ștergerea de pe unul l-ar rupe pe celălalt.
+              if (!copy.path && copy.reason === 'failed') {
+                throw new Error(`Nu am putut copia fișierul-model "${attachment.original_name ?? attachment.storage_path}".`)
+              }
+              return { ...attachment, storage_path: copy.path ?? attachment.storage_path }
+            }))
+          const legacyPath = attachments.length === 0 && doc.attachment_path
+            ? await copyLegacyTemplatePath(doc.attachment_path, doc.attachment_original_name)
+            : null
+          const firstPath = attachments[0]?.storage_path ?? legacyPath
+
           const { data: newDoc } = await supabaseAdmin
             .from('template_document_requirements')
             .insert({
@@ -127,18 +169,18 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
               is_mandatory: doc.is_mandatory,
               requirement_type: doc.requirement_type,
               order_index: doc.order_index,
-              attachment_path: doc.attachment_path,
-              attachment_original_name: doc.attachment_original_name,
+              attachment_path: firstPath,
+              attachment_original_name: attachments[0]?.original_name ?? doc.attachment_original_name,
               is_outgoing: Boolean(doc.is_outgoing),
               is_active: true,
             })
             .select('id')
             .single()
 
-          if (newDoc && doc.attachments?.length) {
+          if (newDoc && attachments.length) {
             await supabaseAdmin
               .from('document_requirement_attachments')
-              .insert(doc.attachments.map((attachment: any, index: number) => ({
+              .insert(attachments.map((attachment: any, index: number) => ({
                 template_document_requirement_id: newDoc.id,
                 storage_path: attachment.storage_path,
                 original_name: attachment.original_name,
