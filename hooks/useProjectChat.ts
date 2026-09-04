@@ -247,6 +247,33 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
     [apiFetch, projectId, upsertOne]
   )
 
+  const deleteImage = useCallback(
+    async (messageId: string, imagePath: string) => {
+      setError(null)
+      try {
+        const res = await apiFetch(`/api/projects/${projectId}/chat/messages/${messageId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ removeImagePath: imagePath }),
+        })
+        const json = (await res.json().catch(() => null)) as PatchResponse | null
+
+        if (!res.ok) {
+          setError(userErrorMessage(res.status, 'Nu am putut șterge imaginea.'))
+          return null
+        }
+        if (json?.item) {
+          upsertOne(json.item)
+          return json.item
+        }
+        return null
+      } catch {
+        setError(userErrorMessage(undefined, 'Nu am putut șterge imaginea.'))
+        return null
+      }
+    },
+    [apiFetch, projectId, upsertOne]
+  )
+
   const deleteMessage = useCallback(
     async (messageId: string) => {
       setError(null)
@@ -527,6 +554,7 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
     loadMore,
     sendMessage,
     editMessage,
+    deleteImage,
     deleteMessage,
     setError,
     unreadCount,

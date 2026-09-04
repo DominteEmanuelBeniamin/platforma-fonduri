@@ -132,6 +132,7 @@ export default function ProjectChatDrawer({
     loadMore,
     sendMessage,
     editMessage,
+    deleteImage,
     deleteMessage,
     unreadCount,
     markAsRead,
@@ -1102,15 +1103,12 @@ export default function ProjectChatDrawer({
                         isMe ? "flex-row-reverse" : "flex-row"
                       }`}
                     >
-                        {/* Textul și pozele sunt două elemente distincte, nu un
-                            singur bloc: o poză înghesuită în bula de text arăta
-                            ca un atașament al ei, nu ca o imagine de sine
-                            stătătoare. Meniul „⋯" și marcajele rămân pe grup. */}
+                        {/* Textul și pozele au controale independente. */}
                         <div
                           onContextMenu={(e) => {
                             if (window.innerWidth < 640) {
                               e.preventDefault();
-                              setOpenMenuId(m.id);
+                              setOpenMenuId(`message:${m.id}`);
                             }
                           }}
                           className={`flex flex-col gap-1.5 ${isMe ? "items-end" : "items-start"}`}
@@ -1154,24 +1152,53 @@ export default function ProjectChatDrawer({
                                   </div>
                                 </div>
                               ) : (m.body || m.body_masked) && (
-                                <div
-                                  className={`px-4 py-2.5 text-[14px] leading-relaxed transition-colors ${
-                                    m.body_masked
-                                      ? "border border-amber-200 bg-amber-50 text-slate-700"
-                                      : isMe
-                                      ? "bg-slate-900 text-white"
-                                      : "border border-slate-100 bg-white text-slate-800 shadow-sm"
-                                  } ${bubbleRadius}`}
-                                >
-                                  {m.body && (
-                                    <div className="whitespace-pre-wrap break-words">
-                                      {renderBody(m.body, !!m.body_masked, !!isMe)}
+                                <div className="group/message relative">
+                                  <div
+                                    className={`px-4 py-2.5 text-[14px] leading-relaxed transition-colors ${
+                                      m.body_masked
+                                        ? "border border-amber-200 bg-amber-50 text-slate-700"
+                                        : isMe
+                                        ? "bg-slate-900 text-white"
+                                        : "border border-slate-100 bg-white text-slate-800 shadow-sm"
+                                    } ${bubbleRadius}`}
+                                  >
+                                    {m.body && (
+                                      <div className="whitespace-pre-wrap break-words">
+                                        {renderBody(m.body, !!m.body_masked, !!isMe)}
+                                      </div>
+                                    )}
+                                    {m.body_masked && (
+                                      <p className="mt-1.5 text-[11px] leading-snug text-amber-800/75">
+                                        Nu este publicat sau nu mai este disponibil.
+                                      </p>
+                                    )}
+                                  </div>
+                                  {!m.deleted_at && (isAdmin || isMe) && (
+                                    <div className={`absolute top-1 transition-opacity ${isMe ? "-left-9" : "-right-9"} ${openMenuId === `message:${m.id}` ? "opacity-100" : "opacity-0 group-hover/message:opacity-100"}`}>
+                                      <button
+                                        type="button"
+                                        aria-label="Opțiuni mesaj"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setOpenMenuId(openMenuId === `message:${m.id}` ? null : `message:${m.id}`);
+                                        }}
+                                        className={`rounded-full p-1.5 transition-colors ${openMenuId === `message:${m.id}` ? "bg-slate-200 text-slate-800" : "text-slate-400 hover:bg-slate-200/50 hover:text-slate-700"}`}
+                                      >
+                                        <MoreHorizontal className="h-[18px] w-[18px]" />
+                                      </button>
+                                      {openMenuId === `message:${m.id}` && (
+                                        <div className={`absolute top-full mt-1 z-50 min-w-[140px] rounded-xl border border-slate-100 bg-white p-1.5 shadow-xl ${isMe ? "left-0" : "right-0"}`} onClick={(e) => e.stopPropagation()}>
+                                          {!m.body_masked && (
+                                            <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onClick={() => { setOpenMenuId(null); startEdit(m.id, m.body ?? ""); }}>
+                                              <Pencil className="h-4 w-4 text-slate-400" /> Editează
+                                            </button>
+                                          )}
+                                          <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50" onClick={async () => { setOpenMenuId(null); if (await confirm({ title: "Ștergi mesajul?", description: "Mesajul va fi eliminat din conversație.", confirmText: "Șterge mesajul" })) await deleteMessage(m.id); }}>
+                                            <Trash2 className="h-4 w-4 text-rose-500" /> Șterge
+                                          </button>
+                                        </div>
+                                      )}
                                     </div>
-                                  )}
-                                  {m.body_masked && (
-                                    <p className="mt-1.5 text-[11px] leading-snug text-amber-800/75">
-                                      Nu este publicat sau nu mai este disponibil.
-                                    </p>
                                   )}
                                 </div>
                               )}
@@ -1183,8 +1210,8 @@ export default function ProjectChatDrawer({
                                       return <span key={image.path} className="col-span-full text-xs italic text-slate-400">Imagine indisponibilă</span>;
                                     }
                                     return image.signedUrl ? (
+                                      <div key={image.path} className="group/image relative">
                                       <button
-                                        key={image.path}
                                         type="button"
                                         // `min-h` cât timp poza se încarcă: cu
                                         // înălțime automată, bula ar porni de la
@@ -1205,6 +1232,38 @@ export default function ProjectChatDrawer({
                                           onError={() => { void requestImageRefresh(m.id, image); }}
                                         />
                                       </button>
+                                      {!m.deleted_at && (isAdmin || isMe) && (
+                                        <div className={`absolute top-1/2 -translate-y-1/2 transition-opacity ${isMe ? "-left-9" : "-right-9"} ${openMenuId === `image:${m.id}:${image.path}` ? "opacity-100" : "opacity-0 group-hover/image:opacity-100"}`}>
+                                          <button
+                                            type="button"
+                                            aria-label={`Opțiuni pentru ${image.name}`}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setOpenMenuId(openMenuId === `image:${m.id}:${image.path}` ? null : `image:${m.id}:${image.path}`);
+                                            }}
+                                            className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-slate-200/50 hover:text-slate-700"
+                                          >
+                                            <MoreHorizontal className="h-4 w-4" />
+                                          </button>
+                                          {openMenuId === `image:${m.id}:${image.path}` && (
+                                            <div className={`absolute top-full z-50 mt-1 min-w-[130px] rounded-xl border border-slate-100 bg-white p-1.5 shadow-xl ${isMe ? "left-0" : "right-0"}`} onClick={(e) => e.stopPropagation()}>
+                                              <button
+                                                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50"
+                                                onClick={async () => {
+                                                  setOpenMenuId(null);
+                                                  if (await confirm({ title: "Ștergi imaginea?", description: "Imaginea va fi eliminată din mesaj.", confirmText: "Șterge imaginea" })) {
+                                                    const item = await deleteImage(m.id, image.path);
+                                                    if (item && preview?.messageId === m.id && preview.image.path === image.path) setPreview(null);
+                                                  }
+                                                }}
+                                              >
+                                                <Trash2 className="h-4 w-4 text-rose-500" /> Șterge
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                      </div>
                                     ) : (
                                       <span key={image.path} className="col-span-full text-xs text-slate-400">Se încarcă imaginea...</span>
                                     );
@@ -1215,70 +1274,6 @@ export default function ProjectChatDrawer({
                           )}
                         </div>
 
-                        {/* Butonul de meniu (MoreHorizontal) - poziționat dinamic */}
-                        {!m.deleted_at && (isAdmin || isMe) && (
-                          <div
-                            className={`relative flex-shrink-0 transition-opacity ${
-                              openMenuId === m.id
-                                ? "opacity-100"
-                                : "opacity-0 group-hover/bubble:opacity-100"
-                            }`}
-                          >
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenMenuId(
-                                  openMenuId === m.id ? null : m.id
-                                );
-                              }}
-                              className={`p-1.5 rounded-full transition-colors ${
-                                openMenuId === m.id
-                                  ? "bg-slate-200 text-slate-800"
-                                  : "text-slate-400 hover:text-slate-700 hover:bg-slate-200/50"
-                              }`}
-                            >
-                              <MoreHorizontal className="w-[18px] h-[18px]" />
-                            </button>
-
-                            {/* Meniul Dropdown - se deschide spre interiorul chat-ului */}
-                            {openMenuId === m.id && (
-                              <div
-                                className={`absolute bottom-full mb-2 z-50 min-w-[140px] bg-white rounded-xl shadow-xl border border-slate-100 p-1.5 ${
-                                  isMe ? "right-0" : "left-0"
-                                }`}
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {/* Un mesaj poate rămâne legitim fără text (doar
-                                    imagini). Condiționat pe `m.body`, butonul ar
-                                    fi dispărut definitiv și n-ai mai fi putut
-                                    adăuga text înapoi. */}
-                                {!m.body_masked && (
-                                  <button
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg hover:bg-slate-50 text-slate-700"
-                                    onClick={() => {
-                                      setOpenMenuId(null);
-                                      startEdit(m.id, m.body ?? "");
-                                    }}
-                                  >
-                                    <Pencil className="w-4 h-4 text-slate-400" />{" "}
-                                    Editează
-                                  </button>
-                                )}
-                                <button
-                                  className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg hover:bg-rose-50 text-rose-600"
-                                  onClick={async () => {
-                                    setOpenMenuId(null);
-                                    if (await confirm({ title: "Ștergi mesajul?", description: "Mesajul va fi eliminat din conversație.", confirmText: "Șterge mesajul" }))
-                                      await deleteMessage(m.id);
-                                  }}
-                                >
-                                  <Trash2 className="w-4 h-4 text-rose-500" />{" "}
-                                  Șterge
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
                     </div>
                   </div>
 

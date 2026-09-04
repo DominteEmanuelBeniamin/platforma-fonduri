@@ -85,16 +85,26 @@ async function cleanupUnreferencedImages(
   await removeUnreferencedProjectChatImages(admin, projectId, candidates)
 }
 
-function parsePatchBody(value: unknown): { ok: true; body: string | null } | { ok: false; error: string } {
+type PatchInput =
+  | { kind: 'body'; body: string | null }
+  | { kind: 'removeImage'; imagePath: string }
+
+function parsePatchBody(value: unknown): { ok: true; data: PatchInput } | { ok: false; error: string } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false, error: 'Invalid body' }
   const input = value as Record<string, unknown>
+  if (Object.prototype.hasOwnProperty.call(input, 'removeImagePath') && Object.keys(input).length === 1) {
+    if (typeof input.removeImagePath !== 'string' || !input.removeImagePath) {
+      return { ok: false, error: 'removeImagePath must be a non-empty string' }
+    }
+    return { ok: true, data: { kind: 'removeImage', imagePath: input.removeImagePath } }
+  }
   if (!Object.prototype.hasOwnProperty.call(input, 'body') || Object.keys(input).some(key => key !== 'body')) {
-    return { ok: false, error: 'PATCH accepts only body' }
+    return { ok: false, error: 'PATCH accepts body or removeImagePath' }
   }
   if (input.body !== null && typeof input.body !== 'string') return { ok: false, error: 'body must be a string or null' }
   const body = typeof input.body === 'string' ? input.body.trim() || null : null
   if (body && body.length > 5000) return { ok: false, error: 'body is too long (max 5000 chars)' }
-  return { ok: true, body }
+  return { ok: true, data: { kind: 'body', body } }
 }
 
 export async function GET(
@@ -148,7 +158,14 @@ export async function PATCH(
     }
     if (!message) return Response.json({ error: 'Message not found' }, { status: 404 })
     if (message.deleted_at) return Response.json({ error: 'Message is deleted' }, { status: 409 })
-    if (parsed.body === null && storedChatImages(message.images).length === 0) {
+    const currentImages = storedChatImages(message.images)
+    const nextImages = parsed.data.kind === 'removeImage'
+      ? currentImages.filter(image => image.path !== parsed.data.imagePath)
+      : currentImages
+    if (parsed.data.kind === 'removeImage' && nextImages.length === currentImages.length) {
+      return Response.json({ error: 'Image not found' }, { status: 404 })
+    }
+    if ((parsed.data.kind === 'body' ? parsed.data.body : message.body) === null && nextImages.length === 0) {
       return Response.json({ error: 'Message body or images are required' }, { status: 400 })
     }
     if (!canMutateMessage(access.profile.role, access.user.id, message.created_by)) {
@@ -157,7 +174,10 @@ export async function PATCH(
 
     const { data, error } = await admin
       .from('project_chat_messages')
-      .update({ body: parsed.body, edited_at: new Date().toISOString() })
+      .update({
+        ...(parsed.data.kind === 'body' ? { body: parsed.data.body } : { images: nextImages }),
+        edited_at: new Date().toISOString(),
+      })
       .eq('id', messageId)
       .eq('project_id', projectId)
       .select(MESSAGE_SELECT)
@@ -165,6 +185,14 @@ export async function PATCH(
     if (error || !data) {
       console.error('PATCH message failed:', { projectId, messageId, error })
       return Response.json({ error: 'Failed to update message' }, { status: 500 })
+    }
+
+    if (parsed.data.kind === 'removeImage') {
+      try {
+        await cleanupUnreferencedImages(admin, projectId, message.created_by, [parsed.data.imagePath])
+      } catch (storageError) {
+        console.error('PATCH chat message image cleanup failed:', { projectId, messageId, error: storageError })
+      }
     }
 
     const projectTitle = await loadProjectTitle(admin, projectId)
@@ -186,7 +214,9 @@ export async function PATCH(
         body_preview: toMessagePreview(data.body),
         ...imageAuditFields(data.images),
       },
-      description: `${access.profile.email || 'User'} a editat un mesaj în proiectul "${projectTitle}"`,
+      description: parsed.data.kind === 'removeImage'
+        ? `${access.profile.email || 'User'} a șters o imagine dintr-un mesaj în proiectul "${projectTitle}"`
+        : `${access.profile.email || 'User'} a editat un mesaj în proiectul "${projectTitle}"`,
       ipAddress: getClientIP(request),
       userAgent: getUserAgent(request),
     })
