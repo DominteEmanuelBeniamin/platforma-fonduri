@@ -183,7 +183,7 @@ interface DocumentRequestsProps {
   clientEmail?: string | null
   clientName?: string | null
   projectTitle?: string
-  /** Id-ul unei cereri de deschis automat (ex. venit dintr-un rezultat de căutare) */
+  /** Id-ul unei cereri de deschis automat din panoul „Ce ai de făcut”. */
   autoOpenRequestId?: string | null
 }
 
@@ -395,7 +395,6 @@ export default function DocumentRequests({
     return (externalRequests ?? internalRequests).filter((r: any) => r.is_outgoing && !r.deleted_at)
   }, [externalRequests, internalRequests])
 
-  // Deschide cererea sau documentul trimis indicat prin deep-link.
   useEffect(() => {
     if (!autoOpenRequestId) return
     const request = requests.find(r => r.id === autoOpenRequestId)
@@ -403,17 +402,12 @@ export default function DocumentRequests({
       setSelectedRequest(request)
       setClosedRequestIds(prev => {
         if (!prev.has(request.id)) return prev
-        const s = new Set(prev)
-        s.delete(request.id)
-        return s
+        const next = new Set(prev)
+        next.delete(request.id)
+        return next
       })
-      return
     }
-    if (activityId === null) {
-      const outgoing = outgoingDocs.find(doc => doc.id === autoOpenRequestId)
-      if (outgoing) setSelectedOutgoingDoc(outgoing)
-    }
-  }, [activityId, autoOpenRequestId, outgoingDocs, requests])
+  }, [autoOpenRequestId, requests])
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
   const isClient = profile?.role === 'client'
@@ -1265,6 +1259,7 @@ export default function DocumentRequests({
                         <PublishStatusControl
                           status={doc.visibility ?? 'draft'}
                           canPublish={false}
+                          showPublishedStatus={isAdminOrConsultant}
                           onPublish={() => undefined}
                           size="sm"
                         />
@@ -1301,8 +1296,9 @@ export default function DocumentRequests({
               return (
                 <div
                   key={req.id}
+                  id={`request-${req.id}`}
                   onDragOver={e => handleReqDragOver(e, req.id)}
-                  className={`group px-4 py-4 sm:px-5 transition-colors cursor-pointer hover:bg-slate-50/80 ${
+                  className={`group scroll-mt-24 px-4 py-4 sm:px-5 transition-colors cursor-pointer hover:bg-slate-50/80 ${
                     draggedReqId === req.id ? 'opacity-50' : ''
                   }`}
                   onClick={() => setSelectedRequest(req)}
@@ -1371,6 +1367,7 @@ export default function DocumentRequests({
                           <PublishStatusControl
                             status={req.visibility ?? 'draft'}
                             canPublish={isAdminOrConsultant}
+                            showPublishedStatus={isAdminOrConsultant}
                             onPublish={() => publishRequest(req.id)}
                             blockers={requestBlockers(req)}
                             onSetDeadline={date => saveRequestDeadline(req.id, date)}
@@ -1776,6 +1773,7 @@ export default function DocumentRequests({
                     <PublishStatusControl
                       status={selectedOutgoingDoc.visibility ?? 'draft'}
                       canPublish
+                      showPublishedStatus={isAdminOrConsultant}
                       onPublish={() => publishRequest(selectedOutgoingDoc.id)}
                     />
                   )}

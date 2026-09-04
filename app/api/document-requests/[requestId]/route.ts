@@ -54,6 +54,7 @@ export async function PATCH(
 
     // assigned_to trebuie să fie string (UUID), null sau omis
     const visibility = (body as any).visibility
+    const isPublishing = visibility === 'published'
     if (visibility !== undefined && visibility !== 'published') {
       return NextResponse.json({ error: 'Invalid visibility transition' }, { status: 400 })
     }
@@ -128,7 +129,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Nu ai permisiunea să modifici cereri' }, { status: 403 })
     }
 
-    if (visibility === 'published' && req.visibility !== 'draft') {
+    if (isPublishing && req.visibility !== 'draft') {
       return NextResponse.json({ error: 'Document request is already published' }, { status: 400 })
     }
 
@@ -180,7 +181,7 @@ export async function PATCH(
         : generalConsultantId,
     }
 
-    if (visibility === 'published') {
+    if (isPublishing) {
       const blockers = publishBlockers(publishState)
       if (blockers.length > 0) {
         return NextResponse.json(publishBlockedError(blockers), { status: 400 })
@@ -244,7 +245,7 @@ export async function PATCH(
       updatePayload.attachment_missing_checked_at = null
     }
 
-    if (visibility === 'published') updatePayload.visibility = 'published'
+    if (isPublishing) updatePayload.visibility = 'published'
 
     if (Object.keys(updatePayload).length === 0) {
       return NextResponse.json({ error: 'Nu există câmpuri de actualizat' }, { status: 400 })
@@ -326,7 +327,7 @@ export async function PATCH(
 
     await logAction({
       actorId: access.user.id,
-      actionType: 'update',
+      actionType: isPublishing ? 'publish' : 'update',
       entityType: 'document',
       entityId: requestId,
       entityName: name ?? req.name ?? (req.is_outgoing ? 'Document trimis clientului' : 'Cerere document'),
@@ -343,8 +344,8 @@ export async function PATCH(
         ...(diff.newValues ?? {}),
       },
       description: req.is_outgoing
-        ? `${access.profile.email || 'User'} a modificat documentul trimis clientului "${name ?? req.name ?? requestId}" din proiectul "${projectTitle}" (${diff.changedKeys.join(', ')})`
-        : `${access.profile.email || 'User'} a modificat cererea de document "${name ?? req.name ?? requestId}" din proiectul "${projectTitle}" (${diff.changedKeys.join(', ')})`,
+        ? `${isPublishing ? 'Publicare' : 'Modificare'} document trimis clientului "${name ?? req.name ?? requestId}" din proiectul "${projectTitle}" de către ${access.profile.email || 'User'} (${diff.changedKeys.join(', ')})`
+        : `${isPublishing ? 'Publicare' : 'Modificare'} cerere de document "${name ?? req.name ?? requestId}" din proiectul "${projectTitle}" de către ${access.profile.email || 'User'} (${diff.changedKeys.join(', ')})`,
       request,
     })
 

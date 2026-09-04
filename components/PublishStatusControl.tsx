@@ -8,6 +8,8 @@ import InlineDateEditor from '@/components/InlineDateEditor'
 interface PublishStatusControlProps {
   status: 'draft' | 'published'
   canPublish: boolean
+  /** Publicarea este un detaliu de echipă; clientul vede doar conținutul. */
+  showPublishedStatus?: boolean
   onPublish: () => void
   /**
    * Ce lipsește ca elementul să poată fi publicat — codurile din
@@ -31,6 +33,7 @@ interface PublishStatusControlProps {
 export default function PublishStatusControl({
   status,
   canPublish,
+  showPublishedStatus = true,
   onPublish,
   blockers = [],
   onSetDeadline,
@@ -41,6 +44,11 @@ export default function PublishStatusControl({
 
   const isDraft = status === 'draft'
   const textClass = size === 'sm' ? 'text-xs' : 'text-[13px]'
+
+  // Cine nu poate publica și pentru care nu vrem statusuri de publicare nu are
+  // ce vedea, nici „Public", nici „În pregătire". Legat doar de `published`,
+  // condiția se sprijinea tăcut pe filtrarea draft-urilor de pe server.
+  if (!canPublish && !showPublishedStatus) return null
 
   if (!canPublish || !isDraft) {
     return (

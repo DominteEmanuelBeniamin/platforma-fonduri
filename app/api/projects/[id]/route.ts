@@ -108,8 +108,8 @@ export async function PATCH(
       }
       const allowedStatuses = ['contractare', 'implementare', 'monitorizare']
       if (!allowedStatuses.includes(status.trim())) {
-        return NextResponse.json({ 
-          error: `Invalid status. Allowed: ${allowedStatuses.join(', ')}` 
+        return NextResponse.json({
+          error: `Invalid status. Allowed: ${allowedStatuses.join(', ')}`
         }, { status: 400 })
       }
       update.status = status.trim()
@@ -120,14 +120,14 @@ export async function PATCH(
       if (typeof client_id !== 'string' || client_id.trim().length === 0) {
         return NextResponse.json({ error: 'client_id must be a non-empty string' }, { status: 400 })
       }
-      
+
       // Verificăm că noul client există și are rol=client
       const { data: newClient, error: clientErr } = await admin
         .from('profiles')
         .select('id, role, email, full_name')
         .eq('id', client_id.trim())
         .maybeSingle()
-      
+
       if (clientErr) {
         console.error('Client lookup error:', clientErr)
         return NextResponse.json({ error: 'Failed to validate client' }, { status: 500 })
@@ -138,7 +138,7 @@ export async function PATCH(
       if (newClient.role !== 'client') {
         return NextResponse.json({ error: 'Selected user is not a client' }, { status: 400 })
       }
-      
+
       update.client_id = client_id.trim()
     }
 
@@ -159,7 +159,7 @@ export async function PATCH(
 
     // Dacă nu avem nimic de actualizat
     if (Object.keys(update).length === 0) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Nothing to update. Allowed fields: title, status, client_id, general_consultant_id, automatic_reminders_enabled'
       }, { status: 400 })
     }
@@ -180,7 +180,7 @@ export async function PATCH(
     // Construim old/new values doar cu ce s-a schimbat
     const oldValues: Record<string, unknown> = {}
     const newValues: Record<string, unknown> = {}
-    
+
     for (const key of Object.keys(update)) {
       if (oldProject[key as keyof typeof oldProject] !== update[key]) {
         oldValues[key] = oldProject[key as keyof typeof oldProject]
@@ -216,9 +216,9 @@ export async function PATCH(
       userAgent: getUserAgent(request)
     })
 
-    return NextResponse.json({ 
-      message: 'Project updated', 
-      project: updatedProject 
+    return NextResponse.json({
+      message: 'Project updated',
+      project: updatedProject
     })
   } catch (e: unknown) {
     const err = e as Error
@@ -258,10 +258,10 @@ export async function DELETE(
     }
 
     // Helper pentru a extrage safe client info (fix pentru TypeScript)
-    const clientProfile = Array.isArray(project.profiles) 
-      ? project.profiles[0] 
+    const clientProfile = Array.isArray(project.profiles)
+      ? project.profiles[0]
       : project.profiles
-    
+
     const clientEmail = clientProfile?.email || 'N/A'
     const clientName = clientProfile?.full_name || 'N/A'
     const clientCif = clientProfile?.cif || 'N/A'
@@ -295,6 +295,41 @@ export async function DELETE(
       ...(attachments ?? []).map(r => r.attachment_path).filter((p): p is string => typeof p === 'string' && p.length > 0),
       ...(attachments ?? []).flatMap(r => (r.document_requirement_attachments ?? []).map((a: any) => a.storage_path)).filter((p): p is string => typeof p === 'string' && p.length > 0),
     ]))
+
+    // Imaginile de chat nu apar în `files`; măturăm prefixul privat ca să nu
+    // rămână uploaduri abandonate. `listV2` e marcat `@experimental` în SDK, iar
+    // obiectele rămase se pot mătura oricând după prefix — deci un eșec de
+    // listare nu are voie să oprească ștergerea proiectului.
+    const chatPrefix = `projects/${projectId}/chat/`
+    const chatPaths: string[] = []
+    let cursor: string | undefined
+    while (true) {
+      const { data: listed, error: listError } = await admin.storage
+        .from(bucket)
+        .listV2({
+          prefix: chatPrefix,
+          limit: 1000,
+          ...(cursor ? { cursor } : {}),
+        })
+
+      if (listError || !listed) {
+        console.error('Fetch project chat storage paths error:', { projectId, listError })
+        break
+      }
+
+      chatPaths.push(...(listed.objects ?? [])
+        .map((object: { key?: unknown }) => object.key)
+        .filter((key): key is string => typeof key === 'string' && key.startsWith(chatPrefix)))
+
+      if (!listed.hasNext) break
+      if (!listed.nextCursor || listed.nextCursor === cursor) {
+        console.error('Project chat storage listing returned an invalid cursor:', { projectId })
+        break
+      }
+      cursor = listed.nextCursor
+    }
+
+    const uniqueChatPaths = [...new Set(chatPaths)]
 
     const retainedAttachmentPaths = new Set<string>()
 
@@ -335,12 +370,17 @@ export async function DELETE(
       })
     }
 
-    const uniquePaths = candidatePaths.filter(path => !retainedAttachmentPaths.has(path))
-
-    if (uniquePaths.length > 0) {
-      const { error: removeErr } = await admin.storage.from(bucket).remove(uniquePaths)
+    const uniquePaths = [
+      ...new Set([
+        ...candidatePaths.filter(path => !retainedAttachmentPaths.has(path)),
+        ...uniqueChatPaths,
+      ]),
+    ]
+    for (let offset = 0; offset < uniquePaths.length; offset += 1000) {
+      const batch = uniquePaths.slice(offset, offset + 1000)
+      const { error: removeErr } = await admin.storage.from(bucket).remove(batch)
       if (removeErr) {
-        console.error('Storage remove error:', removeErr)
+        console.error('Storage remove error:', { projectId, count: batch.length, removeErr })
         return NextResponse.json({ error: 'Failed to remove storage objects' }, { status: 500 })
       }
     }

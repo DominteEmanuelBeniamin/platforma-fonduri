@@ -387,7 +387,7 @@ export default function PrivateChatView({
           const isEditing = editingId === m.id
           const showNewMessagesSeparator = firstUnreadMessageId === m.id
           const showReadReceipt = readOutgoingMessageId === m.id
-            
+
           const prevSameDay = prev ? isSameDay(prev.created_at, m.created_at) : false
           const nextSameDay = next ? isSameDay(m.created_at, next.created_at) : false
 

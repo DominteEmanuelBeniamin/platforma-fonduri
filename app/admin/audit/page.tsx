@@ -37,8 +37,8 @@ import {
   History,
   FileDown,
 } from 'lucide-react'
-import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import SelectFilter from '@/components/SelectFilter'
+import { AUDIT_ACTION_LABELS, AUDIT_ENTITY_LABELS } from '@/lib/audit-catalog'
 
 interface AuditLog {
   id: string
@@ -72,9 +72,8 @@ interface Stats {
   byEntity: Record<string, number>
 }
 
-type EntityConfig = { label: string; icon: React.ElementType }
+type EntityConfig = { icon: React.ElementType }
 type ActionConfig = {
-  label: string
   color: string
   bgColor: string
   borderColor: string
@@ -82,20 +81,20 @@ type ActionConfig = {
 }
 
 const ACTION_CONFIG: Record<string, ActionConfig> = {
-  login: { label: 'Autentificare', color: 'text-emerald-700', bgColor: 'bg-emerald-50', borderColor: 'border-emerald-200', icon: LogIn },
-  logout: { label: 'Deconectare', color: 'text-slate-600', bgColor: 'bg-slate-100', borderColor: 'border-slate-200', icon: LogOut },
-  create: { label: 'Creare', color: 'text-blue-700', bgColor: 'bg-blue-50', borderColor: 'border-blue-200', icon: Plus },
-  add: { label: 'Adaugare', color: 'text-cyan-700', bgColor: 'bg-cyan-50', borderColor: 'border-cyan-200', icon: PlusSquare },
-  update: { label: 'Modificare', color: 'text-amber-700', bgColor: 'bg-amber-50', borderColor: 'border-amber-200', icon: Pencil },
-  publish: { label: 'Publicare', color: 'text-emerald-700', bgColor: 'bg-emerald-50', borderColor: 'border-emerald-200', icon: CheckSquare },
-  propagate: { label: 'Propagare', color: 'text-purple-700', bgColor: 'bg-purple-50', borderColor: 'border-purple-200', icon: Share2 },
-  delete: { label: 'Stergere', color: 'text-red-700', bgColor: 'bg-red-50', borderColor: 'border-red-200', icon: Trash2 },
-  download: { label: 'Descarcare', color: 'text-violet-700', bgColor: 'bg-violet-50', borderColor: 'border-violet-200', icon: Download },
-  deadline_reminder_digest: { label: 'Digest reminder', color: 'text-indigo-700', bgColor: 'bg-indigo-50', borderColor: 'border-indigo-200', icon: Mail },
+  login: { color: 'text-emerald-700', bgColor: 'bg-emerald-50', borderColor: 'border-emerald-200', icon: LogIn },
+  logout: { color: 'text-slate-600', bgColor: 'bg-slate-100', borderColor: 'border-slate-200', icon: LogOut },
+  create: { color: 'text-blue-700', bgColor: 'bg-blue-50', borderColor: 'border-blue-200', icon: Plus },
+  add: { color: 'text-cyan-700', bgColor: 'bg-cyan-50', borderColor: 'border-cyan-200', icon: PlusSquare },
+  update: { color: 'text-amber-700', bgColor: 'bg-amber-50', borderColor: 'border-amber-200', icon: Pencil },
+  publish: { color: 'text-emerald-700', bgColor: 'bg-emerald-50', borderColor: 'border-emerald-200', icon: CheckSquare },
+  propagate: { color: 'text-purple-700', bgColor: 'bg-purple-50', borderColor: 'border-purple-200', icon: Share2 },
+  delete: { color: 'text-red-700', bgColor: 'bg-red-50', borderColor: 'border-red-200', icon: Trash2 },
+  download: { color: 'text-violet-700', bgColor: 'bg-violet-50', borderColor: 'border-violet-200', icon: Download },
+  notify: { color: 'text-sky-700', bgColor: 'bg-sky-50', borderColor: 'border-sky-200', icon: Mail },
+  deadline_reminder_digest: { color: 'text-indigo-700', bgColor: 'bg-indigo-50', borderColor: 'border-indigo-200', icon: Mail },
 }
 
 const DEFAULT_ACTION: ActionConfig = {
-  label: '',
   color: 'text-slate-600',
   bgColor: 'bg-slate-100',
   borderColor: 'border-slate-200',
@@ -103,35 +102,51 @@ const DEFAULT_ACTION: ActionConfig = {
 }
 
 const ENTITY_CONFIG: Record<string, EntityConfig> = {
-  user: { label: 'Utilizator', icon: User },
-  project: { label: 'Proiect', icon: FolderKanban },
-  document: { label: 'Document', icon: FileText },
-  phase: { label: 'Faza', icon: Layers },
-  activity: { label: 'Activitate', icon: Zap },
-  chat_message: { label: 'Mesaj chat', icon: MessageSquare },
-  template: { label: 'Sablon', icon: Briefcase },
-  template_phase: { label: 'Faza sablon', icon: Layers },
-  template_activity: { label: 'Activitate sablon', icon: Zap },
-  template_document: { label: 'Document sablon', icon: FileText },
-  status: { label: 'Status', icon: CheckSquare },
-  status_reorder: { label: 'Reordonare status', icon: ListOrdered },
-  project_phase: { label: 'Faza proiect', icon: Layers },
-  project_activity: { label: 'Activitate proiect', icon: Zap },
-  project_member: { label: 'Membru proiect', icon: Users },
-  client: { label: 'Client', icon: Briefcase },
-  private_conversation: { label: 'Conversatie privata', icon: Lock },
-  private_message: { label: 'Mesaj privat', icon: Lock },
-  file_access: { label: 'Acces fisier', icon: HardDrive },
-  audit_log: { label: 'Jurnal audit', icon: Shield },
-  deadline_reminder_digest: { label: 'Digest reminder', icon: Mail },
+  user: { icon: User },
+  project: { icon: FolderKanban },
+  document: { icon: FileText },
+  document_request: { icon: FileText },
+  document_review: { icon: CheckSquare },
+  request: { icon: FileText },
+  file: { icon: FileText },
+  file_access: { icon: HardDrive },
+  team_member: { icon: Users },
+  phase: { icon: Layers },
+  activity: { icon: Zap },
+  chat_message: { icon: MessageSquare },
+  template: { icon: Briefcase },
+  template_phase: { icon: Layers },
+  template_activity: { icon: Zap },
+  template_document: { icon: FileText },
+  template_document_requirement: { icon: FileText },
+  status: { icon: CheckSquare },
+  status_reorder: { icon: ListOrdered },
+  phase_reorder: { icon: ListOrdered },
+  activity_reorder: { icon: ListOrdered },
+  document_request_reorder: { icon: ListOrdered },
+  project_phase: { icon: Layers },
+  project_activity: { icon: Zap },
+  project_member: { icon: Users },
+  client: { icon: Briefcase },
+  private_conversation: { icon: Lock },
+  private_message: { icon: Lock },
+  audit_log: { icon: Shield },
+  deadline_reminder_digest: { icon: Mail },
 }
 
-const DEFAULT_ENTITY: EntityConfig = { label: '', icon: FileText }
+const DEFAULT_ENTITY: EntityConfig = { icon: FileText }
 
 const getActionConfig = (key: string): ActionConfig =>
-  ACTION_CONFIG[key] ?? { ...DEFAULT_ACTION, label: key }
+  ACTION_CONFIG[key] ?? DEFAULT_ACTION
 const getEntityConfig = (key: string): EntityConfig =>
-  ENTITY_CONFIG[key] ?? { ...DEFAULT_ENTITY, label: key }
+  ENTITY_CONFIG[key] ?? DEFAULT_ENTITY
+
+const formatUnknownKey = (key: string) =>
+  key.replace(/_/g, ' ').replace(/^./, char => char.toUpperCase())
+const getActionLabel = (key: string) =>
+  AUDIT_ACTION_LABELS[key as keyof typeof AUDIT_ACTION_LABELS] ?? formatUnknownKey(key)
+const getEntityLabel = (key: string) =>
+  AUDIT_ENTITY_LABELS[key as keyof typeof AUDIT_ENTITY_LABELS] ?? formatUnknownKey(key)
 
 export default function AuditPage() {
   const router = useRouter()
@@ -155,9 +170,6 @@ export default function AuditPage() {
   const [exporting, setExporting] = useState(false)
 
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
-  const [deleteTarget, setDeleteTarget] = useState<AuditLog | null>(null)
-  const [deleting, setDeleting] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const fetchStats = useCallback(async () => {
     try {
@@ -380,30 +392,27 @@ export default function AuditPage() {
     return JSON.stringify(obj, null, 2)
   }
 
-  const confirmDelete = async () => {
-    if (!deleteTarget) return
-    try {
-      setDeleting(true)
-      setDeleteError(null)
-      const res = await apiFetch(`/api/audit/${deleteTarget.id}`, { method: 'DELETE' })
-      if (!res.ok) {
-        const j = await res.json().catch(() => null)
-        throw new Error(j?.error || 'Stergerea a esuat')
-      }
-      setDeleteTarget(null)
-      await Promise.all([fetchStats(), fetchLogs(pagination?.page ?? 1)])
-    } catch (err: any) {
-      setDeleteError(err?.message || 'Stergerea a esuat')
-    } finally {
-      setDeleting(false)
-    }
-  }
+  const availableActionKeys = useMemo(() => {
+    const fromStats = stats ? Object.keys(stats.byAction || {}) : []
+    const merged = new Set<string>([
+      ...Object.keys(ACTION_CONFIG),
+      ...Object.keys(AUDIT_ACTION_LABELS),
+      ...fromStats,
+    ])
+    return Array.from(merged).sort((a, b) =>
+      getActionLabel(a).localeCompare(getActionLabel(b), 'ro')
+    )
+  }, [stats])
 
   const availableEntityKeys = useMemo(() => {
     const fromStats = stats ? Object.keys(stats.byEntity || {}) : []
-    const merged = new Set<string>([...Object.keys(ENTITY_CONFIG), ...fromStats])
+    const merged = new Set<string>([
+      ...Object.keys(ENTITY_CONFIG),
+      ...Object.keys(AUDIT_ENTITY_LABELS),
+      ...fromStats,
+    ])
     return Array.from(merged).sort((a, b) =>
-      getEntityConfig(a).label.localeCompare(getEntityConfig(b).label, 'ro')
+      getEntityLabel(a).localeCompare(getEntityLabel(b), 'ro')
     )
   }, [stats])
 
@@ -437,28 +446,28 @@ export default function AuditPage() {
         <div>
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Administrare</p>
           <h1 className="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight">Jurnal de Audit</h1>
-          <p className="text-slate-500 mt-1">Toate actiunile din sistem, in ordine cronologica.</p>
+          <p className="text-slate-500 mt-1">Toate acțiunile din sistem, în ordine cronologică.</p>
         </div>
       </div>
 
       {!statsLoading && stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard icon={Shield} iconBg="bg-slate-100" iconColor="text-slate-600" label="Total inregistrari" value={stats.totalLogs} valueColor="text-slate-900" />
-          <StatCard icon={Clock} iconBg="bg-indigo-50" iconColor="text-indigo-600" label="Ultima saptamana" value={stats.recentLogs} valueColor="text-indigo-600" />
-          <StatCard icon={LogIn} iconBg="bg-emerald-50" iconColor="text-emerald-600" label="Autentificari" value={stats.byAction.login || 0} valueColor="text-emerald-600" />
-          <StatCard icon={Activity} iconBg="bg-amber-50" iconColor="text-amber-600" label="Modificari" value={stats.byAction.update || 0} valueColor="text-amber-600" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard icon={Shield} iconBg="bg-slate-100" iconColor="text-slate-600" label="Total înregistrări" value={stats.totalLogs} valueColor="text-slate-900" />
+          <StatCard icon={Clock} iconBg="bg-indigo-50" iconColor="text-indigo-600" label="Ultima săptămână" value={stats.recentLogs} valueColor="text-indigo-600" />
+          <StatCard icon={LogIn} iconBg="bg-emerald-50" iconColor="text-emerald-600" label="Autentificări" value={stats.byAction.login || 0} valueColor="text-emerald-600" />
+          <StatCard icon={Activity} iconBg="bg-amber-50" iconColor="text-amber-600" label="Modificări" value={stats.byAction.update || 0} valueColor="text-amber-600" />
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center gap-3">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4">
+        <div className="flex min-w-0 flex-col md:flex-row md:items-center gap-3">
           <form onSubmit={handleSearch} className="flex-1 min-w-0 flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1 min-w-0">
               <input
                 type="text"
                 value={searchInput}
                 onChange={e => setSearchInput(e.target.value)}
-                placeholder="Cauta dupa descriere sau entitate..."
+                placeholder="Caută după descriere sau entitate..."
                 className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
               />
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -469,59 +478,59 @@ export default function AuditPage() {
               className="px-4 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 whitespace-nowrap"
             >
               <Search className="w-4 h-4" />
-              Cauta
+              Caută
             </button>
           </form>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex w-full sm:w-auto flex-wrap items-center gap-2 shrink-0">
             <button
               onClick={exportCsv}
               disabled={exporting || loading}
               className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 whitespace-nowrap"
             >
               <FileDown className="w-4 h-4" />
-              {exporting ? 'Se exporta…' : 'Export CSV'}
+              {exporting ? 'Se exportă…' : 'Export CSV'}
             </button>
 
             {hasFilters && (
               <button
                 onClick={clearFilters}
                 className="px-3 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap"
-                title="Reseteaza filtrele"
+                title="Resetează filtrele"
               >
                 <X className="w-4 h-4" />
-                Reseteaza
+                Resetează
               </button>
             )}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 items-end gap-3">
           <SelectFilter
             value={actionType}
             onChange={setActionType}
-            placeholder="Toate actiunile"
-            options={Object.entries(ACTION_CONFIG).map(([key, cfg]) => ({ value: key, label: cfg.label }))}
+            placeholder="Toate acțiunile"
+            options={availableActionKeys.map(key => ({ value: key, label: getActionLabel(key) }))}
           />
 
           <SelectFilter
             value={entityType}
             onChange={setEntityType}
-            placeholder="Toate entitatile"
-            options={availableEntityKeys.map(key => ({ value: key, label: getEntityConfig(key).label || key }))}
+            placeholder="Toate entitățile"
+            options={availableEntityKeys.map(key => ({ value: key, label: getEntityLabel(key) }))}
           />
 
           <SelectFilter
             value={userIdFilter}
             onChange={setUserIdFilter}
-            placeholder="Toti utilizatorii"
+            placeholder="Toți utilizatorii"
             options={sortedUsers.map(u => ({ value: u.id, label: u.full_name || u.email }))}
+            className="sm:col-span-2 xl:col-span-1"
           />
 
-          <div className="flex items-center gap-1.5 min-w-0">
+          <div className="grid grid-cols-1 sm:grid-cols-2 sm:col-span-2 xl:col-span-2 gap-2 min-w-0">
             <DateInput value={fromDate} onChange={setFromDate} ariaLabel="De la" />
-            <span className="text-slate-400 shrink-0">→</span>
-            <DateInput value={toDate} onChange={setToDate} ariaLabel="Pana la" />
+            <DateInput value={toDate} onChange={setToDate} ariaLabel="Până la" />
           </div>
         </div>
 
@@ -530,7 +539,7 @@ export default function AuditPage() {
             {selectedUserLabel && (
               <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
                 Utilizator: {selectedUserLabel}
-                <button onClick={() => setUserIdFilter('')} className="hover:text-indigo-900" aria-label="Elimina filtru utilizator">
+                <button onClick={() => setUserIdFilter('')} className="hover:text-indigo-900" aria-label="Elimină filtrul utilizatorului">
                   <X className="w-3 h-3" />
                 </button>
               </span>
@@ -538,7 +547,7 @@ export default function AuditPage() {
             {selectedEntityLabel && (
               <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
                 Istoric entitate ({selectedEntityLabel})
-                <button onClick={() => setEntityId('')} className="hover:text-emerald-900" aria-label="Elimina filtru entitate">
+                <button onClick={() => setEntityId('')} className="hover:text-emerald-900" aria-label="Elimină filtrul entității">
                   <X className="w-3 h-3" />
                 </button>
               </span>
@@ -550,14 +559,14 @@ export default function AuditPage() {
       {pagination && (
         <div className="flex items-center justify-between text-sm text-slate-500">
           <p>
-            {pagination.total === 0 ? 'Nicio inregistrare gasita' : (
+            {pagination.total === 0 ? 'Nicio înregistrare găsită' : (
               <>
-                Afiseaza <span className="font-medium text-slate-700">{(pagination.page - 1) * pagination.limit + 1}</span>
+                Afișează <span className="font-medium text-slate-700">{(pagination.page - 1) * pagination.limit + 1}</span>
                 {' - '}
                 <span className="font-medium text-slate-700">{Math.min(pagination.page * pagination.limit, pagination.total)}</span>
                 {' din '}
                 <span className="font-medium text-slate-700">{pagination.total.toLocaleString()}</span>
-                {' inregistrari'}
+                {' înregistrări'}
               </>
             )}
           </p>
@@ -572,8 +581,8 @@ export default function AuditPage() {
         ) : logs.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center text-slate-500">
             <FileText className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-            <p className="font-medium">Nicio inregistrare gasita</p>
-            <p className="text-sm mt-1">Incearca sa modifici filtrele selectate.</p>
+            <p className="font-medium">Nicio înregistrare găsită</p>
+            <p className="text-sm mt-1">Încearcă să modifici filtrele selectate.</p>
           </div>
         ) : (
           logs.map(log => (
@@ -582,7 +591,6 @@ export default function AuditPage() {
               log={log}
               isExpanded={expandedRows.has(log.id)}
               onToggle={() => toggleRowExpand(log.id)}
-              onDelete={() => setDeleteTarget(log)}
               onViewHistory={
                 log.entity_id ? () => setEntityId(log.entity_id as string) : undefined
               }
@@ -597,24 +605,6 @@ export default function AuditPage() {
         <Paginator pagination={pagination} onPageChange={fetchLogs} />
       )}
 
-      <ConfirmDeleteModal
-        isOpen={!!deleteTarget}
-        loading={deleting}
-        error={deleteError}
-        title="Sterge intrarea de audit?"
-        description="Aceasta actiune va elimina intrarea, dar va crea o noua intrare in jurnal care inregistreaza stergerea (cu snapshot complet)."
-        confirmText="Sterge intrarea"
-        onClose={() => {
-          if (deleting) return
-          setDeleteTarget(null)
-          setDeleteError(null)
-        }}
-        onConfirm={confirmDelete}
-      >
-        {deleteTarget && (
-          <DeleteTargetSummary log={deleteTarget} formatDate={formatDate} />
-        )}
-      </ConfirmDeleteModal>
     </div>
   )
 }
@@ -642,28 +632,27 @@ function StatCard({
   )
 }
 
-function DateInput({ value, onChange, ariaLabel }: { value: string; onChange: (v: string) => void; ariaLabel?: string }) {
+function DateInput({ value, onChange, ariaLabel }: { value: string; onChange: (v: string) => void; ariaLabel: string }) {
   return (
-    <div className="relative flex-1 min-w-0">
+    <label className="block min-w-0">
+      <span className="mb-1 block text-xs font-medium text-slate-600">{ariaLabel}</span>
       <input
         type="date"
         value={value}
         onChange={e => onChange(e.target.value)}
         aria-label={ariaLabel}
-        className="w-full pl-9 pr-2 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
       />
-      <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-    </div>
+    </label>
   )
 }
 
 function LogRow({
-  log, isExpanded, onToggle, onDelete, onViewHistory, formatDate, formatJSON,
+  log, isExpanded, onToggle, onViewHistory, formatDate, formatJSON,
 }: {
   log: AuditLog
   isExpanded: boolean
   onToggle: () => void
-  onDelete: () => void
   onViewHistory?: () => void
   formatDate: (s: string) => string
   formatJSON: (o: Record<string, unknown> | null) => string
@@ -677,24 +666,24 @@ function LogRow({
 
   return (
     <div
-      className={`bg-white rounded-xl border shadow-sm transition-all ${
+      className={`min-w-0 bg-white rounded-xl border shadow-sm transition-all ${
         isExpanded ? 'border-indigo-200 shadow-md' : 'border-slate-200 hover:border-slate-300'
       }`}
     >
       <div className="p-4">
-        <div className="flex flex-wrap items-center gap-4 mb-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-4 mb-3">
           <div className="flex items-center gap-2 text-sm text-slate-500">
             <Calendar className="w-4 h-4" />
             <span>{formatDate(log.created_at)}</span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <div className="w-7 h-7 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-xs font-semibold text-slate-600">
               {(isSystem ? 'S' : (log.user?.full_name?.[0] || log.user?.email?.[0] || '?')).toUpperCase()}
             </div>
-            <div>
-              <p className="text-sm font-medium text-slate-900">{isSystem ? 'Sistem' : log.user?.full_name || 'Necunoscut'}</p>
-              {!isSystem && log.user?.email && <p className="text-xs text-slate-400">{log.user.email}</p>}
+            <div className="min-w-0">
+              <p className="break-words text-sm font-medium text-slate-900">{isSystem ? 'Sistem' : log.user?.full_name || 'Necunoscut'}</p>
+              {!isSystem && log.user?.email && <p className="break-all text-xs text-slate-400">{log.user.email}</p>}
             </div>
           </div>
 
@@ -702,22 +691,22 @@ function LogRow({
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${action.bgColor} ${action.borderColor} ${action.color}`}
           >
             <ActionIcon className="w-3.5 h-3.5" />
-            {action.label || log.action_type}
+            {getActionLabel(log.action_type)}
           </span>
 
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center">
               <EntityIcon className="w-4 h-4 text-slate-500" />
             </div>
-            <div>
-              <span className="text-sm text-slate-600">{entity.label || log.entity_type}</span>
+            <div className="min-w-0">
+              <span className="break-words text-sm text-slate-600">{getEntityLabel(log.entity_type)}</span>
               {log.entity_name && (
-                <span className="text-sm text-slate-400 ml-1">• {log.entity_name}</span>
+                <span className="break-all text-sm text-slate-400 ml-1">• {log.entity_name}</span>
               )}
             </div>
           </div>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
             {log.ip_address && (
               <div className="hidden lg:flex items-center gap-1.5 text-xs text-slate-400 font-mono bg-slate-50 px-2 py-1 rounded">
                 <Globe className="w-3 h-3" />
@@ -727,31 +716,24 @@ function LogRow({
             {onViewHistory && (
               <button
                 onClick={onViewHistory}
-                title="Vezi istoric pe aceasta entitate"
+                title="Vezi istoricul acestei entități"
                 className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
               >
                 <History className="w-4 h-4" />
               </button>
             )}
-            <button
-              onClick={onDelete}
-              title="Sterge intrarea de audit"
-              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
           </div>
         </div>
 
         {log.description && (
-          <div className="flex items-start gap-3 pt-3 border-t border-slate-100">
-            <div className="flex-1">
-              <p className="text-sm text-slate-700 leading-relaxed">{log.description}</p>
+          <div className="flex min-w-0 flex-col sm:flex-row sm:items-start gap-3 pt-3 border-t border-slate-100">
+            <div className="min-w-0 flex-1">
+              <p className="break-words text-sm text-slate-700 leading-relaxed">{log.description}</p>
             </div>
             {hasDetails && (
               <button
                 onClick={onToggle}
-                className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                className={`self-start flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                   isExpanded ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
@@ -816,15 +798,15 @@ function Paginator({
   onPageChange: (page: number) => void
 }) {
   return (
-    <div className="flex items-center justify-center gap-2 pt-4">
+    <div className="flex w-full flex-wrap items-center justify-center gap-2 pt-4">
       <button
         onClick={() => onPageChange(pagination.page - 1)}
         disabled={!pagination.hasPrev}
-        className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-white rounded-lg border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="flex-1 min-w-0 justify-center px-4 py-2 text-center text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-white rounded-lg border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors sm:flex-none"
       >
         ← Anterior
       </button>
-      <div className="flex items-center gap-1">
+      <div className="hidden items-center gap-1 sm:flex">
         {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
           let pageNum: number
           if (pagination.totalPages <= 5) pageNum = i + 1
@@ -849,43 +831,10 @@ function Paginator({
       <button
         onClick={() => onPageChange(pagination.page + 1)}
         disabled={!pagination.hasNext}
-        className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-white rounded-lg border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="flex-1 min-w-0 justify-center px-4 py-2 text-center text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-white rounded-lg border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors sm:flex-none"
       >
-        Urmator →
+        Următor →
       </button>
-    </div>
-  )
-}
-
-function DeleteTargetSummary({
-  log, formatDate,
-}: {
-  log: AuditLog
-  formatDate: (s: string) => string
-}) {
-  const action = getActionConfig(log.action_type)
-  const entity = getEntityConfig(log.entity_type)
-
-  return (
-    <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-200">
-      <div className="flex items-center gap-2 text-xs text-slate-500">
-        <Calendar className="w-3.5 h-3.5" />
-        {formatDate(log.created_at)}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <span
-          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-semibold border ${action.bgColor} ${action.borderColor} ${action.color}`}
-        >
-          {action.label || log.action_type}
-        </span>
-        <span className="text-xs text-slate-600">{entity.label || log.entity_type}</span>
-        {log.entity_name && (
-          <span className="text-xs text-slate-400">• {log.entity_name}</span>
-        )}
-      </div>
-      {log.description && (
-        <p className="text-sm text-slate-700 pt-1">{log.description}</p>
-      )}
     </div>
   )
 }

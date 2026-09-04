@@ -25,6 +25,12 @@ const [newSchema, legacySchema, rowCount] = await Promise.all([
   admin.from('notifications').select('id', { count: 'exact', head: true }),
 ])
 
+// Issue #90: sonde strict read-only pentru imaginile și evenimentele chatului.
+const [projectChatMessagesSchema, projectChatEventsSchema] = await Promise.all([
+  admin.from('project_chat_messages').select('id,body,images').limit(1),
+  admin.from('project_chat_events').select('message_id,project_id,event_type,changed_at').limit(1),
+])
+
 // Migrația 20260826 (corecțiile de review pentru #78). Cu cheia de service
 // `auth.uid()` e null, deci niciuna dintre sonde nu citește și nu scrie rânduri:
 // sumarul întoarce lista goală, iar marcarea ca citit se oprește în garda de
@@ -115,6 +121,11 @@ const panel = {
   severityOnlyOverloadDropped: eventWithSeverity.error?.code !== 'PGRST203',
 }
 const panelApplied = Object.values(panel).every(Boolean)
+const projectChat = {
+  messagesImagesColumn: !projectChatMessagesSchema.error,
+  eventsTable: !projectChatEventsSchema.error,
+}
+const projectChatApplied = Object.values(projectChat).every(Boolean)
 
 const result = {
   projectHost: new URL(url).host,
@@ -128,6 +139,8 @@ const result = {
   fixes: { ...fixes, applied: fixesApplied },
   // 20260827_notification_center_panel: aplicată sau nu.
   panel: { ...panel, applied: panelApplied },
+  // 20260901000000_project_chat_images_links: aplicată sau nu.
+  projectChat: { ...projectChat, applied: projectChatApplied },
   errors: {
     newSchema: newSchema.error?.code ?? null,
     legacySchema: legacySchema.error?.code ?? null,
@@ -151,6 +164,8 @@ const result = {
     atomicPhaseDelete: deletePhase.error?.code ?? null,
     reservedUploadFunction: reservedUpload.error?.code ?? null,
     reviewFunction: reviewFunction.error?.code ?? null,
+    projectChatMessagesSchema: projectChatMessagesSchema.error?.code ?? null,
+    projectChatEventsSchema: projectChatEventsSchema.error?.code ?? null,
   },
 }
 
@@ -161,7 +176,10 @@ console.log(fixesApplied
 console.log(panelApplied
   ? '20260827_notification_center_panel: APLICATĂ'
   : '20260827_notification_center_panel: NEAPLICATĂ — rulează migrația înainte de deploy')
+console.log(projectChatApplied
+  ? '20260901000000_project_chat_images_links: APLICATĂ'
+  : '20260901000000_project_chat_images_links: NEAPLICATĂ — rulează migrația înainte de deploy')
 
-if (newSchema.error || rowCount.error || !legacySchema.error || !fixesApplied || !panelApplied) {
+if (newSchema.error || rowCount.error || !legacySchema.error || !fixesApplied || !panelApplied || !projectChatApplied) {
   process.exitCode = 1
 }

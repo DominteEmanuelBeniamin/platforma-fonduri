@@ -472,10 +472,13 @@ export default function ProjectPhasesSidebar({
                         <GripVertical className="w-3.5 h-3.5" />
                       </span>
                     )}
-                    {/* În redenumire, tot ce nu ține de câmp dispare: pe o
-                        coloană de 288 px, bulina, chevron-ul și mânerul de
-                        tragere lăsau vizibilă doar coada numelui. */}
-                    {renamingId !== phase.id && (
+                    {/* Publicarea e un detaliu de echipă. Clientul vede doar faze
+                        publicate, deci bulina i-ar fi mereu verde: un semn fără
+                        înțeles, pe care nici tooltipul nu i-l explica. Iar în
+                        redenumire, tot ce nu ține de câmp dispare: pe o coloană
+                        de 288 px, bulina, chevron-ul și mânerul de tragere
+                        lăsau vizibilă doar coada numelui. */}
+                    {canEdit && renamingId !== phase.id && (
                       <span
                         title={phase.visibility === 'published' ? 'Public — vizibil pentru client' : 'În pregătire — invizibil pentru client'}
                         className="w-2 h-2 rounded-full flex-shrink-0"

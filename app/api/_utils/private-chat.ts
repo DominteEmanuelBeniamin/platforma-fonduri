@@ -254,7 +254,7 @@ export async function getOrCreatePrivateConversation(
   if (
     !canChatWithUser(
       { id: ctx.user.id, role: ctx.profile.role },
-      { id: otherUser.id, role: otherUser.role } 
+      { id: otherUser.id, role: otherUser.role }
     )
   ) {
     return { ok: false, status: 403, error: 'Not allowed to start this conversation' }

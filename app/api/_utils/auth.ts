@@ -203,12 +203,12 @@ export async function requireProjectAccess(
     })
     return { ok: false, status: 500, error: 'Failed to verify client project access' }
   }
-  
+
   if (!project) {
     console.error('Project not found:', { projectId, userId: user.id })
     return { ok: false, status: 404, error: 'Project not found' }
   }
-  
+
   if (project.client_id !== user.id) {
     console.error('Client access denied:', {
       projectId,

@@ -53,6 +53,7 @@ import PublishStatusControl from '@/components/PublishStatusControl'
 import UnifiedSearchDialog from '@/components/UnifiedSearchDialog'
 import CalendarSurface from '@/components/calendar/CalendarSurface'
 import { buildSearchIndex, type SearchResult } from '@/lib/projectSearch'
+import { buildProjectChatHref } from '@/lib/project-chat-links'
 import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
 import { publishBlockers } from '@/lib/publish-rules'
 import { serverMessage } from '@/lib/api-error'
@@ -111,8 +112,6 @@ function ProjectDetailsContent() {
   const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set())
   const [expandedActivityIds, setExpandedActivityIds] = useState<Set<string>>(new Set())
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
-  const [highlightActivityId, setHighlightActivityId] = useState<string | null>(null)
-  const [highlightGeneralRequests, setHighlightGeneralRequests] = useState(false)
 
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitle, setEditTitle] = useState('')
@@ -136,6 +135,39 @@ function ProjectDetailsContent() {
   // element. Al doilea îl așteaptă pe primul și pe randare, deci nu pot fi unul.
   const appliedDeepLink = useRef<string | null>(null)
   const handledDeepLink = useRef<string | null>(null)
+  const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** Ancoră de evidențiat după ce se închide fișa cererii deschise din chat. */
+  const pendingRevealAnchor = useRef<string | null>(null)
+  const highlightAnimation = useRef<Animation | null>(null)
+
+  const revealTarget = useCallback((anchor: string, delay = 120) => {
+    if (revealTimer.current) clearTimeout(revealTimer.current)
+    const reveal = (attempt = 0) => {
+      const el = document.getElementById(anchor)
+      if (!el) {
+        if (attempt < 4) revealTimer.current = setTimeout(() => reveal(attempt + 1), 80)
+        return
+      }
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      highlightAnimation.current?.cancel()
+      const accent = getComputedStyle(document.documentElement).getPropertyValue('--p-accent').trim() || '#4f46e5'
+      const ring = anchor.startsWith('request-')
+        ? `inset 0 0 0 2px ${accent}`
+        : `0 0 0 3px ${accent}, 0 0 0 7px color-mix(in srgb, ${accent} 18%, transparent)`
+      highlightAnimation.current = el.animate([
+        { boxShadow: '0 0 0 0 transparent' },
+        { boxShadow: ring, offset: 0.18 },
+        { boxShadow: ring, offset: 0.68 },
+        { boxShadow: '0 0 0 0 transparent' },
+      ], { duration: 1800, easing: 'ease-out' })
+    }
+    revealTimer.current = setTimeout(reveal, delay)
+  }, [])
+
+  useEffect(() => () => {
+    if (revealTimer.current) clearTimeout(revealTimer.current)
+    highlightAnimation.current?.cancel()
+  }, [])
 
   const [showAddActivity, setShowAddActivity] = useState<Record<string, boolean>>({})
   const [newActivityName, setNewActivityName] = useState<Record<string, string>>({})
@@ -639,6 +671,10 @@ function ProjectDetailsContent() {
   // individual doar adaugă/scoate o faza din set, fără să atingă restul —
   // folosit ca să închizi o faza vizibilă (ex. în modul „Toate fazele”).
   const handleToggleExpand = (phaseId: string) => {
+    if (expandedPhases.has(phaseId) && activePhaseId === phaseId) {
+      setActivePhaseId(null)
+      if (hasDeepLink) selectView('phases')
+    }
     setExpandedPhases(prev => {
       const next = new Set(prev)
       if (next.has(phaseId)) next.delete(phaseId)
@@ -681,6 +717,8 @@ function ProjectDetailsContent() {
   const handleToggleAllPhases = () => {
     if (allPhasesExpanded) {
       setExpandedPhases(new Set())
+      setActivePhaseId(null)
+      if (hasDeepLink) selectView('phases')
     } else {
       setExpandedPhases(new Set([...phases.map(p => p.id), GENERAL_ID]))
     }
@@ -746,33 +784,17 @@ function ProjectDetailsContent() {
     }
     if (handledDeepLink.current === deepLinkKey) return
     if (loading || activePhaseId !== targetPhaseId) return
-    const anchor = targetActivityId
-      ? `activity-${targetActivityId}`
-      : targetPhaseId === GENERAL_ID ? 'general-requests' : null
-    if (!anchor) return
+    const anchor = targetDocumentId
+      ? `request-${targetDocumentId}`
+      : targetActivityId
+        ? `activity-${targetActivityId}`
+        : targetPhaseId === GENERAL_ID ? 'general-requests' : `phase-${targetPhaseId}`
 
     if (targetActivityId) setExpandedActivityIds(prev => new Set(prev).add(targetActivityId))
-    const timer = setTimeout(() => {
-      const el = document.getElementById(anchor)
-      if (!el) return
-      handledDeepLink.current = deepLinkKey
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      if (targetActivityId) {
-        setHighlightActivityId(targetActivityId)
-        setTimeout(() => setHighlightActivityId(null), 2500)
-        if (targetDocumentId) {
-          setSelectedDocumentRequestId(targetDocumentId)
-        }
-      } else {
-        setHighlightGeneralRequests(true)
-        setTimeout(() => setHighlightGeneralRequests(false), 2500)
-        if (targetDocumentId) {
-          setSelectedDocumentRequestId(targetDocumentId)
-        }
-      }
-    }, 250)
-    return () => clearTimeout(timer)
-  }, [loading, targetActivityId, targetPhaseId, targetDocumentId, activePhaseId])
+    handledDeepLink.current = deepLinkKey
+    revealTarget(anchor, 250)
+    if (targetDocumentId) setSelectedDocumentRequestId(targetDocumentId)
+  }, [loading, targetActivityId, targetPhaseId, targetDocumentId, activePhaseId, revealTarget])
 
   // Sari direct la o activitate (din panoul "Ce e de făcut"), fără reload.
   // Cu requestId, deschide direct fișa cererii — zero click-uri suplimentare
@@ -794,19 +816,7 @@ function ProjectDetailsContent() {
       setAutoOpenRequestId(requestId)
       setTimeout(() => setAutoOpenRequestId(null), 2500)
     }
-    setTimeout(() => {
-      const anchor = activityId ? `activity-${activityId}` : 'general-requests'
-      const el = document.getElementById(anchor)
-      if (!el) return
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      if (activityId) {
-        setHighlightActivityId(activityId)
-        setTimeout(() => setHighlightActivityId(null), 2500)
-      } else {
-        setHighlightGeneralRequests(true)
-        setTimeout(() => setHighlightGeneralRequests(false), 2500)
-      }
-    }, 120)
+    revealTarget(requestId ? `request-${requestId}` : activityId ? `activity-${activityId}` : 'general-requests')
   }
 
   // Stabil între rendere: altfel `documents`/`folders` din Drive se reconstruiesc
@@ -881,9 +891,7 @@ function ProjectDetailsContent() {
       selectView('phases')
       setLandingView('browse')
       setExpandedPhases(new Set([result.id]))
-      setTimeout(() => {
-        document.getElementById(`phase-${result.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }, 120)
+      revealTarget(`phase-${result.id}`)
       return
     }
     if (result.type === 'activity') {
@@ -892,6 +900,34 @@ function ProjectDetailsContent() {
     }
     // document_request — deschide și fișa cererii, odată ce faza/activitatea e vizibilă
     jumpToActivity(result.phaseId, result.activityId, result.id)
+  }
+
+  const handleChatNavigate = (result: SearchResult) => {
+    setChatOpen(false)
+    const phaseId = result.type === 'phase' ? result.id : result.phaseId ?? GENERAL_ID
+    const deepLinkKey = `${phaseId}:${result.activityId}:${result.type === 'document_request' ? result.id : null}`
+    appliedDeepLink.current = deepLinkKey
+    handledDeepLink.current = deepLinkKey
+    setActiveView('phases')
+    setLandingView('browse')
+    setActivePhaseId(phaseId)
+    setExpandedPhases(prev => new Set(prev).add(phaseId))
+    if (result.activityId) {
+      setExpandedActivityIds(prev => new Set(prev).add(result.activityId!))
+    }
+    if (result.type === 'document_request') {
+      // Fișa cererii acoperă pagina, deci inelul desenat acum s-ar consuma sub
+      // ea. Îl amânăm până se închide modalul, ca userul să vadă atunci din ce
+      // activitate venea cererea.
+      setSelectedDocumentRequestId(result.id)
+      pendingRevealAnchor.current = `request-${result.id}`
+    } else {
+      revealTarget(result.type === 'activity' ? `activity-${result.id}` : `phase-${result.id}`)
+    }
+    if (!projectId) return
+    // `replace`, ca peste tot altundeva în pagină: cu `push`, o plimbare prin
+    // cinci linkuri din chat cerea cinci apăsări de Back ca să ieși din proiect.
+    router.replace(buildProjectChatHref(projectId, result), { scroll: false })
   }
 
   // ─── Loading / error ──────────────────────────────────────────────────────
@@ -1224,11 +1260,12 @@ function ProjectDetailsContent() {
                   id={phase.id}
                   title={phase.name}
                   subtitle={`${phase.activities?.length ?? 0} activit${phase.activities?.length === 1 ? 'ate' : 'ăți'}`}
-                  color={phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)'}
+                  color={canEdit ? (phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)') : undefined}
                   headerRight={
                     <PublishStatusControl
                       status={phase.visibility ?? 'draft'}
                       canPublish={canEdit}
+                      showPublishedStatus={canEdit}
                       onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}`, {
                         title: 'Publică faza?',
                         description: 'Faza va deveni vizibilă clientului. Activitățile și cererile deja publicate din această fază vor deveni vizibile.',
@@ -1278,7 +1315,6 @@ function ProjectDetailsContent() {
                         requestCount={allDocRequests.filter((r: any) => !r.is_outgoing && r.activity_id === activity.id).length}
                         open={expandedActivityIds.has(activity.id)}
                         onOpenChange={() => handleToggleActivity(activity.id)}
-                        highlighted={highlightActivityId === activity.id}
                         canAssign={canEdit}
                         projectMembers={projectMembers}
                         onAssign={assignedTo => { handleAssignActivity(phase.id, activity.id, assignedTo).catch(() => {}) }}
@@ -1418,7 +1454,7 @@ function ProjectDetailsContent() {
                 >
                   <div
                     id="general-requests"
-                    className={`scroll-mt-24 rounded-xl transition-shadow ${highlightGeneralRequests ? 'ring-2 ring-[var(--p-accent)] ring-offset-2 ring-offset-[var(--p-bg)]' : ''}`}
+                    className="scroll-mt-24 rounded-xl"
                   >
                     <DocumentRequests
                       key="__general__"
@@ -1457,6 +1493,8 @@ function ProjectDetailsContent() {
           title="Chat proiect"
           projectId={projectId}
           onUnreadCountChange={setUnreadCount}
+          searchIndex={searchIndex}
+          onNavigate={handleChatNavigate}
         />
       )}
 
@@ -1471,7 +1509,12 @@ function ProjectDetailsContent() {
         <DocumentModal
           request={selectedDocumentRequest}
           projectId={projectId!}
-          onClose={() => setSelectedDocumentRequestId(null)}
+          onClose={() => {
+            setSelectedDocumentRequestId(null)
+            const anchor = pendingRevealAnchor.current
+            pendingRevealAnchor.current = null
+            if (anchor) revealTarget(anchor)
+          }}
           onUpdate={refreshDocs}
           clientEmail={project?.profiles?.email ?? null}
           clientName={project?.profiles?.full_name ?? null}

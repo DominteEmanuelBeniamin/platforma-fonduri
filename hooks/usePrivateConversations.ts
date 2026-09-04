@@ -55,23 +55,23 @@ export function usePrivateConversations() {
     const fetchConversations = useCallback(async () => {
         if (authLoading) return
         if (inFlightRefreshRef.current) return
-      
+
         inFlightRefreshRef.current = true
         setLoading(true)
         setError(null)
-      
+
         try {
           const res = await apiFetch('/api/private-conversations', { method: 'GET' })
           const json = (await res.json().catch(() => null)) as GetPrivateConversationsResponse | null
-      
+
           if (!mountedRef.current) return
-      
+
           if (!res.ok) {
             setError(userErrorMessage(res.status, 'Nu am putut încărca conversațiile.'))
             setItems([])
             return
           }
-      
+
           setItems(json?.items ?? [])
         } catch {
           if (!mountedRef.current) return
@@ -84,12 +84,12 @@ export function usePrivateConversations() {
           inFlightRefreshRef.current = false
         }
       }, [apiFetch, authLoading])
-    
+
     const scheduleRefresh = useCallback(() => {
         if (refreshTimeoutRef.current) {
             clearTimeout(refreshTimeoutRef.current)
         }
-        
+
         refreshTimeoutRef.current = setTimeout(() => {
             refreshTimeoutRef.current = null
             void fetchConversations()
@@ -185,12 +185,12 @@ export function usePrivateConversations() {
   const markConversationReadLocally = useCallback(
     (conversationId: string, lastReadAt: string | null) => {
       if (!lastReadAt) return
-  
+
       setItems((prev) =>
         prev.map((item) => {
           if (item.id !== conversationId) return item
           if (item.last_read_at === lastReadAt) return item
-  
+
           return {
             ...item,
             last_read_at: lastReadAt,
@@ -208,7 +208,7 @@ export function usePrivateConversations() {
 
   useEffect(() => {
     if (!userId) return
-  
+
     const channel = supabase
       .channel(`private-conversations-list-${userId}`)
       .on(
@@ -249,7 +249,7 @@ export function usePrivateConversations() {
           void fetchConversations()
         }
       })
-  
+
     return () => {
       if (refreshTimeoutRef.current) {
         clearTimeout(refreshTimeoutRef.current)
@@ -261,7 +261,7 @@ export function usePrivateConversations() {
 
   useEffect(() => {
     mountedRef.current = true
-  
+
     return () => {
       mountedRef.current = false
       if (refreshTimeoutRef.current) {

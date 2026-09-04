@@ -18,7 +18,6 @@ interface ActivityFoldProps {
   requestCount: number
   open: boolean
   onOpenChange: () => void
-  highlighted?: boolean
   /** Cine poate publica poate și atribui — regula #70 cere un responsabil */
   canAssign: boolean
   projectMembers: Member[]
@@ -50,7 +49,6 @@ export default function ActivityFold({
   requestCount,
   open,
   onOpenChange,
-  highlighted,
   canAssign,
   projectMembers,
   onAssign,
@@ -78,11 +76,7 @@ export default function ActivityFold({
     <Collapsible.Root
       id={`activity-${activity.id}`}
       open={open}
-      className={`border rounded-xl bg-[var(--p-surface)] overflow-hidden scroll-mt-24 transition-all duration-500 ${
-        highlighted
-          ? 'ring-2 ring-[var(--p-accent)] ring-offset-2 ring-offset-[var(--p-bg)] border-[var(--p-accent-soft)]'
-          : 'border-[var(--p-border)]/60 shadow-[0_1px_2px_rgba(15,23,42,0.03)]'
-      }`}
+      className="border border-[var(--p-border)]/60 rounded-xl bg-[var(--p-surface)] overflow-hidden scroll-mt-24 shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
     >
       {/* Rândul rămâne clicabil în întregime, dar nu mai e `role="button"`:
           înăuntru stau acum select-uri și câmpuri (vezi PublishStatusControl),
@@ -175,6 +169,7 @@ export default function ActivityFold({
           <PublishStatusControl
             status={visibility ?? 'draft'}
             canPublish={canPublish}
+            showPublishedStatus={canPublish}
             onPublish={onPublish}
             blockers={publishBlockers}
             onSetDeadline={onSetDeadline}
