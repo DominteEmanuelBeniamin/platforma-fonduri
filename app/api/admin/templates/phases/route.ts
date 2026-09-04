@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
+import { parseTemplateDuplication } from '@/app/api/_utils/template-duplication'
+import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,6 +30,24 @@ export async function POST(req: NextRequest) {
     const templateAccess = await requireTemplateAccess(req, template_id, 'edit')
     if (!templateAccess.ok) {
       return NextResponse.json({ error: templateAccess.error }, { status: templateAccess.status })
+    }
+
+    let duplication: TemplateDuplication | undefined
+    if (body.duplication !== undefined) {
+      const parsed = parseTemplateDuplication(body.duplication, 'template_phase')
+      if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
+      duplication = parsed.value
+      if (duplication.source_kind === 'persistent') {
+        const { data: source, error: sourceError } = await supabaseAdmin
+          .from('template_phases')
+          .select('id, name, template_id')
+          .eq('id', duplication.source_id)
+          .eq('template_id', template_id)
+          .maybeSingle()
+        if (sourceError) throw sourceError
+        if (!source) return NextResponse.json({ error: 'Sursa duplicării nu aparține acestui template.' }, { status: 400 })
+        duplication = { ...duplication, source_name: source.name }
+      }
     }
 
     const finalSlug = slug || name
@@ -89,12 +109,14 @@ export async function POST(req: NextRequest) {
 
     await logAction({
       actorId: auth.profile.id,
-      actionType: 'add',
+      actionType: duplication ? 'create' : 'add',
       entityType: 'template_phase',
       entityId: phase.id,
       entityName: phase.name,
-      newValues: { ...phase, template_name: templateName },
-      description: `Adaugare faza "${phase.name}" in sablonul "${templateName}"`,
+      newValues: { ...phase, template_name: templateName, ...(duplication ? { duplication } : {}) },
+      description: duplication
+        ? `Duplicare faza "${phase.name}" in sablonul "${templateName}"`
+        : `Adaugare faza "${phase.name}" in sablonul "${templateName}"`,
       request: req,
     })
 

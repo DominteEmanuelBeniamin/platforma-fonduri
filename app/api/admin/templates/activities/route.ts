@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
+import { parseTemplateDuplication } from '@/app/api/_utils/template-duplication'
+import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -36,6 +38,26 @@ export async function POST(req: NextRequest) {
     const templateAccess = await requireTemplateAccess(req, phaseAccessRow.template_id, 'edit')
     if (!templateAccess.ok) {
       return NextResponse.json({ error: templateAccess.error }, { status: templateAccess.status })
+    }
+
+    let duplication: TemplateDuplication | undefined
+    if (body.duplication !== undefined) {
+      const parsed = parseTemplateDuplication(body.duplication, 'template_activity')
+      if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
+      duplication = parsed.value
+      if (duplication.source_kind === 'persistent') {
+        const { data: source, error: sourceError } = await supabaseAdmin
+          .from('template_activities')
+          .select('id, name, template_phases(template_id)')
+          .eq('id', duplication.source_id)
+          .maybeSingle()
+        if (sourceError) throw sourceError
+        const sourceTemplateId = (source as any)?.template_phases?.template_id
+        if (!source || sourceTemplateId !== phaseAccessRow.template_id) {
+          return NextResponse.json({ error: 'Sursa duplicării nu aparține acestui template.' }, { status: 400 })
+        }
+        duplication = { ...duplication, source_name: source.name }
+      }
     }
 
     let finalOrderIndex = order_index
@@ -77,12 +99,19 @@ export async function POST(req: NextRequest) {
 
     await logAction({
       actorId: auth.profile.id,
-      actionType: 'add',
+      actionType: duplication ? 'create' : 'add',
       entityType: 'template_activity',
       entityId: activity.id,
       entityName: activity.name,
-      newValues: { ...activity, template_name: templateName, phase_name: phaseName },
-      description: `Adaugare activitate "${activity.name}" in faza "${phaseName}" (sablonul "${templateName}")`,
+      newValues: {
+        ...activity,
+        template_name: templateName,
+        phase_name: phaseName,
+        ...(duplication ? { duplication } : {}),
+      },
+      description: duplication
+        ? `Duplicare activitate "${activity.name}" in faza "${phaseName}" (sablonul "${templateName}")`
+        : `Adaugare activitate "${activity.name}" in faza "${phaseName}" (sablonul "${templateName}")`,
       request: req,
     })
 
