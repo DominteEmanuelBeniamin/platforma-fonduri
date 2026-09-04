@@ -158,9 +158,10 @@ export async function PATCH(
     }
     if (!message) return Response.json({ error: 'Message not found' }, { status: 404 })
     if (message.deleted_at) return Response.json({ error: 'Message is deleted' }, { status: 409 })
+    const patch = parsed.data
     const currentImages = storedChatImages(message.images)
-    const nextImages = parsed.data.kind === 'removeImage'
-      ? currentImages.filter(image => image.path !== parsed.data.imagePath)
+    const nextImages = patch.kind === 'removeImage'
+      ? currentImages.filter(image => image.path !== patch.imagePath)
       : currentImages
     if (parsed.data.kind === 'removeImage' && nextImages.length === currentImages.length) {
       return Response.json({ error: 'Image not found' }, { status: 404 })
