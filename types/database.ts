@@ -249,6 +249,7 @@ export interface Profile {
   departament: string | null;
   specializare: string | null;
   is_active: boolean;
+  password_reset_requested_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -268,6 +269,7 @@ export interface ProfileUpdate extends Partial<ProfileCreate> {
   departament?: string;
   specializare?: string;
   is_active?: boolean;
+  password_reset_requested_at?: string | null;
 }
 
 // PROGRAM (neschimbat)

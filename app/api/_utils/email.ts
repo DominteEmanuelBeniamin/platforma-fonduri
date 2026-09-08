@@ -42,7 +42,7 @@ export type ReminderDeliveryError = {
   message: string
 }
 
-function isProductionEnvironment() {
+export function isProductionEnvironment() {
   const vercelEnvironment = process.env.VERCEL_ENV?.trim().toLowerCase()
   if (vercelEnvironment) return vercelEnvironment === 'production'
   return process.env.NODE_ENV === 'production'
