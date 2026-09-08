@@ -3,8 +3,9 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Building2, Briefcase, Shield } from 'lucide-react'
+import { ArrowLeft, Building2, Briefcase, ChevronDown, Eye, EyeOff, KeyRound, Shield } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { useToast } from '@/app/providers/ToastProvider'
 import DriveFilesView, { DriveRow } from '@/components/DriveFilesView'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -24,18 +25,30 @@ export default function UserFilesPage() {
   const params  = useParams()
   const userId  = params?.id as string
 
-  const { apiFetch, loading: authLoading, token } = useAuth()
+  const { apiFetch, loading: authLoading, token, profile } = useAuth()
+  const { showToast, confirm } = useToast()
 
   const [user,     setUser]     = useState<any>(null)
   const [allFiles, setAllFiles] = useState<any[]>([])
   const [loading,  setLoading]  = useState(true)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [passwordSaving, setPasswordSaving] = useState(false)
+
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [userId])
 
   useEffect(() => {
     if (authLoading) return
     if (!token) { router.replace('/login'); return }
+    if (!profile) return
+    if (profile.role !== 'admin') { router.replace('/'); return }
     loadAll()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, token, userId])
+  }, [authLoading, token, profile, userId])
 
   async function loadAll() {
     setLoading(true)
@@ -88,6 +101,56 @@ export default function UserFilesPage() {
     }
   }
 
+  async function handlePasswordSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!user || passwordSaving) return
+
+    if (!newPassword || !confirmPassword) {
+      showToast('Completează ambele câmpuri de parolă.', 'error')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      showToast('Parolele nu coincid.', 'error')
+      return
+    }
+
+    const confirmed = await confirm({
+      title: 'Confirmă schimbarea parolei',
+      description: `Parola pentru ${user.full_name ? `${user.full_name} (${user.email})` : user.email} va fi înlocuită permanent. Comunică parola utilizatorului în siguranță.`,
+      confirmText: 'Schimbă parola',
+    })
+    if (!confirmed) return
+
+    setPasswordSaving(true)
+    try {
+      const response = await apiFetch(`/api/users/${encodeURIComponent(userId)}/password`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: newPassword }),
+      })
+      const data = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        showToast(data?.message || data?.error || 'Nu am putut schimba parola. Reîncearcă.', 'error')
+        return
+      }
+
+      if (data?.notificationSent === false) {
+        showToast('Parola a fost schimbată, dar emailul de notificare nu a putut fi trimis.', 'warning')
+      } else {
+        showToast('Parola a fost schimbată. Comunică utilizatorului parola în siguranță.', 'success')
+      }
+    } catch {
+      showToast('Nu am putut schimba parola. Reîncearcă.', 'error')
+    } finally {
+      setPasswordSaving(false)
+      setNewPassword('')
+      setConfirmPassword('')
+      setShowNewPassword(false)
+      setShowConfirmPassword(false)
+    }
+  }
+
   // Map to DriveRow
   const driveRows = useMemo((): DriveRow[] => allFiles.map(f => ({
     id:            f.fileId,
@@ -135,9 +198,10 @@ export default function UserFilesPage() {
             <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
               {initials}
             </div>
-            <h1 className="text-sm font-semibold text-slate-900 truncate">
-              {user.full_name || user.email}
-            </h1>
+            <div className="min-w-0">
+              <h1 className="truncate text-sm font-semibold text-slate-900">{user.full_name || user.email}</h1>
+              {user.full_name && <p className="truncate text-xs text-slate-500">{user.email}</p>}
+            </div>
             <RoleBadge role={user.role} />
           </div>
 
@@ -151,6 +215,92 @@ export default function UserFilesPage() {
 
       {/* ── Main ── */}
       <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-6">
+        {(user.role === 'client' || user.role === 'consultant') && (
+          <details className="group mb-4 rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <summary className="flex cursor-pointer list-none items-start gap-2.5 px-5 py-3.5 text-sm hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+              <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden="true" />
+              <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
+              <span className="min-w-0 flex-1 sm:flex sm:flex-wrap sm:gap-x-2">
+                <span className="block font-semibold text-slate-900">Schimbă parola</span>
+                <span className="mt-0.5 block break-all text-slate-500 sm:mt-0">Acțiune manuală pentru {user.email}</span>
+              </span>
+            </summary>
+
+            <form onSubmit={handlePasswordSubmit} className="space-y-3 border-t border-slate-100 px-5 py-4">
+              <p className="text-sm leading-5 text-slate-500">
+                Adminul setează manual o parolă permanentă și o comunică utilizatorului în siguranță. Parola nu va fi trimisă prin email.
+              </p>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-slate-900">Parolă nouă</span>
+                  <span className="relative block">
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={event => setNewPassword(event.target.value)}
+                      autoComplete="new-password"
+                      required
+                      disabled={passwordSaving}
+                      className="w-full rounded-xl border border-slate-300 bg-slate-50/50 px-3 py-2.5 pr-11 text-sm text-slate-900 outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 disabled:cursor-not-allowed disabled:bg-slate-50"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(value => !value)}
+                      disabled={passwordSaving}
+                      aria-label={showNewPassword ? 'Ascunde parola nouă' : 'Afișează parola nouă'}
+                      aria-pressed={showNewPassword}
+                      className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-400 transition hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {showNewPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+                    </button>
+                  </span>
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-slate-900">Confirmă parola</span>
+                  <span className="relative block">
+                    <input
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={event => setConfirmPassword(event.target.value)}
+                      autoComplete="new-password"
+                      required
+                      disabled={passwordSaving}
+                      aria-invalid={confirmPassword.length > 0 && newPassword !== confirmPassword}
+                      className="w-full rounded-xl border border-slate-300 bg-slate-50/50 px-3 py-2.5 pr-11 text-sm text-slate-900 outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 disabled:cursor-not-allowed disabled:bg-slate-50"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(value => !value)}
+                      disabled={passwordSaving}
+                      aria-label={showConfirmPassword ? 'Ascunde confirmarea parolei' : 'Afișează confirmarea parolei'}
+                      aria-pressed={showConfirmPassword}
+                      className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-400 transition hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {showConfirmPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+                    </button>
+                  </span>
+                </label>
+              </div>
+
+              {confirmPassword.length > 0 && newPassword !== confirmPassword && (
+                <p className="text-sm text-red-600" role="alert">Parolele nu coincid.</p>
+              )}
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="submit"
+                  disabled={passwordSaving}
+                  className="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {passwordSaving ? 'Se schimbă parola...' : 'Schimbă parola'}
+                </button>
+              </div>
+            </form>
+          </details>
+        )}
+
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <DriveFilesView
             rows={driveRows}
