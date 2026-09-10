@@ -80,7 +80,7 @@ function generateId() {
 }
 
 export default function NewProjectPage() {
-  const { apiFetch } = useAuth()
+  const { apiFetch, token, loading: authLoading } = useAuth()
   const { showToast } = useToast()
   const router = useRouter()
 
@@ -112,6 +112,7 @@ export default function NewProjectPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    if (authLoading || !token) return
     const fetchClients = async () => {
       try {
         const res = await apiFetch('/api/clients')
@@ -124,9 +125,10 @@ export default function NewProjectPage() {
       }
     }
     fetchClients()
-  }, [apiFetch])
+  }, [apiFetch, authLoading, token])
 
   useEffect(() => {
+    if (authLoading || !token) return
     const fetchData = async () => {
       try {
         const [templatesRes, statusesRes, usersRes] = await Promise.all([
@@ -152,7 +154,7 @@ export default function NewProjectPage() {
       }
     }
     fetchData()
-  }, [apiFetch])
+  }, [apiFetch, authLoading, token])
 
   // Phase functions
   const addPhase = () => {
