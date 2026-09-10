@@ -126,12 +126,12 @@ export default function SelectFilter({
         aria-activedescendant={open ? optionId(active) : undefined}
         onClick={() => (open ? setOpen(false) : openAt(selectedIndex))}
         onKeyDown={onKeyDown}
-        className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-left text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        className="flex w-full items-center justify-between gap-2 rounded-lg border border-rule bg-white px-4 py-2.5 text-left text-sm focus:border-[var(--sg-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--sg-accent)]"
       >
-        <span className={`truncate ${selected ? 'text-slate-700' : 'text-slate-500'}`}>
+        <span className={`truncate ${selected ? 'text-ink' : 'text-ink-soft'}`}>
           {selected?.label ?? placeholder}
         </span>
-        <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`h-4 w-4 shrink-0 text-ink-faint transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
@@ -140,7 +140,7 @@ export default function SelectFilter({
           id={listboxId}
           role="listbox"
           aria-label={ariaLabel}
-          className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+          className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-lg border border-rule bg-white py-1 shadow-lg"
         >
           {items.map((option, index) => (
             <button
@@ -153,10 +153,10 @@ export default function SelectFilter({
               onPointerEnter={() => setActiveIndex(index)}
               onClick={() => commit(index)}
               className={`block w-full truncate px-4 py-2 text-left text-sm transition-colors ${index === selectedIndex
-                ? 'bg-indigo-50 font-semibold text-indigo-700'
+                ? 'bg-[var(--sg-accent-soft)] font-semibold text-[var(--sg-accent)]'
                 : index === active
-                  ? 'bg-slate-50 text-slate-700'
-                  : 'text-slate-600'}`}
+                  ? 'bg-paper-sunk text-ink'
+                  : 'text-ink-soft'}`}
             >
               {option.label}
             </button>

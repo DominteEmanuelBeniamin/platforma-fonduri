@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import * as Collapsible from '@radix-ui/react-collapsible'
+import { bandFor, bandVar } from '@/lib/signage'
 import {
   ChevronDown,
   ChevronRight,
@@ -410,23 +411,22 @@ export default function ProjectPhasesSidebar({
       {mobileOpen && (
         <div
           onClick={onMobileClose}
-          className="md:hidden fixed inset-0 bg-slate-900/50 z-[999998]"
+          className="fixed inset-0 z-[999998] md:hidden" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }}
           aria-hidden="true"
         />
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-[999999] w-80 max-w-[85vw] shadow-2xl
-        md:sticky md:top-14 md:inset-auto md:self-start md:z-auto md:w-64 lg:w-72 md:shadow-none md:translate-x-0
-        flex flex-col flex-shrink-0 min-h-0 bg-[var(--p-surface)] md:border-r border-[var(--p-border)]
-        transition-transform duration-300 ease-out overflow-hidden md:overflow-visible
-        ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`fixed inset-y-0 left-0 z-[999999] w-80 max-w-[85vw] min-h-0 flex-shrink-0 flex-col overflow-hidden border-r border-rule bg-plate
+        md:sticky md:top-16 md:inset-auto md:z-auto md:w-72 md:max-w-none md:self-start md:overflow-visible lg:w-80
+        ${mobileOpen ? 'flex translate-x-0' : 'hidden md:flex md:translate-x-0'}`}
+        style={{ boxShadow: mobileOpen ? 'var(--sg-lift)' : undefined }}
       >
 
       {/* Header */}
       <div className="h-12 px-4 border-b border-[var(--p-border)] flex-shrink-0 flex items-center justify-between">
-        <p className="text-[11px] font-semibold text-[var(--p-ink-faint)] uppercase tracking-wider flex items-center gap-2">
-          <Layers className="w-3.5 h-3.5" /> Faze proiect
+        <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+          <Layers className="h-4 w-4" aria-hidden="true" /> Toate fazele
         </p>
         <button
           onClick={onMobileClose}
@@ -456,10 +456,33 @@ export default function ProjectPhasesSidebar({
                 <div
                     onClick={() => onSelectPhase(phase.id)}
                     onDragOver={e => handlePhaseDragOver(e, phase.id)}
-                    className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-all ${
+                    title={canEdit ? (phase.visibility === 'published' ? 'Vizibil clientului' : 'În pregătire — clientul n-o vede încă') : undefined}
+                    className={`group relative flex items-center gap-2.5 rounded-lg px-3 cursor-pointer transition-all ${
+                      canEdit ? 'pb-2.5 pt-3.5' : 'py-2.5'
+                    } ${
+                      canEdit && phase.visibility !== 'published' ? 'border border-dashed border-rule-strong' : ''
+                    } ${
                       isActive ? 'bg-[var(--p-accent-soft)]' : 'hover:bg-[var(--p-surface-2)]'
                     } ${draggedPhaseId === phase.id ? 'opacity-50' : ''}`}
                   >
+                    {/* Publicarea e un detaliu de echipă. Clientul vede doar faze
+                        publicate, deci banda i-ar fi mereu aceeași: un semn fără
+                        înțeles — de-aia stă în spatele lui `canEdit`, ca restul
+                        uneltelor de echipă din rând. Banda aripii, pe muchia de
+                        sus — niciodată border-left, ăsta e tiparul leneș pe care
+                        sistemul îl refuză explicit. Faza nepublicată n-are bandă
+                        deloc, doar conturul întrerupt de pe rând. */}
+                    {canEdit && phase.visibility === 'published' && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute inset-x-0 top-0 h-[var(--sg-rail)] rounded-t-lg"
+                        style={{ background: bandVar(bandFor(phases.findIndex(p => p.id === phase.id))) }}
+                      />
+                    )}
+                    {/* `pointer-coarse:opacity-100`: pe un aparat fără maus nu există
+                        „a trece peste”, deci mânerul rămâne invizibil și reordonarea nu
+                        există. Pragul e lipsa mausului, nu lățimea — un iPad de 768px
+                        n-are maus, dar trece de `md:`. */}
                     {canEdit && renamingId !== phase.id && (
                       <span
                         draggable
@@ -467,23 +490,10 @@ export default function ProjectPhasesSidebar({
                         onDragEnd={handlePhaseDragEnd}
                         onClick={e => e.stopPropagation()}
                         title="Trage pentru a reordona"
-                        className="-ml-1.5 p-0.5 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink-soft)] opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing flex-shrink-0"
+                        className="-ml-1.5 flex h-6 w-6 items-center justify-center rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink-soft)] opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity cursor-grab active:cursor-grabbing flex-shrink-0"
                       >
                         <GripVertical className="w-3.5 h-3.5" />
                       </span>
-                    )}
-                    {/* Publicarea e un detaliu de echipă. Clientul vede doar faze
-                        publicate, deci bulina i-ar fi mereu verde: un semn fără
-                        înțeles, pe care nici tooltipul nu i-l explica. Iar în
-                        redenumire, tot ce nu ține de câmp dispare: pe o coloană
-                        de 288 px, bulina, chevron-ul și mânerul de tragere
-                        lăsau vizibilă doar coada numelui. */}
-                    {canEdit && renamingId !== phase.id && (
-                      <span
-                        title={phase.visibility === 'published' ? 'Public — vizibil pentru client' : 'În pregătire — invizibil pentru client'}
-                        className="w-2 h-2 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)' }}
-                      />
                     )}
                     {renamingId === phase.id ? (
                       <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
@@ -496,7 +506,7 @@ export default function ProjectPhasesSidebar({
                         />
                       </div>
                     ) : (
-                      <span className={`flex-1 text-sm font-medium truncate ${isActive ? 'text-[var(--p-accent-ink)]' : 'text-[var(--p-ink)]'}`}>
+                      <span className={`min-w-0 flex-1 break-words text-sm leading-snug ${isActive ? 'font-semibold text-[var(--sg-accent-ink)]' : 'font-medium text-ink'}`}>
                         {phase.name}
                       </span>
                     )}
@@ -505,7 +515,7 @@ export default function ProjectPhasesSidebar({
                         <button
                           onClick={e => e.stopPropagation()}
                           aria-label={isExpanded ? 'Restrânge faza' : 'Extinde faza'}
-                          className="p-0.5 rounded hover:bg-[var(--p-surface-2)] flex-shrink-0"
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-[var(--p-surface-2)]"
                         >
                           {isExpanded
                             ? <ChevronDown className="w-3.5 h-3.5 text-[var(--p-ink-faint)]" />
@@ -521,7 +531,7 @@ export default function ProjectPhasesSidebar({
                         // `group-hover` nu se declanșează pe touch, iar „⋯” e
                         // singura cale spre Redenumește / Duplică / Șterge:
                         // pe telefon rămâne vizibil.
-                        className="md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100 data-[open=true]:opacity-100 transition-opacity"
+                        className="md:opacity-0 md:group-hover:opacity-100 pointer-coarse:opacity-100 focus-within:opacity-100 data-[open=true]:opacity-100 transition-opacity"
                         actions={[
                           {
                             label: 'Redenumește',
@@ -578,7 +588,7 @@ export default function ProjectPhasesSidebar({
                               onDragEnd={handleActivityDragEnd}
                               onClick={e => e.stopPropagation()}
                               title="Trage pentru a reordona"
-                              className="-ml-1 p-0.5 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink-soft)] opacity-0 group-hover/act:opacity-100 transition-opacity cursor-grab active:cursor-grabbing flex-shrink-0"
+                              className="-ml-1 flex h-6 w-6 items-center justify-center rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink-soft)] opacity-0 group-hover/act:opacity-100 pointer-coarse:opacity-100 transition-opacity cursor-grab active:cursor-grabbing flex-shrink-0"
                             >
                               <GripVertical className="w-3 h-3" />
                             </span>
@@ -594,7 +604,7 @@ export default function ProjectPhasesSidebar({
                               />
                             </div>
                           ) : (
-                            <span className="text-xs text-[var(--p-ink-soft)] truncate flex-1">{act.name}</span>
+                            <span className="min-w-0 flex-1 break-words text-xs leading-snug text-ink-soft">{act.name}</span>
                           )}
 
                           {/* Buton calendar — pentru admin/consultant */}
@@ -605,12 +615,12 @@ export default function ProjectPhasesSidebar({
                                 setEditingDeadline(isEditingThisDeadline ? null : act.id)
                               }}
                               title={act.deadline_at ? 'Modifică termen limită' : 'Setează termen limită'}
-                              className={`p-0.5 rounded transition-all flex-shrink-0 ${
+                              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded transition-all ${
                                 act.deadline_at
                                   ? isOverdue
                                     ? 'text-[var(--p-danger)] hover:opacity-80'
                                     : 'text-[var(--p-warning)] hover:opacity-80'
-                                  : 'text-[var(--p-ink-faint)] hover:text-[var(--p-accent)] opacity-0 group-hover/act:opacity-100'
+                                  : 'text-[var(--p-ink-faint)] hover:text-[var(--p-accent)] opacity-0 group-hover/act:opacity-100 pointer-coarse:opacity-100'
                               }`}
                             >
                               <Calendar className="w-3 h-3" />
@@ -737,7 +747,7 @@ export default function ProjectPhasesSidebar({
             }`}
           >
             <FolderOpen className={`w-4 h-4 flex-shrink-0 ${isGeneralActive ? 'text-[var(--p-accent)]' : 'text-[var(--p-ink-faint)]'}`} />
-            <span className={`flex-1 text-sm font-medium truncate ${isGeneralActive ? 'text-[var(--p-accent-ink)]' : 'text-[var(--p-ink)]'}`}>
+            <span className={`min-w-0 flex-1 break-words text-sm leading-snug ${isGeneralActive ? 'font-semibold text-[var(--sg-accent-ink)]' : 'font-medium text-ink'}`}>
               Cereri generale
             </span>
           </div>

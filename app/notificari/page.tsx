@@ -1,19 +1,21 @@
 'use client'
 
-import { AlertCircle, ArrowLeft, Bell, CheckCheck, LoaderCircle } from 'lucide-react'
-import Link from 'next/link'
+import { AlertCircle, Bell, CheckCheck, LoaderCircle } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useNotifications } from '@/app/providers/NotificationsProvider'
 import NotificationRow from '@/components/notifications/NotificationRow'
 import SelectFilter from '@/components/SelectFilter'
+import { LocationStrip } from '@/components/ui/LocationStrip'
+import { Button } from '@/components/ui/Button'
 import {
   useNotificationFeed,
   type NotificationFilters,
   type NotificationItem,
 } from '@/components/notifications/useNotificationFeed'
 import { NOTIFICATION_TYPES, NOTIFICATION_TYPE_LABELS, notificationDayGroup } from '@/lib/notification-display'
+import { Spinner } from '@/components/ui/Spinner'
 
 type DayGroup = { label: string; items: NotificationItem[] }
 
@@ -71,7 +73,7 @@ export default function NotificationsPage() {
   if (authLoading || !token) {
     return (
       <div className="flex h-[80vh] items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-100 border-t-indigo-600" />
+        <Spinner />
       </div>
     )
   }
@@ -87,40 +89,30 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="fade-in-up flex flex-col gap-6">
-      <div className="flex items-center gap-4 border-b border-slate-200/60 pb-6">
-        <Link
-          href="/"
-          aria-label="Înapoi"
-          className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-sm transition-colors hover:bg-slate-50"
-        >
-          <ArrowLeft className="h-4 w-4 text-slate-500" />
-        </Link>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Notificări</h1>
-          <p className="mt-0.5 text-sm text-slate-500">
-            {unreadCount > 0 ? `${unreadCount} necitite` : 'Toate notificările sunt citite'}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void markAllRead()}
-          disabled={busy || unreadCount === 0}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition-colors hover:border-indigo-200 hover:text-indigo-600 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:border-slate-200"
-        >
-          {markingAll ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />}
-          <span className="hidden sm:inline">Marchează tot ca citit</span>
-          <span className="sm:hidden">Citește tot</span>
-        </button>
-      </div>
+    <div className="flex flex-col">
+      <LocationStrip
+        segments={[{ label: 'Bonie', href: '/' }, { label: 'Notificări' }]}
+        action={
+          <Button variant="secondary" aria-label="Marchează toate notificările ca citite" onClick={() => void markAllRead()} disabled={busy || unreadCount === 0}>
+            {markingAll ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CheckCheck className="h-4 w-4" aria-hidden="true" />}
+            <span className="hidden sm:inline">Marchează tot ca citit</span>
+            <span className="sm:hidden">Citește tot</span>
+          </Button>
+        }
+      />
+
+      <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Notificări</h1>
+      <p className="mb-6 mt-2 text-sm text-ink-soft">
+        {unreadCount > 0 ? `${unreadCount} necitite` : 'Toate sunt citite.'}
+      </p>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center rounded-lg bg-slate-100 p-0.5" role="group" aria-label="Filtru după stare">
+        <div className="flex items-center rounded-[var(--radius-plate)] border border-rule bg-plate p-0.5" role="group" aria-label="Filtru după stare">
           <button
             type="button"
             onClick={() => setFilters((current) => ({ ...current, status: 'all' }))}
             aria-pressed={filters.status === 'all'}
-            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${filters.status === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+            className={`min-h-11 rounded-[1px] px-3 text-sm font-semibold transition-colors duration-[120ms] sm:min-h-9 ${filters.status === 'all' ? 'bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : 'text-ink-soft hover:text-ink'}`}
           >
             Toate
           </button>
@@ -128,7 +120,7 @@ export default function NotificationsPage() {
             type="button"
             onClick={() => setFilters((current) => ({ ...current, status: 'unread' }))}
             aria-pressed={filters.status === 'unread'}
-            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${filters.status === 'unread' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+            className={`min-h-11 rounded-[1px] px-3 text-sm font-semibold transition-colors duration-[120ms] sm:min-h-9 ${filters.status === 'unread' ? 'bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : 'text-ink-soft hover:text-ink'}`}
           >
             Necitite
           </button>
@@ -158,33 +150,33 @@ export default function NotificationsPage() {
       </div>
 
       {feed.error ? (
-        <div className="flex min-h-64 flex-col items-center justify-center gap-2 rounded-2xl border border-slate-200/60 bg-white text-center">
-          <AlertCircle className="h-8 w-8 text-rose-400" aria-hidden="true" />
-          <p className="text-sm font-semibold text-slate-700">Notificările nu au putut fi încărcate.</p>
-          <button type="button" onClick={() => void feed.reload()} className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">
+        <div className="flex min-h-64 flex-col items-center justify-center gap-2 rounded-[var(--radius-plate)] border border-rule bg-plate text-center">
+          <AlertCircle className="h-8 w-8" style={{ color: 'var(--sg-danger)' }} aria-hidden="true" />
+          <p className="text-sm font-semibold text-ink">Notificările nu au putut fi încărcate.</p>
+          <button type="button" onClick={() => void feed.reload()} className="min-h-11 text-sm font-semibold text-[var(--sg-accent)] underline-offset-4 hover:underline sm:min-h-9">
             Încearcă din nou
           </button>
         </div>
       ) : feed.loading && feed.items.length === 0 ? (
-        <div className="flex min-h-64 items-center justify-center text-sm text-slate-400">
+        <div className="flex min-h-64 items-center justify-center text-sm text-ink-soft" role="status">
           <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />Se încarcă notificările…
         </div>
       ) : feed.items.length === 0 ? (
-        <div className="flex min-h-64 flex-col items-center justify-center gap-2 rounded-2xl border border-slate-200/60 bg-white text-center">
-          <Bell className="h-8 w-8 text-slate-300" aria-hidden="true" />
-          <p className="text-sm font-semibold text-slate-600">
+        <div className="flex min-h-64 flex-col items-center justify-center gap-2 rounded-[var(--radius-plate)] border border-dashed border-rule-strong text-center">
+          <Bell className="h-8 w-8 text-ink-faint" aria-hidden="true" />
+          <p className="text-sm font-semibold text-ink">
             {hasFilter ? 'Nu există notificări pentru filtrele selectate.' : 'Nu ai notificări.'}
           </p>
           {hasFilter ? (
             <button
               type="button"
               onClick={() => setFilters({ status: 'all', type: '', projectId: '' })}
-              className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+              className="min-h-11 text-sm font-semibold text-[var(--sg-accent)] underline-offset-4 hover:underline sm:min-h-9"
             >
               Șterge filtrele
             </button>
           ) : (
-            <p className="max-w-sm text-xs leading-relaxed text-slate-400">
+            <p className="max-w-[52ch] text-sm leading-relaxed text-ink-soft">
               Aici vor apărea publicări, atribuiri, termene și acțiuni sau verificări de documente.
             </p>
           )}
@@ -193,7 +185,7 @@ export default function NotificationsPage() {
         <div className="flex flex-col gap-6">
           {groups.map((group) => (
             <section key={group.label} className="flex flex-col gap-2">
-              <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400">{group.label}</h2>
+              <h2 className="text-sm font-semibold text-ink">{group.label}</h2>
               {group.items.map((item) => (
                 <NotificationRow
                   key={item.id}
@@ -212,7 +204,7 @@ export default function NotificationsPage() {
               type="button"
               onClick={feed.loadMore}
               disabled={feed.loading}
-              className="mx-auto inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 shadow-sm transition-colors hover:border-indigo-200 hover:text-indigo-600 disabled:cursor-not-allowed disabled:text-slate-300"
+              className="mx-auto inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-plate)] border border-rule bg-plate px-4 text-sm font-semibold text-ink-soft transition-colors duration-[120ms] hover:border-rule-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-55 sm:min-h-10"
             >
               {feed.loading && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
               Încarcă mai multe

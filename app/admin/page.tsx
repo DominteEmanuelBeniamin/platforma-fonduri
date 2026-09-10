@@ -1,13 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
-import {
-  Layers, Activity, FileText, FolderOpen,
-  ChevronRight, Settings, Plus, Eye
-} from 'lucide-react'
+import { FolderOpen, Plus, ChevronRight } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { LocationStrip } from '@/components/ui/LocationStrip'
+import { ButtonLink } from '@/components/ui/Button'
+import { Spinner } from '@/components/ui/Spinner'
 
 interface ProjectStatus {
   id: string
@@ -42,6 +41,16 @@ export default function AdminOverviewPage() {
   const [statuses, setStatuses] = useState<ProjectStatus[]>([])
   const [templates, setTemplates] = useState<TemplateOverview[]>([])
   const [loading, setLoading] = useState(true)
+  const [expandedTemplateIds, setExpandedTemplateIds] = useState<Set<string>>(new Set())
+
+  const toggleTemplateExpanded = (templateId: string) => {
+    setExpandedTemplateIds(current => {
+      const next = new Set(current)
+      if (next.has(templateId)) next.delete(templateId)
+      else next.add(templateId)
+      return next
+    })
+  }
 
   useEffect(() => {
     if (authLoading) return
@@ -84,223 +93,141 @@ export default function AdminOverviewPage() {
 
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+      <div className="min-h-screen bg-paper-sunk flex items-center justify-center">
+        <Spinner size="md" />
       </div>
     )
   }
 
+  const totalFaze = templates.reduce((sum, t) => sum + (t.phases?.length || 0), 0)
+  const totalActivitati = templates.reduce((sum, t) => sum + getTotalActivities(t), 0)
+
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-6xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-slate-900">Șabloane</h1>
-          <p className="text-slate-500 mt-1">Vizualizare rapidă a statusurilor și template-urilor configurate</p>
-        </div>
+    <div>
+      <LocationStrip
+        segments={[{ label: 'Bonie', href: '/' }, { label: 'Șabloane' }]}
+        action={
+          <>
+            <ButtonLink href="/projects/new" variant="secondary" label="Proiect nou">
+              <FolderOpen className="h-4 w-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Proiect nou</span>
+            </ButtonLink>
+            <ButtonLink href="/admin/templates" variant="primary" label="Șablon nou">
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Șablon nou</span>
+            </ButtonLink>
+          </>
+        }
+      />
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                <Layers className="w-5 h-5 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-slate-900">{templates.length}</p>
-                <p className="text-sm text-slate-500">Template-uri</p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
-                <FolderOpen className="w-5 h-5 text-emerald-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-slate-900">
-                  {templates.reduce((sum, t) => sum + (t.phases?.length || 0), 0)}
-                </p>
-                <p className="text-sm text-slate-500">Faze totale</p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
-                <Activity className="w-5 h-5 text-amber-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-slate-900">
-                  {templates.reduce((sum, t) => sum + getTotalActivities(t), 0)}
-                </p>
-                <p className="text-sm text-slate-500">Activități totale</p>
-              </div>
-            </div>
-          </div>
-        </div>
+      <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Șabloane</h1>
+      {/* Cifrele stau într-o propoziție. Trei casete cu numere mari spuneau
+          același lucru, ocupau un ecran și nu duceau nicăieri. */}
+      <p className="mt-2 text-sm text-ink-soft">
+        {templates.length} {templates.length === 1 ? 'șablon' : 'șabloane'} · {totalFaze} {totalFaze === 1 ? 'fază' : 'faze'} · {totalActivitati} {totalActivitati === 1 ? 'activitate' : 'activități'}
+      </p>
 
-        <div className="grid grid-cols-1 gap-6">
-          {/* Link-uri rapide */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
-              <h2 className="font-semibold text-slate-900 flex items-center gap-2">
-                <Settings className="w-4 h-4 text-slate-600" />
-                Acțiuni rapide
-              </h2>
-            </div>
-            
-            <div className="p-4 space-y-2">
-              <Link href="/admin/templates" className="flex items-center gap-3 p-3 rounded-lg border border-slate-100 hover:border-purple-200 hover:bg-purple-50 transition-colors">
-                <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                  <Plus className="w-5 h-5 text-purple-600" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-slate-900">Adaugă Template</p>
-                  <p className="text-xs text-slate-500">Creează template-uri cu faze și activități</p>
-                </div>
-                <ChevronRight className="w-4 h-4 text-slate-400" />
-              </Link>
-              
-              <Link href="/projects/new" className="flex items-center gap-3 p-3 rounded-lg border border-slate-100 hover:border-emerald-200 hover:bg-emerald-50 transition-colors">
-                <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
-                  <FolderOpen className="w-5 h-5 text-emerald-600" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-slate-900">Proiect Nou</p>
-                  <p className="text-xs text-slate-500">Creează un proiect folosind un template</p>
-                </div>
-                <ChevronRight className="w-4 h-4 text-slate-400" />
-              </Link>
+      <div className="mt-8 pb-10">
+        {templates.length === 0 ? (
+          <div className="rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-6 py-12 text-center">
+            <p className="text-base font-semibold text-ink">Niciun șablon</p>
+            <p className="mx-auto mt-2 max-w-[52ch] text-sm leading-6 text-ink-soft">
+              Un șablon codifică felul în care lucrezi un tip de finanțare: fazele, activitățile și documentele cerute. Un proiect nou pornește din el, nu de la zero.
+            </p>
+            <div className="mt-5 flex justify-center">
+              <ButtonLink href="/admin/templates" variant="primary">
+                <Plus className="h-4 w-4" aria-hidden="true" /> Creează primul șablon
+              </ButtonLink>
             </div>
           </div>
-        </div>
-
-        {/* Template-uri detaliate */}
-        <div className="mt-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-slate-900">Template-uri configurate</h2>
-            <Link href="/admin/templates" className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
-              <Eye className="w-4 h-4" /> Vezi toate
-            </Link>
-          </div>
-
-          {templates.length === 0 ? (
-            <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
-              <Layers className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-              <p className="font-medium text-slate-900 mb-1">Niciun template creat</p>
-              <p className="text-sm text-slate-500 mb-4">Creează un template pentru a putea genera proiecte rapid</p>
-              <Link href="/admin/templates" className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
-                <Plus className="w-4 h-4" /> Creează template
-              </Link>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {templates.map((template) => (
-                <div key={template.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                  {/* Template header */}
-                  <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                        <Layers className="w-4 h-4 text-purple-600" />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-slate-900">{template.name}</h3>
-                        {template.description && (
-                          <p className="text-xs text-slate-500">{template.description}</p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4 text-xs text-slate-500">
-                      <span className="flex items-center gap-1">
-                        <FolderOpen className="w-3.5 h-3.5" />
-                        {template.phases?.length || 0} faze
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Activity className="w-3.5 h-3.5" />
-                        {getTotalActivities(template)} activități
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <FileText className="w-3.5 h-3.5" />
-                        {getTotalDocuments(template)} documente
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {/* Faze vizualizare */}
-                  <div className="p-4">
-                    {!template.phases || template.phases.length === 0 ? (
-                      <p className="text-sm text-slate-500 text-center py-4">Nicio fază configurată</p>
-                    ) : (
-                      <div className="flex items-start gap-2 overflow-x-auto pb-2">
-                        {template.phases.map((phase, index) => {
-                          const status = getStatusById(phase.project_status_id)
-                          return (
-                            <div key={phase.id} className="flex items-center flex-shrink-0">
-                              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 min-w-[180px]">
-                                <div className="flex items-center gap-2 mb-2">
-                                  <div 
-                                    className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                                    style={{ backgroundColor: status?.color || '#6B7280' }}
-                                  >
-                                    {index + 1}
-                                  </div>
-                                  <span className="font-medium text-slate-800 text-sm truncate">
-                                    {phase.name}
-                                  </span>
-                                </div>
-                                
-                                {status && (
-                                  <span 
-                                    className="inline-block text-xs px-2 py-0.5 rounded-full text-white mb-2"
-                                    style={{ backgroundColor: status.color }}
-                                  >
-                                    {status.name}
-                                  </span>
-                                )}
-                                
-                                <div className="text-xs text-slate-500">
-                                  {phase.activities?.length || 0} activități
-                                </div>
-                                
-                                {phase.activities && phase.activities.length > 0 && (
-                                  <div className="mt-2 space-y-1">
-                                    {phase.activities.slice(0, 3).map((act) => (
-                                      <div key={act.id} className="text-xs text-slate-600 flex items-center gap-1">
-                                        <Activity className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                                        <span className="truncate flex-1">{act.name}</span>
-                                        {act.default_consultant && (
-                                          <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 truncate max-w-[80px]">
-                                            {act.default_consultant.full_name || act.default_consultant.email}
-                                          </span>
-                                        )}
-                                      </div>
-                                    ))}
-                                    {phase.activities.length > 3 && (
-                                      <div className="text-xs text-slate-400">
-                                        +{phase.activities.length - 3} mai multe
-                                      </div>
-                                    )}
-                                  </div>
+        ) : (
+          <div className="overflow-hidden rounded-[var(--radius-plate)] border border-rule bg-plate">
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-rule bg-paper-sunk">
+                    <th scope="col" className="w-full px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Șablon</th>
+                    <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Faze</th>
+                    <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Activități</th>
+                    <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Documente</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {templates.map((template) => {
+                    const phaseCount = template.phases?.length || 0
+                    const expanded = expandedTemplateIds.has(template.id)
+                    const detailsId = `faze-sablon-${template.id}`
+                    return (
+                      <Fragment key={template.id}>
+                        <tr
+                          onClick={() => phaseCount > 0 && toggleTemplateExpanded(template.id)}
+                          className={`border-b border-rule last:border-b-0 transition-colors ${phaseCount > 0 ? 'cursor-pointer hover:bg-paper-sunk' : ''} ${expanded ? 'bg-paper-sunk' : ''}`}
+                        >
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1.5">
+                              {phaseCount > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); toggleTemplateExpanded(template.id) }}
+                                  aria-expanded={expanded}
+                                  aria-controls={expanded ? detailsId : undefined}
+                                  aria-label={`${expanded ? 'Ascunde' : 'Arată'} fazele — ${template.name}`}
+                                  className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:text-ink"
+                                >
+                                  <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} aria-hidden />
+                                </button>
+                              ) : (
+                                <span className="w-6 flex-shrink-0" aria-hidden />
+                              )}
+                              <div className="min-w-0">
+                                <span className="font-medium text-ink">{template.name}</span>
+                                {template.description && (
+                                  <span className="ml-2 truncate text-ink-soft">{template.description}</span>
                                 )}
                               </div>
-                              
-                              {index < (template.phases?.length || 0) - 1 && (
-                                <ChevronRight className="w-4 h-4 text-slate-300 mx-1 flex-shrink-0" />
-                              )}
                             </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-ink-soft">{phaseCount}</td>
+                          <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-ink-soft">{getTotalActivities(template)}</td>
+                          <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-ink-soft">{getTotalDocuments(template)}</td>
+                        </tr>
+                        {expanded && phaseCount > 0 && (
+                          <tr id={detailsId} className="border-b border-rule bg-paper-sunk last:border-b-0">
+                            <td colSpan={4} className="px-4 py-3 pl-11">
+                              <ol className="flex flex-col gap-2">
+                                {template.phases.map((phase, index) => {
+                                  const status = getStatusById(phase.project_status_id)
+                                  return (
+                                    <li key={phase.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+                                      {/* Culoarea statusului e aleasă de administrator, deci
+                                          nu poate garanta contrast pe text alb. O purtăm ca
+                                          semn de identitate pe muchie, cu numele în cerneală. */}
+                                      <span
+                                        aria-hidden="true"
+                                        className="mt-1 h-3.5 w-[var(--sg-rail)] shrink-0 self-start rounded-[1px]"
+                                        style={{ background: status?.color || 'var(--sg-rule-strong)' }}
+                                      />
+                                      <span className="w-5 shrink-0 text-ink-faint">{index + 1}.</span>
+                                      <span className="min-w-0 flex-1 font-medium text-ink">{phase.name}</span>
+                                      {status && <span className="shrink-0 text-ink-soft">{status.name}</span>}
+                                      <span className="shrink-0 text-ink-faint">
+                                        {phase.activities?.length || 0} {phase.activities?.length === 1 ? 'activitate' : 'activități'}
+                                      </span>
+                                    </li>
+                                  )
+                                })}
+                              </ol>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   )

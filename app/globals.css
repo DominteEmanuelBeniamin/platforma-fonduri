@@ -1,75 +1,272 @@
 @import "tailwindcss";
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   PROGRAMUL DE SEMNALIZARE
+   Sistemul de orientare al unei instituții bine ținute, tradus în interfață.
+   Fiecare ecran răspunde la trei întrebări: unde ești, ce e aici, unde mergi.
+
+   Peretele e hârtia. Plăcuța e unitatea de conținut: o linie sus și o
+   etichetă, fără umbră și fără colț rotund de card. Banda de culoare aparține
+   fazei și o urmărește peste tot — sidebar, calendar, dosar, notificare.
+   Culoarea nu poartă niciodată singură informația: o stare are bandă, glifă
+   și cuvânt.
+
+   Contrastele de mai jos sunt măsurate, nu estimate. Praguri WCAG 2.2 AA:
+   text ≥ 4.5:1, text mare și componente ≥ 3:1.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 :root {
-  /* --- CULORI DESIGN BONIE (LIGHT MODE FORȚAT) --- */
-  
-  /* Am schimbat fundalul pe Slate-50 (#F8FAFC). 
-     Este un alb-gri foarte subtil, mai "rece" și mai premium decât gri-ul standard.
-  */
-  --background: #F8FAFC;
-  
-  /* Text Slate-900 pentru contrast maxim și lizibilitate */
-  --foreground: #0F172A; 
+  /* --- Materialul clădirii ------------------------------------------------ */
+  --sg-paper:        #F5F4F0;  /* peretele */
+  --sg-paper-sunk:   #EDEBE5;  /* nișă: rânduri alternate, zone inactive */
+  --sg-plate:        #FFFFFF;  /* fața plăcuței */
+  --sg-rule:         #D9D6CD;  /* linia subțire, separator */
+  --sg-rule-strong:  #B4AFA2;  /* muchia unei plăcuțe apăsate sau a unui câmp */
+
+  /* --- Cerneala (măsurat pe hârtie) --------------------------------------- */
+  --sg-ink:          #16181C;  /* 16.15:1 — titluri și text principal */
+  --sg-ink-soft:     #4A4F57;  /*  7.49:1 — text secundar, etichete */
+  --sg-ink-faint:    #6B7079;  /*  4.52:1 — minimul admis pentru text */
+
+  /* --- Accentul instituției ----------------------------------------------- */
+  --sg-accent:       #0E4C4A;  /* petrol; alb pe el 9.76:1 */
+  --sg-accent-soft:  #E3ECEA;  /* fond de plăcuță selectată */
+  --sg-accent-ink:   #0A3937;  /* apăsat */
+
+  /* --- Benzile de fază: șase, fixe, ordonate ------------------------------
+     Se atribuie fazei după indice și o urmăresc în toată clădirea. Fiecare
+     poartă text alb la ≥ 6.3:1 și se citește pe hârtie la ≥ 5.7:1.          */
+  --sg-band-1:       #0E4C4A;  /* petrol   */
+  --sg-band-2:       #7A5B12;  /* ocru     */
+  --sg-band-3:       #8E3B2A;  /* cărămidă */
+  --sg-band-4:       #5B3A63;  /* prună    */
+  --sg-band-5:       #4A5A24;  /* măsliniu */
+  --sg-band-6:       #2F4858;  /* ardezie  */
+  --sg-band-1-soft:  #E3ECEA;
+  --sg-band-2-soft:  #F2EDDF;
+  --sg-band-3-soft:  #F4E6E2;
+  --sg-band-4-soft:  #EDE7EF;
+  --sg-band-5-soft:  #EBEEE2;
+  --sg-band-6-soft:  #E6EAED;
+
+  /* --- Semnalele: rezervate, niciodată folosite pentru brand -------------- */
+  --sg-ok:           #1F6B3A;  /* finalizat, confirmat */
+  --sg-ok-soft:      #E4EFE8;
+  --sg-warn:         #8A5A08;  /* termen apropiat */
+  --sg-warn-soft:    #F4EBDC;
+  --sg-danger:       #9B2C21;  /* depășit, respins, eroare */
+  --sg-danger-soft:  #F5E4E1;
+  --sg-draft:        #6B7079;  /* în lucru, nepublicat */
+  --sg-draft-soft:   #EAE9E5;
+
+  /* --- Geometrie: semnalizarea e dreaptă ---------------------------------- */
+  --sg-radius:       2px;
+  --sg-radius-lg:    3px;
+  --sg-rail:         4px;      /* grosimea benzii de fază pe muchie */
+  --sg-hair:         1px;
+
+  /* --- Mișcarea: semnul se schimbă, nu alunecă ---------------------------- */
+  --sg-motion:       120ms cubic-bezier(0.2, 0, 0, 1);
+
+  /* --- Umbra: doar pentru ce plutește peste perete (drawer, dialog) -------
+     Cu decalaj și estompare reale. Un halo colorat fără decalaj e decor.    */
+  --sg-lift:         0 8px 24px -6px rgb(22 24 28 / 0.18),
+                     0 2px  6px -2px rgb(22 24 28 / 0.12);
+
+  /* Compatibilitate cu vechiul contract din body */
+  --background: var(--sg-paper);
+  --foreground: var(--sg-ink);
+
+  /* --- Tokenii moșteniți `--p-*`, remapați pe programul de semnalizare -----
+     Numele rămân, fiindcă sunt folosite în vreo douăzeci de componente, dar
+     valorile vin dintr-o singură sursă. Stau pe `:root`, nu pe o clasă, ca
+     portalurile montate în `body` să nu mai iasă din domeniu. Blocul dispare
+     când ultima componentă trece pe `--sg-*`.                              */
+  --p-bg:            var(--sg-paper);
+  --p-surface:       var(--sg-plate);
+  --p-surface-2:     var(--sg-paper-sunk);
+  --p-border:        var(--sg-rule);
+  --p-border-strong: var(--sg-rule-strong);
+  --p-ink:           var(--sg-ink);
+  --p-ink-soft:      var(--sg-ink-soft);
+  --p-ink-faint:     var(--sg-ink-faint);
+  --p-accent:        var(--sg-accent);
+  --p-accent-soft:   var(--sg-accent-soft);
+  --p-accent-ink:    var(--sg-accent-ink);
+  --p-success:       var(--sg-ok);
+  --p-success-soft:  var(--sg-ok-soft);
+  --p-warning:       var(--sg-warn);
+  --p-warning-soft:  var(--sg-warn-soft);
+  --p-danger:        var(--sg-danger);
+  --p-danger-soft:   var(--sg-danger-soft);
+  --p-draft:         var(--sg-draft);
+  --p-draft-soft:    var(--sg-draft-soft);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-paper:        var(--sg-paper);
+  --color-paper-sunk:   var(--sg-paper-sunk);
+  --color-plate:        var(--sg-plate);
+  --color-rule:         var(--sg-rule);
+  --color-rule-strong:  var(--sg-rule-strong);
+  --color-ink:          var(--sg-ink);
+  --color-ink-soft:     var(--sg-ink-soft);
+  --color-ink-faint:    var(--sg-ink-faint);
+  --color-accent:       var(--sg-accent);
+  --color-accent-soft:  var(--sg-accent-soft);
+  --color-accent-ink:   var(--sg-accent-ink);
+  --color-band-1:       var(--sg-band-1);
+  --color-band-2:       var(--sg-band-2);
+  --color-band-3:       var(--sg-band-3);
+  --color-band-4:       var(--sg-band-4);
+  --color-band-5:       var(--sg-band-5);
+  --color-band-6:       var(--sg-band-6);
+  --color-ok:           var(--sg-ok);
+  --color-ok-soft:      var(--sg-ok-soft);
+  --color-warn:         var(--sg-warn);
+  --color-warn-soft:    var(--sg-warn-soft);
+  --color-danger:       var(--sg-danger);
+  --color-danger-soft:  var(--sg-danger-soft);
+  --color-draft:        var(--sg-draft);
+  --color-draft-soft:   var(--sg-draft-soft);
 
-  /* Fonturi de sistem, nu de la Google. `next/font/google` descarcă fișierele
-     la build; când CDN-ul lor răspunde 404, buildul cade și nu se mai poate
-     livra nimic. Stivele de mai jos nu ating rețeaua niciodată. */
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
-  --font-display: ui-serif, Georgia, Cambria, "Times New Roman", serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas,
-    "Liberation Mono", Menlo, monospace;
+  --radius-plate:       var(--sg-radius);
+  --radius-plate-lg:    var(--sg-radius-lg);
+
+  /* O singură familie în toată clădirea, ca într-un program de semnalizare
+     adevărat. Atkinson Hyperlegible Next e desenat anume ca 1/I/l și 0/O să
+     nu se confunde — exact teza acestui produs, unde numerele de proiect și
+     termenele se citesc dintr-o privire. Găzduit local: `next/font/local` în
+     `app/layout.tsx`, zero atingeri de rețea la build. */
+  --font-sans:    var(--font-signage), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: var(--font-signage), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono:    ui-monospace, SFMono-Regular, "SF Mono", Consolas, Menlo, monospace;
 }
 
-/* Setări de bază pentru corp */
+/* ═══ Baza ══════════════════════════════════════════════════════════════════ */
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
-  
-  /* Asigură umplerea ecranului */
+  background: var(--sg-paper);
+  color: var(--sg-ink);
+  font-family: var(--font-sans);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  
-  /* Antialiasing pentru fonturi clare pe ecrane bune */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Cifrele se aliniază pe coloană oriunde apar: termene, sume, numere de
+     proiect. Într-un sistem de semnalizare, numărul e informație, nu text. */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
-/* --------------------------------------------------------- */
+/* ═══ Suprafețele browserului ═══════════════════════════════════════════════
+   Selecția, cursorul, bara de derulare și inelul de focus vin implicit din
+   browser și nu aparțin niciunui sistem de design. Aici intră în al nostru. */
+
+::selection {
+  background: var(--sg-accent);
+  color: #FFFFFF;
+}
+
+:root {
+  caret-color: var(--sg-accent);
+  accent-color: var(--sg-accent);
+  scrollbar-color: var(--sg-rule-strong) transparent;
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background-color: var(--sg-rule-strong);
+  border: 3px solid var(--sg-paper);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background-color: var(--sg-ink-faint); }
+
+/* Focusul e vizibil, gros și niciodată suprimat. WCAG 2.2 cere și ca inelul
+   să nu fie acoperit (2.4.11) — de aceea are decalaj, nu doar contur.
+   
+   Proprietăți lungi, nu scurtătura `outline`: compilatorul CSS nu poate rezolva
+   un `var()` în interiorul scurtăturii și o reducea la `outline: none`, adică
+   fix opusul. Inelul dispăruse din toată platforma fără ca nimic să pară rupt. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline-width: 2px;
+  outline-style: solid;
+  outline-color: var(--sg-accent);
+  outline-offset: 2px;
+  border-radius: var(--sg-radius);
+}
+/* Pe fond închis — bandă plină — inelul petrol ar dispărea. */
+:where(.on-band) :where(a, button, [tabindex]):focus-visible {
+  outline-color: var(--sg-paper);
+}
+
+a { text-underline-offset: 0.18em; text-decoration-thickness: from-font; }
+
+/* Autofill-ul Chrome pictează un galben care nu e al nimănui. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px var(--sg-plate) inset !important;
+  -webkit-text-fill-color: var(--sg-ink) !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Sub 16px, Safari de pe iPhone mărește pagina când atingi un câmp — și n-o mai
+   dă înapoi: rămâi cu macheta descentrată și cu bara de unelte pe jumătate în
+   afara ecranului. Regula e a motorului, nu a noastră, iar singura apărare e
+   fontul câmpului.
+
+   Se prinde de `pointer: coarse`, nu de o lățime: comportamentul ține de lipsa
+   mausului, nu de câți pixeli are ecranul — un iPad de 1024px îl are, o
+   fereastră de browser îngustată pe desktop nu.
+
+   Scara din DESIGN.md rămâne neatinsă. 0,875rem e mărimea textului de citit;
+   asta e mărimea textului pe care îl scrii cu degetul.
+
+   Selectorul e ținut simplu intenționat: scris ca
+   `input:not([type="checkbox"]):not([type="radio"])`, Lightning CSS — compilatorul
+   din spatele Tailwind v4 — aruncă regula întreagă, în tăcere, iar câmpurile rămân
+   la 14px fără niciun semn că s-a întâmplat ceva. Pe checkbox și radio, mărimea
+   fontului n-are oricum efect: sunt elemente înlocuite, dimensionate din
+   `width`/`height`. */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Cine cere mai puțină mișcare o primește. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Săritul la conținut, pentru tastatură. Vizibil doar când e focalizat. */
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -100px;
+  z-index: 100;
+  padding: 10px 16px;
+  background: var(--sg-accent);
+  color: #FFFFFF;
+  border-radius: var(--sg-radius);
+  font-weight: 600;
+  transition: top var(--sg-motion);
+}
+.skip-link:focus { top: 8px; }
 /* --- ANIMAȚII CUSTOM (PENTRU UX/UI MODERN) --- */
 /* --------------------------------------------------------- */
-
-/* 1. Animația "Blob" - pentru fundalul de la Login (acele pete de culoare care se mișcă) */
-@keyframes blob {
-  0% {
-    transform: translate(0px, 0px) scale(1);
-  }
-  33% {
-    transform: translate(30px, -50px) scale(1.1);
-  }
-  66% {
-    transform: translate(-20px, 20px) scale(0.9);
-  }
-  100% {
-    transform: translate(0px, 0px) scale(1);
-  }
-}
-
-.animate-blob {
-  animation: blob 7s infinite;
-}
-
-/* Utilitar pentru a întârzia animația (ca cele două pete să nu se miște identic) */
-.animation-delay-2000 {
-  animation-delay: 2s;
-}
 
 /* 2. Animația "Fade In Up" - pentru încărcarea elegantă a dashboard-ului */
 /* Face ca elementele să apară de jos în sus, fluid */
@@ -110,44 +307,8 @@ body {
   animation: drawerSlideIn 0.25s ease-out;
 }
 
-/* 3. Scrollbar personalizat (opțional, dar arată mai bine pe Windows) */
-::-webkit-scrollbar {
-  width: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background-color: #CBD5E1; /* Slate-300 */
-  border-radius: 20px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background-color: #94A3B8; /* Slate-400 */
-}
-
-/* Derulare fără bară vizibilă. Pentru rânduri care se derulează lateral și în
-   care o bară de 8px ar fi mai groasă decât rândul însuși — bara de meniu, de
-   pildă. Conținutul rămâne accesibil: se derulează cu degetul, cu roata și cu
-   tastatura. */
-.no-scrollbar {
-  scrollbar-width: none;
-}
-
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-
-input:-webkit-autofill,
-input:-webkit-autofill:hover, 
-input:-webkit-autofill:focus, 
-input:-webkit-autofill:active{
-    -webkit-box-shadow: 0 0 0 30px #F8FAFC inset !important;
-    -webkit-text-fill-color: #0F172A !important;
-    transition: background-color 5000s ease-in-out 0s;
-}
+/* Bara de derulare, autofill-ul și `.no-scrollbar` sunt definite o singură
+   dată, mai sus. Dublurile pe slate au fost scoase la migrare. */
 
 @keyframes fadeIn {
   from {
@@ -170,29 +331,12 @@ input:-webkit-autofill:active{
    "light forțat" definit mai sus, neschimbat. */
 /* --------------------------------------------------------- */
 
-.project-scope {
-  --p-bg: #F8FAFC;
-  --p-surface: #FFFFFF;
-  --p-surface-2: #F1F5F9;
-  --p-border: #E2E8F0;
-  --p-border-strong: #CBD5E1;
-  --p-ink: #0F172A;
-  --p-ink-soft: #475569;
-  --p-ink-faint: #94A3B8;
-  --p-accent: #4A3F7A;
-  --p-accent-soft: #EDEAF7;
-  --p-accent-ink: #34294F;
-  --p-success: #2F7D5C;
-  --p-success-soft: #E4F3EC;
-  --p-warning: #B8792E;
-  --p-warning-soft: #FBEEDD;
-  --p-danger: #B94A3D;
-  --p-danger-soft: #FBE9E6;
-  --p-draft: #6E6A85;
-  --p-draft-soft: #EDECF4;
-  font-family: var(--font-sans);
-}
+/* `.project-scope` a rămas o clasă goală: token-urile `--p-*` stau acum pe
+   `:root`, lângă restul sistemului. Cât timp erau legate de clasă, orice portal
+   montat în `body` ieșea din domeniu și se desena transparent, iar componentele
+   trebuiau să reaplice clasa ca s-o dreagă. Nu mai e nevoie. */
 
 .font-display {
   font-family: var(--font-display);
 }
+/* ── Coada moștenită de mai sus deservește rutele încă nemigrate. Dispare pe măsură ce fiecare rută trece pe programul de semnalizare. ── */

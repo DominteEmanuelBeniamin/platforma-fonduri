@@ -23,7 +23,7 @@ import {
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { downloadFilesArchive } from '@/app/api/_utils/download-files-archive'
-import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
+import { isPreviewableFile, buildPreviewPageUrl, openInNewTab, downloadUrl } from '@/lib/file-preview'
 import InlineDateEditor from '@/components/InlineDateEditor'
 import { Mail } from 'lucide-react'
 import {
@@ -276,34 +276,34 @@ export default function DocumentModal({
   const statusConfig = useMemo(() => {
     const configs = {
       pending: {
-        bg: 'bg-amber-50',
-        text: 'text-amber-700',
+        bg: 'bg-[var(--sg-warn-soft)]',
+        text: 'text-[var(--sg-warn)]',
         icon: Clock,
         label: isAdminOrConsultant ? 'Așteaptă răspuns' : 'De încărcat',
       },
       review: {
-        bg: 'bg-blue-50',
-        text: 'text-blue-700',
+        bg: 'bg-[var(--sg-accent-soft)]',
+        text: 'text-[var(--sg-accent)]',
         icon: Eye,
         label: 'În verificare',
       },
       approved: {
-        bg: 'bg-emerald-50',
-        text: 'text-emerald-700',
+        bg: 'bg-[var(--sg-ok-soft)]',
+        text: 'text-[var(--sg-ok)]',
         icon: CheckCircle2,
         label: 'Aprobat',
       },
       rejected: {
-        bg: 'bg-red-50',
-        text: 'text-red-700',
+        bg: 'bg-[var(--sg-danger-soft)]',
+        text: 'text-[var(--sg-danger)]',
         icon: XCircle,
         label: 'Respins',
       }
     }
     if (isOutgoing) {
       return {
-        bg: 'bg-emerald-50',
-        text: 'text-emerald-700',
+        bg: 'bg-[var(--sg-ok-soft)]',
+        text: 'text-[var(--sg-ok)]',
         icon: FileCheck,
         label: 'Trimis clientului',
       }
@@ -345,15 +345,8 @@ export default function DocumentModal({
     }
   }, [request.status, isAdminOrConsultant, onClose])
 
-  const forceDownload = (url: string) => {
-    const a = document.createElement('a')
-    a.href = url
-    a.download = ''
-    a.rel = 'noopener'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-  }
+  /** `''` ca nume: descarcă, dar păstrează numele trimis de server. */
+  const forceDownload = (url: string) => downloadUrl(url, '')
 
   const sanitizeArchiveNamePart = (value?: string | null) => {
     const normalized = (value || '')
@@ -717,10 +710,10 @@ export default function DocumentModal({
   const StatusIcon = statusConfig.icon
   const requirementType = request.requirement_type ?? 'obligatoriu'
   const requirementStyle = requirementType === 'obligatoriu'
-    ? 'bg-rose-50 text-rose-700'
+    ? 'bg-[var(--sg-danger-soft)] text-[var(--sg-danger)]'
     : requirementType === 'daca_e_cazul'
-    ? 'bg-violet-50 text-violet-700'
-    : 'bg-slate-100 text-slate-600'
+    ? 'bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]'
+    : 'bg-paper-sunk text-ink-soft'
 
   const modalContent = (
     <div
@@ -737,10 +730,10 @@ export default function DocumentModal({
 
       <div className="relative bg-white w-full max-w-3xl max-h-[92vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
         {/* Header: titlu + status */}
-        <div className="px-5 sm:px-6 pt-4 pb-3 border-b border-slate-100 flex-shrink-0">
+        <div className="px-5 sm:px-6 pt-4 pb-3 border-b border-rule flex-shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1 flex items-center gap-2.5 flex-wrap">
-              <h2 className="min-w-0 break-words text-xl font-bold leading-tight text-slate-900">
+              <h2 className="min-w-0 break-words text-xl font-bold leading-tight text-ink">
                 {request.name}
               </h2>
               <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${statusConfig.bg} ${statusConfig.text}`}>
@@ -753,7 +746,7 @@ export default function DocumentModal({
             </div>
             <button
               onClick={onClose}
-              className="p-2 -m-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex-shrink-0"
+              className="p-2 -m-1 text-ink-faint hover:text-ink hover:bg-paper-sunk rounded-lg transition-colors flex-shrink-0"
               aria-label="Închide"
             >
               <X className="w-5 h-5" />
@@ -764,7 +757,7 @@ export default function DocumentModal({
         {/* Body - Scrollable */}
         <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-6 py-4 space-y-3 bg-white">
           {request.description && (
-            <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-line break-words max-h-52 overflow-y-auto">
+            <p className="text-sm text-ink-soft leading-relaxed whitespace-pre-line break-words max-h-52 overflow-y-auto">
               {request.description}
             </p>
           )}
@@ -781,7 +774,7 @@ export default function DocumentModal({
               {!isOutgoing && !localDeadline && !editingDeadline && (
                 <button
                   onClick={() => setEditingDeadline(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-semibold hover:bg-indigo-100 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--sg-accent-soft)] text-[var(--sg-accent)] text-xs font-semibold hover:brightness-90 transition-colors"
                 >
                   <Clock className="w-3.5 h-3.5" />
                   Adaugă termen
@@ -801,7 +794,7 @@ export default function DocumentModal({
                     type="button"
                     onClick={() => attachmentInputRef.current?.click()}
                     disabled={attachmentActionLoading}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-semibold hover:bg-indigo-100 transition-colors disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--sg-accent-soft)] text-[var(--sg-accent)] text-xs font-semibold hover:brightness-90 transition-colors disabled:opacity-50"
                   >
                     {attachmentActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
                     {isOutgoing ? 'Atașează documentul' : 'Atașează model'}
@@ -823,7 +816,7 @@ export default function DocumentModal({
                   return (
                     <span
                       title={blockedReason ?? undefined}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 text-xs text-slate-400"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-paper-sunk text-xs text-ink-faint"
                     >
                       <Mail className="w-3.5 h-3.5" />
                       {blockedReason ?? 'Reminder indisponibil'}
@@ -850,7 +843,7 @@ export default function DocumentModal({
                         : 'Trimite emailul de reminder către client'}
                       className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-opacity hover:opacity-75 disabled:opacity-60 disabled:cursor-not-allowed ${
                         alreadySent
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          ? 'bg-[var(--sg-ok-soft)] text-[var(--sg-ok)] border-[var(--sg-ok)]'
                           : `${badge.bg} ${badge.text} ${badge.border}`
                       }`}
                     >
@@ -873,12 +866,12 @@ export default function DocumentModal({
               cum se adaugă unul — altfel un termen șters n-ar mai avea drum
               înapoi. */}
           {!localDeadline && !editingDeadline && isAdminOrConsultant && !isOutgoing && (
-            <div className="flex items-center gap-2 text-sm text-slate-500">
-              <Clock className="w-4 h-4 flex-shrink-0 text-slate-400" />
+            <div className="flex items-center gap-2 text-sm text-ink-soft">
+              <Clock className="w-4 h-4 flex-shrink-0 text-ink-faint" />
               <span>Fără termen limită</span>
               <button
                 onClick={() => setEditingDeadline(true)}
-                className="text-xs font-semibold text-indigo-600 hover:underline flex-shrink-0"
+                className="text-xs font-semibold text-[var(--sg-accent)] hover:underline flex-shrink-0"
               >
                 Adaugă
               </button>
@@ -887,7 +880,7 @@ export default function DocumentModal({
           {!isOutgoing && (localDeadline || editingDeadline) && (
           editingDeadline ? (
             <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 flex-shrink-0 text-slate-400" />
+              <Clock className="w-4 h-4 flex-shrink-0 text-ink-faint" />
               <InlineDateEditor
                 value={localDeadline}
                 saving={savingDeadline}
@@ -897,8 +890,8 @@ export default function DocumentModal({
               />
             </div>
           ) : (
-            <div className={`flex items-center gap-2 text-sm ${isOverdue ? 'text-red-600' : 'text-slate-600'}`}>
-              <Clock className={`w-4 h-4 flex-shrink-0 ${isOverdue ? 'text-red-500' : 'text-slate-400'}`} />
+            <div className={`flex items-center gap-2 text-sm ${isOverdue ? 'text-[var(--sg-danger)]' : 'text-ink-soft'}`}>
+              <Clock className={`w-4 h-4 flex-shrink-0 ${isOverdue ? 'text-[var(--sg-danger)]' : 'text-ink-faint'}`} />
               <span>
                 {isOverdue ? 'Termen depășit: ' : 'Termen limită: '}
                 <strong>
@@ -912,7 +905,7 @@ export default function DocumentModal({
               {isAdminOrConsultant && (
                 <button
                   onClick={() => setEditingDeadline(true)}
-                  className="text-xs font-semibold text-indigo-600 hover:underline flex-shrink-0"
+                  className="text-xs font-semibold text-[var(--sg-accent)] hover:underline flex-shrink-0"
                 >
                   Modifică
                 </button>
@@ -929,14 +922,14 @@ export default function DocumentModal({
           {isAdminOrConsultant && !isOutgoing && (
             editingAssignee ? (
               <div className="flex items-center gap-2">
-                <UserRound className="w-4 h-4 flex-shrink-0 text-slate-400" />
+                <UserRound className="w-4 h-4 flex-shrink-0 text-ink-faint" />
                 <select
                   autoFocus
                   value={assigneeDraft}
                   disabled={savingAssignee}
                   onChange={e => setAssigneeDraft(e.target.value)}
                   aria-label="Consultant responsabil"
-                  className="text-sm px-2 py-1 border border-indigo-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                  className="text-sm px-2 py-1 border border-[var(--sg-accent)] rounded-lg bg-white text-ink focus:outline-none focus:ring-2 focus:ring-[var(--sg-accent)] disabled:opacity-50"
                 >
                   <option value="" disabled={!canEmptyRequiredFields}>Fără responsabil</option>
                   {projectMembers.map(member => (
@@ -946,7 +939,7 @@ export default function DocumentModal({
                 <button
                   onClick={() => handleSaveAssignee(assigneeDraft || null)}
                   disabled={savingAssignee || assigneeDraft === (localAssignee ?? '')}
-                  className="p-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-40 flex-shrink-0"
+                  className="p-1.5 rounded-lg bg-[var(--sg-ok-soft)] text-[var(--sg-ok)] hover:brightness-90 disabled:opacity-40 flex-shrink-0"
                   title="Salvează responsabilul"
                   aria-label="Salvează responsabilul"
                 >
@@ -957,22 +950,22 @@ export default function DocumentModal({
                 <button
                   onClick={() => setEditingAssignee(false)}
                   disabled={savingAssignee}
-                  className="p-1.5 rounded-lg bg-slate-200 text-slate-500 hover:bg-slate-300 disabled:opacity-50 flex-shrink-0"
+                  className="p-1.5 rounded-lg bg-paper text-ink-soft hover:bg-rule-strong disabled:opacity-50 flex-shrink-0"
                   aria-label="Renunță"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
             ) : (
-              <div className="flex items-center gap-2 text-sm text-slate-600">
-                <UserRound className="w-4 h-4 flex-shrink-0 text-slate-400" />
+              <div className="flex items-center gap-2 text-sm text-ink-soft">
+                <UserRound className="w-4 h-4 flex-shrink-0 text-ink-faint" />
                 <span>
                   Responsabil:{' '}
                   <strong>{assigneeLabel ?? 'neatribuit'}</strong>
                 </span>
                 <button
                   onClick={() => { setAssigneeDraft(localAssignee ?? ''); setEditingAssignee(true) }}
-                  className="text-xs font-semibold text-indigo-600 hover:underline flex-shrink-0"
+                  className="text-xs font-semibold text-[var(--sg-accent)] hover:underline flex-shrink-0"
                 >
                   {localAssignee ? 'Modifică' : 'Atribuie'}
                 </button>
@@ -986,7 +979,7 @@ export default function DocumentModal({
               {/* Modelele de completat - dacă există */}
               {requestAttachments.length > 0 && !attachmentMissing && (
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-900 mb-2">
+                  <h3 className="text-sm font-semibold text-ink mb-2">
                     {isOutgoing
                       ? requestAttachments.length > 1 ? `Documente trimise clientului (${requestAttachments.length})` : 'Document trimis clientului'
                       : requestAttachments.length > 1 ? `Modele de completat (${requestAttachments.length})` : 'Modelul de completat'}
@@ -1000,10 +993,10 @@ export default function DocumentModal({
                       return (
                         <div
                           key={attachment.id || `${attachment.storage_path}-${index}`}
-                          className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-slate-100 px-3 py-2.5"
+                          className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-rule px-3 py-2.5"
                         >
                           <div className="flex items-center gap-3 flex-1 min-w-0">
-                            <div className="w-9 h-9 rounded-lg bg-slate-50 text-indigo-500 flex items-center justify-center flex-shrink-0">
+                            <div className="w-9 h-9 rounded-lg bg-paper-sunk text-[var(--sg-accent)] flex items-center justify-center flex-shrink-0">
                               {isDownloading ? (
                                 <Loader2 className="w-5 h-5 animate-spin" />
                               ) : (
@@ -1011,8 +1004,8 @@ export default function DocumentModal({
                               )}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-slate-900 truncate">{fileName}</p>
-                              <p className="text-xs text-slate-500">
+                              <p className="text-sm font-semibold text-ink truncate">{fileName}</p>
+                              <p className="text-xs text-ink-soft">
                                 {isOutgoing ? 'Doar pentru informare — nu necesită completare sau răspuns.' : 'Se descarcă, se completează și se trimite înapoi'}
                               </p>
                             </div>
@@ -1023,7 +1016,7 @@ export default function DocumentModal({
                                 onClick={() => openAttachmentModel(attachment.id || undefined, fileName)}
                                 title="Deschide"
                                 aria-label="Deschide"
-                                className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-100 transition-colors"
+                                className="p-2 rounded-lg text-ink-faint hover:text-[var(--sg-accent)] hover:bg-paper-sunk transition-colors"
                               >
                                 <Eye className="w-4 h-4" />
                               </button>
@@ -1033,7 +1026,7 @@ export default function DocumentModal({
                               disabled={isDownloading}
                               title="Descarcă"
                               aria-label="Descarcă"
-                              className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-100 transition-colors disabled:opacity-50"
+                              className="p-2 rounded-lg text-ink-faint hover:text-[var(--sg-accent)] hover:bg-paper-sunk transition-colors disabled:opacity-50"
                             >
                               {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                             </button>
@@ -1046,16 +1039,16 @@ export default function DocumentModal({
               )}
 
               {attachmentMissing && (
-                <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-4">
+                <div className="rounded-xl border-2 border-[var(--sg-warn)] bg-[var(--sg-warn-soft)] p-4">
                   <div className="flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <AlertCircle className="w-5 h-5 text-[var(--sg-warn)] flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-amber-900 mb-1">
+                      <p className="text-sm font-bold text-[var(--sg-warn)] mb-1">
                         {isOutgoing
                           ? isAdminOrConsultant ? 'Document indisponibil' : 'Document indisponibil momentan'
                           : isAdminOrConsultant ? 'Model indisponibil' : 'Model indisponibil momentan'}
                       </p>
-                      <p className="text-sm text-amber-800 leading-relaxed">
+                      <p className="text-sm text-[var(--sg-warn)] leading-relaxed">
                         {isOutgoing
                           ? isAdminOrConsultant
                             ? 'Fișierul documentului trimis nu mai există în storage. Reîncarcă documentul sau elimină-l din proiect.'
@@ -1078,7 +1071,7 @@ export default function DocumentModal({
                             type="button"
                             onClick={() => attachmentInputRef.current?.click()}
                             disabled={attachmentActionLoading}
-                            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 disabled:opacity-50"
+                            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[var(--sg-warn)] text-white text-xs font-bold hover:brightness-90 disabled:opacity-50"
                           >
                             {attachmentActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
                             {isOutgoing ? 'Reîncarcă documentul' : 'Reîncarcă model'}
@@ -1087,7 +1080,7 @@ export default function DocumentModal({
                             type="button"
                             onClick={handleRemoveModel}
                             disabled={attachmentActionLoading}
-                            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-amber-300 text-amber-900 text-xs font-bold hover:bg-amber-100 disabled:opacity-50"
+                            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-[var(--sg-warn)] text-[var(--sg-warn)] text-xs font-bold hover:bg-[var(--sg-warn-soft)] disabled:opacity-50"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                             {isOutgoing ? 'Elimină documentul' : 'Elimină modelul'}
@@ -1100,15 +1093,15 @@ export default function DocumentModal({
               )}
 
               {!isAdminOrConsultant && clientVisible && !isOutgoing && (request.status === 'pending' || request.status === 'rejected') && (
-                <div className="rounded-xl border-t border-slate-100 pt-4" onClick={(event) => event.stopPropagation()}>
-                  <h3 className="mb-2 text-sm font-semibold text-slate-900">
+                <div className="rounded-xl border-t border-rule pt-4" onClick={(event) => event.stopPropagation()}>
+                  <h3 className="mb-2 text-sm font-semibold text-ink">
                     {request.status === 'rejected' ? 'Reîncarcă documentele' : 'Încarcă documentele'}
                   </h3>
 
                   {clientUploadFiles.length > 0 && (
-                    <div className="mb-3 space-y-2 rounded-xl border border-indigo-100 bg-indigo-50 p-3">
+                    <div className="mb-3 space-y-2 rounded-xl border border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] p-3">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 text-sm font-semibold text-indigo-900">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-[var(--sg-accent)]">
                           <Files className="h-4 w-4" />
                           {clientUploadFiles.length} {clientUploadFiles.length === 1 ? 'fișier selectat' : 'fișiere selectate'}
                         </div>
@@ -1116,7 +1109,7 @@ export default function DocumentModal({
                           type="button"
                           onClick={clearClientUploadSelection}
                           disabled={clientUploadLoading}
-                          className="rounded-lg p-1.5 text-indigo-500 hover:bg-white disabled:opacity-50"
+                          className="rounded-lg p-1.5 text-[var(--sg-accent)] hover:bg-white disabled:opacity-50"
                           title="Anulează selecția"
                         >
                           <X className="h-4 w-4" />
@@ -1124,10 +1117,10 @@ export default function DocumentModal({
                       </div>
                       <div className="space-y-1">
                         {clientUploadFiles.map(file => (
-                          <div key={file.id} className="flex items-center gap-2 text-xs text-indigo-800">
+                          <div key={file.id} className="flex items-center gap-2 text-xs text-[var(--sg-accent)]">
                             <span className="min-w-0 flex-1 truncate">{file.name}</span>
-                            <span className="shrink-0 text-indigo-500">{formatFileSize(file.size)}</span>
-                            {file.error && <span className="shrink-0 text-red-600">{file.error}</span>}
+                            <span className="shrink-0 text-[var(--sg-accent)]">{formatFileSize(file.size)}</span>
+                            {file.error && <span className="shrink-0 text-[var(--sg-danger)]">{file.error}</span>}
                           </div>
                         ))}
                       </div>
@@ -1136,7 +1129,7 @@ export default function DocumentModal({
 
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <label className="block cursor-pointer">
-                      <div className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 px-4 py-3 text-slate-500 transition-all hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-600">
+                      <div className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-rule px-4 py-3 text-ink-soft transition-all hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)]">
                         <Upload className="h-4 w-4" />
                         <span className="text-sm font-medium">
                           {request.status === 'rejected' ? 'Reîncarcă fișiere' : 'Încarcă fișiere'}
@@ -1158,7 +1151,7 @@ export default function DocumentModal({
 
                     {canUploadFolder && (
                       <label className="block cursor-pointer">
-                        <div className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 px-4 py-3 text-slate-500 transition-all hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-600">
+                        <div className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-rule px-4 py-3 text-ink-soft transition-all hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)]">
                           <FolderUp className="h-4 w-4" />
                           <span className="text-sm font-medium">
                             {request.status === 'rejected' ? 'Reîncarcă folder' : 'Încarcă folder'}
@@ -1188,7 +1181,7 @@ export default function DocumentModal({
                     type="button"
                     onClick={handleClientUpload}
                     disabled={clientUploadLoading || clientUploadFiles.every(file => file.error)}
-                    className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--sg-accent)] px-4 py-2.5 text-sm font-bold text-white transition-all hover:bg-[var(--sg-accent-ink)] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {clientUploadLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                     {clientUploadLoading ? 'Se încarcă...' : `Încarcă${clientUploadFiles.length ? ` (${clientUploadFiles.filter(file => !file.error).length})` : ''}`}
@@ -1198,11 +1191,11 @@ export default function DocumentModal({
 
               {!isOutgoing && (
               <div>
-                <h3 className="text-sm font-semibold text-slate-900 mb-2">Fișierele trimise de client</h3>
+                <h3 className="text-sm font-semibold text-ink mb-2">Fișierele trimise de client</h3>
 
                 {groupedVersions.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-200 px-4 py-4 text-center">
-                    <p className="text-sm text-slate-500">Clientul nu a trimis încă niciun fișier.</p>
+                  <div className="rounded-xl border border-dashed border-rule px-4 py-4 text-center">
+                    <p className="text-sm text-ink-soft">Clientul nu a trimis încă niciun fișier.</p>
                   </div>
                 ) : (() => {
                   const group = groupedVersions.find(v => v.version === selectedVersion) || groupedVersions[0]
@@ -1219,8 +1212,8 @@ export default function DocumentModal({
                               onClick={() => setSelectedVersion(v.version)}
                               className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
                                 v.version === group.version
-                                  ? 'bg-slate-900 text-white'
-                                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                  ? 'bg-ink text-white'
+                                  : 'bg-paper-sunk text-ink-soft hover:bg-paper'
                               }`}
                             >
                               {v === groupedVersions[0] ? `Varianta ${v.version} (recentă)` : `Varianta ${v.version}`}
@@ -1230,7 +1223,7 @@ export default function DocumentModal({
                       )}
 
                       {group.createdAt && (
-                        <p className="text-xs text-slate-400">
+                        <p className="text-xs text-ink-faint">
                           Trimis pe {new Date(group.createdAt).toLocaleDateString('ro-RO', {
                             day: 'numeric',
                             month: 'long',
@@ -1241,16 +1234,16 @@ export default function DocumentModal({
                         </p>
                       )}
 
-                      <div className="rounded-xl border border-slate-100 divide-y divide-slate-100">
+                      <div className="rounded-xl border border-rule divide-y divide-rule">
                         {group.files.map(file => {
                           const fileName = file.original_name?.trim() || file.storage_path.split('/').filter(Boolean).pop() || 'fisier'
                           return (
                             <div key={file.id} className="flex flex-col sm:flex-row sm:items-center gap-3 px-3 py-2.5">
                               <div className="flex items-center gap-3 flex-1 min-w-0">
-                                <div className="w-9 h-9 rounded-lg bg-slate-50 text-emerald-500 flex items-center justify-center flex-shrink-0">
+                                <div className="w-9 h-9 rounded-lg bg-paper-sunk text-[var(--sg-ok)] flex items-center justify-center flex-shrink-0">
                                   <FileCheck className="w-4 h-4" />
                                 </div>
-                                <p className="flex-1 min-w-0 text-sm font-semibold text-slate-900 truncate">
+                                <p className="flex-1 min-w-0 text-sm font-semibold text-ink truncate">
                                   {fileName}
                                 </p>
                               </div>
@@ -1260,7 +1253,7 @@ export default function DocumentModal({
                                     onClick={() => openUploadedFileById(file.id, fileName)}
                                     title="Deschide"
                                     aria-label="Deschide"
-                                    className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-100 transition-colors"
+                                    className="p-2 rounded-lg text-ink-faint hover:text-[var(--sg-accent)] hover:bg-paper-sunk transition-colors"
                                   >
                                     <Eye className="w-4 h-4" />
                                   </button>
@@ -1270,7 +1263,7 @@ export default function DocumentModal({
                                   disabled={downloadingId === file.id}
                                   title="Descarcă"
                                   aria-label="Descarcă"
-                                  className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-100 transition-colors disabled:opacity-50"
+                                  className="p-2 rounded-lg text-ink-faint hover:text-[var(--sg-accent)] hover:bg-paper-sunk transition-colors disabled:opacity-50"
                                 >
                                   {downloadingId === file.id ? (
                                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -1288,7 +1281,7 @@ export default function DocumentModal({
                         <button
                           onClick={() => downloadAllFilesForVersion(group.version)}
                           disabled={downloadingId === opAllId}
-                          className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:underline disabled:opacity-50"
+                          className="flex items-center gap-1.5 text-xs font-semibold text-[var(--sg-accent)] hover:underline disabled:opacity-50"
                         >
                           {downloadingId === opAllId ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1309,9 +1302,9 @@ export default function DocumentModal({
 
           {/* Motivul respingerii anterioare */}
           {request.status === 'rejected' && (
-            <div className="rounded-xl bg-red-50 px-4 py-3">
-              <p className="text-xs font-semibold text-red-800 mb-1">Motivul respingerii</p>
-              <p className="text-sm text-red-700 leading-relaxed">
+            <div className="rounded-xl bg-[var(--sg-danger-soft)] px-4 py-3">
+              <p className="text-xs font-semibold text-[var(--sg-danger)] mb-1">Motivul respingerii</p>
+              <p className="text-sm text-[var(--sg-danger)] leading-relaxed">
                 {latestRejectionReason || 'Motivul respingerii nu este disponibil pentru acest istoric.'}
               </p>
             </div>
@@ -1320,7 +1313,7 @@ export default function DocumentModal({
           {/* Mesaj pentru client - doar la verificare, doar pentru echipă */}
           {isAdminOrConsultant && request.status === 'review' && (
             <div>
-              <label className="block text-sm font-semibold text-slate-900 mb-2">
+              <label className="block text-sm font-semibold text-ink mb-2">
                 Mesaj pentru client
               </label>
               <textarea
@@ -1328,7 +1321,7 @@ export default function DocumentModal({
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Opțional la aprobare, obligatoriu la respingere"
                 rows={3}
-                className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none resize-none transition-colors"
+                className="w-full p-3 rounded-xl border border-rule text-sm focus:border-[var(--sg-accent)] focus:ring-2 focus:ring-[var(--sg-accent)] outline-none resize-none transition-colors"
               />
             </div>
           )}
@@ -1336,11 +1329,11 @@ export default function DocumentModal({
 
         {/* Footer - doar când există acțiuni de făcut */}
         {isAdminOrConsultant && request.status === 'review' && (
-          <div className="px-5 sm:px-6 py-4 border-t border-slate-100 flex flex-col sm:flex-row gap-2.5">
+          <div className="px-5 sm:px-6 py-4 border-t border-rule flex flex-col sm:flex-row gap-2.5">
             <button
               onClick={confirmReject}
               disabled={actionLoading}
-              className="flex-1 py-3 rounded-xl text-sm font-bold border border-red-200 text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-1 py-3 rounded-xl text-sm font-bold border border-[var(--sg-danger)] text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
               <XCircle className="w-4 h-4" />
               Respinge
@@ -1349,7 +1342,7 @@ export default function DocumentModal({
             <button
               onClick={handleApprove}
               disabled={actionLoading}
-              className="flex-[2] py-3 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-[2] py-3 rounded-xl text-sm font-bold text-white bg-[var(--sg-ok)] hover:brightness-90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {actionLoading ? (
                 <>

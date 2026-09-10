@@ -187,7 +187,7 @@ function ChatPageContent() {
   if (authLoading) {
     return (
       <div className="flex min-h-[calc(100vh-120px)] items-center justify-center">
-        <div className="text-sm text-slate-500">Se încarcă...</div>
+        <div className="text-sm text-ink-soft">Se încarcă...</div>
       </div>
     )
   }
@@ -195,9 +195,9 @@ function ChatPageContent() {
   if (!canAccess) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-10">
-        <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-          <h1 className="text-xl font-semibold text-slate-900">Chat indisponibil</h1>
-          <p className="mt-2 text-sm text-slate-600">
+        <div className="rounded-3xl border border-rule bg-white p-8 shadow-sm">
+          <h1 className="text-xl font-semibold text-ink">Chat indisponibil</h1>
+          <p className="mt-2 text-sm text-ink-soft">
             Momentan această secțiune este disponibilă doar pentru admin și consultant.
           </p>
         </div>
@@ -207,22 +207,22 @@ function ChatPageContent() {
 
   return (
     <div className="h-[calc(100vh-88px)] min-h-[600px] overflow-hidden px-4 pb-4 pt-2 md:px-6">
-      <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm md:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden rounded-3xl border border-rule bg-white shadow-sm md:grid-cols-[360px_minmax(0,1fr)]">
         <aside
           className={`${
             selectedConversationId ? 'hidden md:flex' : 'flex'
-          } min-h-0 flex-col border-r border-slate-200 bg-white`}
+          } min-h-0 flex-col border-r border-rule bg-white`}
         >
-          <div className="border-b border-slate-100 p-4">
+          <div className="border-b border-rule p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <h1 className="text-xl font-semibold text-slate-900">Chat</h1>
+                <h1 className="text-xl font-semibold text-ink">Chat</h1>
               </div>
 
             </div>
 
             <div ref={searchBoxRef} className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
               <input
                 value={searchTerm}
                 onFocus={() => {
@@ -232,13 +232,13 @@ function ChatPageContent() {
                   void handleSearchChange(e.target.value)
                 }}
                 placeholder="Caută utilizatori..."
-                className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-sm outline-none transition focus:border-slate-300 focus:bg-white"
+                className="h-11 w-full rounded-2xl border border-rule bg-paper-sunk pl-10 pr-4 text-sm outline-none transition focus:border-rule-strong focus:bg-white"
               />
 
               {showSearchDropdown && (
-                <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-2xl border border-rule bg-white shadow-xl">
                   {userSearchLoading && (
-                    <div className="px-4 py-3 text-sm text-slate-500">
+                    <div className="px-4 py-3 text-sm text-ink-soft">
                       Se caută utilizatori...
                     </div>
                   )}
@@ -249,7 +249,7 @@ function ChatPageContent() {
                     !userSearchError &&
                     userSearchItems.length === 0 &&
                     searchTerm.trim().length > 0 && (
-                      <div className="px-4 py-3 text-sm text-slate-500">
+                      <div className="px-4 py-3 text-sm text-ink-soft">
                         Niciun utilizator găsit.
                       </div>
                     )}
@@ -265,7 +265,7 @@ function ChatPageContent() {
                         <button
                           key={user.id}
                           onClick={() => void handleUserPick(user)}
-                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-paper-sunk"
                         >
                           <div
                             className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
@@ -277,17 +277,17 @@ function ChatPageContent() {
                           </div>
 
                           <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-medium text-slate-900">
+                            <div className="truncate text-sm font-medium text-ink">
                               {displayName}
                             </div>
                             {user.email && (
-                              <div className="truncate text-xs text-slate-500">
+                              <div className="truncate text-xs text-ink-soft">
                                 {user.email}
                               </div>
                             )}
                           </div>
 
-                          <div className="flex-shrink-0 text-xs text-slate-400">
+                          <div className="flex-shrink-0 text-xs text-ink-faint">
                             {user.hasConversation ? 'Deschide' : 'Conversație nouă'}
                           </div>
                         </button>
@@ -300,20 +300,20 @@ function ChatPageContent() {
 
           <div className="min-h-0 flex-1 overflow-y-auto">
             {loading && items.length === 0 && (
-              <div className="p-4 text-sm text-slate-500">Se încarcă conversațiile...</div>
+              <div className="p-4 text-sm text-ink-soft">Se încarcă conversațiile...</div>
             )}
 
             {error && <FeedbackMessage variant="error" className="m-4">{error}</FeedbackMessage>}
 
             {!loading && items.length === 0 && !error && (
               <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-                <div className="mb-3 rounded-2xl bg-slate-100 p-4 text-slate-400">
+                <div className="mb-3 rounded-2xl bg-paper-sunk p-4 text-ink-faint">
                   <MessageSquare className="h-6 w-6" />
                 </div>
-                <h2 className="text-sm font-semibold text-slate-900">
+                <h2 className="text-sm font-semibold text-ink">
                   Nu ai conversații încă
                 </h2>
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-sm text-ink-soft">
                   Folosește căutarea de mai sus pentru a începe o conversație nouă.
                 </p>
               </div>
@@ -336,7 +336,7 @@ function ChatPageContent() {
                     key={item.id}
                     onClick={() => handleOpenConversation(item.id)}
                     className={`mb-1 flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition ${
-                      active ? 'bg-slate-100' : 'hover:bg-slate-50'
+                      active ? 'bg-paper-sunk' : 'hover:bg-paper-sunk'
                     }`}
                   >
                     <div
@@ -353,31 +353,31 @@ function ChatPageContent() {
                         <div className="min-w-0">
                           <div
                             className={`truncate text-sm ${
-                              unread ? 'font-semibold text-slate-900' : 'font-medium text-slate-800'
+                              unread ? 'font-semibold text-ink' : 'font-medium text-ink'
                             }`}
                           >
                             {displayName}
                           </div>
 
                           {email && (
-                            <div className="truncate text-xs text-slate-400">{email}</div>
+                            <div className="truncate text-xs text-ink-faint">{email}</div>
                           )}
                         </div>
 
                         <div className="flex flex-col items-end gap-1">
-                          <span className="whitespace-nowrap text-[11px] text-slate-400">
+                          <span className="whitespace-nowrap text-[11px] text-ink-faint">
                             {formatConversationTime(item.last_message_at)}
                           </span>
 
                           {unread && (
-                            <span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                            <span className="inline-flex h-2.5 w-2.5 rounded-full bg-[var(--sg-ok)]" />
                           )}
                         </div>
                       </div>
 
                       <p
                         className={`mt-1 truncate text-sm ${
-                          unread ? 'text-slate-700' : 'text-slate-500'
+                          unread ? 'text-ink' : 'text-ink-soft'
                         }`}
                       >
                         {preview}
@@ -392,14 +392,14 @@ function ChatPageContent() {
 
         <main className={`${selectedConversationId ? 'flex' : 'hidden md:flex'} min-h-0 flex-col`}>
           {!selectedConversation || !selectedConversationId ? (
-            <div className="flex h-full flex-col items-center justify-center bg-slate-50/40 px-6 text-center">
-              <div className="mb-4 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-                <MessageSquare className="h-8 w-8 text-slate-400" />
+            <div className="flex h-full flex-col items-center justify-center bg-paper-sunk px-6 text-center">
+              <div className="mb-4 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-rule">
+                <MessageSquare className="h-8 w-8 text-ink-faint" />
               </div>
-              <h2 className="text-lg font-semibold text-slate-900">
+              <h2 className="text-lg font-semibold text-ink">
                 Selectează o conversație
               </h2>
-              <p className="mt-2 max-w-md text-sm text-slate-500">
+              <p className="mt-2 max-w-md text-sm text-ink-soft">
                 Alege o conversație din listă sau caută un utilizator pentru a începe una nouă.
               </p>
             </div>
@@ -424,7 +424,7 @@ function ChatPageContent() {
       </div>
 
       {(creating || userSearchLoading) && (
-        <div className="pointer-events-none fixed bottom-4 right-4 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg">
+        <div className="pointer-events-none fixed bottom-4 right-4 rounded-2xl bg-ink px-4 py-2 text-sm font-medium text-white shadow-lg">
           {creating ? 'Se creează conversația...' : 'Se caută...'}
         </div>
       )}
@@ -437,7 +437,7 @@ export default function ChatPage() {
     <Suspense
       fallback={
         <div className="flex min-h-[calc(100vh-120px)] items-center justify-center">
-          <div className="text-sm text-slate-500">Se încarcă...</div>
+          <div className="text-sm text-ink-soft">Se încarcă...</div>
         </div>
       }
     >

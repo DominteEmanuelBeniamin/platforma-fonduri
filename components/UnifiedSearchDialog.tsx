@@ -38,7 +38,7 @@ function highlightMatch(text: string, query: string) {
   return (
     <>
       {text.slice(0, idx)}
-      <mark className="bg-amber-200 text-amber-900 font-semibold rounded-sm px-0.5">
+      <mark className="bg-[var(--sg-warn)] text-[var(--sg-warn)] font-semibold rounded-sm px-0.5">
         {text.slice(idx, idx + q.length)}
       </mark>
       {text.slice(idx + q.length)}
@@ -99,9 +99,9 @@ export default function UnifiedSearchDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[999999]" />
+        <Dialog.Overlay className="fixed inset-0 backdrop-blur-sm z-[999999]" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }} />
         <Dialog.Content
-          className="project-scope fixed left-1/2 top-[12vh] -translate-x-1/2 w-[calc(100%-2rem)] max-w-xl max-h-[70vh] overflow-hidden bg-[var(--p-surface)] rounded-2xl shadow-2xl z-[999999] flex flex-col focus:outline-none"
+          className="fixed left-1/2 top-[12vh] -translate-x-1/2 w-[calc(100%-2rem)] max-w-xl max-h-[70vh] overflow-hidden bg-[var(--p-surface)] rounded-2xl shadow-2xl z-[999999] flex flex-col focus:outline-none"
           onOpenAutoFocus={resetSearch}
           onKeyDown={handleKeyDown}
         >

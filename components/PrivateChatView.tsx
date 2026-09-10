@@ -14,6 +14,7 @@ import { useToast } from '@/app/providers/ToastProvider'
 import { type PrivateChatMessage, usePrivateChat } from '@/hooks/usePrivateChat'
 import { getAvatarColor, getInitials } from '@/lib/avatar'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
+import { Spinner } from '@/components/ui/Spinner'
 
 type Props = {
   conversationId: string
@@ -336,22 +337,23 @@ export default function PrivateChatView({
 
   return (
     <section className={`flex h-full min-h-0 flex-col bg-white ${className}`}>
-      <div className="z-10 border-b border-slate-100 bg-white/80 backdrop-blur-md">
+      <div className="z-10 border-b border-rule bg-white/80 backdrop-blur-md">
         <div className="flex h-16 items-center justify-between px-4">
           <div className="flex items-center gap-3">
             {showBackButton && (
               <button
                 onClick={onBack}
-                className="rounded-xl p-2 text-slate-600 hover:bg-slate-100 md:hidden"
+                aria-label="Înapoi la conversații"
+                className="flex h-11 w-11 items-center justify-center rounded-xl text-ink-soft hover:bg-paper-sunk md:hidden"
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>
             )}
 
             <div className="min-w-0">
-                <h3 className="truncate text-base font-semibold text-slate-900">{title}</h3>
+                <h3 className="truncate text-base font-semibold text-ink">{title}</h3>
                 {subtitle && (
-                    <p className="truncate text-xs text-slate-500">{subtitle}</p>
+                    <p className="truncate text-xs text-ink-soft">{subtitle}</p>
                 )}
             </div>
           </div>
@@ -361,7 +363,7 @@ export default function PrivateChatView({
       <div
         ref={listRef}
         onClick={() => setOpenMenuId(null)}
-        className="flex-1 overflow-y-auto bg-slate-50/50 p-4"
+        className="flex-1 overflow-y-auto bg-paper-sunk p-4"
       >
         {hasMore && (
           <div className="flex justify-center pb-4 pt-2">
@@ -371,7 +373,7 @@ export default function PrivateChatView({
                 void loadMore()
               }}
               disabled={loading}
-              className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50"
+              className="rounded-full border border-rule bg-white px-4 py-2 text-xs font-medium text-ink-soft shadow-sm hover:bg-paper-sunk"
             >
               {loading ? 'Se încarcă...' : 'Afișează mesaje mai vechi'}
             </button>
@@ -443,7 +445,7 @@ export default function PrivateChatView({
             <div key={m.id} className="group/row">
               {showDaySeparator && (
                 <div className="my-6 flex justify-center">
-                  <span className="rounded-full bg-slate-100/80 px-3 py-1 text-[11px] font-semibold uppercase text-slate-400">
+                  <span className="rounded-full bg-paper-sunk px-3 py-1 text-[11px] font-semibold uppercase text-ink-faint">
                     {formatDayLabel(m.created_at)}
                   </span>
                 </div>
@@ -451,11 +453,11 @@ export default function PrivateChatView({
 
               {showNewMessagesSeparator && (
                 <div className="my-5 flex items-center gap-3">
-                  <div className="h-px flex-1 bg-emerald-200" />
-                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase text-emerald-700 ring-1 ring-emerald-100">
+                  <div className="h-px flex-1 bg-[var(--sg-ok)]" />
+                  <span className="rounded-full bg-[var(--sg-ok-soft)] px-3 py-1 text-[11px] font-semibold uppercase text-[var(--sg-ok)] ring-1 ring-[var(--sg-ok)]">
                     Mesaje noi
                   </span>
-                  <div className="h-px flex-1 bg-emerald-200" />
+                  <div className="h-px flex-1 bg-[var(--sg-ok)]" />
                 </div>
               )}
 
@@ -465,7 +467,7 @@ export default function PrivateChatView({
                 } ${marginTopClass}`}
               >
                 {!isMe && shouldShowHeader && (
-                  <span className="mb-1 ml-10 text-[11px] font-medium text-slate-500">
+                  <span className="mb-1 ml-10 text-[11px] font-medium text-ink-soft">
                     {m.profiles?.full_name || m.profiles?.email || 'Necunoscut'}
                   </span>
                 )}
@@ -498,23 +500,23 @@ export default function PrivateChatView({
                         }`}
                     >
                     {isEditing ? (
-                      <div className="min-w-[280px] w-full overflow-hidden rounded-2xl border-2 border-slate-900 bg-white shadow-xl animate-in fade-in zoom-in-95 duration-200">
+                      <div className="min-w-[280px] w-full overflow-hidden rounded-2xl border-2 border-rule-strong bg-white shadow-xl animate-in fade-in zoom-in-95 duration-200">
                         <textarea
                           autoFocus
                           value={editText}
                           onChange={(e) => setEditText(e.target.value)}
-                          className="min-h-[100px] w-full resize-none bg-transparent px-4 py-3 text-[14px] text-slate-800 focus:outline-none"
+                          className="min-h-[100px] w-full resize-none bg-transparent px-4 py-3 text-[14px] text-ink focus:outline-none"
                         />
-                        <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 p-2">
+                        <div className="flex justify-end gap-2 border-t border-rule bg-paper-sunk p-2">
                           <button
                             onClick={cancelEdit}
-                            className="rounded-lg px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-200"
+                            className="rounded-lg px-3 py-1.5 text-xs font-bold text-ink-soft hover:bg-paper"
                           >
                             Anulează
                           </button>
                           <button
                             onClick={() => void saveEdit(m.id)}
-                            className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-slate-800"
+                            className="rounded-lg bg-ink px-3 py-1.5 text-xs font-bold text-white shadow-md hover:brightness-90"
                           >
                             Salvează
                           </button>
@@ -531,13 +533,13 @@ export default function PrivateChatView({
                           }}
                           className={`relative px-4 py-2.5 text-[14px] leading-relaxed shadow-sm transition-all ${
                             isMe
-                              ? 'bg-slate-900 text-white'
-                              : 'border border-slate-100 bg-white text-slate-800'
+                              ? 'bg-ink text-white'
+                              : 'border border-rule bg-white text-ink'
                           } ${bubbleRadius}`}
                         >
                           <div className="whitespace-pre-wrap break-words">
                             {m.deleted_at ? (
-                              <span className="text-sm italic text-slate-400/80">
+                              <span className="text-sm italic text-ink-faint">
                                 Acest mesaj a fost șters.
                               </span>
                             ) : (
@@ -560,9 +562,7 @@ export default function PrivateChatView({
                                 setOpenMenuId(openMenuId === m.id ? null : m.id)
                               }}
                               className={`rounded-full p-1.5 transition-colors ${
-                                openMenuId === m.id
-                                  ? 'bg-slate-200 text-slate-800'
-                                  : 'text-slate-400 hover:bg-slate-200/50 hover:text-slate-700'
+                                openMenuId === m.id ? 'bg-paper text-ink' : 'text-ink-faint hover:bg-paper hover:text-ink'
                               }`}
                             >
                               <MoreHorizontal className="h-[18px] w-[18px]" />
@@ -570,22 +570,22 @@ export default function PrivateChatView({
 
                             {openMenuId === m.id && (
                               <div
-                                className="absolute bottom-full right-0 z-50 mb-2 min-w-[140px] rounded-xl border border-slate-100 bg-white p-1.5 shadow-xl"
+                                className="absolute bottom-full right-0 z-50 mb-2 min-w-[140px] rounded-xl border border-rule bg-white p-1.5 shadow-xl"
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 <button
-                                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-ink hover:bg-paper-sunk"
                                   onClick={() => {
                                     setOpenMenuId(null)
                                     startEdit(m.id, m.body)
                                   }}
                                 >
-                                  <Pencil className="h-4 w-4 text-slate-400" />
+                                  <Pencil className="h-4 w-4 text-ink-faint" />
                                   Editează
                                 </button>
 
                                 <button
-                                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50"
+                                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)]"
                                   onClick={async () => {
                                     setOpenMenuId(null)
                                     if (await confirm({ title: 'Ștergi mesajul?', description: 'Mesajul va fi eliminat din conversație.', confirmText: 'Șterge mesajul' })) {
@@ -593,7 +593,7 @@ export default function PrivateChatView({
                                     }
                                   }}
                                 >
-                                  <Trash2 className="h-4 w-4 text-rose-500" />
+                                  <Trash2 className="h-4 w-4 text-[var(--sg-danger)]" />
                                   Șterge
                                 </button>
                               </div>
@@ -607,7 +607,7 @@ export default function PrivateChatView({
 
                 {shouldShowMeta && (
                     <div
-                        className={`mt-1 flex items-center gap-1.5 text-[10px] font-medium text-slate-400 ${
+                        className={`mt-1 flex items-center gap-1.5 text-[10px] font-medium text-ink-faint ${
                         isMe ? 'mr-1 justify-end' : 'ml-10 justify-start'
                         }`}
                     >
@@ -615,14 +615,14 @@ export default function PrivateChatView({
 
                         {isEdited && (
                         <span className="flex items-center gap-0.5 opacity-70">
-                            <span className="h-0.5 w-0.5 rounded-full bg-slate-400" />
+                            <span className="h-0.5 w-0.5 rounded-full bg-rule-strong" />
                             Editat
                         </span>
                         )}
 
                         {showReadReceipt && (
                         <span className="flex items-center gap-0.5 opacity-70">
-                            <span className="h-0.5 w-0.5 rounded-full bg-slate-400" />
+                            <span className="h-0.5 w-0.5 rounded-full bg-rule-strong" />
                             Citit
                         </span>
                         )}
@@ -636,15 +636,15 @@ export default function PrivateChatView({
         <div ref={bottomRef} className="h-2" />
       </div>
 
-      <div className="z-10 border-t border-slate-100 bg-white p-3 sm:p-4">
-        <div className="flex items-end gap-2 rounded-[20px] border border-slate-200 bg-slate-50 p-1.5 shadow-sm transition-all focus-within:border-slate-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-slate-900/10">
+      <div className="z-10 border-t border-rule bg-white p-3 sm:p-4">
+        <div className="flex items-end gap-2 rounded-[20px] border border-rule bg-paper-sunk p-1.5 shadow-sm transition-all focus-within:border-rule-strong focus-within:bg-white focus-within:ring-2 focus-within:ring-rule-strong">
           <textarea
             ref={textareaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onTextareaKeyDown}
             placeholder="Scrie un mesaj..."
-            className="max-h-[120px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+            className="max-h-[120px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm text-ink outline-none placeholder:text-ink-faint"
             rows={1}
           />
           <button
@@ -652,16 +652,16 @@ export default function PrivateChatView({
             disabled={!canSend}
             className={`mb-0.5 mr-0.5 flex h-[38px] flex-shrink-0 items-center gap-2 rounded-2xl px-4 text-sm font-semibold transition-all ${
               canSend
-                ? 'bg-slate-900 text-white shadow-md hover:scale-[1.02] hover:bg-slate-800 active:scale-95'
-                : 'cursor-not-allowed bg-transparent text-slate-300'
+                ? 'bg-ink text-white shadow-md hover:scale-[1.02] hover:bg-ink active:scale-95'
+                : 'cursor-not-allowed bg-transparent text-ink-faint'
             }`}
           >
             {sending ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              <Spinner size="sm" on="accent" />
             ) : (
               <Send className="h-[18px] w-[18px]" />
             )}
-            <span className="hidden sm:inline-block">Trimite</span>
+            <span className="hidden sm:inline-block">Trimite</span><span className="sr-only sm:hidden">Trimite</span>
           </button>
         </div>
       </div>
