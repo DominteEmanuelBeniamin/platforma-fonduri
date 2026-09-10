@@ -1659,10 +1659,10 @@ export default function AdminTemplatesPage() {
                 <table className="w-full border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-rule bg-paper-sunk">
-                      <th scope="col" className="px-4 py-2.5 w-full text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint">Nume</th>
-                      <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint whitespace-nowrap">Status</th>
-                      <th scope="col" className="px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint whitespace-nowrap">Faze</th>
-                      <th scope="col" className="px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint whitespace-nowrap">Activități</th>
+                      <th scope="col" className="px-4 py-2.5 w-full text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Nume</th>
+                      <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft whitespace-nowrap">Status</th>
+                      <th scope="col" className="px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft whitespace-nowrap">Faze</th>
+                      <th scope="col" className="px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft whitespace-nowrap">Activități</th>
                       <th scope="col" className="px-4 py-2.5 w-px"><span className="sr-only">Acțiuni</span></th>
                     </tr>
                   </thead>

@@ -456,10 +456,29 @@ export default function ProjectPhasesSidebar({
                 <div
                     onClick={() => onSelectPhase(phase.id)}
                     onDragOver={e => handlePhaseDragOver(e, phase.id)}
-                    className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-all ${
+                    title={canEdit ? (phase.visibility === 'published' ? 'Vizibil clientului' : 'În pregătire — clientul n-o vede încă') : undefined}
+                    className={`group relative flex items-center gap-2.5 rounded-lg px-3 cursor-pointer transition-all ${
+                      canEdit ? 'pb-2.5 pt-3.5' : 'py-2.5'
+                    } ${
+                      canEdit && phase.visibility !== 'published' ? 'border border-dashed border-rule-strong' : ''
+                    } ${
                       isActive ? 'bg-[var(--p-accent-soft)]' : 'hover:bg-[var(--p-surface-2)]'
                     } ${draggedPhaseId === phase.id ? 'opacity-50' : ''}`}
                   >
+                    {/* Publicarea e un detaliu de echipă. Clientul vede doar faze
+                        publicate, deci banda i-ar fi mereu aceeași: un semn fără
+                        înțeles — de-aia stă în spatele lui `canEdit`, ca restul
+                        uneltelor de echipă din rând. Banda aripii, pe muchia de
+                        sus — niciodată border-left, ăsta e tiparul leneș pe care
+                        sistemul îl refuză explicit. Faza nepublicată n-are bandă
+                        deloc, doar conturul întrerupt de pe rând. */}
+                    {canEdit && phase.visibility === 'published' && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute inset-x-0 top-0 h-[var(--sg-rail)] rounded-t-lg"
+                        style={{ background: bandVar(bandFor(phases.findIndex(p => p.id === phase.id))) }}
+                      />
+                    )}
                     {/* `pointer-coarse:opacity-100`: pe un aparat fără maus nu există
                         „a trece peste”, deci mânerul rămâne invizibil și reordonarea nu
                         există. Pragul e lipsa mausului, nu lățimea — un iPad de 768px
@@ -475,23 +494,6 @@ export default function ProjectPhasesSidebar({
                       >
                         <GripVertical className="w-3.5 h-3.5" />
                       </span>
-                    )}
-                    {/* Publicarea e un detaliu de echipă. Clientul vede doar faze
-                        publicate, deci bulina i-ar fi mereu verde: un semn fără
-                        înțeles, pe care nici tooltipul nu i-l explica. Iar în
-                        redenumire, tot ce nu ține de câmp dispare: pe o coloană
-                        de 288 px, bulina, chevron-ul și mânerul de tragere
-                        lăsau vizibilă doar coada numelui. */}
-                    {canEdit && renamingId !== phase.id && (
-                      <span
-                        title={phase.visibility === 'published' ? 'Vizibil clientului' : 'În pregătire — clientul n-o vede încă'}
-                        className="h-4 w-[var(--sg-rail)] shrink-0 rounded-[1px]"
-                        style={{
-                          background: phase.visibility === 'published'
-                            ? bandVar(bandFor(phases.findIndex(p => p.id === phase.id)))
-                            : 'var(--sg-draft)',
-                        }}
-                      />
                     )}
                     {renamingId === phase.id ? (
                       <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>

@@ -577,12 +577,12 @@ export default function AuditPage() {
             <table className="w-full min-w-[900px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-rule bg-paper-sunk">
-                  <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint">Dată</th>
-                  <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint">Utilizator</th>
-                  <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint">Acțiune</th>
-                  <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint">Entitate</th>
-                  <th scope="col" className="w-full px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint">Descriere</th>
-                  <th scope="col" className="hidden whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint lg:table-cell">IP</th>
+                  <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Dată</th>
+                  <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Utilizator</th>
+                  <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Acțiune</th>
+                  <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Entitate</th>
+                  <th scope="col" className="w-full px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Descriere</th>
+                  <th scope="col" className="hidden whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft lg:table-cell">IP</th>
                   <th scope="col" className="px-4 py-2.5 w-px"><span className="sr-only">Acțiuni</span></th>
                 </tr>
               </thead>

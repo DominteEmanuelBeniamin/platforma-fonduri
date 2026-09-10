@@ -92,14 +92,19 @@ export function ProjectBoard({
           <div
             key={row.id}
             data-rand={row.id}
-            className="flex flex-col gap-2 border-b border-rule py-3 last:border-b-0 sm:flex-row sm:items-start sm:gap-4"
+            className="relative flex flex-col gap-2 border-b border-rule pb-3 pt-4 last:border-b-0 sm:flex-row sm:items-start sm:gap-4"
           >
-            <div className="flex min-w-0 shrink-0 items-center gap-2.5 sm:w-72">
+            {/* Banda aripii, pe muchia de sus — niciodată border-left. Faza „în
+                lucru" n-are bandă deloc; se recunoaște deja după pastila de mai
+                jos, nu are nevoie și de-o bară în culoarea greșită. */}
+            {!row.draft && (
               <span
                 aria-hidden="true"
-                className="h-5 w-[var(--sg-rail)] shrink-0 rounded-[1px]"
-                style={{ background: row.draft ? 'var(--sg-draft)' : bandVar(row.band) }}
+                className="absolute inset-x-0 top-0 h-[var(--sg-rail)]"
+                style={{ background: bandVar(row.band) }}
               />
+            )}
+            <div className="flex min-w-0 shrink-0 items-center gap-2.5 sm:w-72">
               <span className="min-w-0 text-sm font-semibold leading-snug text-ink">{row.name}</span>
               {row.draft && (
                 <span className="shrink-0 rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-1.5 py-0.5 text-xs font-semibold text-ink-faint">

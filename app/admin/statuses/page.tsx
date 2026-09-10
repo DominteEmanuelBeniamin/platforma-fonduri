@@ -48,9 +48,12 @@ const AVAILABLE_ICONS = [
   { name: 'AlertCircle', icon: AlertCircle },
 ]
 
+// Cele șase benzi de fază din DESIGN.md (lib/signage.ts) — singura paletă
+// sancționată pentru clasificări cu multe categorii distincte. Nu culori
+// alese pe ochi: sunt aceleași hexuri ca `--sg-band-1..6`, ca un status să nu
+// poată ajunge din greșeală pe nuanța rezervată `warn` sau `ok`.
 const PRESET_COLORS = [
-  '#6366F1', '#8B5CF6', '#EC4899', '#EF4444', '#F59E0B',
-  '#10B981', '#06B6D4', '#3B82F6', '#84CC16', '#9CA3AF',
+  '#0E4C4A', '#7A5B12', '#8E3B2A', '#5B3A63', '#4A5A24', '#2F4858',
 ]
 
 function generateSlug(text: string): string {
@@ -67,7 +70,7 @@ export default function AdminStatusesPage() {
   const [saving, setSaving] = useState(false)
   const [showNewForm, setShowNewForm] = useState(false)
   const [newStatus, setNewStatus] = useState<ProjectStatusCreate>({
-    name: '', slug: '', description: '', color: '#6366F1', icon: 'Circle', order_index: 0
+    name: '', slug: '', description: '', color: PRESET_COLORS[0], icon: 'Circle', order_index: 0
   })
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editData, setEditData] = useState<Partial<ProjectStatus>>({})
@@ -113,7 +116,7 @@ export default function AdminStatusesPage() {
         body: JSON.stringify({ ...newStatus, order_index: statuses.length + 1 })
       })
       if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Eroare') }
-      setNewStatus({ name: '', slug: '', description: '', color: '#6366F1', icon: 'Circle', order_index: 0 })
+      setNewStatus({ name: '', slug: '', description: '', color: PRESET_COLORS[0], icon: 'Circle', order_index: 0 })
       setShowNewForm(false)
       fetchStatuses()
     } catch { showToast('Nu am putut salva statusul. Reîncearcă.', 'error') }

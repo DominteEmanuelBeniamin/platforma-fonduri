@@ -146,10 +146,10 @@ export default function AdminOverviewPage() {
               <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-rule bg-paper-sunk">
-                    <th scope="col" className="w-full px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint">Șablon</th>
-                    <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint">Faze</th>
-                    <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint">Activități</th>
-                    <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint">Documente</th>
+                    <th scope="col" className="w-full px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Șablon</th>
+                    <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Faze</th>
+                    <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Activități</th>
+                    <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Documente</th>
                   </tr>
                 </thead>
                 <tbody>
