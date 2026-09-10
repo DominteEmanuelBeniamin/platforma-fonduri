@@ -138,11 +138,19 @@ export default function AdminUsersPage() {
     }
   }
 
-  const updateUserRole = async (userId: string, rolNou: string) => {
-    if (!await confirm({ title: 'Confirmă schimbarea rolului', description: 'Rolul utilizatorului va fi actualizat.', confirmText: 'Schimbă rolul' })) return
-    setUpdatingRoleId(userId)
+  const updateUserRole = async (user: { id: string; email: string; full_name?: string | null; role?: string }, rolNou: string) => {
+    const rolVechi = ROLURI[(user.role as Rol) || 'client']
+    // Descrierea numește persoana și direcția schimbării — un admin care
+    // derulează rapid prin listă trebuie să vadă exact ce confirmă, nu o
+    // propoziție generică pe care o apasă din reflex.
+    if (!await confirm({
+      title: 'Confirmă schimbarea rolului',
+      description: `Rolul lui ${user.full_name || user.email} se schimbă din „${rolVechi}” în „${ROLURI[rolNou as Rol]}”.`,
+      confirmText: 'Schimbă rolul',
+    })) return
+    setUpdatingRoleId(user.id)
     try {
-      const res = await apiFetch(`/api/users/${userId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: rolNou }) })
+      const res = await apiFetch(`/api/users/${user.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: rolNou }) })
       if (!res.ok) throw new Error()
       fetchUsers()
       showToast('Rolul utilizatorului a fost actualizat.', 'success')
@@ -280,7 +288,7 @@ export default function AdminUsersPage() {
                   <select
                     id={`rol-${user.id}`}
                     value={user.role || 'client'}
-                    onChange={e => updateUserRole(user.id, e.target.value)}
+                    onChange={e => updateUserRole(user, e.target.value)}
                     disabled={updatingRoleId === user.id}
                     className="h-11 rounded-[var(--radius-plate)] border border-rule bg-plate px-2 text-sm text-ink transition-colors duration-[120ms] focus:border-[var(--sg-accent)] disabled:opacity-55 sm:h-9"
                   >
