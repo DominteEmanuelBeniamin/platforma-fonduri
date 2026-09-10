@@ -7,9 +7,12 @@ import {
   Circle, CheckCircle, PlayCircle, FileEdit, Send, Search,
   FileSignature, Wallet, Eye, Archive, AlertCircle
 } from 'lucide-react'
+import { LocationStrip } from '@/components/ui/LocationStrip'
+import { Button } from '@/components/ui/Button'
 import { useAuth } from '@/app/providers/AuthProvider'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import { useToast } from '@/app/providers/ToastProvider'
+import { Spinner } from '@/components/ui/Spinner'
 
 interface ProjectStatus {
   id: string
@@ -181,131 +184,134 @@ export default function AdminStatusesPage() {
   }
 
   if (authLoading || loading) {
-    return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div></div>
+    return <div className="flex min-h-[60vh] items-center justify-center" role="status" aria-live="polite"><Spinner size="md" /><span className="sr-only">Se încarcă statusurile…</span></div>
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-slate-900">Statusuri Proiect</h1>
-          <p className="text-slate-500 mt-1">Gestionează statusurile mari ale proiectelor.</p>
-        </div>
+    <div>
+      <div className="mx-auto max-w-4xl">
+        <LocationStrip
+          segments={[{ label: 'Bonie', href: '/' }, { label: 'Statusuri' }]}
+          action={
+            <>
+              {hasOrderChanges && (
+                <Button variant="primary" aria-label="Salvează ordinea" onClick={handleSaveOrder} disabled={saving}>
+                  <Save className="h-4 w-4" aria-hidden="true" />
+                  <span className="hidden sm:inline">Salvează ordinea</span>
+                </Button>
+              )}
+              <Button variant={hasOrderChanges ? 'secondary' : 'primary'} aria-label="Status nou" onClick={() => setShowNewForm(true)}>
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                <span className="hidden sm:inline">Status nou</span>
+              </Button>
+            </>
+          }
+        />
 
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            {hasOrderChanges && (
-              <button onClick={handleSaveOrder} disabled={saving} className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 flex items-center gap-2 disabled:opacity-50">
-                <Save className="w-4 h-4" />Salvează ordinea
-              </button>
-            )}
-          </div>
-          <button onClick={() => setShowNewForm(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center gap-2">
-            <Plus className="w-4 h-4" />Status nou
-          </button>
-        </div>
+        <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Statusuri</h1>
+        <p className="mb-8 mt-2 text-sm text-ink-soft">
+          Etapele mari prin care trece un proiect. Ordinea lor e cea în care apar peste tot în platformă.
+        </p>
+
 
         {showNewForm && (
-          <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6 shadow-sm">
+          <div className="mb-6 rounded-[var(--radius-plate)] border border-rule bg-plate p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-slate-900">Status nou</h3>
-              <button onClick={() => setShowNewForm(false)} className="p-1 text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+              <h3 className="font-semibold text-ink">Status nou</h3>
+              <button onClick={() => setShowNewForm(false)} className="p-1 text-ink-faint hover:text-ink-soft"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleCreateStatus} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Nume *</label>
-                  <input type="text" value={newStatus.name} onChange={e => setNewStatus(prev => ({ ...prev, name: e.target.value }))} placeholder="Ex: Implementare" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm" required />
+                  <label className="block text-xs font-medium text-ink mb-1">Nume *</label>
+                  <input type="text" value={newStatus.name} onChange={e => setNewStatus(prev => ({ ...prev, name: e.target.value }))} placeholder="Ex: Implementare" className="w-full px-3 py-2 rounded-lg border border-rule text-sm" required />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Slug</label>
-                  <input type="text" value={newStatus.slug} onChange={e => setNewStatus(prev => ({ ...prev, slug: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm bg-slate-50" />
+                  <label className="block text-xs font-medium text-ink mb-1">Slug</label>
+                  <input type="text" value={newStatus.slug} onChange={e => setNewStatus(prev => ({ ...prev, slug: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-rule text-sm bg-paper-sunk" />
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Descriere</label>
-                <input type="text" value={newStatus.description || ''} onChange={e => setNewStatus(prev => ({ ...prev, description: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm" />
+                <label className="block text-xs font-medium text-ink mb-1">Descriere</label>
+                <input type="text" value={newStatus.description || ''} onChange={e => setNewStatus(prev => ({ ...prev, description: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-rule text-sm" />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-2">Culoare</label>
+                  <label className="block text-xs font-medium text-ink mb-2">Culoare</label>
                   <div className="flex flex-wrap gap-2">
                     {PRESET_COLORS.map(color => (
-                      <button key={color} type="button" onClick={() => setNewStatus(prev => ({ ...prev, color }))} className={`w-8 h-8 rounded-lg ${newStatus.color === color ? 'ring-2 ring-offset-2 ring-slate-400 scale-110' : 'hover:scale-105'}`} style={{ backgroundColor: color }} />
+                      <button key={color} type="button" onClick={() => setNewStatus(prev => ({ ...prev, color }))} className={`w-8 h-8 rounded-lg ${newStatus.color === color ? 'ring-2 ring-offset-2 ring-rule-strong scale-110' : 'hover:scale-105'}`} style={{ backgroundColor: color }} />
                     ))}
                     <div className="relative">
                       <input type="color" value={newStatus.color} onChange={e => setNewStatus(prev => ({ ...prev, color: e.target.value }))} className="w-8 h-8 rounded-lg cursor-pointer opacity-0 absolute inset-0" />
-                      <div className="w-8 h-8 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center" style={{ backgroundColor: newStatus.color }}>
+                      <div className="w-8 h-8 rounded-lg border-2 border-dashed border-rule-strong flex items-center justify-center" style={{ backgroundColor: newStatus.color }}>
                         <Palette className="w-4 h-4 text-white mix-blend-difference" />
                       </div>
                     </div>
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-2">Icon</label>
+                  <label className="block text-xs font-medium text-ink mb-2">Icon</label>
                   <div className="flex flex-wrap gap-2">
                     {AVAILABLE_ICONS.map(({ name, icon: Icon }) => (
-                      <button key={name} type="button" onClick={() => setNewStatus(prev => ({ ...prev, icon: name }))} className={`w-8 h-8 rounded-lg border flex items-center justify-center ${newStatus.icon === name ? 'border-indigo-400 bg-indigo-50 text-indigo-600' : 'border-slate-200 text-slate-500'}`}>
+                      <button key={name} type="button" onClick={() => setNewStatus(prev => ({ ...prev, icon: name }))} className={`w-8 h-8 rounded-lg border flex items-center justify-center ${newStatus.icon === name ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]' : 'border-rule text-ink-soft'}`}>
                         <Icon className="w-4 h-4" />
                       </button>
                     ))}
                   </div>
                 </div>
               </div>
-              <div className="pt-4 border-t border-slate-100">
-                <label className="block text-xs font-medium text-slate-700 mb-2">Preview</label>
+              <div className="pt-4 border-t border-rule">
+                <label className="block text-xs font-medium text-ink mb-2">Preview</label>
                 <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-white" style={{ backgroundColor: newStatus.color }}>
                   {renderIcon(newStatus.icon || 'Circle', 'w-4 h-4')}{newStatus.name || 'Nume status'}
                 </div>
               </div>
               <div className="flex justify-end gap-3 pt-4">
-                <button type="button" onClick={() => setShowNewForm(false)} className="px-4 py-2 border border-slate-200 rounded-lg text-sm">Anulează</button>
-                <button type="submit" disabled={saving || !newStatus.name.trim()} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-2">
-                  {saving && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}Creează
+                <button type="button" onClick={() => setShowNewForm(false)} className="px-4 py-2 border border-rule rounded-lg text-sm">Anulează</button>
+                <button type="submit" disabled={saving || !newStatus.name.trim()} className="px-4 py-2 bg-[var(--sg-accent)] text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-2">
+                  {saving && <Spinner size="sm" on="accent" />}Creează
                 </button>
               </div>
             </form>
           </div>
         )}
 
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-          <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
-            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{statuses.length} statusuri</p>
-          </div>
-          <div className="divide-y divide-slate-100">
+        <div className="overflow-hidden border-t border-rule pb-10">
+          <div className="divide-y divide-rule">
             {statuses.length === 0 ? (
               <div className="px-6 py-12 text-center">
-                <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center mx-auto mb-3"><Circle className="w-6 h-6 text-slate-400" /></div>
-                <p className="font-medium text-slate-900">Niciun status</p>
+                <div className="w-12 h-12 bg-paper-sunk rounded-xl flex items-center justify-center mx-auto mb-3"><Circle className="w-6 h-6 text-ink-faint" /></div>
+                <p className="font-medium text-ink">Niciun status</p>
               </div>
             ) : (
               statuses.map((status) => (
                 <div key={status.id} draggable onDragStart={(e) => handleDragStart(e, status.id)} onDragOver={(e) => handleDragOver(e, status.id)} onDragEnd={handleDragEnd}
-                  className={`flex items-center gap-4 px-4 py-3 transition-colors ${draggedId === status.id ? 'bg-indigo-50 opacity-50' : 'hover:bg-slate-50'} ${editingId === status.id ? 'bg-amber-50' : ''}`}>
-                  <div className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600"><GripVertical className="w-5 h-5" /></div>
-                  <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-xs font-medium text-slate-600">{status.order_index}</div>
+                  className={`flex items-center gap-4 px-4 py-3 transition-colors ${draggedId === status.id ? 'bg-[var(--sg-accent-soft)] opacity-50' : 'hover:bg-paper-sunk'} ${editingId === status.id ? 'bg-[var(--sg-warn-soft)]' : ''}`}>
+                  <div className="cursor-grab active:cursor-grabbing text-ink-faint hover:text-ink-soft"><GripVertical className="w-5 h-5" /></div>
+                  <div className="w-6 h-6 rounded-full bg-paper-sunk flex items-center justify-center text-xs font-medium text-ink-soft">{status.order_index}</div>
                   {editingId === status.id ? (
                     <div className="flex-1 flex items-center gap-3">
-                      <input type="text" value={editData.name || ''} onChange={e => setEditData(prev => ({ ...prev, name: e.target.value }))} className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-sm" />
+                      <input type="text" value={editData.name || ''} onChange={e => setEditData(prev => ({ ...prev, name: e.target.value }))} className="flex-1 px-3 py-1.5 rounded-lg border border-rule text-sm" />
                       <div className="flex items-center gap-1">
                         {PRESET_COLORS.slice(0, 5).map(color => (
-                          <button key={color} type="button" onClick={() => setEditData(prev => ({ ...prev, color }))} className={`w-6 h-6 rounded ${editData.color === color ? 'ring-2 ring-offset-1 ring-slate-400' : ''}`} style={{ backgroundColor: color }} />
+                          <button key={color} type="button" onClick={() => setEditData(prev => ({ ...prev, color }))} className={`w-6 h-6 rounded ${editData.color === color ? 'ring-2 ring-offset-1 ring-rule-strong' : ''}`} style={{ backgroundColor: color }} />
                         ))}
                       </div>
-                      <button onClick={handleSaveEdit} disabled={saving} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg"><Save className="w-4 h-4" /></button>
-                      <button onClick={() => { setEditingId(null); setEditData({}) }} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg"><X className="w-4 h-4" /></button>
+                      <button onClick={handleSaveEdit} disabled={saving} className="p-1.5 text-[var(--sg-ok)] hover:bg-[var(--sg-ok-soft)] rounded-lg"><Save className="w-4 h-4" /></button>
+                      <button onClick={() => { setEditingId(null); setEditData({}) }} className="p-1.5 text-ink-faint hover:bg-paper-sunk rounded-lg"><X className="w-4 h-4" /></button>
                     </div>
                   ) : (
                     <>
                       <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ backgroundColor: status.color }}>{renderIcon(status.icon, 'w-4 h-4')}</div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-slate-900">{status.name}</p>
-                        {status.description && <p className="text-xs text-slate-500 truncate">{status.description}</p>}
+                        <p className="font-medium text-ink">{status.name}</p>
+                        {status.description && <p className="text-xs text-ink-soft truncate">{status.description}</p>}
                       </div>
-                      <code className="px-2 py-1 bg-slate-100 rounded text-xs text-slate-600 font-mono">{status.slug}</code>
+                      <code className="px-2 py-1 bg-paper-sunk rounded text-xs text-ink-soft font-mono">{status.slug}</code>
                       <div className="flex items-center gap-1">
-                        <button onClick={() => { setEditingId(status.id); setEditData({ name: status.name, description: status.description, color: status.color, icon: status.icon }) }} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"><FileEdit className="w-4 h-4" /></button>
-                        <button onClick={() => { setStatusToDelete(status); setDeleteModalOpen(true) }} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                        <button onClick={() => { setEditingId(status.id); setEditData({ name: status.name, description: status.description, color: status.color, icon: status.icon }) }} className="p-1.5 text-ink-faint hover:text-ink-soft hover:bg-paper-sunk rounded-lg"><FileEdit className="w-4 h-4" /></button>
+                        <button onClick={() => { setStatusToDelete(status); setDeleteModalOpen(true) }} className="p-1.5 text-ink-faint hover:text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)] rounded-lg"><Trash2 className="w-4 h-4" /></button>
                       </div>
                     </>
                   )}

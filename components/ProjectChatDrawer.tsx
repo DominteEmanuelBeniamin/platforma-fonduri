@@ -2,28 +2,21 @@
 
 /* eslint-disable @next/next/no-img-element -- Chat images use short-lived signed/blob URLs and intentionally bypass Next optimization. */
 
+import { downloadBlob } from '@/lib/file-preview'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   Send,
   X,
-  Pencil,
-  Trash2,
-  MoreHorizontal,
   ImagePlus,
   Link2,
-  Download,
   EyeOff,
   ArrowUpRight,
-  ChevronLeft,
-  ChevronRight,
 } from "lucide-react";
-import * as Dialog from '@radix-ui/react-dialog';
 import { useAuth } from "@/app/providers/AuthProvider";
 import { useToast } from "@/app/providers/ToastProvider";
 import { useProjectChat } from "@/hooks/useProjectChat";
-import { getAvatarColor, getInitials } from "@/lib/avatar";
 import { FeedbackMessage } from "@/components/FeedbackMessage";
 import UnifiedSearchDialog from "@/components/UnifiedSearchDialog";
 import type { SearchResult } from "@/lib/projectSearch";
@@ -109,6 +102,10 @@ const IMAGE_EXTENSIONS: Record<string, ChatImage['mimeType']> = {
 const extensionMime = (name: string) => IMAGE_EXTENSIONS[name.split('.').pop()?.toLowerCase() ?? ''];
 const imageRetryKey = (messageId: string, image: ChatImage) =>
   `${messageId}:${image.path}:${image.signedUrl ?? ''}:${image.signedUrlExpiresAt ?? ''}`;
+
+import ImagePreviewDialog from './chat/ImagePreviewDialog'
+import ChatMessageList from './chat/ChatMessageList'
+import { Spinner } from '@/components/ui/Spinner'
 
 export default function ProjectChatDrawer({
   open,
@@ -393,7 +390,7 @@ export default function ProjectChatDrawer({
     const unavailableReference = (key: string | number) => (
       <span
         key={key}
-        className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-100/80 px-1.5 py-0.5 text-xs font-semibold text-amber-800"
+        className="inline-flex items-center gap-1 rounded-md border border-[var(--sg-warn)] bg-[var(--sg-warn-soft)] px-1.5 py-0.5 text-xs font-semibold text-[var(--sg-warn)]"
       >
         <EyeOff className="h-3 w-3 shrink-0" aria-hidden="true" />
         Element indisponibil
@@ -432,10 +429,10 @@ export default function ProjectChatDrawer({
             await closeDrawer();
             onNavigate?.(result);
           }}
-          className={`group/link inline-flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
+          className={`group/link inline-flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--sg-accent)] ${
             isOwn
-              ? 'border-white/15 bg-white/10 text-indigo-100 hover:bg-white/15'
-              : 'border-indigo-200/80 bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
+              ? 'border-white/15 bg-white/10 text-[var(--sg-accent)] hover:bg-white/15'
+              : 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)]'
           }`}
           title={`${result.type}: ${result.title}`}
         >
@@ -479,15 +476,7 @@ export default function ProjectChatDrawer({
     try {
       const response = await fetch(current.signedUrl as string);
       if (!response.ok) throw new Error('download failed');
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = current.name;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
+      downloadBlob(await response.blob(), current.name);
     } catch {
       if (retried) {
         setUnavailableImages((prev) => new Set(prev).add(imageRetryKey(messageId, current)));
@@ -867,38 +856,13 @@ export default function ProjectChatDrawer({
 
   if (!open || !isMounted) return null;
 
-  const GROUP_GAP_MS = 2 * 60 * 1000;
-  const toMs = (iso: string) => new Date(iso).getTime();
-  const isSameDay = (aIso: string, bIso: string) => {
-    const a = new Date(aIso);
-    const b = new Date(bIso);
-    return a.toDateString() === b.toDateString();
-  };
 
-  const formatDayLabel = (iso: string) => {
-    const d = new Date(iso);
-    const now = new Date();
-    if (isSameDay(iso, now.toISOString())) return "Astăzi";
-    now.setDate(now.getDate() - 1);
-    if (isSameDay(iso, now.toISOString())) return "Ieri";
-    return d.toLocaleDateString(undefined, {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  };
-
-  const formatTime = (iso: string) =>
-    new Date(iso).toLocaleTimeString(undefined, {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
 
   const drawerContent = (
     <div className="fixed inset-0 z-[999999]">
       <button
         onClick={closeDrawer}
-        className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm cursor-default"
+        className="absolute inset-0 backdrop-blur-sm cursor-default" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }}
       />
 
       {/* Drag & drop pe tot drawerul, nu doar pe lista de mesaje: ținta
@@ -920,28 +884,28 @@ export default function ProjectChatDrawer({
         }}
         className="absolute right-0 top-0 h-full w-full sm:w-[min(520px,90vw)] bg-white shadow-2xl flex flex-col sm:rounded-l-2xl overflow-hidden animate-in slide-in-from-right duration-300"
       >
-        <div className="z-10 bg-white/80 backdrop-blur-md border-b border-slate-100 pt-[env(safe-area-inset-top)]">
+        <div className="z-10 bg-white/80 backdrop-blur-md border-b border-rule pt-[env(safe-area-inset-top)]">
           <div className="h-16 px-4 flex items-center justify-between">
             <button
               onClick={closeDrawer}
               aria-label="Înapoi"
-              className="sm:hidden p-2 -ml-2 rounded-xl hover:bg-slate-100 text-slate-600"
+              className="sm:hidden p-2 -ml-2 rounded-xl hover:bg-paper-sunk text-ink-soft"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div className="flex items-center gap-3">
               <div className="relative flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--sg-ok)] opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-[var(--sg-ok)]"></span>
               </div>
-              <h3 className="text-base font-semibold text-slate-900">
+              <h3 className="text-base font-semibold text-ink">
                 {title}
               </h3>
             </div>
             <button
               onClick={closeDrawer}
               aria-label="Închide chatul"
-              className="hidden sm:inline-flex p-2 -mr-2 rounded-xl hover:bg-slate-100 text-slate-500"
+              className="hidden sm:inline-flex p-2 -mr-2 rounded-xl hover:bg-paper-sunk text-ink-soft"
             >
               <X className="w-5 h-5" />
             </button>
@@ -951,10 +915,10 @@ export default function ProjectChatDrawer({
         <div
           ref={listRef}
           onClick={() => setOpenMenuId(null)}
-          className="flex-1 overflow-y-auto p-4 bg-slate-50/50"
+          className="flex-1 overflow-y-auto p-4 bg-paper-sunk"
         >
           {dragActive && (
-            <div className="pointer-events-none sticky top-2 z-20 mb-2 rounded-xl border-2 border-dashed border-indigo-400 bg-indigo-50/95 p-6 text-center text-sm font-semibold text-indigo-700">
+            <div className="pointer-events-none sticky top-2 z-20 mb-2 rounded-xl border-2 border-dashed border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] p-6 text-center text-sm font-semibold text-[var(--sg-accent)]">
               Lasă imaginile aici
             </div>
           )}
@@ -967,7 +931,7 @@ export default function ProjectChatDrawer({
                   loadMore();
                 }}
                 disabled={loading}
-                className="px-4 py-2 rounded-full text-xs font-medium bg-white text-slate-600 border border-slate-200 shadow-sm hover:bg-slate-50"
+                className="px-4 py-2 rounded-full text-xs font-medium bg-white text-ink-soft border border-rule shadow-sm hover:bg-paper-sunk"
               >
                 {loading ? "Se încarcă..." : "Afișează mesaje mai vechi"}
               </button>
@@ -976,350 +940,45 @@ export default function ProjectChatDrawer({
 
           {error && <FeedbackMessage variant="error" className="mb-4">{error}</FeedbackMessage>}
 
-          {messages.map((m, idx) => {
-            const prev = idx > 0 ? messages[idx - 1] : null;
-            const next = idx < messages.length - 1 ? messages[idx + 1] : null;
-            const isMe = userId && m.created_by === userId;
-            const isEditing = editingId === m.id;
-            const showNewMessagesSeparator = firstUnreadMessageId === m.id;
-            const showReadReceipt = projectReadReceipt?.messageId === m.id;
-            const readReceiptLabel = showReadReceipt ? projectReadReceipt?.label : null;
-
-            const prevSameDay = prev
-              ? isSameDay(prev.created_at, m.created_at)
-              : false;
-            const nextSameDay = next
-              ? isSameDay(m.created_at, next.created_at)
-              : false;
-            const isSameGroupAsPrev =
-              prev &&
-              prev.created_by === m.created_by &&
-              toMs(m.created_at) - toMs(prev.created_at) <= GROUP_GAP_MS &&
-              prevSameDay;
-            const isSameGroupAsNext =
-              next &&
-              next.created_by === m.created_by &&
-              toMs(next.created_at) - toMs(m.created_at) <= GROUP_GAP_MS &&
-              nextSameDay;
-
-            const showDaySeparator = !prev || !prevSameDay;
-            const shouldShowHeader = !isMe && !isSameGroupAsPrev;
-            const isEdited = !!m.edited_at && m.edited_at !== m.created_at && !m.deleted_at;
-            const shouldShowMeta = !isSameGroupAsNext || isEdited || showReadReceipt;
-
-            // Reducem spațiul dintre mesajele din același grup
-            const marginTopClass = showDaySeparator
-              ? "mt-6"
-              : isSameGroupAsPrev
-              ? "mt-1"
-              : "mt-4";
-
-            const color = getAvatarColor(
-              m.profiles?.full_name || m.profiles?.email || m.created_by
-            );
-            const initials = getInitials(
-              m.profiles?.full_name,
-              m.profiles?.email
-            );
-
-            let bubbleRadius = "rounded-2xl";
-            if (isMe) {
-              if (!isSameGroupAsPrev && isSameGroupAsNext)
-                bubbleRadius = "rounded-2xl rounded-br-sm";
-              else if (isSameGroupAsPrev && isSameGroupAsNext)
-                bubbleRadius = "rounded-l-2xl rounded-r-sm";
-              else if (isSameGroupAsPrev && !isSameGroupAsNext)
-                bubbleRadius = "rounded-2xl rounded-tr-sm";
-            } else {
-              if (!isSameGroupAsPrev && isSameGroupAsNext)
-                bubbleRadius = "rounded-2xl rounded-bl-sm";
-              else if (isSameGroupAsPrev && isSameGroupAsNext)
-                bubbleRadius = "rounded-r-2xl rounded-l-sm";
-              else if (isSameGroupAsPrev && !isSameGroupAsNext)
-                bubbleRadius = "rounded-2xl rounded-tl-sm";
-            }
-
-            return (
-              <div key={m.id} className="group/row">
-                {showDaySeparator && (
-                  <div className="flex justify-center my-6">
-                    <span className="px-3 py-1 rounded-full text-[11px] font-semibold uppercase text-slate-400 bg-slate-100/80">
-                      {formatDayLabel(m.created_at)}
-                    </span>
-                  </div>
-                )}
-
-                {showNewMessagesSeparator && (
-                  <div className="my-5 flex items-center gap-3">
-                    <div className="h-px flex-1 bg-emerald-200" />
-                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase text-emerald-700 ring-1 ring-emerald-100">
-                      Mesaje noi
-                    </span>
-                    <div className="h-px flex-1 bg-emerald-200" />
-                  </div>
-                )}
-
-                <div
-                  className={`flex flex-col w-full ${
-                    isMe ? "items-end" : "items-start"
-                  } ${marginTopClass}`}
-                >
-                  {/* 1. Numele (apare doar la primul mesaj din grup) */}
-                  {!isMe && shouldShowHeader && (
-                    <span className="text-[11px] font-medium text-slate-500 mb-1 ml-10">
-                      {m.profiles?.full_name ||
-                        m.profiles?.email ||
-                        "Necunoscut"}
-                    </span>
-                  )}
-
-                  {/* 2. Rândul orizontal: conține DOAR avatarul și bula (aliniate la bază) */}
-                  <div
-                    className={`flex items-end max-w-[85%] sm:max-w-[75%] ${
-                      isMe ? "flex-row-reverse" : "flex-row"
-                    }`}
-                  >
-                    {/* Secțiune avatar */}
-                    {!isMe && (
-                      <div className="mr-2 w-8 flex-shrink-0 flex justify-center">
-                        {!isSameGroupAsNext ? (
-                          <div
-                            className="w-8 h-8 rounded-full text-white flex items-center justify-center text-[11px] font-bold shadow-sm mb-[2px] animate-in fade-in zoom-in-50 duration-200"
-                            style={{
-                              background: `linear-gradient(135deg, ${color.from}, ${color.to})`,
-                            }}
-                          >
-                            {initials}
-                          </div>
-                        ) : (
-                          <div className="w-8" />
-                        )}
-                      </div>
-                    )}
-
-                    {/* Conținut mesaj (bula sau editorul) */}
-                    <div
-                      className={`relative group/bubble flex items-center gap-2 ${
-                        isMe ? "flex-row-reverse" : "flex-row"
-                      }`}
-                    >
-                        {/* Textul și pozele au controale independente. */}
-                        <div
-                          onContextMenu={(e) => {
-                            if (window.innerWidth < 640) {
-                              e.preventDefault();
-                              setOpenMenuId(`message:${m.id}`);
-                            }
-                          }}
-                          className={`flex flex-col gap-1.5 ${isMe ? "items-end" : "items-start"}`}
-                        >
-                          {m.deleted_at ? (
-                            <div
-                              className={`px-4 py-2.5 text-[14px] leading-relaxed ${
-                                isMe ? "bg-slate-900" : "border border-slate-100 bg-white shadow-sm"
-                              } ${bubbleRadius}`}
-                            >
-                              <span className="italic text-slate-400/80 text-sm">
-                                Acest mesaj a fost șters.
-                              </span>
-                            </div>
-                          ) : (
-                            <>
-                              {isEditing ? (
-                                // Doar bula de text e înlocuită: editai un mesaj
-                                // cu poze fără să mai vezi la ce se referă.
-                                <div className="w-full min-w-[280px] overflow-hidden rounded-2xl border-2 border-slate-900 bg-white shadow-xl animate-in fade-in zoom-in-95 duration-200">
-                                  <textarea
-                                    autoFocus
-                                    value={editText}
-                                    onChange={(e) => setEditText(e.target.value)}
-                                    className="w-full resize-none bg-transparent px-4 py-3 text-[14px] text-slate-800 focus:outline-none min-h-[100px]"
-                                  />
-                                  <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 p-2">
-                                    <button
-                                      onClick={cancelEdit}
-                                      className="rounded-lg px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-200"
-                                    >
-                                      Anulează
-                                    </button>
-                                    <button
-                                      onClick={() => saveEdit(m.id)}
-                                      disabled={!editText.trim() && !m.images?.length}
-                                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-slate-900"
-                                    >
-                                      Salvează
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (m.body || m.body_masked) && (
-                                <div className="group/message relative">
-                                  <div
-                                    className={`px-4 py-2.5 text-[14px] leading-relaxed transition-colors ${
-                                      m.body_masked
-                                        ? "border border-amber-200 bg-amber-50 text-slate-700"
-                                        : isMe
-                                        ? "bg-slate-900 text-white"
-                                        : "border border-slate-100 bg-white text-slate-800 shadow-sm"
-                                    } ${bubbleRadius}`}
-                                  >
-                                    {m.body && (
-                                      <div className="whitespace-pre-wrap break-words">
-                                        {renderBody(m.body, !!m.body_masked, !!isMe)}
-                                      </div>
-                                    )}
-                                    {m.body_masked && (
-                                      <p className="mt-1.5 text-[11px] leading-snug text-amber-800/75">
-                                        Nu este publicat sau nu mai este disponibil.
-                                      </p>
-                                    )}
-                                  </div>
-                                  {!m.deleted_at && (isAdmin || isMe) && (
-                                    <div className={`absolute top-1 transition-opacity ${isMe ? "-left-9" : "-right-9"} ${openMenuId === `message:${m.id}` ? "opacity-100" : "opacity-0 group-hover/message:opacity-100"}`}>
-                                      <button
-                                        type="button"
-                                        aria-label="Opțiuni mesaj"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setOpenMenuId(openMenuId === `message:${m.id}` ? null : `message:${m.id}`);
-                                        }}
-                                        className={`rounded-full p-1.5 transition-colors ${openMenuId === `message:${m.id}` ? "bg-slate-200 text-slate-800" : "text-slate-400 hover:bg-slate-200/50 hover:text-slate-700"}`}
-                                      >
-                                        <MoreHorizontal className="h-[18px] w-[18px]" />
-                                      </button>
-                                      {openMenuId === `message:${m.id}` && (
-                                        <div className={`absolute top-full mt-1 z-50 min-w-[140px] rounded-xl border border-slate-100 bg-white p-1.5 shadow-xl ${isMe ? "left-0" : "right-0"}`} onClick={(e) => e.stopPropagation()}>
-                                          {!m.body_masked && (
-                                            <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onClick={() => { setOpenMenuId(null); startEdit(m.id, m.body ?? ""); }}>
-                                              <Pencil className="h-4 w-4 text-slate-400" /> Editează
-                                            </button>
-                                          )}
-                                          <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50" onClick={async () => { setOpenMenuId(null); if (await confirm({ title: "Ștergi mesajul?", description: "Mesajul va fi eliminat din conversație.", confirmText: "Șterge mesajul" })) await deleteMessage(m.id); }}>
-                                            <Trash2 className="h-4 w-4 text-rose-500" /> Șterge
-                                          </button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                              {!!m.images?.length && (
-                                <div className={`grid w-64 gap-1 sm:w-72 ${m.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-                                  {m.images.map((image) => {
-                                    const imageKey = imageRetryKey(m.id, image);
-                                    if (unavailableImages.has(imageKey)) {
-                                      return <span key={image.path} className="col-span-full text-xs italic text-slate-400">Imagine indisponibilă</span>;
-                                    }
-                                    return image.signedUrl ? (
-                                      <div key={image.path} className="group/image relative">
-                                      <button
-                                        type="button"
-                                        // `min-h` cât timp poza se încarcă: cu
-                                        // înălțime automată, bula ar porni de la
-                                        // zero și ar sări când imaginea se
-                                        // decodează, exact în momentul în care
-                                        // lista derulează la capăt.
-                                        className={`overflow-hidden rounded-xl bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                                          m.images!.length === 1 ? "min-h-32" : ""
-                                        }`}
-                                        onClick={() => setPreview({ messageId: m.id, image })}
-                                      >
-                                        <img
-                                          src={image.signedUrl}
-                                          alt={image.name}
-                                          className={m.images!.length === 1
-                                            ? "h-auto max-h-80 w-full object-cover"
-                                            : "aspect-square w-full object-cover"}
-                                          onError={() => { void requestImageRefresh(m.id, image); }}
-                                        />
-                                      </button>
-                                      {!m.deleted_at && (isAdmin || isMe) && (
-                                        <div className={`absolute top-1/2 -translate-y-1/2 transition-opacity ${isMe ? "-left-9" : "-right-9"} ${openMenuId === `image:${m.id}:${image.path}` ? "opacity-100" : "opacity-0 group-hover/image:opacity-100"}`}>
-                                          <button
-                                            type="button"
-                                            aria-label={`Opțiuni pentru ${image.name}`}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setOpenMenuId(openMenuId === `image:${m.id}:${image.path}` ? null : `image:${m.id}:${image.path}`);
-                                            }}
-                                            className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-slate-200/50 hover:text-slate-700"
-                                          >
-                                            <MoreHorizontal className="h-4 w-4" />
-                                          </button>
-                                          {openMenuId === `image:${m.id}:${image.path}` && (
-                                            <div className={`absolute top-full z-50 mt-1 min-w-[130px] rounded-xl border border-slate-100 bg-white p-1.5 shadow-xl ${isMe ? "left-0" : "right-0"}`} onClick={(e) => e.stopPropagation()}>
-                                              <button
-                                                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50"
-                                                onClick={async () => {
-                                                  setOpenMenuId(null);
-                                                  if (await confirm({ title: "Ștergi imaginea?", description: "Imaginea va fi eliminată din mesaj.", confirmText: "Șterge imaginea" })) {
-                                                    const item = await deleteImage(m.id, image.path);
-                                                    if (item && preview?.messageId === m.id && preview.image.path === image.path) setPreview(null);
-                                                  }
-                                                }}
-                                              >
-                                                <Trash2 className="h-4 w-4 text-rose-500" /> Șterge
-                                              </button>
-                                            </div>
-                                          )}
-                                        </div>
-                                      )}
-                                      </div>
-                                    ) : (
-                                      <span key={image.path} className="col-span-full text-xs text-slate-400">Se încarcă imaginea...</span>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </>
-                          )}
-                        </div>
-
-                    </div>
-                  </div>
-
-                  {/* 3. Ora (apare sub rândul cu avatar și bulă) */}
-                  {shouldShowMeta && (
-                    <div
-                      className={`mt-1 text-[10px] font-medium text-slate-400 flex items-center gap-1.5 ${
-                        isMe ? "justify-end mr-1" : "justify-start ml-10"
-                      }`}
-                    >
-                      <span>{formatTime(m.created_at)}</span>
-
-                      {isEdited && (
-                          <span className="flex items-center gap-0.5 opacity-70">
-                            <span className="w-0.5 h-0.5 rounded-full bg-slate-400" />{" "}
-                            Editat
-                          </span>
-                        )}
-
-                      {readReceiptLabel && (
-                        <span className="flex items-center gap-0.5 opacity-70">
-                          <span className="w-0.5 h-0.5 rounded-full bg-slate-400" />{" "}
-                          {readReceiptLabel}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          <ChatMessageList
+            messages={messages}
+            userId={userId}
+            isAdmin={isAdmin}
+            firstUnreadMessageId={firstUnreadMessageId}
+            projectReadReceipt={projectReadReceipt}
+            renderBody={renderBody}
+            editingId={editingId}
+            editText={editText}
+            setEditText={setEditText}
+            startEdit={startEdit}
+            cancelEdit={cancelEdit}
+            saveEdit={saveEdit}
+            openMenuId={openMenuId}
+            setOpenMenuId={setOpenMenuId}
+            preview={preview}
+            setPreview={setPreview}
+            unavailableImages={unavailableImages}
+            imageRetryKey={imageRetryKey}
+            requestImageRefresh={requestImageRefresh}
+            deleteImage={deleteImage}
+            deleteMessage={deleteMessage}
+            confirm={confirm}
+          />
           <div ref={bottomRef} className="h-2" />
         </div>
 
-        <div className="z-10 bg-white p-3 sm:p-4 border-t border-slate-100 pb-[env(safe-area-inset-bottom)]">
+        <div className="z-10 bg-white p-3 sm:p-4 border-t border-rule pb-[env(safe-area-inset-bottom)]">
           {!!attachments.length && (
             <div className="mb-2 flex gap-2 overflow-x-auto px-1">
               {attachments.map((attachment) => (
                 <div key={attachment.id} className="relative shrink-0">
-                  <img src={attachment.previewUrl} alt={attachment.name} className="h-14 w-14 rounded-lg object-cover ring-1 ring-slate-200" />
+                  <img src={attachment.previewUrl} alt={attachment.name} className="h-14 w-14 rounded-lg object-cover ring-1 ring-rule" />
                   <button
                     type="button"
                     aria-label={`Elimină ${attachment.name}`}
                     onClick={() => removeAttachment(attachment.id)}
                     disabled={uploading || sending}
-                    className="absolute -right-1.5 -top-1.5 rounded-full bg-slate-900 p-0.5 text-white disabled:opacity-50"
+                    className="absolute -right-1.5 -top-1.5 rounded-full bg-ink p-0.5 text-white disabled:opacity-50"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -1328,12 +987,12 @@ export default function ProjectChatDrawer({
             </div>
           )}
           {uploadProgress && uploadProgress.total > 0 && (
-            <p className="mb-2 px-1 text-xs text-slate-500" role="status">
+            <p className="mb-2 px-1 text-xs text-ink-soft" role="status">
               Se încarcă {Math.min(uploadProgress.done + 1, uploadProgress.total)} din {uploadProgress.total}…
             </p>
           )}
           {composerError && (
-            <div className="mb-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
+            <div className="mb-2 rounded-lg bg-[var(--sg-danger-soft)] px-3 py-2 text-xs text-[var(--sg-danger)]">
               <p>{composerError}</p>
               {showRequestCta && (
                 <button type="button" onClick={openDocumentRequestSearch} className="mt-1 font-semibold underline">
@@ -1342,7 +1001,7 @@ export default function ProjectChatDrawer({
               )}
             </div>
           )}
-          <div className="flex items-end gap-2 bg-slate-50 border border-slate-200 rounded-[20px] p-1.5 focus-within:ring-2 focus-within:ring-slate-900/10 focus-within:bg-white focus-within:border-slate-300 transition-all shadow-sm">
+          <div className="flex items-end gap-2 bg-paper-sunk border border-rule rounded-[20px] p-1.5 focus-within:ring-2 focus-within:ring-rule-strong focus-within:bg-white focus-within:border-rule-strong transition-all shadow-sm">
             <input
               ref={fileInputRef}
               type="file"
@@ -1360,7 +1019,7 @@ export default function ProjectChatDrawer({
               aria-label="Adaugă imagini"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading || sending}
-              className="mb-0.5 rounded-full p-2 text-slate-500 hover:bg-slate-200 disabled:opacity-40"
+              className="mb-0.5 rounded-full p-2 text-ink-soft hover:bg-paper disabled:opacity-40"
             >
               <ImagePlus className="h-5 w-5" />
             </button>
@@ -1369,7 +1028,7 @@ export default function ProjectChatDrawer({
               aria-label="Inserează link intern"
               onClick={() => { setSearchFilter('all'); setSearchOpen(true); }}
               disabled={uploading || sending || !searchIndex.length}
-              className="mb-0.5 rounded-full p-2 text-slate-500 hover:bg-slate-200 disabled:opacity-40"
+              className="mb-0.5 rounded-full p-2 text-ink-soft hover:bg-paper disabled:opacity-40"
             >
               <Link2 className="h-5 w-5" />
             </button>
@@ -1396,7 +1055,7 @@ export default function ProjectChatDrawer({
                 }
               }}
               placeholder="Scrie un mesaj..."
-              className="flex-1 bg-transparent resize-none px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none max-h-[120px]"
+              className="flex-1 bg-transparent resize-none px-3 py-2.5 text-sm text-ink placeholder:text-ink-faint outline-none max-h-[120px]"
               rows={1}
             />
             <button
@@ -1405,82 +1064,31 @@ export default function ProjectChatDrawer({
               disabled={!canSend}
               className={`h-[38px] px-4 rounded-2xl flex-shrink-0 flex items-center gap-2 text-sm font-semibold transition-all mb-0.5 mr-0.5 ${
                 canSend
-                  ? "bg-slate-900 text-white shadow-md hover:bg-slate-800 hover:scale-[1.02] active:scale-95"
-                  : "bg-transparent text-slate-300 cursor-not-allowed"
+                  ? "bg-ink text-white shadow-md hover:bg-ink hover:scale-[1.02] active:scale-95"
+                  : "bg-transparent text-ink-faint cursor-not-allowed"
               }`}
             >
               {sending || uploading ? (
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <Spinner size="sm" on="accent" />
               ) : (
                 <Send className="w-[18px] h-[18px]" />
               )}
-              <span className="hidden sm:inline-block">Trimite</span>
+              <span className="hidden sm:inline-block">Trimite</span><span className="sr-only sm:hidden">Trimite</span>
             </button>
           </div>
         </div>
       </aside>
-      <Dialog.Root open={!!preview} onOpenChange={(open) => { if (!open) setPreview(null); }}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-[1000000] bg-slate-900/60 backdrop-blur-sm" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-[1000001] max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-5xl -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl bg-white p-3 shadow-2xl focus:outline-none sm:max-h-[94vh] sm:w-[calc(100%-2rem)] sm:rounded-2xl sm:p-4">
-            <Dialog.Title className="mb-2 truncate pr-8 text-sm font-semibold text-slate-900 sm:mb-3">
-              {preview?.image.name ?? 'Imagine'}
-              {previewSiblings.length > 1 && previewIndex >= 0 && (
-                <span className="ml-2 font-normal text-slate-400">
-                  {previewIndex + 1} din {previewSiblings.length}
-                </span>
-              )}
-            </Dialog.Title>
-            <Dialog.Description className="sr-only">Previzualizare imagine din chat</Dialog.Description>
-            {preview && preview.image.signedUrl && !unavailableImages.has(imageRetryKey(preview.messageId, preview.image)) ? (
-              <div className="relative">
-                <img
-                  src={preview.image.signedUrl}
-                  alt={preview.image.name}
-                  className="mx-auto max-h-[calc(100dvh-7rem)] w-auto max-w-full object-contain sm:max-h-[calc(94vh-7.5rem)]"
-                  onError={() => { void requestImageRefresh(preview.messageId, preview.image); }}
-                />
-                {previewSiblings.length > 1 && (
-                  <>
-                    <button
-                      type="button"
-                      aria-label="Imaginea anterioară"
-                      onClick={() => stepPreview(-1)}
-                      className="absolute left-1 top-1/2 -translate-y-1/2 rounded-full bg-slate-900/60 p-2 text-white transition-colors hover:bg-slate-900/80 focus:outline-none focus:ring-2 focus:ring-white"
-                    >
-                      <ChevronLeft className="h-5 w-5" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Imaginea următoare"
-                      onClick={() => stepPreview(1)}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full bg-slate-900/60 p-2 text-white transition-colors hover:bg-slate-900/80 focus:outline-none focus:ring-2 focus:ring-white"
-                    >
-                      <ChevronRight className="h-5 w-5" />
-                    </button>
-                  </>
-                )}
-              </div>
-            ) : (
-              <p className="py-12 text-center text-sm text-slate-500">Imagine indisponibilă</p>
-            )}
-            <div className="mt-3 flex justify-end gap-2">
-              <Dialog.Close asChild>
-                <button type="button" className="rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">Închide</button>
-              </Dialog.Close>
-              {preview && (
-                <button
-                  type="button"
-                  onClick={() => void downloadImage(preview.messageId, preview.image)}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-                >
-                  <Download className="h-4 w-4" /> Descarcă
-                </button>
-              )}
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+        <ImagePreviewDialog
+          preview={preview}
+          setPreview={setPreview}
+          siblings={previewSiblings}
+          index={previewIndex}
+          onStep={stepPreview}
+          unavailableImages={unavailableImages}
+          imageRetryKey={imageRetryKey}
+          onImageError={(messageId, image) => { void requestImageRefresh(messageId, image); }}
+          onDownload={(messageId, image) => { void downloadImage(messageId, image); }}
+        />
       <UnifiedSearchDialog
         open={searchOpen}
         onOpenChange={setSearchOpen}

@@ -58,15 +58,15 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           </div>
           {confirmation && (
             <div className="fixed inset-0 z-[1000001] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
-              <button type="button" className="absolute inset-0 cursor-default bg-slate-950/50" aria-label="Anulează" onClick={() => closeConfirmation(false)} />
+              <button type="button" className="absolute inset-0 cursor-default " style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }} aria-label="Anulează" onClick={() => closeConfirmation(false)} />
               <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
                 <div className="flex gap-4">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700"><AlertTriangle className="h-6 w-6" /></div>
-                  <div><h2 id="confirm-dialog-title" className="text-lg font-bold text-slate-900">{confirmation.title}</h2><p className="mt-1 text-sm text-slate-600">{confirmation.description}</p></div>
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--sg-warn-soft)] text-[var(--sg-warn)]"><AlertTriangle className="h-6 w-6" /></div>
+                  <div><h2 id="confirm-dialog-title" className="text-lg font-bold text-ink">{confirmation.title}</h2><p className="mt-1 text-sm text-ink-soft">{confirmation.description}</p></div>
                 </div>
                 <div className="mt-6 flex justify-end gap-3">
-                  <button type="button" onClick={() => closeConfirmation(false)} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Anulează</button>
-                  <button type="button" onClick={() => closeConfirmation(true)} className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-bold text-white hover:bg-amber-600">{confirmation.confirmText || 'Confirmă'}</button>
+                  <button type="button" onClick={() => closeConfirmation(false)} className="rounded-xl border border-rule px-4 py-2 text-sm font-semibold text-ink hover:bg-paper-sunk">Anulează</button>
+                  <button type="button" onClick={() => closeConfirmation(true)} className="rounded-xl bg-[var(--sg-warn)] px-4 py-2 text-sm font-bold text-white hover:brightness-90">{confirmation.confirmText || 'Confirmă'}</button>
                 </div>
               </div>
             </div>

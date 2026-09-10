@@ -3,11 +3,19 @@
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useRef } from "react"
+import { LogOut } from "lucide-react"
 import {useAuth} from "@/app/providers/AuthProvider"
 import { usePrivateChatUnread } from "@/hooks/usePrivateChatUnread"
 import { useProjectChatUnread } from "@/app/providers/ProjectChatUnreadProvider"
 import NotificationsBell from "@/components/NotificationsBell"
+import { IconButton } from "@/components/ui/IconButton"
+import { Counter } from "@/components/ui/Counter"
 
+/**
+ * Panoul-director din holul clădirii. Nu pastile plutitoare pe sticlă mată —
+ * o fâșie de material prins pe perete, cu o linie sub ea și plăcuțe pentru
+ * fiecare etaj. Etajul pe care te afli poartă banda accentului dedesubt.
+ */
 export default function Navbar() {
   const { loading: authLoading, user, profile, signOut } = useAuth()
   const pathname = usePathname()
@@ -34,136 +42,126 @@ export default function Navbar() {
     router.replace('/login')
   }
 
-  const isActive = (path: string) => pathname === path 
-    ? "text-slate-900 bg-white shadow-sm border-slate-200/60" 
-    : "text-slate-500 hover:text-slate-900 hover:bg-white/50"
+  const linkClass = (path: string) =>
+    [
+      'relative inline-flex min-h-11 items-center whitespace-nowrap px-3 text-sm font-medium pointer-fine:min-h-10 sm:px-4',
+      'border-b-2 transition-colors duration-[120ms]',
+      pathname === path
+        ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] font-semibold text-[var(--sg-accent-ink)]'
+        : 'border-transparent text-ink-soft hover:border-rule-strong hover:text-ink',
+    ].join(' ')
 
   useEffect(() => {
     pillsRef.current?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
   }, [pathname, profile?.role])
 
   return (
-    <nav className="fixed top-0 left-0 w-full min-w-0 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 h-16 flex items-center justify-between px-6 lg:px-12 z-50 transition-all">
-      
+    <nav
+      aria-label="Navigare principală"
+      className="sticky top-0 z-50 flex h-16 w-full min-w-0 items-center justify-between gap-3 border-b border-rule bg-plate px-4 sm:px-6 lg:px-10"
+    >
       <div className="flex-shrink-0">
-        <Link href="/" className="group flex items-center gap-2.5">
-          <div className="relative w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center shadow-lg shadow-slate-900/20 group-hover:rotate-3 transition-transform duration-300">
-            <span className="text-white text-sm font-bold">B</span>
-          </div>
-          <span className="text-lg font-bold text-slate-900 tracking-tight hidden sm:block">
-            Bonie<span className="text-indigo-600">.</span>
+        {/* Pe telefon linkul e doar pătratul de 32px, sub cei 44 promiși
+              degetului: ținta crește, pătratul rămâne la mărimea lui. */}
+        <Link href="/" className="group flex min-h-11 min-w-11 items-center justify-center gap-2.5 rounded-[var(--radius-plate)] pointer-fine:min-h-0 pointer-fine:min-w-0 sm:justify-start">
+          <span className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-plate)] bg-[var(--sg-accent)] text-sm font-bold text-white">
+            B
+          </span>
+          <span className="hidden text-lg font-bold tracking-tight text-ink sm:block">
+            Bonie
           </span>
         </Link>
       </div>
 
-      <div className="min-w-0 flex-1 flex justify-center px-2 sm:px-4">
+      <div className="flex min-w-0 flex-1 justify-center">
         {isLoggedIn && (
-          <div ref={pillsRef} className="min-w-0 max-w-full overflow-x-auto no-scrollbar rounded-full">
-          <div className="flex w-max min-w-full items-center justify-center gap-1 bg-slate-100/50 p-1 rounded-full border border-slate-200/50">
-            <Link
-              href="/"
-              data-active={pathname === '/' ? 'true' : undefined}
-              className={`relative px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/')}`}
-            >
-              Proiecte
-              {hasProjectChatUnread && (
-                <span
-                  className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white"
-                  aria-label={`${unreadProjectCount} proiecte cu mesaje necitite`}
-                >
-                  {unreadProjectCount > 9 ? '9+' : unreadProjectCount}
-                </span>
-              )}
-            </Link>
-            {canUsePrivateChat && (
+          <div ref={pillsRef} className="no-scrollbar min-w-0 max-w-full overflow-x-auto">
+            <div className="flex w-max min-w-full items-stretch justify-center">
               <Link
-                href="/chat"
-                data-active={pathname === '/chat' ? 'true' : undefined}
-                className={`relative px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/chat')}`}
+                href="/"
+                data-active={pathname === '/' ? 'true' : undefined}
+                className={linkClass('/')}
               >
-                Chat
-                {hasPrivateChatUnread && (
-                  <span
-                    className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white"
-                    aria-label={`${unreadConversationCount} conversații necitite`}
-                  >
-                    {unreadConversationCount > 9 ? '9+' : unreadConversationCount}
-                  </span>
+                Proiecte
+                {hasProjectChatUnread && (
+                  <Counter n={unreadProjectCount} label={`${unreadProjectCount} proiecte cu mesaje necitite`} className="ml-2" />
                 )}
               </Link>
-            )}
-            {isTeamMember && (
-              <Link
-                href="/calendar"
-                data-active={pathname === '/calendar' ? 'true' : undefined}
-                className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/calendar')}`}
-              >
-                Calendar
-              </Link>
-            )}
-            {isTeamMember && (
-              <Link
-                href={profile?.role === 'admin' ? '/admin' : '/admin/templates'}
-                data-active={pathname === (profile?.role === 'admin' ? '/admin' : '/admin/templates') ? 'true' : undefined}
-                className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive(profile?.role === 'admin' ? '/admin' : '/admin/templates')}`}
-              >
-                Șabloane
-              </Link>
-            )}
-            {profile?.role === 'admin' && (
-              <>
+              {canUsePrivateChat && (
                 <Link
-                  href="/admin/proiecte"
-                  data-active={pathname === '/admin/proiecte' ? 'true' : undefined}
-                  className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/admin/proiecte')}`}
+                  href="/chat"
+                  data-active={pathname === '/chat' ? 'true' : undefined}
+                  className={linkClass('/chat')}
                 >
-                  Tablou de bord
+                  Chat
+                  {hasPrivateChatUnread && (
+                    <Counter n={unreadConversationCount} label={`${unreadConversationCount} conversații necitite`} className="ml-2" />
+                  )}
                 </Link>
+              )}
+              {isTeamMember && (
                 <Link
-                  href="/admin/users"
-                  data-active={pathname === '/admin/users' ? 'true' : undefined}
-                  className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/admin/users')}`}
+                  href="/calendar"
+                  data-active={pathname === '/calendar' ? 'true' : undefined}
+                  className={linkClass('/calendar')}
                 >
-                  Utilizatori
+                  Calendar
                 </Link>
+              )}
+              {isTeamMember && (
                 <Link
-                  href="/admin/audit"
-                  data-active={pathname === '/admin/audit' ? 'true' : undefined}
-                  className={`px-4 sm:px-6 py-1.5 text-xs sm:text-sm font-medium rounded-full border border-transparent transition-all whitespace-nowrap ${isActive('/admin/audit')}`}
+                  href={profile?.role === 'admin' ? '/admin' : '/admin/templates'}
+                  data-active={pathname === (profile?.role === 'admin' ? '/admin' : '/admin/templates') ? 'true' : undefined}
+                  className={linkClass(profile?.role === 'admin' ? '/admin' : '/admin/templates')}
                 >
-                  Audit
+                  Șabloane
                 </Link>
-              </>
-            )}
-          </div>
+              )}
+              {profile?.role === 'admin' && (
+                <>
+                  <Link
+                    href="/admin/proiecte"
+                    data-active={pathname === '/admin/proiecte' ? 'true' : undefined}
+                    className={linkClass('/admin/proiecte')}
+                  >
+                    Tablou de bord
+                  </Link>
+                  <Link
+                    href="/admin/users"
+                    data-active={pathname === '/admin/users' ? 'true' : undefined}
+                    className={linkClass('/admin/users')}
+                  >
+                    Utilizatori
+                  </Link>
+                  <Link
+                    href="/admin/audit"
+                    data-active={pathname === '/admin/audit' ? 'true' : undefined}
+                    className={linkClass('/admin/audit')}
+                  >
+                    Audit
+                  </Link>
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>
 
-      <div className="min-w-0 flex-shrink-0 flex items-center gap-3 justify-end">
+      <div className="flex min-w-0 flex-shrink-0 items-center justify-end gap-2">
         {user ? (
           <>
             {isLoggedIn && <NotificationsBell />}
-            <div className="flex items-center gap-3 pl-3 border-l border-slate-200">
-            <div className="hidden lg:block text-right">
-              <p className="text-xs font-semibold text-slate-900 truncate max-w-[150px]">
+            <div className="flex items-center gap-2 border-l border-rule pl-2 sm:gap-3 sm:pl-3">
+              <p className="hidden max-w-[180px] truncate text-xs font-medium text-ink-soft lg:block">
                 {profile?.email ?? (typeof user === 'object' && user && 'email' in user ? String(user.email) : '')}
               </p>
-              <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">Cont Activ</p>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="group flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 text-slate-500 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all"
-              title="Deconectare"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-            </button>
+              <IconButton label="Deconectare" tone="danger" onClick={handleLogout}>
+                <LogOut className="h-4 w-4" aria-hidden="true" />
+              </IconButton>
             </div>
           </>
         ) : (
-          <div className="w-8"></div>
+          <div className="w-8" />
         )}
       </div>
     </nav>

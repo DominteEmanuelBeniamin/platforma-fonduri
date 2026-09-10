@@ -53,14 +53,14 @@ export default function PrivateChatDrawer({
     <div className="fixed inset-0 z-[999999]">
       <button
         onClick={onClose}
-        className="absolute inset-0 cursor-default bg-slate-900/20 backdrop-blur-sm"
+        className="absolute inset-0 cursor-default backdrop-blur-sm" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }}
       />
 
       <aside className="absolute right-0 top-0 flex h-full w-full flex-col overflow-hidden bg-white shadow-2xl animate-in slide-in-from-right duration-300 sm:w-[min(520px,90vw)] sm:rounded-l-2xl">
         <div className="absolute right-4 top-4 z-20 hidden sm:block">
           <button
             onClick={onClose}
-            className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+            className="rounded-xl p-2 text-ink-soft hover:bg-paper-sunk"
           >
             <X className="h-5 w-5" />
           </button>
@@ -69,7 +69,7 @@ export default function PrivateChatDrawer({
         <div className="absolute left-4 top-4 z-20 sm:hidden">
           <button
             onClick={onClose}
-            className="rounded-xl p-2 text-slate-600 hover:bg-slate-100"
+            className="rounded-xl p-2 text-ink-soft hover:bg-paper-sunk"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>

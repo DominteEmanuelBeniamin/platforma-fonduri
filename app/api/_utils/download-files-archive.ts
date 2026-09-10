@@ -1,3 +1,5 @@
+import { downloadBlob } from '@/lib/file-preview'
+
 type DownloadFilesArchiveParams = {
     fileIds: string[]
     apiFetch: (input: RequestInfo, init?: RequestInit) => Promise<Response>
@@ -26,19 +28,6 @@ type DownloadFilesArchiveParams = {
     }
 
     return 'documente.zip'
-  }
-
-  function triggerBrowserDownload(blob: Blob, filename: string) {
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-
-    window.URL.revokeObjectURL(url)
   }
 
   export async function downloadFilesArchive({
@@ -85,5 +74,5 @@ type DownloadFilesArchiveParams = {
       response.headers.get('content-disposition')
     )
 
-    triggerBrowserDownload(blob, filename)
+    downloadBlob(blob, filename)
   }

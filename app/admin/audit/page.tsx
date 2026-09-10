@@ -1,11 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
+import { downloadBlob } from '@/lib/file-preview'
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { LocationStrip } from '@/components/ui/LocationStrip'
 import { useAuth } from '@/app/providers/AuthProvider'
 import {
-  LogIn,
   LogOut,
   Plus,
   PlusSquare,
@@ -20,9 +21,6 @@ import {
   X,
   ChevronDown,
   Calendar,
-  Activity,
-  Clock,
-  Shield,
   Globe,
   Download,
   Users,
@@ -36,9 +34,13 @@ import {
   Share2,
   History,
   FileDown,
+  Shield,
+  LogIn,
+  Activity,
 } from 'lucide-react'
 import SelectFilter from '@/components/SelectFilter'
 import { AUDIT_ACTION_LABELS, AUDIT_ENTITY_LABELS } from '@/lib/audit-catalog'
+import { Spinner } from '@/components/ui/Spinner'
 
 interface AuditLog {
   id: string
@@ -81,23 +83,23 @@ type ActionConfig = {
 }
 
 const ACTION_CONFIG: Record<string, ActionConfig> = {
-  login: { color: 'text-emerald-700', bgColor: 'bg-emerald-50', borderColor: 'border-emerald-200', icon: LogIn },
-  logout: { color: 'text-slate-600', bgColor: 'bg-slate-100', borderColor: 'border-slate-200', icon: LogOut },
-  create: { color: 'text-blue-700', bgColor: 'bg-blue-50', borderColor: 'border-blue-200', icon: Plus },
-  add: { color: 'text-cyan-700', bgColor: 'bg-cyan-50', borderColor: 'border-cyan-200', icon: PlusSquare },
-  update: { color: 'text-amber-700', bgColor: 'bg-amber-50', borderColor: 'border-amber-200', icon: Pencil },
-  publish: { color: 'text-emerald-700', bgColor: 'bg-emerald-50', borderColor: 'border-emerald-200', icon: CheckSquare },
-  propagate: { color: 'text-purple-700', bgColor: 'bg-purple-50', borderColor: 'border-purple-200', icon: Share2 },
-  delete: { color: 'text-red-700', bgColor: 'bg-red-50', borderColor: 'border-red-200', icon: Trash2 },
-  download: { color: 'text-violet-700', bgColor: 'bg-violet-50', borderColor: 'border-violet-200', icon: Download },
-  notify: { color: 'text-sky-700', bgColor: 'bg-sky-50', borderColor: 'border-sky-200', icon: Mail },
-  deadline_reminder_digest: { color: 'text-indigo-700', bgColor: 'bg-indigo-50', borderColor: 'border-indigo-200', icon: Mail },
+  login: { color: 'text-[var(--sg-ok)]', bgColor: 'bg-[var(--sg-ok-soft)]', borderColor: 'border-[var(--sg-ok)]', icon: LogIn },
+  logout: { color: 'text-ink-soft', bgColor: 'bg-paper-sunk', borderColor: 'border-rule', icon: LogOut },
+  create: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: Plus },
+  add: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: PlusSquare },
+  update: { color: 'text-[var(--sg-warn)]', bgColor: 'bg-[var(--sg-warn-soft)]', borderColor: 'border-[var(--sg-warn)]', icon: Pencil },
+  publish: { color: 'text-[var(--sg-ok)]', bgColor: 'bg-[var(--sg-ok-soft)]', borderColor: 'border-[var(--sg-ok)]', icon: CheckSquare },
+  propagate: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: Share2 },
+  delete: { color: 'text-[var(--sg-danger)]', bgColor: 'bg-[var(--sg-danger-soft)]', borderColor: 'border-[var(--sg-danger)]', icon: Trash2 },
+  download: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: Download },
+  notify: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: Mail },
+  deadline_reminder_digest: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: Mail },
 }
 
 const DEFAULT_ACTION: ActionConfig = {
-  color: 'text-slate-600',
-  bgColor: 'bg-slate-100',
-  borderColor: 'border-slate-200',
+  color: 'text-ink-soft',
+  bgColor: 'bg-paper-sunk',
+  borderColor: 'border-rule',
   icon: Activity,
 }
 
@@ -351,15 +353,8 @@ export default function AuditPage() {
       }
       const csv = lines.join('\n')
       const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
       const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')
-      a.download = `audit-${ts}.csv`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      downloadBlob(blob, `audit-${ts}.csv`)
     } catch (err) {
       console.error('CSV export failed:', err)
     } finally {
@@ -419,7 +414,7 @@ export default function AuditPage() {
   if (authLoading || (loading && logs.length === 0)) {
     return (
       <div className="flex h-[80vh] items-center justify-center">
-        <div className="w-10 h-10 border-4 border-slate-100 border-t-indigo-600 rounded-full animate-spin" />
+        <Spinner />
       </div>
     )
   }
@@ -441,25 +436,19 @@ export default function AuditPage() {
   const selectedEntityLabel = entityId ? `id: ${entityId.slice(0, 8)}…` : null
 
   return (
-    <div className="flex flex-col gap-8 fade-in-up pb-10">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-slate-200/60">
-        <div>
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Administrare</p>
-          <h1 className="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight">Jurnal de Audit</h1>
-          <p className="text-slate-500 mt-1">Toate acțiunile din sistem, în ordine cronologică.</p>
-        </div>
+    <div className="flex flex-col gap-6 pb-10">
+      <LocationStrip segments={[{ label: 'Bonie', href: '/' }, { label: 'Jurnal de audit' }]} />
+
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Jurnal de audit</h1>
+        <p className="mt-2 text-sm text-ink-soft">
+          {statsLoading || !stats
+            ? 'Toate acțiunile din sistem, în ordine cronologică.'
+            : `${stats.totalLogs.toLocaleString('ro-RO')} de acțiuni înregistrate, din care ${stats.recentLogs.toLocaleString('ro-RO')} în ultima săptămână. ${(stats.byAction.login || 0).toLocaleString('ro-RO')} autentificări, ${(stats.byAction.update || 0).toLocaleString('ro-RO')} modificări.`}
+        </p>
       </div>
 
-      {!statsLoading && stats && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon={Shield} iconBg="bg-slate-100" iconColor="text-slate-600" label="Total înregistrări" value={stats.totalLogs} valueColor="text-slate-900" />
-          <StatCard icon={Clock} iconBg="bg-indigo-50" iconColor="text-indigo-600" label="Ultima săptămână" value={stats.recentLogs} valueColor="text-indigo-600" />
-          <StatCard icon={LogIn} iconBg="bg-emerald-50" iconColor="text-emerald-600" label="Autentificări" value={stats.byAction.login || 0} valueColor="text-emerald-600" />
-          <StatCard icon={Activity} iconBg="bg-amber-50" iconColor="text-amber-600" label="Modificări" value={stats.byAction.update || 0} valueColor="text-amber-600" />
-        </div>
-      )}
-
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4">
+      <div className="space-y-4 rounded-[var(--radius-plate)] border border-rule bg-plate p-4 sm:p-5">
         <div className="flex min-w-0 flex-col md:flex-row md:items-center gap-3">
           <form onSubmit={handleSearch} className="flex-1 min-w-0 flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1 min-w-0">
@@ -468,14 +457,14 @@ export default function AuditPage() {
                 value={searchInput}
                 onChange={e => setSearchInput(e.target.value)}
                 placeholder="Caută după descriere sau entitate..."
-                className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                className="w-full pl-10 pr-4 py-2.5 border border-rule rounded-lg focus:ring-2 focus:ring-[var(--sg-accent)] focus:border-[var(--sg-accent)] text-sm"
               />
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-faint" />
             </div>
             <button
               type="submit"
               disabled={loading}
-              className="px-4 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 whitespace-nowrap"
+              className="px-4 py-2.5 text-sm font-medium text-white bg-[var(--sg-accent)] hover:bg-[var(--sg-accent-ink)] rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 whitespace-nowrap"
             >
               <Search className="w-4 h-4" />
               Caută
@@ -486,7 +475,7 @@ export default function AuditPage() {
             <button
               onClick={exportCsv}
               disabled={exporting || loading}
-              className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 whitespace-nowrap"
+              className="px-4 py-2.5 text-sm font-medium text-ink bg-white hover:bg-paper-sunk border border-rule rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 whitespace-nowrap"
             >
               <FileDown className="w-4 h-4" />
               {exporting ? 'Se exportă…' : 'Export CSV'}
@@ -495,7 +484,7 @@ export default function AuditPage() {
             {hasFilters && (
               <button
                 onClick={clearFilters}
-                className="px-3 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap"
+                className="px-3 py-2.5 text-sm font-medium text-ink-soft hover:text-ink hover:bg-paper-sunk rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap"
                 title="Resetează filtrele"
               >
                 <X className="w-4 h-4" />
@@ -537,17 +526,17 @@ export default function AuditPage() {
         {(selectedUserLabel || selectedEntityLabel) && (
           <div className="flex flex-wrap gap-2 pt-1">
             {selectedUserLabel && (
-              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--sg-accent-soft)] text-[var(--sg-accent)] border border-[var(--sg-accent)]">
                 Utilizator: {selectedUserLabel}
-                <button onClick={() => setUserIdFilter('')} className="hover:text-indigo-900" aria-label="Elimină filtrul utilizatorului">
+                <button onClick={() => setUserIdFilter('')} className="hover:text-[var(--sg-accent)]" aria-label="Elimină filtrul utilizatorului">
                   <X className="w-3 h-3" />
                 </button>
               </span>
             )}
             {selectedEntityLabel && (
-              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--sg-ok-soft)] text-[var(--sg-ok)] border border-[var(--sg-ok)]">
                 Istoric entitate ({selectedEntityLabel})
-                <button onClick={() => setEntityId('')} className="hover:text-emerald-900" aria-label="Elimină filtrul entității">
+                <button onClick={() => setEntityId('')} className="hover:text-[var(--sg-ok)]" aria-label="Elimină filtrul entității">
                   <X className="w-3 h-3" />
                 </button>
               </span>
@@ -557,15 +546,15 @@ export default function AuditPage() {
       </div>
 
       {pagination && (
-        <div className="flex items-center justify-between text-sm text-slate-500">
+        <div className="flex items-center justify-between text-sm text-ink-soft">
           <p>
             {pagination.total === 0 ? 'Nicio înregistrare găsită' : (
               <>
-                Afișează <span className="font-medium text-slate-700">{(pagination.page - 1) * pagination.limit + 1}</span>
+                Afișează <span className="font-medium text-ink">{(pagination.page - 1) * pagination.limit + 1}</span>
                 {' - '}
-                <span className="font-medium text-slate-700">{Math.min(pagination.page * pagination.limit, pagination.total)}</span>
+                <span className="font-medium text-ink">{Math.min(pagination.page * pagination.limit, pagination.total)}</span>
                 {' din '}
-                <span className="font-medium text-slate-700">{pagination.total.toLocaleString()}</span>
+                <span className="font-medium text-ink">{pagination.total.toLocaleString()}</span>
                 {' înregistrări'}
               </>
             )}
@@ -575,12 +564,12 @@ export default function AuditPage() {
 
       <div className="space-y-3">
         {loading ? (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
-            <div className="w-8 h-8 border-4 border-slate-100 border-t-indigo-600 rounded-full animate-spin mx-auto" />
+          <div className="bg-white rounded-xl border border-rule shadow-sm p-12 text-center">
+            <Spinner size="md" className="mx-auto" />
           </div>
         ) : logs.length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center text-slate-500">
-            <FileText className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+          <div className="bg-white rounded-xl border border-rule shadow-sm p-12 text-center text-ink-soft">
+            <FileText className="w-12 h-12 mx-auto mb-3 text-ink-faint" />
             <p className="font-medium">Nicio înregistrare găsită</p>
             <p className="text-sm mt-1">Încearcă să modifici filtrele selectate.</p>
           </div>
@@ -609,39 +598,17 @@ export default function AuditPage() {
   )
 }
 
-function StatCard({
-  icon: Icon, iconBg, iconColor, label, value, valueColor,
-}: {
-  icon: React.ElementType
-  iconBg: string
-  iconColor: string
-  label: string
-  value: number
-  valueColor: string
-}) {
-  return (
-    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-      <div className={`w-11 h-11 rounded-xl ${iconBg} flex items-center justify-center`}>
-        <Icon className={`w-5 h-5 ${iconColor}`} />
-      </div>
-      <div>
-        <p className="text-xs text-slate-500 font-medium uppercase">{label}</p>
-        <p className={`text-2xl font-bold mt-0.5 ${valueColor}`}>{value.toLocaleString()}</p>
-      </div>
-    </div>
-  )
-}
 
 function DateInput({ value, onChange, ariaLabel }: { value: string; onChange: (v: string) => void; ariaLabel: string }) {
   return (
     <label className="block min-w-0">
-      <span className="mb-1 block text-xs font-medium text-slate-600">{ariaLabel}</span>
+      <span className="mb-1 block text-xs font-medium text-ink-soft">{ariaLabel}</span>
       <input
         type="date"
         value={value}
         onChange={e => onChange(e.target.value)}
         aria-label={ariaLabel}
-        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+        className="w-full px-3 py-2.5 border border-rule rounded-lg focus:ring-2 focus:ring-[var(--sg-accent)] focus:border-[var(--sg-accent)] text-sm"
       />
     </label>
   )
@@ -667,23 +634,23 @@ function LogRow({
   return (
     <div
       className={`min-w-0 bg-white rounded-xl border shadow-sm transition-all ${
-        isExpanded ? 'border-indigo-200 shadow-md' : 'border-slate-200 hover:border-slate-300'
+        isExpanded ? 'border-[var(--sg-accent)] shadow-md' : 'border-rule hover:border-rule-strong'
       }`}
     >
       <div className="p-4">
         <div className="flex min-w-0 flex-wrap items-center gap-4 mb-3">
-          <div className="flex items-center gap-2 text-sm text-slate-500">
+          <div className="flex items-center gap-2 text-sm text-ink-soft">
             <Calendar className="w-4 h-4" />
             <span>{formatDate(log.created_at)}</span>
           </div>
 
           <div className="flex min-w-0 items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-xs font-semibold text-slate-600">
+            <div className="w-7 h-7 rounded-full bg-paper-sunk flex items-center justify-center text-xs font-semibold text-ink-soft">
               {(isSystem ? 'S' : (log.user?.full_name?.[0] || log.user?.email?.[0] || '?')).toUpperCase()}
             </div>
             <div className="min-w-0">
-              <p className="break-words text-sm font-medium text-slate-900">{isSystem ? 'Sistem' : log.user?.full_name || 'Necunoscut'}</p>
-              {!isSystem && log.user?.email && <p className="break-all text-xs text-slate-400">{log.user.email}</p>}
+              <p className="break-words text-sm font-medium text-ink">{isSystem ? 'Sistem' : log.user?.full_name || 'Necunoscut'}</p>
+              {!isSystem && log.user?.email && <p className="break-all text-xs text-ink-faint">{log.user.email}</p>}
             </div>
           </div>
 
@@ -695,20 +662,20 @@ function LogRow({
           </span>
 
           <div className="flex min-w-0 items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center">
-              <EntityIcon className="w-4 h-4 text-slate-500" />
+            <div className="w-7 h-7 rounded-lg bg-paper-sunk flex items-center justify-center">
+              <EntityIcon className="w-4 h-4 text-ink-soft" />
             </div>
             <div className="min-w-0">
-              <span className="break-words text-sm text-slate-600">{getEntityLabel(log.entity_type)}</span>
+              <span className="break-words text-sm text-ink-soft">{getEntityLabel(log.entity_type)}</span>
               {log.entity_name && (
-                <span className="break-all text-sm text-slate-400 ml-1">• {log.entity_name}</span>
+                <span className="break-all text-sm text-ink-faint ml-1">• {log.entity_name}</span>
               )}
             </div>
           </div>
 
           <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
             {log.ip_address && (
-              <div className="hidden lg:flex items-center gap-1.5 text-xs text-slate-400 font-mono bg-slate-50 px-2 py-1 rounded">
+              <div className="hidden lg:flex items-center gap-1.5 text-xs text-ink-faint font-mono bg-paper-sunk px-2 py-1 rounded">
                 <Globe className="w-3 h-3" />
                 {log.ip_address}
               </div>
@@ -717,7 +684,7 @@ function LogRow({
               <button
                 onClick={onViewHistory}
                 title="Vezi istoricul acestei entități"
-                className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                className="p-1.5 rounded-lg text-ink-faint hover:text-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] transition-colors"
               >
                 <History className="w-4 h-4" />
               </button>
@@ -726,15 +693,15 @@ function LogRow({
         </div>
 
         {log.description && (
-          <div className="flex min-w-0 flex-col sm:flex-row sm:items-start gap-3 pt-3 border-t border-slate-100">
+          <div className="flex min-w-0 flex-col sm:flex-row sm:items-start gap-3 pt-3 border-t border-rule">
             <div className="min-w-0 flex-1">
-              <p className="break-words text-sm text-slate-700 leading-relaxed">{log.description}</p>
+              <p className="break-words text-sm text-ink leading-relaxed">{log.description}</p>
             </div>
             {hasDetails && (
               <button
                 onClick={onToggle}
                 className={`self-start flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  isExpanded ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  isExpanded ? 'bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]' : 'bg-paper-sunk text-ink-soft hover:bg-paper'
                 }`}
               >
                 {isExpanded ? 'Ascunde' : 'Detalii'}
@@ -745,11 +712,11 @@ function LogRow({
         )}
 
         {!log.description && hasDetails && (
-          <div className="flex justify-end pt-3 border-t border-slate-100">
+          <div className="flex justify-end pt-3 border-t border-rule">
             <button
               onClick={onToggle}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                isExpanded ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                isExpanded ? 'bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]' : 'bg-paper-sunk text-ink-soft hover:bg-paper'
               }`}
             >
               {isExpanded ? 'Ascunde detalii' : 'Vezi detalii'}
@@ -761,14 +728,14 @@ function LogRow({
 
       {isExpanded && hasDetails && (
         <div className="px-4 pb-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-slate-50 rounded-xl">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-paper-sunk rounded-xl">
             {log.old_values && (
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <div className="w-2 h-2 rounded-full bg-red-400" />
-                  <p className="text-xs font-semibold text-slate-600 uppercase">Valori vechi</p>
+                  <div className="w-2 h-2 rounded-full bg-[var(--sg-danger)]" />
+                  <p className="text-xs font-semibold text-ink-soft uppercase">Valori vechi</p>
                 </div>
-                <pre className="text-xs bg-white text-slate-700 p-3 rounded-lg overflow-auto max-h-48 border border-slate-200 font-mono">
+                <pre className="text-xs bg-white text-ink p-3 rounded-lg overflow-auto max-h-48 border border-rule font-mono">
                   {formatJSON(log.old_values)}
                 </pre>
               </div>
@@ -776,10 +743,10 @@ function LogRow({
             {log.new_values && (
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                  <p className="text-xs font-semibold text-slate-600 uppercase">Valori noi</p>
+                  <div className="w-2 h-2 rounded-full bg-[var(--sg-ok)]" />
+                  <p className="text-xs font-semibold text-ink-soft uppercase">Valori noi</p>
                 </div>
-                <pre className="text-xs bg-white text-slate-700 p-3 rounded-lg overflow-auto max-h-48 border border-slate-200 font-mono">
+                <pre className="text-xs bg-white text-ink p-3 rounded-lg overflow-auto max-h-48 border border-rule font-mono">
                   {formatJSON(log.new_values)}
                 </pre>
               </div>
@@ -802,7 +769,7 @@ function Paginator({
       <button
         onClick={() => onPageChange(pagination.page - 1)}
         disabled={!pagination.hasPrev}
-        className="flex-1 min-w-0 justify-center px-4 py-2 text-center text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-white rounded-lg border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors sm:flex-none"
+        className="flex-1 min-w-0 justify-center px-4 py-2 text-center text-sm font-medium text-ink-soft hover:text-ink hover:bg-white rounded-lg border border-rule disabled:opacity-50 disabled:cursor-not-allowed transition-colors sm:flex-none"
       >
         ← Anterior
       </button>
@@ -819,8 +786,8 @@ function Paginator({
               onClick={() => onPageChange(pageNum)}
               className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
                 pageNum === pagination.page
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:bg-white hover:text-slate-900 border border-slate-200'
+                  ? 'bg-[var(--sg-accent)] text-white shadow-sm'
+                  : 'text-ink-soft hover:bg-white hover:text-ink border border-rule'
               }`}
             >
               {pageNum}
@@ -831,7 +798,7 @@ function Paginator({
       <button
         onClick={() => onPageChange(pagination.page + 1)}
         disabled={!pagination.hasNext}
-        className="flex-1 min-w-0 justify-center px-4 py-2 text-center text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-white rounded-lg border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors sm:flex-none"
+        className="flex-1 min-w-0 justify-center px-4 py-2 text-center text-sm font-medium text-ink-soft hover:text-ink hover:bg-white rounded-lg border border-rule disabled:opacity-50 disabled:cursor-not-allowed transition-colors sm:flex-none"
       >
         Următor →
       </button>

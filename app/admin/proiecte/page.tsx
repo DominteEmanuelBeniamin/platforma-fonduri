@@ -1,6 +1,7 @@
 'use client'
 
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { LocationStrip } from '@/components/ui/LocationStrip'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
@@ -57,6 +58,7 @@ import {
 } from '@/lib/calendar'
 import EventRow from '@/components/calendar/EventRow'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { Spinner } from '@/components/ui/Spinner'
 
 interface Column<K extends string> {
   key: K
@@ -333,7 +335,7 @@ function ProjectDashboardContent() {
   // iar fără el un consultant ar apuca să monteze tabelul înainte de redirect.
   if (authLoading || !token || !profile || !isAdmin) {
     return (
-      <div className="flex items-center justify-center gap-2 py-24 text-sm text-slate-500">
+      <div className="flex items-center justify-center gap-2 py-24 text-sm text-ink-soft" role="status">
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
         Se încarcă...
       </div>
@@ -345,25 +347,20 @@ function ProjectDashboardContent() {
   return (
     // `project-scope` aduce paleta `--p-*`, ca ecranul să arate ca restul
     // suprafețelor de lucru.
-    <div className="project-scope space-y-5">
-      <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-        <div className="flex min-w-0 items-center gap-3">
-          {/* Aceeași pastilă de antet ca în calendar și în restul ecranelor:
-              minimalismul de aici nu e un motiv ca pagina să arate străină. */}
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[var(--p-accent-soft)]">
-            <LayoutDashboard className="h-5 w-5 text-[var(--p-accent)]" aria-hidden />
-          </div>
-          <div className="min-w-0">
-            <h1 className="font-display text-lg font-semibold text-[var(--p-ink)]">Tablou de bord</h1>
-            {/* Rezumatul ține loc de subtitlu: aceleași cifre, în locul unei
-                propoziții care ar fi repetat numele coloanelor. */}
-            {ready && <SummaryLine summary={summary} view={view} unassigned={unassigned} />}
-          </div>
-        </div>
+    <div className="project-scope">
+      <LocationStrip
+        segments={[{ label: 'Bonie', href: '/' }, { label: 'Tablou de bord' }]}
+        action={ready ? <ViewSwitch view={view} onSwitch={switchView} /> : undefined}
+      />
 
+      <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Tablou de bord</h1>
+      {/* Rezumatul ține loc de subtitlu: aceleași cifre, în locul unei
+          propoziții care ar fi repetat numele coloanelor. */}
+      {ready && <div className="mt-2 text-sm text-ink-soft"><SummaryLine summary={summary} view={view} unassigned={unassigned} /></div>}
+
+      <header className="mt-6 flex flex-wrap items-center justify-end gap-x-6 gap-y-3 border-b border-rule pb-3">
         {ready && (
           <div className="flex flex-wrap items-center gap-4">
-            <ViewSwitch view={view} onSwitch={switchView} />
 
             {showSearch && (
               <label className="relative">
@@ -379,7 +376,7 @@ function ProjectDashboardContent() {
                   value={draft}
                   onChange={event => setDraft(event.target.value)}
                   placeholder={view === 'projects' ? 'Caută proiect' : 'Caută consultant'}
-                  className="h-8 w-44 rounded-xl border border-[var(--p-border)] bg-[var(--p-surface)] pl-8 pr-2.5 text-sm text-[var(--p-ink)] placeholder:text-[var(--p-ink-faint)] focus:border-[var(--p-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--p-accent-soft)]"
+                  className="h-11 w-56 rounded-[var(--radius-plate)] border border-rule bg-plate pl-8 pr-2.5 text-sm text-ink transition-colors duration-[120ms] focus:border-[var(--sg-accent)] sm:h-10 placeholder:text-[var(--p-ink-faint)] focus:border-[var(--p-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--p-accent-soft)]"
                 />
               </label>
             )}
@@ -387,7 +384,7 @@ function ProjectDashboardContent() {
             {/* Comutatorul apare numai când chiar ascunde ceva: altfel ar fi un
                 control care nu face nimic vizibil pe toată platforma. */}
             {(endedCount > 0 || showEnded) && (
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--p-ink-soft)]">
+              <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-soft sm:min-h-9">
                 <input
                   type="checkbox"
                   checked={showEnded}
@@ -395,7 +392,7 @@ function ProjectDashboardContent() {
                     const checked = event.target.checked
                     syncUrl(next => writeShowEnded(next, checked))
                   }}
-                  className="h-3.5 w-3.5 rounded border-[var(--p-border-strong)] text-[var(--p-accent)] focus:ring-[var(--p-accent)]"
+                  className="h-4 w-4 rounded-[1px] border-rule-strong text-[var(--sg-accent)]"
                 />
                 Și proiectele încheiate
                 {!showEnded && endedCount > 0 && (
@@ -408,7 +405,7 @@ function ProjectDashboardContent() {
       </header>
 
       {error ? (
-        <div className="flex items-start gap-2 rounded-xl border border-[var(--p-danger)] bg-[var(--p-danger-soft)] px-4 py-3 text-sm text-[var(--p-danger)]">
+        <div className="flex items-start gap-2 rounded-[var(--radius-plate)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-4 py-3 text-sm text-[var(--sg-danger)]">
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
           <div className="space-y-2">
             <p>{error}</p>
@@ -469,17 +466,17 @@ function ViewSwitch({ view, onSwitch }: { view: DashboardView; onSwitch: (view: 
   ]
 
   return (
-    <div className="inline-flex rounded-xl border border-[var(--p-border)] bg-[var(--p-surface)] p-0.5">
+    <div className="inline-flex rounded-[var(--radius-plate)] border border-rule bg-plate p-0.5">
       {options.map(option => (
         <button
           key={option.key}
           type="button"
           onClick={() => onSwitch(option.key)}
           aria-pressed={view === option.key}
-          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)] ${
+          className={`min-h-11 rounded-[1px] px-3 text-sm font-medium transition-colors duration-[120ms] sm:min-h-9 ${
             view === option.key
-              ? 'bg-[var(--p-accent-soft)] text-[var(--p-accent)]'
-              : 'text-[var(--p-ink-soft)] hover:text-[var(--p-ink)]'
+              ? 'bg-[var(--sg-accent-soft)] font-semibold text-[var(--sg-accent-ink)]'
+              : 'text-ink-soft hover:text-ink'
           }`}
         >
           {option.label}
@@ -565,7 +562,7 @@ function SummaryLine({
  */
 function TableFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-[var(--p-border)] bg-[var(--p-surface)]">
+    <div className="overflow-hidden border-t border-rule">
       {/* Fără lățime minimă fixă: coloanele se ascund pe rând (vezi `HIDE`), deci
           tabelul intră în ecran în loc să ceară derulare laterală. `overflow-x`
           rămâne plasa de siguranță pentru un titlu neobișnuit de lung. */}
@@ -587,7 +584,7 @@ function SortHeader<K extends string>({
 }) {
   return (
     <thead>
-      <tr className="border-b border-[var(--p-border)] bg-[var(--p-surface-2)]">
+      <tr className="border-b border-rule">
         {columns.map(column => {
           const active = sort.sort === column.key
           const Icon = !active ? ChevronsUpDown : sort.direction === 'asc' ? ArrowUp : ArrowDown
@@ -604,7 +601,7 @@ function SortHeader<K extends string>({
                 type="button"
                 title={column.hint}
                 onClick={() => onSort(column.key)}
-                className={`group inline-flex items-center gap-1 text-[11px] uppercase tracking-[0.08em] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)] ${
+                className={`group inline-flex min-h-6 items-center gap-1 text-[11px] uppercase tracking-[0.08em] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)] ${
                   active
                     ? 'font-semibold text-[var(--p-ink)]'
                     : 'text-[var(--p-ink-faint)] hover:text-[var(--p-ink-soft)]'
@@ -739,7 +736,7 @@ function ExpandButton({
       // referință ruptă pentru cititoarele de ecran.
       aria-controls={open ? detailsId : undefined}
       aria-label={`${open ? 'Ascunde' : 'Arată'} termenele — ${label}`}
-      className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded transition-colors hover:text-[var(--p-ink)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)] ${FAINT}`}
+      className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded transition-colors hover:text-[var(--p-ink)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)] ${FAINT}`}
     >
       <ChevronRight className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden />
     </button>
@@ -779,7 +776,7 @@ function ProjectRow({
               // Titlul e un link adevărat, ca ecranul să rămână accesibil de la
               // tastatură și proiectul să se poată deschide în tab nou.
               onClick={event => event.stopPropagation()}
-              className="font-medium text-[var(--p-ink)] underline-offset-4 hover:underline"
+              className="inline-flex min-h-6 items-center font-medium text-ink underline-offset-4 hover:underline"
             >
               {row.label}
             </Link>
@@ -1041,7 +1038,7 @@ function DetailList({
     // Plutind pe fundal, arăta ca o etichetă lipită lângă o cutie străină.
     <section
       aria-label={title}
-      className="overflow-hidden rounded-xl border border-[var(--p-border)] bg-[var(--p-surface)]"
+      className="overflow-hidden border-t border-rule"
     >
       <h3 className="flex items-baseline gap-2 border-b border-[var(--p-border)] bg-[var(--p-surface-2)] px-3 py-2 text-[11px] uppercase tracking-[0.08em]">
         <span className={tone === 'danger' ? 'text-[var(--p-danger)]' : 'text-[var(--p-ink-soft)]'}>{title}</span>
@@ -1142,7 +1139,7 @@ function EmptyState({
   action?: React.ReactNode
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-[var(--p-border)] bg-[var(--p-surface)] px-6 py-16 text-center">
+    <div className="flex flex-col items-center justify-center gap-2 rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-6 py-16 text-center">
       <LayoutDashboard className="h-7 w-7 text-[var(--p-ink-faint)]" aria-hidden />
       <h3 className="font-display text-base font-medium text-[var(--p-ink)]">{title}</h3>
       <p className="max-w-sm text-sm text-[var(--p-ink-soft)]">{description}</p>
@@ -1156,7 +1153,7 @@ export default function ProjectDashboardPage() {
     <Suspense
       fallback={
         <div className="flex items-center justify-center py-24">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
+          <Spinner />
         </div>
       }
     >

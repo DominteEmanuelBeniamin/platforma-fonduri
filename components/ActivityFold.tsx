@@ -76,7 +76,7 @@ export default function ActivityFold({
     <Collapsible.Root
       id={`activity-${activity.id}`}
       open={open}
-      className="border border-[var(--p-border)]/60 rounded-xl bg-[var(--p-surface)] overflow-hidden scroll-mt-24 shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
+      className="scroll-mt-24 overflow-hidden border-t border-rule first:border-t-0"
     >
       {/* Rândul rămâne clicabil în întregime, dar nu mai e `role="button"`:
           înăuntru stau acum select-uri și câmpuri (vezi PublishStatusControl),
@@ -84,7 +84,7 @@ export default function ActivityFold({
           Enter/Space le-ar fura. Deschiderea de la tastatură stă pe chevron. */}
       <div
         onClick={onOpenChange}
-        className="grid grid-cols-[minmax(0,1fr)_auto] sm:flex sm:items-center gap-x-2.5 gap-y-2 px-3.5 py-3 cursor-pointer hover:bg-[var(--p-surface-2)] transition-colors"
+        className="grid grid-cols-[minmax(0,1fr)_auto] sm:flex sm:items-center gap-x-2.5 gap-y-2 px-0 py-3 cursor-pointer hover:bg-paper-sunk transition-colors"
       >
         <div className="min-w-0 flex flex-wrap items-center gap-2.5 text-left">
           {renaming && onRenameSubmit && onRenameCancel ? (
@@ -123,7 +123,7 @@ export default function ActivityFold({
           onClick={e => { e.stopPropagation(); onOpenChange() }}
           aria-expanded={open}
           aria-label={open ? `Restrânge activitatea ${activity.name}` : `Extinde activitatea ${activity.name}`}
-          className="sm:order-last flex-shrink-0 rounded p-0.5 text-[var(--p-ink-faint)] hover:bg-[var(--p-surface-2)]"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--p-ink-faint)] hover:bg-paper-sunk sm:order-last"
         >
           <ChevronRight
             className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}

@@ -52,11 +52,13 @@ export default function PublishStatusControl({
 
   if (!canPublish || !isDraft) {
     return (
-      <span className={`inline-flex items-center gap-1.5 flex-shrink-0 ${textClass} ${
-        isDraft ? 'text-slate-500' : 'text-emerald-600'
+      <span className={`inline-flex flex-shrink-0 items-center gap-1.5 rounded-[var(--radius-plate)] border px-2 py-0.5 ${textClass} ${
+        isDraft
+          ? 'border-dashed border-rule-strong text-ink-faint'
+          : 'border-rule bg-paper-sunk text-ink-soft'
       }`}>
-        <span className="w-1.5 h-1.5 rounded-full bg-current" />
-        {isDraft ? 'În pregătire' : 'Public'}
+        <span aria-hidden="true" className="font-bold">{isDraft ? '◌' : '●'}</span>
+        {isDraft ? 'În pregătire' : 'Vizibil clientului'}
       </span>
     )
   }
@@ -64,7 +66,7 @@ export default function PublishStatusControl({
   // Sub acest punct elementul e sigur „În pregătire" și poate fi publicat:
   // restul componentei arată doar comutatorul de dinaintea publicării.
   const toggleVisual = (
-    <span className="relative inline-flex h-4 w-7 flex-shrink-0 items-center rounded-full bg-slate-300 transition-colors">
+    <span className="relative inline-flex h-4 w-7 flex-shrink-0 items-center rounded-full bg-rule-strong transition-colors">
       <span className="inline-block h-3 w-3 translate-x-0.5 transform rounded-full bg-white shadow transition-transform" />
     </span>
   )
@@ -80,7 +82,7 @@ export default function PublishStatusControl({
         className={`inline-flex items-center gap-2 flex-shrink-0 ${textClass}`}
       >
         {toggleVisual}
-        <span className="text-slate-500">În pregătire</span>
+        <span className="text-ink-soft">În pregătire</span>
       </button>
     )
   }
@@ -102,7 +104,7 @@ export default function PublishStatusControl({
 
   const labels: Record<string, { short: string; long: string }> = PUBLISH_BLOCKERS
   const missingLabel = (blocker: string) => labels[blocker]?.short ?? blocker
-  const chipClass = 'inline-flex items-center gap-1 rounded-md border border-dashed border-slate-300 px-1.5 py-0.5 text-slate-500 transition-colors'
+  const chipClass = 'inline-flex min-h-6 items-center gap-1 rounded-md border border-dashed border-rule-strong px-1.5 py-0.5 text-ink-soft transition-colors'
 
   return (
     // Oprim propagarea și pentru taste: controlul stă în interiorul unor rânduri
@@ -120,10 +122,10 @@ export default function PublishStatusControl({
         className="inline-flex items-center gap-2 opacity-60 cursor-not-allowed"
       >
         {toggleVisual}
-        <span className="text-slate-500">În pregătire</span>
+        <span className="text-ink-soft">În pregătire</span>
       </span>
 
-      <span className="inline-flex flex-wrap items-center gap-1 text-[11px] leading-tight text-slate-400">
+      <span className="inline-flex flex-wrap items-center gap-1 text-[11px] leading-tight text-ink-faint">
         <span>Ca să publici:</span>
 
         {blockers.map(blocker => {
@@ -151,7 +153,7 @@ export default function PublishStatusControl({
                 type="button"
                 onClick={() => setEditingDeadline(true)}
                 title="Completează termenul limită"
-                className={`${chipClass} hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-600`}
+                className={`${chipClass} hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)]`}
               >
                 {icon}
                 {missingLabel(blocker)}

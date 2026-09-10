@@ -23,8 +23,8 @@ export default function ReminderStatus({
   const sentAt = new Date(lastSent.sent_at ?? lastSent.created_at)
 
   return (
-    <div className="flex items-center gap-2 text-sm text-slate-600" title={sentAt.toLocaleString('ro-RO')}>
-      <Mail className="w-4 h-4 flex-shrink-0 text-slate-400" />
+    <div className="flex items-center gap-2 text-sm text-ink-soft" title={sentAt.toLocaleString('ro-RO')}>
+      <Mail className="w-4 h-4 flex-shrink-0 text-ink-faint" />
       <span>Ultimul reminder trimis: <strong>{sentAt.toLocaleDateString('ro-RO')}, {sentAt.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' })}</strong></span>
     </div>
   )
