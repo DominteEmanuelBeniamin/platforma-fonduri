@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createPortal } from 'react-dom'
@@ -316,6 +316,16 @@ export default function AdminTemplatesPage() {
   const [publishTarget, setPublishTarget] = useState<Template | null>(null)
   const [publishLoading, setPublishLoading] = useState(false)
   const [publishError, setPublishError] = useState<string | null>(null)
+  const [expandedTemplateIds, setExpandedTemplateIds] = useState<Set<string>>(new Set())
+
+  const toggleTemplateExpanded = (templateId: string) => {
+    setExpandedTemplateIds(current => {
+      const next = new Set(current)
+      if (next.has(templateId)) next.delete(templateId)
+      else next.add(templateId)
+      return next
+    })
+  }
 
   const [addingDocTo, setAddingDocTo] = useState<{ phaseId: string, activityId: string } | null>(null)
   const [editingDocId, setEditingDocId] = useState<string | null>(null)
@@ -1631,96 +1641,133 @@ export default function AdminTemplatesPage() {
 
         {/* Templates list */}
         {!showForm && (
-          <div className="space-y-4">
-            {templates.length === 0 ? (
-          <div className="bg-white rounded-xl border border-rule p-12 text-center">
-                <Layers className="w-16 h-16 text-ink-faint mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-ink mb-2">Niciun template creat</h3>
-                <p className="text-ink-soft mb-4">Creează primul template pentru a genera proiecte rapid</p>
-                <button
-                  onClick={openCreateForm}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--sg-accent)] text-white rounded-lg font-medium hover:bg-[var(--sg-accent-ink)]"
-                >
-                  <Plus className="w-4 h-4" /> Creează template
-                </button>
-              </div>
-            ) : (
-              templates.map((template) => (
-                <div key={template.id} className="bg-white rounded-xl border border-rule overflow-hidden">
-                  <div className="px-6 py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-[var(--sg-accent-soft)] rounded-xl flex items-center justify-center">
-                        <Layers className="w-6 h-6 text-[var(--sg-accent)]" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-semibold text-ink">{template.name}</h3>
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${template.status === 'draft' ? 'bg-[var(--sg-warn-soft)] text-[var(--sg-warn)]' : 'bg-[var(--sg-ok-soft)] text-[var(--sg-ok)]'}`}>
-                            {template.status === 'draft' ? 'Ciornă' : 'Publicat'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-4 mt-1 text-sm text-ink-soft">
-                          <span>{template.phases?.length || 0} faze</span>
-                          <span>{template.phases?.reduce((sum, p) => sum + (p.activities?.length || 0), 0) || 0} activități</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {canEditTemplate(template) && (
-                        <button
-                          onClick={() => handleEdit(template)}
-                          className="p-2 text-ink-faint hover:text-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] rounded-lg"
-                          title="Editează template-ul"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                      )}
-                      {isAdmin && template.status === 'draft' && (
-                        <button
-                          onClick={() => requestPublishTemplate(template)}
-                          className="p-2 text-ink-faint hover:text-[var(--sg-ok)] hover:bg-[var(--sg-ok-soft)] rounded-lg"
-                          title="Publică template-ul"
-                        >
-                          <Check className="w-4 h-4" />
-                        </button>
-                      )}
-                      {isAdmin && (
-                        <button
-                          onClick={() => requestDeleteTemplate(template)}
-                          className="p-2 text-ink-faint hover:text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)] rounded-lg"
-                          title="Șterge template-ul"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  {template.phases && template.phases.length > 0 && (
-                    <div className="px-6 py-3 bg-paper-sunk border-t border-rule">
-                      <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                        {template.phases.map((phase, index) => {
-                          const status = statuses.find(s => s.id === phase.project_status_id)
-                          return (
-                            <div key={phase.id} className="flex items-center flex-shrink-0">
-                              <div
-                                className="px-3 py-1 rounded-full text-xs font-medium text-white"
-                                style={{ backgroundColor: status?.color || '#6B7280' }}
-                              >
-                                {phase.name || `Faza ${index + 1}`}
+          templates.length === 0 ? (
+            <div className="bg-white rounded-xl border border-rule p-12 text-center">
+              <Layers className="w-16 h-16 text-ink-faint mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-ink mb-2">Niciun template creat</h3>
+              <p className="text-ink-soft mb-4">Creează primul template pentru a genera proiecte rapid</p>
+              <button
+                onClick={openCreateForm}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--sg-accent)] text-white rounded-lg font-medium hover:bg-[var(--sg-accent-ink)]"
+              >
+                <Plus className="w-4 h-4" /> Creează template
+              </button>
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border border-rule overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-rule bg-paper-sunk">
+                      <th scope="col" className="px-4 py-2.5 w-full text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint">Nume</th>
+                      <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint whitespace-nowrap">Status</th>
+                      <th scope="col" className="px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint whitespace-nowrap">Faze</th>
+                      <th scope="col" className="px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint whitespace-nowrap">Activități</th>
+                      <th scope="col" className="px-4 py-2.5 w-px"><span className="sr-only">Acțiuni</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {templates.map((template) => {
+                      const phaseCount = template.phases?.length || 0
+                      const activityCount = template.phases?.reduce((sum, p) => sum + (p.activities?.length || 0), 0) || 0
+                      const expanded = expandedTemplateIds.has(template.id)
+                      const detailsId = `faze-template-${template.id}`
+                      return (
+                        <Fragment key={template.id}>
+                          <tr
+                            onClick={() => phaseCount > 0 && toggleTemplateExpanded(template.id)}
+                            className={`border-b border-rule last:border-b-0 transition-colors ${phaseCount > 0 ? 'cursor-pointer hover:bg-paper-sunk' : ''} ${expanded ? 'bg-paper-sunk' : ''}`}
+                          >
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-1.5">
+                                {phaseCount > 0 ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); toggleTemplateExpanded(template.id) }}
+                                    aria-expanded={expanded}
+                                    aria-controls={expanded ? detailsId : undefined}
+                                    aria-label={`${expanded ? 'Ascunde' : 'Arată'} fazele — ${template.name}`}
+                                    className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:text-ink"
+                                  >
+                                    <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} aria-hidden />
+                                  </button>
+                                ) : (
+                                  <span className="w-6 flex-shrink-0" aria-hidden />
+                                )}
+                                <span className="font-medium text-ink truncate">{template.name}</span>
                               </div>
-                              {index < template.phases.length - 1 && (
-                                <ChevronRight className="w-4 h-4 text-ink-faint mx-1" />
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${template.status === 'draft' ? 'bg-[var(--sg-warn-soft)] text-[var(--sg-warn)]' : 'bg-[var(--sg-ok-soft)] text-[var(--sg-ok)]'}`}>
+                                {template.status === 'draft' ? 'Ciornă' : 'Publicat'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right tabular-nums text-ink-soft whitespace-nowrap">{phaseCount}</td>
+                            <td className="px-4 py-3 text-right tabular-nums text-ink-soft whitespace-nowrap">{activityCount}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
+                                {canEditTemplate(template) && (
+                                  <button
+                                    onClick={() => handleEdit(template)}
+                                    className="p-1.5 text-ink-faint hover:text-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] rounded-lg"
+                                    title="Editează template-ul"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                                {isAdmin && template.status === 'draft' && (
+                                  <button
+                                    onClick={() => requestPublishTemplate(template)}
+                                    className="p-1.5 text-ink-faint hover:text-[var(--sg-ok)] hover:bg-[var(--sg-ok-soft)] rounded-lg"
+                                    title="Publică template-ul"
+                                  >
+                                    <Check className="w-4 h-4" />
+                                  </button>
+                                )}
+                                {isAdmin && (
+                                  <button
+                                    onClick={() => requestDeleteTemplate(template)}
+                                    className="p-1.5 text-ink-faint hover:text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)] rounded-lg"
+                                    title="Șterge template-ul"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                          {expanded && phaseCount > 0 && (
+                            <tr id={detailsId} className="border-b border-rule bg-paper-sunk last:border-b-0">
+                              <td colSpan={5} className="px-4 py-3">
+                                <div className="flex items-center gap-2 overflow-x-auto pb-1 pl-7">
+                                  {template.phases.map((phase, index) => {
+                                    const status = statuses.find(s => s.id === phase.project_status_id)
+                                    return (
+                                      <div key={phase.id} className="flex items-center flex-shrink-0">
+                                        <div
+                                          className="px-3 py-1 rounded-full text-xs font-medium text-white"
+                                          style={{ backgroundColor: status?.color || '#6B7280' }}
+                                        >
+                                          {phase.name || `Faza ${index + 1}`}
+                                        </div>
+                                        {index < template.phases.length - 1 && (
+                                          <ChevronRight className="w-4 h-4 text-ink-faint mx-1" />
+                                        )}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
         )}
       </div>
 
