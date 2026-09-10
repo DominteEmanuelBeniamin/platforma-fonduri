@@ -20,7 +20,6 @@ import {
   Search,
   X,
   ChevronDown,
-  Calendar,
   Globe,
   Download,
   Users,
@@ -562,33 +561,50 @@ export default function AuditPage() {
         </div>
       )}
 
-      <div className="space-y-3">
-        {loading ? (
-          <div className="bg-white rounded-xl border border-rule shadow-sm p-12 text-center">
-            <Spinner size="md" className="mx-auto" />
+      {loading ? (
+        <div className="bg-white rounded-xl border border-rule shadow-sm p-12 text-center">
+          <Spinner size="md" className="mx-auto" />
+        </div>
+      ) : logs.length === 0 ? (
+        <div className="bg-white rounded-xl border border-rule shadow-sm p-12 text-center text-ink-soft">
+          <FileText className="w-12 h-12 mx-auto mb-3 text-ink-faint" />
+          <p className="font-medium">Nicio înregistrare găsită</p>
+          <p className="text-sm mt-1">Încearcă să modifici filtrele selectate.</p>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-[var(--radius-plate)] border border-rule bg-plate">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-rule bg-paper-sunk">
+                  <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint">Dată</th>
+                  <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint">Utilizator</th>
+                  <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint">Acțiune</th>
+                  <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint">Entitate</th>
+                  <th scope="col" className="w-full px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint">Descriere</th>
+                  <th scope="col" className="hidden whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-faint lg:table-cell">IP</th>
+                  <th scope="col" className="px-4 py-2.5 w-px"><span className="sr-only">Acțiuni</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map(log => (
+                  <LogRow
+                    key={log.id}
+                    log={log}
+                    isExpanded={expandedRows.has(log.id)}
+                    onToggle={() => toggleRowExpand(log.id)}
+                    onViewHistory={
+                      log.entity_id ? () => setEntityId(log.entity_id as string) : undefined
+                    }
+                    formatDate={formatDate}
+                    formatJSON={formatJSON}
+                  />
+                ))}
+              </tbody>
+            </table>
           </div>
-        ) : logs.length === 0 ? (
-          <div className="bg-white rounded-xl border border-rule shadow-sm p-12 text-center text-ink-soft">
-            <FileText className="w-12 h-12 mx-auto mb-3 text-ink-faint" />
-            <p className="font-medium">Nicio înregistrare găsită</p>
-            <p className="text-sm mt-1">Încearcă să modifici filtrele selectate.</p>
-          </div>
-        ) : (
-          logs.map(log => (
-            <LogRow
-              key={log.id}
-              log={log}
-              isExpanded={expandedRows.has(log.id)}
-              onToggle={() => toggleRowExpand(log.id)}
-              onViewHistory={
-                log.entity_id ? () => setEntityId(log.entity_id as string) : undefined
-              }
-              formatDate={formatDate}
-              formatJSON={formatJSON}
-            />
-          ))
-        )}
-      </div>
+        </div>
+      )}
 
       {pagination && pagination.totalPages > 1 && (
         <Paginator pagination={pagination} onPageChange={fetchLogs} />
@@ -628,133 +644,128 @@ function LogRow({
   const entity = getEntityConfig(log.entity_type)
   const ActionIcon = action.icon
   const EntityIcon = entity.icon
-  const hasDetails = log.old_values || log.new_values
+  const hasDetails = Boolean(log.old_values || log.new_values)
   const isSystem = !log.user_id
+  const detailsId = `audit-detalii-${log.id}`
 
   return (
-    <div
-      className={`min-w-0 bg-white rounded-xl border shadow-sm transition-all ${
-        isExpanded ? 'border-[var(--sg-accent)] shadow-md' : 'border-rule hover:border-rule-strong'
-      }`}
-    >
-      <div className="p-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-4 mb-3">
-          <div className="flex items-center gap-2 text-sm text-ink-soft">
-            <Calendar className="w-4 h-4" />
-            <span>{formatDate(log.created_at)}</span>
+    <>
+      <tr
+        onClick={() => hasDetails && onToggle()}
+        className={`border-b border-rule last:border-b-0 align-top transition-colors ${
+          hasDetails ? 'cursor-pointer hover:bg-paper-sunk' : ''
+        } ${isExpanded ? 'bg-paper-sunk' : ''}`}
+      >
+        <td className="px-4 py-3">
+          <div className="flex items-center gap-1.5">
+            {hasDetails ? (
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); onToggle() }}
+                aria-expanded={isExpanded}
+                aria-controls={isExpanded ? detailsId : undefined}
+                aria-label={`${isExpanded ? 'Ascunde' : 'Arată'} detaliile — ${getActionLabel(log.action_type)} · ${getEntityLabel(log.entity_type)}`}
+                className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:text-ink"
+              >
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} aria-hidden />
+              </button>
+            ) : (
+              <span className="w-6 flex-shrink-0" aria-hidden />
+            )}
+            <span className="whitespace-nowrap text-ink-soft">{formatDate(log.created_at)}</span>
           </div>
+        </td>
 
+        <td className="px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-paper-sunk flex items-center justify-center text-xs font-semibold text-ink-soft">
+            <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-paper-sunk text-xs font-semibold text-ink-soft">
               {(isSystem ? 'S' : (log.user?.full_name?.[0] || log.user?.email?.[0] || '?')).toUpperCase()}
             </div>
             <div className="min-w-0">
-              <p className="break-words text-sm font-medium text-ink">{isSystem ? 'Sistem' : log.user?.full_name || 'Necunoscut'}</p>
-              {!isSystem && log.user?.email && <p className="break-all text-xs text-ink-faint">{log.user.email}</p>}
+              <p className="truncate text-sm font-medium text-ink">{isSystem ? 'Sistem' : log.user?.full_name || 'Necunoscut'}</p>
+              {!isSystem && log.user?.email && <p className="truncate text-xs text-ink-faint">{log.user.email}</p>}
             </div>
           </div>
+        </td>
 
+        <td className="px-4 py-3">
           <span
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${action.bgColor} ${action.borderColor} ${action.color}`}
+            className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 py-1 text-xs font-semibold ${action.bgColor} ${action.borderColor} ${action.color}`}
           >
-            <ActionIcon className="w-3.5 h-3.5" />
+            <ActionIcon className="h-3.5 w-3.5" />
             {getActionLabel(log.action_type)}
           </span>
+        </td>
 
+        <td className="px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-paper-sunk flex items-center justify-center">
-              <EntityIcon className="w-4 h-4 text-ink-soft" />
-            </div>
+            <EntityIcon className="h-4 w-4 flex-shrink-0 text-ink-soft" aria-hidden />
             <div className="min-w-0">
-              <span className="break-words text-sm text-ink-soft">{getEntityLabel(log.entity_type)}</span>
+              <span className="block text-sm text-ink-soft">{getEntityLabel(log.entity_type)}</span>
               {log.entity_name && (
-                <span className="break-all text-sm text-ink-faint ml-1">• {log.entity_name}</span>
+                <span className="block truncate text-xs text-ink-faint" title={log.entity_name}>{log.entity_name}</span>
               )}
             </div>
           </div>
+        </td>
 
-          <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
-            {log.ip_address && (
-              <div className="hidden lg:flex items-center gap-1.5 text-xs text-ink-faint font-mono bg-paper-sunk px-2 py-1 rounded">
-                <Globe className="w-3 h-3" />
-                {log.ip_address}
-              </div>
-            )}
-            {onViewHistory && (
-              <button
-                onClick={onViewHistory}
-                title="Vezi istoricul acestei entități"
-                className="p-1.5 rounded-lg text-ink-faint hover:text-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] transition-colors"
-              >
-                <History className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </div>
+        <td className="px-4 py-3">
+          <p className="text-sm leading-snug text-ink">{log.description || <span className="text-ink-faint">—</span>}</p>
+        </td>
 
-        {log.description && (
-          <div className="flex min-w-0 flex-col sm:flex-row sm:items-start gap-3 pt-3 border-t border-rule">
-            <div className="min-w-0 flex-1">
-              <p className="break-words text-sm text-ink leading-relaxed">{log.description}</p>
-            </div>
-            {hasDetails && (
-              <button
-                onClick={onToggle}
-                className={`self-start flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  isExpanded ? 'bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]' : 'bg-paper-sunk text-ink-soft hover:bg-paper'
-                }`}
-              >
-                {isExpanded ? 'Ascunde' : 'Detalii'}
-                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-              </button>
-            )}
-          </div>
-        )}
+        <td className="hidden px-4 py-3 lg:table-cell">
+          {log.ip_address && (
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded bg-paper-sunk px-2 py-1 font-mono text-xs text-ink-faint">
+              <Globe className="h-3 w-3" aria-hidden />
+              {log.ip_address}
+            </span>
+          )}
+        </td>
 
-        {!log.description && hasDetails && (
-          <div className="flex justify-end pt-3 border-t border-rule">
+        <td className="px-4 py-3">
+          {onViewHistory && (
             <button
-              onClick={onToggle}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                isExpanded ? 'bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]' : 'bg-paper-sunk text-ink-soft hover:bg-paper'
-              }`}
+              onClick={e => { e.stopPropagation(); onViewHistory() }}
+              title="Vezi istoricul acestei entități"
+              className="rounded-lg p-1.5 text-ink-faint transition-colors hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)]"
             >
-              {isExpanded ? 'Ascunde detalii' : 'Vezi detalii'}
-              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+              <History className="h-4 w-4" />
             </button>
-          </div>
-        )}
-      </div>
+          )}
+        </td>
+      </tr>
 
       {isExpanded && hasDetails && (
-        <div className="px-4 pb-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-paper-sunk rounded-xl">
-            {log.old_values && (
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-2 h-2 rounded-full bg-[var(--sg-danger)]" />
-                  <p className="text-xs font-semibold text-ink-soft uppercase">Valori vechi</p>
+        <tr id={detailsId} className="border-b border-rule bg-paper-sunk last:border-b-0">
+          <td colSpan={7} className="px-4 py-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {log.old_values && (
+                <div>
+                  <div className="mb-2 flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-[var(--sg-danger)]" />
+                    <p className="text-xs font-semibold uppercase text-ink-soft">Valori vechi</p>
+                  </div>
+                  <pre className="max-h-48 overflow-auto rounded-lg border border-rule bg-white p-3 font-mono text-xs text-ink">
+                    {formatJSON(log.old_values)}
+                  </pre>
                 </div>
-                <pre className="text-xs bg-white text-ink p-3 rounded-lg overflow-auto max-h-48 border border-rule font-mono">
-                  {formatJSON(log.old_values)}
-                </pre>
-              </div>
-            )}
-            {log.new_values && (
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-2 h-2 rounded-full bg-[var(--sg-ok)]" />
-                  <p className="text-xs font-semibold text-ink-soft uppercase">Valori noi</p>
+              )}
+              {log.new_values && (
+                <div>
+                  <div className="mb-2 flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-[var(--sg-ok)]" />
+                    <p className="text-xs font-semibold uppercase text-ink-soft">Valori noi</p>
+                  </div>
+                  <pre className="max-h-48 overflow-auto rounded-lg border border-rule bg-white p-3 font-mono text-xs text-ink">
+                    {formatJSON(log.new_values)}
+                  </pre>
                 </div>
-                <pre className="text-xs bg-white text-ink p-3 rounded-lg overflow-auto max-h-48 border border-rule font-mono">
-                  {formatJSON(log.new_values)}
-                </pre>
-              </div>
-            )}
-          </div>
-        </div>
+              )}
+            </div>
+          </td>
+        </tr>
       )}
-    </div>
+    </>
   )
 }
 
