@@ -58,7 +58,6 @@ const DATORIE: Record<string, string> = {
   '/projects/new': 'select-name: `<select>`-ul din formular n-are nume accesibil',
   '/admin/statuses': 'button-name: butoanele de editare și ștergere de pe rândul de status sunt doar pictograme',
   '/admin/audit': 'button-name: cele trei filtre `role="combobox"` n-au nume accesibil',
-  '/admin/templates': 'heading-order + color-contrast pe plăcuțe + scrollable-region-focusable: fâșiile care derulează orizontal nu se pot atinge din tastatură',
   // Cheia e cu parametru: id-ul vine din `.env.e2e.local`, deci ruta reală
   // diferă de la o bază la alta.
   '/projects/:id': 'landmark-no-duplicate-main: `app/projects/[id]/page.tsx:1143` pune un al doilea `<main>` înăuntrul celui din `app/layout.tsx:50`',
