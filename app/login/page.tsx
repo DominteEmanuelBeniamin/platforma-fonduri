@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { Eye, EyeOff } from 'lucide-react'
 import { useToast } from '@/app/providers/ToastProvider'
+import Link from 'next/link'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -120,6 +121,9 @@ export default function LoginPage() {
             >
               {authLoading ? 'Se conectează...' : 'Intră în cont'}
             </button>
+            <p className="text-center text-xs text-slate-500">
+              Poți consulta <Link href="/confidentialitate" className="font-medium text-indigo-700 underline underline-offset-2">informarea privind confidențialitatea</Link>.
+            </p>
           </form>
         </div>
       </div>

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
-import { getClientIP, getUserAgent, logChatMessageAction, toMessagePreview } from '@/app/api/_utils/audit'
+import { getClientIP, getUserAgent, logChatMessageAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { maskProjectChatBodiesForViewer } from '@/app/api/_utils/project-chat-links'
 import { serializeProjectChatMessages } from '@/app/api/_utils/project-chat-messages'
@@ -239,14 +239,11 @@ export async function POST(
       actionType: 'create',
       projectId,
       messageId: data.id,
-      messagePreview: toMessagePreview(data.body),
       newValues: {
         project_id: data.project_id,
         project_title: projectTitle,
         created_by: data.created_by,
-        body_preview: toMessagePreview(data.body),
         image_count: storedImages.length,
-        image_names: storedImages.map(image => image.name),
       },
       description: `${access.profile.email || 'User'} a trimis un mesaj în proiectul "${projectTitle}"`,
       ipAddress: getClientIP(request),

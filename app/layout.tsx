@@ -5,6 +5,7 @@ import { AuthProvider } from './providers/AuthProvider'
 import { ProjectChatUnreadProvider } from './providers/ProjectChatUnreadProvider'
 import { NotificationsProvider } from './providers/NotificationsProvider'
 import { ToastProvider } from './providers/ToastProvider'
+import Footer from '@/components/Footer'
 
 // Fără `next/font/google`: fonturile se descărcau de la Google la fiecare build,
 // iar un 404 de la CDN-ul lor oprea livrarea. Stivele de sistem stau în
@@ -22,7 +23,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ro" className="h-full overflow-x-hidden">
-      <body className="h-full bg-slate-50 text-slate-900 antialiased overflow-x-hidden">
+      <body className="flex min-h-screen flex-col bg-slate-50 text-slate-900 antialiased overflow-x-hidden">
         <ToastProvider>
         <AuthProvider>
           <NotificationsProvider>
@@ -36,11 +37,12 @@ export default function RootLayout({
             </div>
 
             {/* Main Content */}
-            <main className="relative flex-1 pt-24 pb-12 min-h-screen z-10">
+            <main className="relative flex-1 pt-24 pb-12 z-10">
               <div className="max-w-7xl mx-auto px-6 lg:px-12">
                 {children}
               </div>
             </main>
+            <Footer />
           </ProjectChatUnreadProvider>
           </NotificationsProvider>
         </AuthProvider>

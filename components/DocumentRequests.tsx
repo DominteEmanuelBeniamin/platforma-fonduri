@@ -28,6 +28,7 @@ import {
   Pencil,
 } from 'lucide-react'
 import DocumentModal from './DocumentModal'
+import UploadMinimizationNotice from './UploadMinimizationNotice'
 import ConfirmDeleteModal from './ConfirmDeleteModal'
 import PublishStatusControl from './PublishStatusControl'
 import { useAuth } from '@/app/providers/AuthProvider'
@@ -1409,6 +1410,7 @@ export default function DocumentRequests({
 
                   {isClient && (req.status === 'pending' || req.status === 'rejected') && (
                     <div className="mt-4 pt-4 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
+                      <UploadMinimizationNotice />
                       {uploadingFor === req.id && showFilePreview && clientFiles.length > 0 ? (
                         // PREVIEW ȘI GESTIONARE FIȘIERE
                         <div className="space-y-3">

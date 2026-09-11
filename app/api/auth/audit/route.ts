@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireProfile, guardToResponse } from '../../_utils/auth'
-import { createSupabaseServiceClient } from '../../_utils/supabase'
+import { getClientIP, getUserAgent, logAction } from '../../_utils/audit'
 
 /**
  * POST /api/auth/audit
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     const ctx = await requireProfile(request)
     if (!ctx.ok) return guardToResponse(ctx)
 
-    const { user, profile } = ctx
+    const { user } = ctx
 
     // Parsăm body-ul
     const body = await request.json().catch(() => null)
@@ -33,32 +33,18 @@ export async function POST(request: Request) {
       )
     }
 
-    const admin = createSupabaseServiceClient()
-
-    // Obținem IP-ul utilizatorului
-    const ipAddress = request.headers.get('x-forwarded-for') || 
-                      request.headers.get('x-real-ip') || 
-                      null
-
-    // Înregistrăm în audit_logs
-    const { error: auditError } = await admin
-      .from('audit_logs')
-      .insert({
-        user_id: user.id,
-        action_type: action as 'login' | 'logout',
-        entity_type: 'user',
-        entity_id: user.id,
-        entity_name: profile.email || user.email,
-        description: action === 'login' 
-          ? `${profile.email || user.email} s-a autentificat` 
-          : `${profile.email || user.email} s-a deconectat`,
-        ip_address: ipAddress
-      })
-
-    if (auditError) {
-      console.error('Audit log error:', auditError)
-      // Nu returnăm eroare la client, doar logăm
-    }
+    await logAction({
+      actorId: user.id,
+      actionType: action as 'login' | 'logout',
+      entityType: 'user',
+      entityId: user.id,
+      entityName: `user:${user.id}`,
+      description: action === 'login'
+        ? 'Utilizatorul s-a autentificat'
+        : 'Utilizatorul s-a deconectat',
+      ipAddress: getClientIP(request),
+      userAgent: getUserAgent(request),
+    })
 
     return NextResponse.json({ ok: true })
 

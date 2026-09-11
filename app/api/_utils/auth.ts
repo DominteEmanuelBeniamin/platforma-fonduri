@@ -42,12 +42,15 @@ export async function requireProfile(
   const supabase = createSupabaseServerClient(request)
   const { data: profile, error } = await supabase
     .from('profiles')
-    .select('id, role, email')
+    .select('id, role, email, is_active')
     .eq('id', auth.user.id)
     .single()
 
   if (error || !profile?.role) {
     return { ok: false, status: 500, error: 'Failed to load user profile' }
+  }
+  if (profile.is_active === false) {
+    return { ok: false, status: 403, error: 'Account inactive' }
   }
 
   return { ok: true, user: auth.user, profile: { id: profile.id, role: profile.role as AppRole, email: profile.email } }

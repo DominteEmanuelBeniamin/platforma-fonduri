@@ -63,32 +63,17 @@ export async function POST(request: Request) {
 
       // ✅ AUDIT LOG - Creare utilizator
       const auditData: Record<string, any> = {
-        email,
         role,
-        full_name: fullName,
-        telefon: telefon || null
-      }
-
-      if (role === 'client') {
-        auditData.cif = cif || null
-        auditData.nume_firma = numeFirma || null
-        auditData.adresa_firma = adresaFirma || null
-        auditData.persoana_contact = persoanaContact || null
-      } else if (role === 'consultant') {
-        auditData.specializare = specializare || null
-        auditData.departament = departament || null
-      } else if (role === 'admin') {
-        auditData.departament = departament || null
+        changed_fields: Object.keys(profileUpdate),
       }
 
       await logUserAction({
         adminId: ctx.user.id,
         actionType: 'create',
         userId: authData.user.id,
-        userEmail: email,
         oldValues: null,
         newValues: auditData,
-        description: `${ctx.profile.email || 'Admin'} a creat utilizatorul ${email} cu rolul ${role}`,
+        description: `A fost creat un utilizator cu rolul ${role}`,
         ipAddress: getClientIP(request),
         userAgent: getUserAgent(request)
       })

@@ -115,7 +115,7 @@ export async function POST(request: Request) {
     // Validăm că clientul există
     const { data: clientProfile, error: clientError } = await admin
       .from('profiles')
-      .select('id, role, email, full_name, cif')
+      .select('id, role')
       .eq('id', client_id)
       .maybeSingle()
 
@@ -169,13 +169,10 @@ export async function POST(request: Request) {
       newValues: {
         title: project.title,
         client_id: project.client_id,
-        client_email: clientProfile.email,
-        client_name: clientProfile.full_name,
-        client_cif: clientProfile.cif,
         status: project.status,
         cod_intern: project.cod_intern
       },
-      description: `${profile.email || 'User'} a creat proiectul "${project.title}" pentru clientul ${clientProfile.email || clientProfile.full_name || client_id}`,
+      description: `A fost creat proiectul "${project.title}" pentru clientul ${client_id}`,
       ipAddress: getClientIP(request),
       userAgent: getUserAgent(request)
     })

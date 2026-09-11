@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { userErrorMessage } from '@/lib/user-error'
 
@@ -28,6 +28,8 @@ const Ctx = createContext<AuthCtx | null>(null)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
+  const pathname = usePathname()
+  const isPublicRoute = pathname === '/login' || pathname === '/confidentialitate'
 
   const [token, setToken] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
@@ -100,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null)
         setProfile(null)
         setLoading(false)
-        router.replace('/login')
+        if (!isPublicRoute) router.replace('/login')
         return
       }
 
@@ -124,7 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (!t) {
         setProfile(null)
-        router.replace('/login')
+        if (!isPublicRoute) router.replace('/login')
       }
     })
 
@@ -132,7 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false
       sub.subscription.unsubscribe()
     }
-  }, [router])
+  }, [isPublicRoute, router])
 
   // 2) Încărcăm profilul (rolul etc.) după ce avem token
   useEffect(() => {

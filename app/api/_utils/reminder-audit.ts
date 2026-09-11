@@ -1,5 +1,6 @@
 import type { createSupabaseServiceClient } from './supabase'
 import type { ReminderCandidate } from '@/lib/deadline-reminder-candidates'
+import { auditRow } from './audit.ts'
 
 type AdminClient = ReturnType<typeof createSupabaseServiceClient>
 
@@ -16,14 +17,14 @@ export async function logReminderDigestAudit(
   },
 ) {
   try {
-    const { error } = await admin.from('audit_logs').insert({
-      user_id: null,
-      action_type: 'deadline_reminder_digest',
-      entity_type: 'deadline_reminder_digest',
-      entity_id: input.recipientId,
-      entity_name: `${input.recipientKind} reminder digest`,
-      old_values: null,
-      new_values: {
+    const { error } = await admin.from('audit_logs').insert(auditRow({
+      actorId: null,
+      actionType: 'deadline_reminder_digest',
+      entityType: 'deadline_reminder_digest',
+      entityId: input.recipientId,
+      entityName: `${input.recipientKind} reminder digest`,
+      oldValues: null,
+      newValues: {
         run_id: input.runId,
         provider_id: input.providerId,
         recipient_id: input.recipientId,
@@ -34,15 +35,14 @@ export async function logReminderDigestAudit(
           entity_type: item.entityType,
           entity_id: item.entityId,
           project_id: item.projectId,
-          name: item.name,
           threshold: item.threshold,
           deadline_at: item.deadlineAt,
         })),
       },
       description: `Digest reminder ${input.recipientKind} cu ${input.items.length} elemente`,
-      ip_address: 'system',
-      user_agent: 'deadline-reminder-cron',
-    })
+      ipAddress: 'system',
+      userAgent: 'deadline-reminder-cron',
+    }))
     return error ?? null
   } catch (error) {
     return error

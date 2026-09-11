@@ -144,8 +144,9 @@ export default function AdminUsersPage() {
       setDeleteModalOpen(false)
       setUserToDelete(null)
       fetchUsers()
+      showToast('Accesul utilizatorului a fost dezactivat. Ștergerea necesită verificare manuală.', 'success')
     } catch {
-      showToast('Nu am putut șterge utilizatorul. Reîncearcă.', 'error')
+      showToast('Nu am putut dezactiva accesul. Reîncearcă.', 'error')
     } finally {
       setIsDeleting(false)
     }
@@ -174,10 +175,12 @@ export default function AdminUsersPage() {
         isOpen={deleteModalOpen}
         onClose={() => { setDeleteModalOpen(false); setUserToDelete(null) }}
         onConfirm={handleConfirmDelete}
-        title="Șterge utilizator"
-        description={`Ești sigur că vrei să ștergi utilizatorul "${userToDelete?.email}"? Această acțiune este permanentă.`}
-        confirmText="Șterge utilizator"
-        confirmWord="sterge"
+        title="Dezactivează accesul"
+        description={`Accesul utilizatorului "${userToDelete?.email}" va fi dezactivat, iar ștergerea va necesita verificare manuală.`}
+        confirmText="Dezactivează accesul"
+        confirmWord="dezactiveaza"
+        confirmReadyText="Poți confirma dezactivarea accesului"
+        loadingText="Se dezactivează..."
         loading={isDeleting}
       />
 
@@ -185,7 +188,7 @@ export default function AdminUsersPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-slate-900">Gestionare Utilizatori</h1>
-          <p className="text-sm text-slate-500 mt-1">Adaugă, editează sau șterge utilizatori din platformă</p>
+          <p className="text-sm text-slate-500 mt-1">Adaugă, editează sau dezactivează accesul utilizatorilor</p>
         </div>
         <div className="bg-white px-5 py-3 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center gap-3">
@@ -420,7 +423,7 @@ export default function AdminUsersPage() {
                     <select
                       value={user.role || 'client'}
                       onChange={e => updateUserRole(user.id, e.target.value)}
-                      disabled={updatingRoleId === user.id}
+                      disabled={updatingRoleId === user.id || user.is_active === false}
                       className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:border-slate-400 focus:ring-2 focus:ring-slate-400/10 outline-none transition-all disabled:opacity-50"
                     >
                       <option value="client">Client</option>
@@ -435,11 +438,17 @@ export default function AdminUsersPage() {
                   </div>
                   <button
                     onClick={() => { setUserToDelete({ id: user.id, email: user.email }); setDeleteModalOpen(true) }}
-                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                    title="Șterge utilizator"
+                    disabled={user.is_active === false}
+                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                    title={user.is_active === false ? 'Utilizator inactiv' : 'Dezactivează accesul'}
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
+                  {user.is_active === false && (
+                    <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                      Inactiv
+                    </span>
+                  )}
                 </div>
               </div>
             ))
