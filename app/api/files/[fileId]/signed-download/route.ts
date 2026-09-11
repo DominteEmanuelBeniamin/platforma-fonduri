@@ -91,14 +91,6 @@ export async function POST(
       }
     }
 
-    const { data: projectRow } = await admin
-      .from('projects')
-      .select('title')
-      .eq('id', projectId)
-      .maybeSingle()
-    const projectTitle = projectRow?.title ?? projectId
-    const requirementName = requirement?.name || null
-
     // inline doar pentru tipuri afișabile în browser; altfel forțăm descărcarea
     const inline = inlineRequested && isPreviewableFile({
       mimeType: typedFileRow.mime_type,
@@ -121,17 +113,14 @@ export async function POST(
       actionType: 'download',
       entityType: 'file_access',
       entityId: fileId,
-      entityName: getDownloadName(typedFileRow),
+      entityName: `file:${fileId}`,
       newValues: {
         file_id: fileId,
         project_id: projectId,
-        project_title: projectTitle,
-        document_request_name: requirementName,
-        storage_path: typedFileRow.storage_path,
         expires_in: expiresIn,
         disposition: inline ? 'inline' : 'attachment',
       },
-      description: `${inline ? 'Vizualizare' : 'Descarcare'} fisier "${getDownloadName(typedFileRow)}" din proiectul "${projectTitle}"${requirementName ? ` pentru cererea "${requirementName}"` : ''}`,
+      description: `${inline ? 'Vizualizare' : 'Descarcare'} fisier`,
       request,
     })
 

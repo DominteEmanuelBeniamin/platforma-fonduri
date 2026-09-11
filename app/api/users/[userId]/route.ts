@@ -3,6 +3,7 @@
 import { requireUserOrAdmin, requireAdmin, guardToResponse } from '../../_utils/auth'
 import { createSupabaseServiceClient } from '../../_utils/supabase'
 import { logUserAction, getClientIP, getUserAgent } from '../../_utils/audit'
+import { queueDeletionJob } from '../../_utils/deletion-scheduling'
 import { NextResponse } from 'next/server'
 
 type PatchBody = Partial<{
@@ -43,7 +44,7 @@ export async function PATCH(
     // Obținem profilul curent ÎNAINTE de update (pentru audit)
     const { data: oldProfile } = await admin
       .from('profiles')
-      .select('id, email, full_name, role, telefon, cif, nume_firma, adresa_firma, departament, specializare')
+      .select('id, full_name, role')
       .eq('id', targetUserId)
       .single()
 
@@ -128,29 +129,26 @@ export async function PATCH(
 
     // ✅ AUDIT LOG - Modificare utilizator
     // Construim old_values și new_values doar cu câmpurile modificate
-    const oldValues: Record<string, unknown> = {}
-    const newValues: Record<string, unknown> = {}
-    
-    for (const key of Object.keys(update)) {
-      if (oldProfile && oldProfile[key as keyof typeof oldProfile] !== update[key]) {
-        oldValues[key] = oldProfile[key as keyof typeof oldProfile]
-        newValues[key] = update[key]
-      }
+    const changedFields = Object.keys(update)
+    const roleChanged = update.role !== undefined && oldProfile?.role !== update.role
+    const oldValues = roleChanged ? { role: oldProfile?.role ?? null } : null
+    const newValues = {
+      ...(roleChanged ? { role: update.role } : {}),
+      changed_fields: changedFields,
     }
 
     // Descriere detaliată
-    let description = `${ctx.profile.email} a modificat utilizatorul ${data.email}`
+    let description = 'A fost modificat un utilizator'
     if (update.role && oldProfile?.role !== update.role) {
-      description = `${ctx.profile.email} a schimbat rolul utilizatorului ${data.email} din "${oldProfile?.role}" în "${update.role}"`
+      description = `A fost schimbat rolul utilizatorului din "${oldProfile?.role}" în "${update.role}"`
     }
 
     await logUserAction({
       adminId: ctx.user.id,
       actionType: 'update',
       userId: targetUserId,
-      userEmail: data.email,
-      oldValues: Object.keys(oldValues).length > 0 ? oldValues : null,
-      newValues: Object.keys(newValues).length > 0 ? newValues : null,
+      oldValues,
+      newValues,
       description,
       ipAddress: getClientIP(request),
       userAgent: getUserAgent(request)
@@ -172,78 +170,80 @@ export async function DELETE(
     const ctx = await requireAdmin(request)
     if(!ctx.ok) return guardToResponse(ctx)
     const admin = createSupabaseServiceClient()
-    const {userId : userId} = await params
+    const { userId } = await params
 
     if (!userId) {
       return NextResponse.json({ error: 'User ID lipsește' }, { status: 400 })
     }
-
-    // Obținem datele utilizatorului ÎNAINTE de ștergere (pentru audit)
-    const { data: userToDelete } = await admin
-      .from('profiles')
-      .select('id, email, full_name, role, cif, telefon, nume_firma, adresa_firma, departament, specializare')
-      .eq('id', userId)
-      .single()
-
-    // Ștergem toate proiectele create de user (dacă e client)
-    const { error: projectsError } = await admin
-      .from('projects')
-      .delete()
-      .eq('client_id', userId)
-    
-    if (projectsError) console.warn('Eroare la ștergere proiecte:', projectsError)
-
-    const { error: membersError } = await admin
-      .from('project_members')
-      .delete()
-      .eq('consultant_id', userId)
-    
-    if (membersError) console.warn('Eroare la ștergere members:', membersError)
-
-    const { error: docsError } = await admin
-      .from('document_requirements')
-      .delete()
-      .eq('created_by', userId)
-    
-    if (docsError) console.warn('Eroare la ștergere documente:', docsError)
-
-    const { error: filesError } = await admin
-      .from('files')
-      .delete()
-      .eq('uploaded_by', userId)
-    
-    if (filesError) console.warn('Eroare la ștergere files:', filesError)
-
-    const { error: deleteError } = await admin.auth.admin.deleteUser(userId)
-
-    if (deleteError) throw deleteError
-
-    // ✅ AUDIT LOG - Ștergere utilizator
-    if (userToDelete) {
-      await logUserAction({
-        adminId: ctx.user.id,
-        actionType: 'delete',
-        userId: userId,
-        userEmail: userToDelete.email,
-        oldValues: {
-          email: userToDelete.email,
-          full_name: userToDelete.full_name,
-          role: userToDelete.role,
-          cif: userToDelete.cif,
-          telefon: userToDelete.telefon,
-          nume_firma: userToDelete.nume_firma
-        },
-        newValues: null,
-        description: `${ctx.profile.email} a șters utilizatorul ${userToDelete.email} (rol: ${userToDelete.role})`,
-        ipAddress: getClientIP(request),
-        userAgent: getUserAgent(request)
-      })
+    if (userId === ctx.user.id) {
+      return NextResponse.json({ error: 'Self-deactivation is not allowed' }, { status: 400 })
     }
 
-    return NextResponse.json({ message: 'Utilizator șters cu succes!' })
+    const { data: userToDelete, error: profileError } = await admin
+      .from('profiles')
+      .select('id, role, is_active')
+      .eq('id', userId)
+      .single()
+    if (profileError || !userToDelete) {
+      return NextResponse.json({ error: 'User not found' }, { status: profileError?.code === 'PGRST116' ? 404 : 500 })
+    }
+    const wasActive = userToDelete.is_active !== false
+
+    const { error: deactivateError } = await admin
+      .from('profiles')
+      .update({ is_active: false })
+      .eq('id', userId)
+    if (deactivateError) {
+      console.error('User deactivation failed:', deactivateError)
+      return NextResponse.json({ error: 'Unable to disable user access' }, { status: 500 })
+    }
+
+    const { error: banError } = await admin.auth.admin.updateUserById(userId, { ban_duration: '876000h' })
+    if (banError) {
+      await admin.from('profiles').update({ is_active: userToDelete.is_active }).eq('id', userId)
+      if (wasActive) {
+        const { error: unbanError } = await admin.auth.admin.updateUserById(userId, { ban_duration: 'none' })
+        if (unbanError) console.error('User auth unban rollback failed:', unbanError)
+      }
+      console.error('User auth ban failed:', banError)
+      return NextResponse.json({ error: 'Unable to disable user access' }, { status: 500 })
+    }
+
+    const queued = await queueDeletionJob(admin, {
+      targetType: 'user',
+      targetId: userId,
+      executeAfter: new Date(),
+      requestedBy: ctx.user.id,
+      reason: 'manual-deletion-review',
+    })
+    if (queued.error) {
+      await admin.from('profiles').update({ is_active: userToDelete.is_active }).eq('id', userId)
+      if (wasActive) {
+        const { error: unbanError } = await admin.auth.admin.updateUserById(userId, { ban_duration: 'none' })
+        if (unbanError) console.error('User auth unban rollback failed:', unbanError)
+      }
+      console.error('User deletion review enqueue failed:', queued.error)
+      return NextResponse.json({ error: 'Unable to request user deletion review' }, { status: 500 })
+    }
+
+    await logUserAction({
+      adminId: ctx.user.id,
+      actionType: 'delete',
+      userId,
+      oldValues: { role: userToDelete.role, is_active: userToDelete.is_active },
+      newValues: { is_active: false, deletion_requested: true },
+      description: 'Accesul utilizatorului a fost dezactivat; ștergerea necesită verificare manuală.',
+      ipAddress: getClientIP(request),
+      userAgent: getUserAgent(request),
+    })
+
+    return NextResponse.json(
+      { deletion_requested: true, access_disabled: true, manual_review_required: true },
+      { status: 202 },
+    )
 
   } catch (error: any) {
-    console.error('Eroare la ștergere user:', error)
-    return NextResponse.json({ error: error.message }, { status: 400 })
+    console.error('User deletion request failed:', error)
+    return NextResponse.json({ error: 'Unable to request user deletion' }, { status: 500 })
   }
 }

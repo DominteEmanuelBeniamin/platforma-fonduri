@@ -4,6 +4,7 @@ import { Resend } from 'resend'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { computeDeletionPurgeDate, queueDeletionJob } from '@/app/api/_utils/deletion-scheduling'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { isRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
@@ -465,7 +466,7 @@ export async function DELETE(
 
     const { data: req, error: reqError } = await admin
       .from('document_requirements')
-      .select('id, project_id, name, status, is_outgoing, deleted_at, deleted_by, delete_reason')
+      .select('id, project_id, name, status, is_outgoing, retention_class, retention_until, purge_after, deleted_at, deleted_by, delete_reason')
       .eq('id', requestId)
       .maybeSingle()
 
@@ -484,11 +485,15 @@ export async function DELETE(
       return NextResponse.json({ error: 'Nu ai permisiunea să ștergi cereri' }, { status: 403 })
     }
 
-    const { data: deleteProjectRow } = await admin
+    const { data: deleteProjectRow, error: deleteProjectError } = await admin
       .from('projects')
-      .select('title')
+      .select('title, document_retention_until, legal_hold_at')
       .eq('id', req.project_id)
       .maybeSingle()
+    if (deleteProjectError) {
+      console.error('DELETE document-requests project fetch error:', deleteProjectError)
+      return NextResponse.json({ error: 'Eroare la încărcarea proiectului' }, { status: 500 })
+    }
     const deleteProjectTitle = deleteProjectRow?.title ?? req.project_id
 
     if (req.deleted_at) {
@@ -502,10 +507,49 @@ export async function DELETE(
 
     const deletedAt = new Date().toISOString()
     const deletedBy = access.user.id
+    const purgePlan = await computeDeletionPurgeDate(admin, {
+      deletedAt,
+      retentionUntilDates: req.retention_class === 'temporary'
+        ? []
+        : [req.retention_until, deleteProjectRow?.document_retention_until],
+      requireBusinessRetention: req.retention_class !== 'temporary',
+      legalHoldAt: deleteProjectRow?.legal_hold_at,
+    })
+    if (purgePlan.error) {
+      console.error('DELETE document-requests retention policy load failed:', purgePlan.error)
+    }
+    const purgeAfter = purgePlan.purgeAfter
+
+    const { data: activeFiles, error: activeFilesError } = await admin
+      .from('files')
+      .select('id, deleted_at, deleted_by, purge_after')
+      .eq('requirement_id', requestId)
+      .is('deleted_at', null)
+    if (activeFilesError) {
+      console.error('DELETE document-requests files preflight error:', activeFilesError)
+      return NextResponse.json({ error: 'Eroare la încărcarea fișierelor cererii' }, { status: 500 })
+    }
+    const rollbackStampedFiles = async () => {
+      for (const file of activeFiles ?? []) {
+        const { error: fileRollbackError } = await admin
+          .from('files')
+          .update({
+            deleted_at: file.deleted_at ?? null,
+            deleted_by: file.deleted_by ?? null,
+            purge_after: file.purge_after ?? null,
+          })
+          .eq('id', file.id)
+          .eq('deleted_at', deletedAt)
+          .eq('deleted_by', deletedBy)
+        if (fileRollbackError) {
+          console.error('DELETE document-requests file retention rollback error:', fileRollbackError)
+        }
+      }
+    }
 
     const { error: filesError } = await admin
       .from('files')
-      .update({ deleted_at: deletedAt, deleted_by: deletedBy })
+      .update({ deleted_at: deletedAt, deleted_by: deletedBy, purge_after: purgeAfter })
       .eq('requirement_id', requestId)
       .is('deleted_at', null)
 
@@ -516,13 +560,44 @@ export async function DELETE(
 
     const { error: updateError } = await admin
       .from('document_requirements')
-      .update({ deleted_at: deletedAt, deleted_by: deletedBy, delete_reason: deleteReason })
+      .update({ deleted_at: deletedAt, deleted_by: deletedBy, delete_reason: deleteReason, purge_after: purgeAfter })
       .eq('id', requestId)
       .is('deleted_at', null)
 
     if (updateError) {
       console.error('DELETE document-requests update error:', updateError)
+      await rollbackStampedFiles()
       return NextResponse.json({ error: 'Eroare la ștergerea cererii' }, { status: 500 })
+    }
+
+    if (purgeAfter) {
+      const queued = await queueDeletionJob(admin, {
+        targetType: 'document',
+        targetId: requestId,
+        executeAfter: purgeAfter,
+        requestedBy: deletedBy,
+        reason: 'retention-schedule',
+      })
+      if (queued.error) {
+        console.error('DELETE document-requests retention job enqueue failed:', queued.error)
+        const { error: requirementRollbackError } = await admin
+          .from('document_requirements')
+          .update({
+            deleted_at: req.deleted_at ?? null,
+            deleted_by: req.deleted_by ?? null,
+            delete_reason: req.delete_reason ?? null,
+            purge_after: req.purge_after ?? null,
+          })
+          .eq('id', requestId)
+          .eq('deleted_at', deletedAt)
+          .eq('deleted_by', deletedBy)
+        if (requirementRollbackError) {
+          console.error('DELETE document-requests retention rollback error:', requirementRollbackError)
+        }
+
+        await rollbackStampedFiles()
+        return NextResponse.json({ error: 'Eroare la programarea ștergerii' }, { status: 500 })
+      }
     }
 
     await logAction({

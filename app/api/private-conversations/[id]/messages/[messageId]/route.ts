@@ -5,7 +5,8 @@ import {
   requirePrivateMessageOwner,
 } from '@/app/api/_utils/private-chat'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
-import { logAction, toMessagePreview } from '@/app/api/_utils/audit'
+import { logAction } from '@/app/api/_utils/audit'
+import { computeDeletionPurgeDate, queueDeletionJob } from '@/app/api/_utils/deletion-scheduling'
 
 const UpdateMessageSchema = z.object({
   body: z.string().trim().min(1).max(5000),
@@ -186,11 +187,21 @@ export async function DELETE(
 
     const admin = createSupabaseServiceClient()
     const nowIso = new Date().toISOString()
+    const purgePlan = await computeDeletionPurgeDate(admin, {
+      deletedAt: nowIso,
+      policyKey: 'private_chat',
+      requireBusinessRetention: true,
+      businessRetentionStartAt: ownerRes.message.created_at,
+    })
+    if (purgePlan.error) {
+      console.error('DELETE private message retention policy load failed:', { conversationId, messageId, error: purgePlan.error })
+    }
 
     const { error } = await admin
       .from('private_messages')
       .update({
         deleted_at: nowIso,
+        purge_after: purgePlan.purgeAfter,
       })
       .eq('id', messageId)
       .eq('conversation_id', conversationId)
@@ -204,16 +215,37 @@ export async function DELETE(
       return Response.json({ error: 'Failed to delete private message' }, { status: 500 })
     }
 
+    if (purgePlan.purgeAfter) {
+      const queued = await queueDeletionJob(admin, {
+        targetType: 'private_message',
+        targetId: messageId,
+        executeAfter: purgePlan.purgeAfter,
+        requestedBy: accessRes.user.id,
+        reason: 'retention-schedule',
+      })
+      if (queued.error) {
+        console.error('DELETE private message retention job enqueue failed:', { conversationId, messageId, error: queued.error })
+        const { error: rollbackError } = await admin
+          .from('private_messages')
+          .update({ deleted_at: null, purge_after: ownerRes.message.purge_after ?? null })
+          .eq('id', messageId)
+          .eq('conversation_id', conversationId)
+          .eq('deleted_at', nowIso)
+        if (rollbackError) {
+          console.error('DELETE private message retention rollback error:', { conversationId, messageId, error: rollbackError })
+        }
+        return Response.json({ error: 'Failed to schedule private message deletion' }, { status: 500 })
+      }
+    }
+
     await logAction({
       actorId: accessRes.user.id,
       actionType: 'delete',
       entityType: 'private_message',
       entityId: messageId,
       entityName: `msg:${messageId}`,
-      // Decision: delete CU preview pentru forensic (vezi PRD 1)
       oldValues: {
         conversation_id: conversationId,
-        preview: toMessagePreview(ownerRes.message.body),
         created_at: ownerRes.message.created_at,
       },
       description: `Stergere mesaj privat in conversatia ${conversationId}`,

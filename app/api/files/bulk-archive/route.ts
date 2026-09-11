@@ -435,15 +435,13 @@ export async function POST(request: Request) {
           actionType: 'download',
           entityType: 'file_access',
           entityId: entry.id,
-          entityName: entry.entryName,
+          entityName: `file:${entry.id}`,
           newValues: {
             file_id: entry.id,
             project_id: projectId,
-            storage_path: entry.storage_path,
-            zip_name: zipFileName,
             batch_size: archivePlan.length,
           },
-          description: `Descarcare in arhiva ${zipFileName} a fisierului ${entry.entryName}`,
+          description: 'Descarcare fisiere in arhiva',
           request,
         })
       )

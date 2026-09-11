@@ -25,6 +25,7 @@ export type PrivateMessage = {
   created_at: string
   edited_at: string | null
   deleted_at: string | null
+  purge_after: string | null
 }
 
 export async function requirePrivateConversationParticipant(
@@ -87,7 +88,7 @@ export async function requirePrivateMessageOwner(
 
   const { data: message, error } = await admin
     .from('private_messages')
-    .select('id, conversation_id, created_by, body, created_at, edited_at, deleted_at')
+    .select('id, conversation_id, created_by, body, created_at, edited_at, deleted_at, purge_after')
     .eq('id', messageId)
     .maybeSingle()
 

@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { guardToResponse, requireAdmin, requireProjectAccess } from '../../_utils/auth'
 import { createSupabaseServiceClient } from '../../_utils/supabase'
 import { logProjectAction, getClientIP, getUserAgent } from '../../_utils/audit'
+import { isRetentionDue } from '@/lib/data-retention'
 
 export async function GET(
   request: Request,
@@ -62,7 +63,7 @@ export async function PATCH(
     // 1. Citim proiectul curent (pentru audit)
     const { data: oldProject, error: findErr } = await admin
       .from('projects')
-      .select('id, title, status, client_id, cod_intern, automatic_reminders_enabled, profiles!projects_client_id_fkey(email, full_name, cif)')
+      .select('id, title, status, client_id, cod_intern, automatic_reminders_enabled')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -189,19 +190,18 @@ export async function PATCH(
     }
 
     // Descriere detaliată
-    const adminEmail = (ctx.profile as { email?: string | null }).email || 'Admin'
-    let description = `${adminEmail} a modificat proiectul "${oldProject.title}"`
+    let description = `A fost modificat proiectul "${oldProject.title}"`
     if (update.status && oldProject.status !== update.status) {
-      description = `${adminEmail} a schimbat statusul proiectului "${oldProject.title}" din "${oldProject.status}" în "${update.status}"`
+      description = `A fost schimbat statusul proiectului "${oldProject.title}" din "${oldProject.status}" în "${update.status}"`
     } else if (update.title && oldProject.title !== update.title) {
-      description = `${adminEmail} a redenumit proiectul din "${oldProject.title}" în "${update.title}"`
+      description = `Proiectul a fost redenumit din "${oldProject.title}" în "${update.title}"`
     } else if (update.client_id && oldProject.client_id !== update.client_id) {
-      description = `${adminEmail} a schimbat clientul proiectului "${oldProject.title}"`
+      description = `A fost schimbat clientul proiectului "${oldProject.title}"`
     } else if (
       update.automatic_reminders_enabled !== undefined &&
       oldProject.automatic_reminders_enabled !== update.automatic_reminders_enabled
     ) {
-      description = `${adminEmail} a ${update.automatic_reminders_enabled ? 'activat' : 'dezactivat'} reminderele automate pentru proiectul "${oldProject.title}"`
+      description = `Au fost ${update.automatic_reminders_enabled ? 'activate' : 'dezactivate'} reminderele automate pentru proiectul "${oldProject.title}"`
     }
 
     await logProjectAction({
@@ -245,7 +245,7 @@ export async function DELETE(
     // 1. Citim datele proiectului ÎNAINTE de ștergere (pentru audit)
     const { data: project, error: findErr } = await admin
       .from('projects')
-      .select('id, title, client_id, status, cod_intern, profiles!projects_client_id_fkey(email, full_name, cif)')
+      .select('id, title, client_id, status, cod_intern, document_retention_until, chat_retention_until, legal_hold_at')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -257,14 +257,14 @@ export async function DELETE(
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     }
 
-    // Helper pentru a extrage safe client info (fix pentru TypeScript)
-    const clientProfile = Array.isArray(project.profiles)
-      ? project.profiles[0]
-      : project.profiles
-
-    const clientEmail = clientProfile?.email || 'N/A'
-    const clientName = clientProfile?.full_name || 'N/A'
-    const clientCif = clientProfile?.cif || 'N/A'
+    const now = new Date()
+    if (
+      (project.legal_hold_at !== null && project.legal_hold_at !== undefined)
+      || !isRetentionDue(project.document_retention_until, now)
+      || !isRetentionDue(project.chat_retention_until, now)
+    ) {
+      return NextResponse.json({ error: 'Project retention requirements are not satisfied' }, { status: 409 })
+    }
 
     // 2. Storage cleanup (înainte de delete DB)
     const bucket = 'project-files'
@@ -296,10 +296,9 @@ export async function DELETE(
       ...(attachments ?? []).flatMap(r => (r.document_requirement_attachments ?? []).map((a: any) => a.storage_path)).filter((p): p is string => typeof p === 'string' && p.length > 0),
     ]))
 
-    // Imaginile de chat nu apar în `files`; măturăm prefixul privat ca să nu
-    // rămână uploaduri abandonate. `listV2` e marcat `@experimental` în SDK, iar
-    // obiectele rămase se pot mătura oricând după prefix — deci un eșec de
-    // listare nu are voie să oprească ștergerea proiectului.
+    // Imaginile de chat nu apar în `files`; listarea prefixului este necesară
+    // pentru a evita orphanarea lor, iar orice eșec sau cursor invalid oprește
+    // fail-closed ștergerea proiectului. `listV2` e marcat `@experimental` în SDK.
     const chatPrefix = `projects/${projectId}/chat/`
     const chatPaths: string[] = []
     let cursor: string | undefined
@@ -314,7 +313,7 @@ export async function DELETE(
 
       if (listError || !listed) {
         console.error('Fetch project chat storage paths error:', { projectId, listError })
-        break
+        return NextResponse.json({ error: 'Failed to verify project chat storage' }, { status: 500 })
       }
 
       chatPaths.push(...(listed.objects ?? [])
@@ -324,7 +323,7 @@ export async function DELETE(
       if (!listed.hasNext) break
       if (!listed.nextCursor || listed.nextCursor === cursor) {
         console.error('Project chat storage listing returned an invalid cursor:', { projectId })
-        break
+        return NextResponse.json({ error: 'Failed to verify project chat storage' }, { status: 500 })
       }
       cursor = listed.nextCursor
     }
@@ -402,15 +401,12 @@ export async function DELETE(
       oldValues: {
         title: project.title,
         client_id: project.client_id,
-        client_email: clientEmail,
-        client_name: clientName,
-        client_cif: clientCif,
         status: project.status,
         cod_intern: project.cod_intern,
         files_deleted: uniquePaths.length
       },
       newValues: null,
-      description: `${(ctx.profile as { email?: string | null }).email || 'Admin'} a șters proiectul "${project.title}" (client: ${clientEmail}, ${uniquePaths.length} fișiere șterse)`,
+      description: `A fost șters proiectul "${project.title}" (${uniquePaths.length} fișiere șterse)`,
       ipAddress: getClientIP(request),
       userAgent: getUserAgent(request)
     })

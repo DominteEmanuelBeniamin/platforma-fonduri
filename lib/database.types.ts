@@ -24,6 +24,9 @@ export type AuditEntityType = string;
 export type NotificationType = 'publication' | 'assignment' | 'deadline' | 'document_action';
 export type NotificationEntityType = 'project' | 'phase' | 'activity' | 'document_request';
 export type NotificationSeverity = 'info' | 'success' | 'warning' | 'danger';
+export type RetentionClass = 'project_record' | 'procurement_record' | 'financial_record' | 'employment_evidence' | 'construction_record' | 'public_template' | 'temporary';
+export type DataDeletionJobTargetType = 'project' | 'document' | 'user' | 'project_chat_message' | 'private_message' | 'orphan_upload';
+export type DataDeletionJobStatus = 'queued' | 'processing' | 'completed' | 'failed';
 
 export interface ReminderLog {
   id: string;
@@ -47,6 +50,29 @@ export interface ReminderLog {
   skip_reason: string | null;
   created_at: string;
   sent_at: string | null;
+}
+
+export interface RetentionPolicy {
+  policy_key: string;
+  retention_hours: number | null;
+  enabled: boolean;
+  description: string | null;
+  updated_at: string;
+}
+
+export interface DataDeletionJob {
+  id: string;
+  target_type: DataDeletionJobTargetType;
+  target_id: string;
+  execute_after: string;
+  status: DataDeletionJobStatus;
+  attempts: number;
+  last_error: string | null;
+  requested_by: string | null;
+  reason: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
 }
 
 
@@ -210,6 +236,7 @@ export interface TemplateDocumentRequirement {
   attachment_original_name: string | null;
   attachment_missing_at: string | null;
   attachment_missing_checked_at: string | null;
+  retention_class: RetentionClass;
   created_at: string;
 }
 
@@ -224,6 +251,7 @@ export interface TemplateDocumentRequirementCreate {
   attachment_original_name?: string | null;
   attachment_missing_at?: string | null;
   attachment_missing_checked_at?: string | null;
+  retention_class?: RetentionClass;
 }
 
 export interface TemplateDocumentRequirementUpdate {
@@ -236,6 +264,7 @@ export interface TemplateDocumentRequirementUpdate {
   attachment_original_name?: string | null;
   attachment_missing_at?: string | null;
   attachment_missing_checked_at?: string | null;
+  retention_class?: RetentionClass;
 }
 
 // View pentru template-uri
@@ -419,6 +448,14 @@ export interface Project {
   preluat_detalii: string | null;
   general_consultant_id: string | null;
   automatic_reminders_enabled: boolean;
+  document_retention_until: string | null;
+  chat_retention_until: string | null;
+  retention_basis: string | null;
+  legal_hold_at: string | null;
+  legal_hold_reason: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+  delete_reason: string | null;
   created_at: string;
   updated_at: string;
   // Relații
@@ -452,6 +489,14 @@ export interface ProjectUpdate extends Partial<ProjectCreate> {
   current_status_id?: string; // NOU
   progress?: number;
   automatic_reminders_enabled?: boolean;
+  document_retention_until?: string | null;
+  chat_retention_until?: string | null;
+  retention_basis?: string | null;
+  legal_hold_at?: string | null;
+  legal_hold_reason?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  delete_reason?: string | null;
 }
 
 // FAZĂ PROIECT (ACTUALIZAT - cu project_status_id)
@@ -587,6 +632,9 @@ export interface ActivityDocumentRequirement {
   attachment_missing_checked_at: string | null;
   source_template_document_requirement_id: string | null;
   visibility: ProjectItemVisibility;
+  retention_class: RetentionClass;
+  retention_until: string | null;
+  purge_after: string | null;
   assigned_consultant: { id: string; full_name: string | null; email: string } | null;
   files?: ActivityDocumentFile[];
 }
@@ -609,6 +657,9 @@ export interface ActivityDocumentRequirementCreate {
   attachment_missing_checked_at?: string | null;
   source_template_document_requirement_id?: string | null;
   visibility?: ProjectItemVisibility;
+  retention_class?: RetentionClass;
+  retention_until?: string | null;
+  purge_after?: string | null;
 }
 
 export interface DocumentRequestReview {
@@ -653,6 +704,7 @@ export interface ActivityDocumentFile {
   uploaded_at: string;
   deleted_at: string | null;
   deleted_by: string | null;
+  purge_after: string | null;
   uploader?: { full_name: string | null; email: string };
   reviewer?: { full_name: string | null; email: string };
 }
@@ -1020,6 +1072,8 @@ export interface Database {
       projects: { Row: Project; Insert: ProjectCreate; Update: ProjectUpdate };
       reminder_log: { Row: ReminderLog; Insert: Omit<ReminderLog, 'id' | 'created_at'>; Update: never };
       reminder_run_lease: { Row: { lease_name: string; owner_id: string; acquired_at: string; expires_at: string }; Insert: never; Update: never };
+      retention_policies: { Row: RetentionPolicy; Insert: RetentionPolicy; Update: Partial<RetentionPolicy> };
+      data_deletion_jobs: { Row: DataDeletionJob; Insert: Omit<DataDeletionJob, 'id' | 'created_at' | 'updated_at' | 'completed_at'> & { completed_at?: string | null }; Update: Partial<Pick<DataDeletionJob, 'status' | 'attempts' | 'last_error' | 'execute_after' | 'reason' | 'updated_at' | 'completed_at'>> };
       
       // NOU: Statusuri globale
       project_statuses: { Row: ProjectStatus; Insert: ProjectStatusCreate; Update: ProjectStatusUpdate };

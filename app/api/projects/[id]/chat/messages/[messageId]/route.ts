@@ -1,6 +1,7 @@
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
-import { getClientIP, getUserAgent, logChatMessageAction, toMessagePreview } from '@/app/api/_utils/audit'
+import { getClientIP, getUserAgent, logChatMessageAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { computeDeletionPurgeDate, queueDeletionJob } from '@/app/api/_utils/deletion-scheduling'
 import { maskProjectChatBodiesForViewer } from '@/app/api/_utils/project-chat-links'
 import { serializeProjectChatMessages } from '@/app/api/_utils/project-chat-messages'
 import {
@@ -18,6 +19,7 @@ const MESSAGE_SELECT = `
   created_at,
   edited_at,
   deleted_at,
+  purge_after,
   profiles:created_by (
     id,
     full_name,
@@ -34,6 +36,7 @@ type ProjectChatMessageRow = {
   created_at: string
   edited_at: string | null
   deleted_at: string | null
+  purge_after: string | null
   profiles?: unknown
 }
 
@@ -41,7 +44,6 @@ function imageAuditFields(value: unknown) {
   const images = storedChatImages(value)
   return {
     image_count: images.length,
-    image_names: images.map(image => image.name),
   }
 }
 
@@ -202,17 +204,14 @@ export async function PATCH(
       actionType: 'update',
       projectId,
       messageId,
-      messagePreview: toMessagePreview(data.body),
       oldValues: {
         project_id: projectId,
         project_title: projectTitle,
-        body_preview: toMessagePreview(message.body),
         ...imageAuditFields(message.images),
       },
       newValues: {
         project_id: projectId,
         project_title: projectTitle,
-        body_preview: toMessagePreview(data.body),
         ...imageAuditFields(data.images),
       },
       description: parsed.data.kind === 'removeImage'
@@ -262,9 +261,29 @@ export async function DELETE(
     }
 
     const deletedAt = new Date().toISOString()
+    const { data: projectRetention, error: projectRetentionError } = await admin
+      .from('projects')
+      .select('chat_retention_until, legal_hold_at')
+      .eq('id', projectId)
+      .maybeSingle()
+    if (projectRetentionError) {
+      console.error('DELETE chat message retention fetch failed:', { projectId, messageId, error: projectRetentionError })
+      return Response.json({ error: 'Failed to load project retention' }, { status: 500 })
+    }
+
+    const purgePlan = await computeDeletionPurgeDate(admin, {
+      deletedAt,
+      policyKey: 'project_chat',
+      retentionUntilDates: [projectRetention?.chat_retention_until],
+      requireBusinessRetention: true,
+      legalHoldAt: projectRetention?.legal_hold_at,
+    })
+    if (purgePlan.error) {
+      console.error('DELETE chat message retention policy load failed:', { projectId, messageId, error: purgePlan.error })
+    }
     const { data: deletedMessage, error } = await admin
       .from('project_chat_messages')
-      .update({ deleted_at: deletedAt })
+      .update({ deleted_at: deletedAt, purge_after: purgePlan.purgeAfter })
       .eq('id', messageId)
       .eq('project_id', projectId)
       .select(MESSAGE_SELECT)
@@ -272,6 +291,29 @@ export async function DELETE(
     if (error || !deletedMessage) {
       console.error('DELETE (soft) message failed:', { projectId, messageId, error })
       return Response.json({ error: 'Failed to delete message' }, { status: 500 })
+    }
+
+    if (purgePlan.purgeAfter) {
+      const queued = await queueDeletionJob(admin, {
+        targetType: 'project_chat_message',
+        targetId: messageId,
+        executeAfter: purgePlan.purgeAfter,
+        requestedBy: access.user.id,
+        reason: 'retention-schedule',
+      })
+      if (queued.error) {
+        console.error('DELETE chat message retention job enqueue failed:', { projectId, messageId, error: queued.error })
+        const { error: rollbackError } = await admin
+          .from('project_chat_messages')
+          .update({ deleted_at: null, purge_after: message.purge_after ?? null })
+          .eq('id', messageId)
+          .eq('project_id', projectId)
+          .eq('deleted_at', deletedAt)
+        if (rollbackError) {
+          console.error('DELETE chat message retention rollback error:', { projectId, messageId, error: rollbackError })
+        }
+        return Response.json({ error: 'Failed to schedule message deletion' }, { status: 500 })
+      }
     }
 
     try {
@@ -290,11 +332,9 @@ export async function DELETE(
       actionType: 'delete',
       projectId,
       messageId,
-      messagePreview: toMessagePreview(message.body),
       oldValues: {
         project_id: projectId,
         project_title: projectTitle,
-        body_preview: toMessagePreview(message.body),
         ...imageAuditFields(message.images),
       },
       newValues: {

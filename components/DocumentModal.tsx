@@ -33,6 +33,7 @@ import {
 } from '@/lib/document-reminder'
 import type { ReminderEntityState } from '@/lib/reminder-state'
 import ReminderStatus, { getReminderDisplayStatus } from '@/components/ReminderStatus'
+import UploadMinimizationNotice from '@/components/UploadMinimizationNotice'
 import { REQUIREMENT_LABELS, type RequirementType } from '@/lib/requirement-type'
 import {
   formatFileSize,
@@ -1104,6 +1105,7 @@ export default function DocumentModal({
                   <h3 className="mb-2 text-sm font-semibold text-slate-900">
                     {request.status === 'rejected' ? 'Reîncarcă documentele' : 'Încarcă documentele'}
                   </h3>
+                  <UploadMinimizationNotice />
 
                   {clientUploadFiles.length > 0 && (
                     <div className="mb-3 space-y-2 rounded-xl border border-indigo-100 bg-indigo-50 p-3">
