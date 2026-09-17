@@ -11,10 +11,15 @@
     "smoke:supabase": "node scripts/smoke-supabase.mjs",
     "smoke:duplicare": "node --experimental-strip-types scripts/smoke-duplicare.mjs",
     "test:e2e": "playwright test",
-    "audit:check": "node --experimental-strip-types scripts/check-audit-contract.mjs"
+    "audit:check": "node --experimental-strip-types scripts/check-audit-contract.mjs",
+    "test:ui": "playwright test --config playwright.ui.config.ts",
+    "test:ui:telefon": "playwright test --config playwright.ui.config.ts --project telefon --project tableta",
+    "test:ui:iphone": "UI_IPHONE=1 playwright test --config playwright.ui.config.ts --project iphone",
+    "test:ui:raport": "playwright show-report playwright-report/ui"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.85.0",
+    "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",
     "@radix-ui/react-avatar": "^1.2.3",
     "@radix-ui/react-collapsible": "^1.1.17",
     "@radix-ui/react-dialog": "^1.1.20",
@@ -28,6 +33,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.2.4",
     "@types/archiver": "^7.0.0",

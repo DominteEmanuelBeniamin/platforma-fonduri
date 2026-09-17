@@ -1,18 +1,32 @@
 import type { Metadata } from "next";
+import localFont from "next/font/local";
 import "./globals.css";
-import Navbar from "@/components/Navbar"; // <-- Importăm noul Navbar
+import Navbar from "@/components/Navbar";
 import { AuthProvider } from './providers/AuthProvider'
 import { ProjectChatUnreadProvider } from './providers/ProjectChatUnreadProvider'
 import { NotificationsProvider } from './providers/NotificationsProvider'
 import { ToastProvider } from './providers/ToastProvider'
 
-// Fără `next/font/google`: fonturile se descărcau de la Google la fiecare build,
-// iar un 404 de la CDN-ul lor oprea livrarea. Stivele de sistem stau în
-// `--font-sans` și `--font-display` din globals.css.
+// O singură familie în toată clădirea, ca într-un program de semnalizare
+// adevărat. Atkinson Hyperlegible Next e desenat anume ca 1/I/l și 0/O să nu
+// se confunde — exact ce cere un produs plin de numere de proiect și termene.
+//
+// Fișierele stau în `app/fonts/`, nu se descarcă de nicăieri: `next/font/google`
+// a oprit livrarea când CDN-ul lor a răspuns 404. Două subseturi, 53 KB în
+// total; `latin` aduce î â, `latin-ext` aduce ș ț ă.
+const signage = localFont({
+  src: [
+    { path: "./fonts/AtkinsonHyperlegibleNext-latin.woff2", weight: "200 800", style: "normal" },
+    { path: "./fonts/AtkinsonHyperlegibleNext-latin-ext.woff2", weight: "200 800", style: "normal" },
+  ],
+  variable: "--font-signage",
+  display: "swap",
+  fallback: ["system-ui", "-apple-system", "Segoe UI", "sans-serif"],
+});
 
 export const metadata: Metadata = {
-  title: "Bonie | Project Management",
-  description: "Platformă premium de management proiecte",
+  title: "Bonie | Management de proiecte de finanțare",
+  description: "Documentele, termenele și discuția fiecărui proiect de finanțare, într-un singur fir.",
 };
 
 export default function RootLayout({
@@ -21,23 +35,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ro" className="h-full overflow-x-hidden">
-      <body className="h-full bg-slate-50 text-slate-900 antialiased overflow-x-hidden">
+    <html lang="ro" className={`${signage.variable} h-full overflow-x-hidden`}>
+      <body className="h-full bg-paper text-ink antialiased overflow-x-hidden">
         <ToastProvider>
         <AuthProvider>
           <NotificationsProvider>
           <ProjectChatUnreadProvider>
-            {/* Navbar-ul Inteligent */}
+            {/* Prima oprire pentru tastatură: săritul peste semnalizare,
+                direct la conținut. WCAG 2.4.1. */}
+            <a href="#continut" className="skip-link">Sari la conținut</a>
+
             <Navbar />
 
-            {/* Gradient decorativ */}
-            <div className="fixed inset-0 z-0 pointer-events-none">
-              <div className="absolute top-0 left-0 right-0 h-96 bg-gradient-to-b from-indigo-50/50 to-transparent opacity-60" />
-            </div>
-
-            {/* Main Content */}
-            <main className="relative flex-1 pt-24 pb-12 min-h-screen z-10">
-              <div className="max-w-7xl mx-auto px-6 lg:px-12">
+            <main id="continut" className="relative flex-1 pt-16 pb-16 min-h-screen">
+              <div className="mx-auto w-full max-w-[1400px] px-4 sm:px-6 lg:px-10">
                 {children}
               </div>
             </main>

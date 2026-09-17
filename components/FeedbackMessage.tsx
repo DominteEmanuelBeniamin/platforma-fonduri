@@ -3,10 +3,10 @@ import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react'
 export type FeedbackVariant = 'success' | 'info' | 'warning' | 'error'
 
 const styles = {
-  success: { Icon: CheckCircle2, box: 'border-emerald-200 bg-emerald-50 text-emerald-900', icon: 'text-emerald-600' },
-  info: { Icon: Info, box: 'border-blue-200 bg-blue-50 text-blue-900', icon: 'text-blue-600' },
-  warning: { Icon: AlertTriangle, box: 'border-amber-200 bg-amber-50 text-amber-900', icon: 'text-amber-600' },
-  error: { Icon: XCircle, box: 'border-red-200 bg-red-50 text-red-900', icon: 'text-red-600' },
+  success: { Icon: CheckCircle2, box: 'border-[var(--sg-ok)] bg-[var(--sg-ok-soft)] text-[var(--sg-ok)]', icon: 'text-[var(--sg-ok)]' },
+  info: { Icon: Info, box: 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]', icon: 'text-[var(--sg-accent)]' },
+  warning: { Icon: AlertTriangle, box: 'border-[var(--sg-warn)] bg-[var(--sg-warn-soft)] text-[var(--sg-warn)]', icon: 'text-[var(--sg-warn)]' },
+  error: { Icon: XCircle, box: 'border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] text-[var(--sg-danger)]', icon: 'text-[var(--sg-danger)]' },
 }
 
 export function FeedbackMessage({

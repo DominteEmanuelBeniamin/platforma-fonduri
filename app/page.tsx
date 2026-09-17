@@ -10,12 +10,24 @@ import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import { useToast } from '@/app/providers/ToastProvider'
 import {
   AlertTriangle, Bell, Check, MessageSquare, FileText, Plus, MoreVertical, Trash2,
-  Search, SlidersHorizontal, ArrowUpDown, LayoutGrid, List, X, ChevronRight, ChevronDown, Info, Clock,
+  SlidersHorizontal, ArrowUpDown, LayoutGrid, List, X, ChevronRight, ChevronDown, Info, Clock,
   BellOff, Loader2,
 } from 'lucide-react'
 import { useProjectChatUnread } from '@/app/providers/ProjectChatUnreadProvider'
 import { useNotifications } from '@/app/providers/NotificationsProvider'
 import { GENERAL_PHASE_ID } from '@/lib/calendar'
+import { Plate } from '@/components/ui/Plate'
+import { FloatingSurface, Scrim } from '@/components/ui/Surface'
+import { IconButton } from '@/components/ui/IconButton'
+import { Counter } from '@/components/ui/Counter'
+import { SearchInput } from '@/components/ui/SearchInput'
+import { Signal } from '@/components/ui/Signal'
+import { Button, ButtonLink, buttonClass } from '@/components/ui/Button'
+import { LocationStrip } from '@/components/ui/LocationStrip'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { TONE, type SignalTone } from '@/lib/signage'
+import { ToneIcon } from '@/components/ui/ToneIcon'
+import { Spinner } from '@/components/ui/Spinner'
 import {
   REMINDERS_ERROR_MESSAGE,
   automaticRemindersEnabled,
@@ -46,12 +58,25 @@ const SORT_OPTIONS: { key: string; label: string }[] = [
   { key: 'client', label: 'După client' },
 ]
 
-const ATTENTION_OPTIONS: { key: string; label: string; dot: string }[] = [
-  { key: 'overdue', label: 'Depășite', dot: 'bg-red-400' },
-  { key: 'todo', label: 'De rezolvat', dot: 'bg-amber-400' },
-  { key: 'unread', label: 'Necitite', dot: 'bg-violet-400' },
-  { key: 'clean', label: 'La zi', dot: 'bg-emerald-400' },
+const ATTENTION_OPTIONS: { key: string; label: string; tone: SignalTone }[] = [
+  { key: 'overdue', label: 'Depășite', tone: 'danger' },
+  { key: 'todo', label: 'De rezolvat', tone: 'warn' },
+  { key: 'unread', label: 'Necitite', tone: 'neutral' },
+  { key: 'clean', label: 'La zi', tone: 'ok' },
 ]
+
+/** Pastila de ton: culoare, glifă și cuvânt, niciodată doar culoare. */
+function ToneDot({ tone }: { tone: SignalTone }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[1px] text-[10px] font-bold leading-none"
+      style={{ background: TONE[tone].bg, color: TONE[tone].fg }}
+    >
+      <ToneIcon tone={tone} />
+    </span>
+  )
+}
 
 const clientKey = (p: any) => p?.client_id || '__none__'
 const clientName = (p: any) => p?.profiles?.full_name || 'Fără client'
@@ -73,33 +98,42 @@ function buildOptions(projects: any[], keyFn: (p: any) => string, nameFn: (p: an
 // Bifă pătrată mică
 function Tick({ on }: { on: boolean }) {
   return (
-    <span className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-colors ${on ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
-      {on && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
+    <span className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-[1px] border transition-colors duration-[120ms] ${on ? 'border-[var(--sg-accent)] bg-[var(--sg-accent)]' : 'border-rule-strong'}`}>
+      {on && <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />}
     </span>
   )
 }
 
-function buildBadges(att: Att, isClient: boolean): any[] {
-  const badges: any[] = []
+function buildBadges(att: Att, isClient: boolean): { key: string; tone: SignalTone; icon: React.ReactNode; label: string; title: string }[] {
+  const badges: { key: string; tone: SignalTone; icon: React.ReactNode; label: string; title: string }[] = []
   if (att.overdue > 0) {
-    badges.push({ key: 'overdue', cls: 'bg-red-50 text-red-600 ring-red-100', icon: <AlertTriangle className="w-3 h-3" />, label: `${att.overdue} depășite`, title: `${att.overdue} cereri cu termen depășit` })
+    badges.push({ key: 'overdue', tone: 'danger', icon: <AlertTriangle className="h-3 w-3" />, label: `${att.overdue} depășite`, title: `${att.overdue} cereri cu termen depășit` })
   }
   if (isClient) {
-    if (att.total > 0) badges.push({ key: 'todo', cls: 'bg-amber-50 text-amber-700 ring-amber-100', icon: <FileText className="w-3 h-3" />, label: `${att.total} de încărcat`, title: `${att.total} documente de încărcat` })
+    if (att.total > 0) badges.push({ key: 'todo', tone: 'warn', icon: <FileText className="h-3 w-3" />, label: `${att.total} de încărcat`, title: `${att.total} documente de încărcat` })
   } else {
-    if (att.review > 0) badges.push({ key: 'review', cls: 'bg-blue-50 text-blue-600 ring-blue-100', icon: <FileText className="w-3 h-3" />, label: `${att.review} de verificat`, title: `${att.review} cereri de verificat` })
-    badges.push({ key: 'pending', cls: att.pending > 0 ? 'bg-amber-50 text-amber-700 ring-amber-100' : 'bg-slate-50 text-slate-500 ring-slate-100', icon: <FileText className="w-3 h-3" />, label: `${att.pending} la client`, title: `${att.pending} cereri așteaptă documente de la client` })
+    if (att.review > 0) badges.push({ key: 'review', tone: 'warn', icon: <FileText className="h-3 w-3" />, label: `${att.review} de verificat`, title: `${att.review} cereri care așteaptă verificarea ta` })
+    if (att.pending > 0) badges.push({ key: 'pending', tone: 'neutral', icon: <FileText className="h-3 w-3" />, label: `${att.pending} la client`, title: `${att.pending} cereri așteaptă documente de la client` })
   }
   if (att.unreadChat > 0) {
-    badges.push({ key: 'chat', cls: 'bg-rose-50 text-rose-600 ring-rose-100', icon: <MessageSquare className="w-3 h-3" />, label: `${att.unreadChat > 99 ? '99+' : att.unreadChat} mesaje`, title: `${att.unreadChat} mesaje necitite în chat` })
+    badges.push({ key: 'chat', tone: 'neutral', icon: <MessageSquare className="h-3 w-3" />, label: `${att.unreadChat > 99 ? '99+' : att.unreadChat} mesaje`, title: `${att.unreadChat} mesaje necitite în chat` })
   }
   if (att.unreadNotifications > 0) {
-    badges.push({ key: 'notifications', cls: 'bg-violet-50 text-violet-600 ring-violet-100', icon: <Bell className="w-3 h-3" />, label: `${att.unreadNotifications > 99 ? '99+' : att.unreadNotifications} notificări`, title: `${att.unreadNotifications} notificări necitite` })
+    badges.push({ key: 'notifications', tone: 'neutral', icon: <Bell className="h-3 w-3" />, label: `${att.unreadNotifications > 99 ? '99+' : att.unreadNotifications} notificări`, title: `${att.unreadNotifications} notificări necitite` })
   }
   if (att.clean) {
-    badges.push({ key: 'clean', cls: 'bg-emerald-50 text-emerald-600 ring-emerald-100', icon: <Check className="w-3 h-3" strokeWidth={3} />, label: 'La zi', title: 'Nimic de făcut' })
+    badges.push({ key: 'clean', tone: 'ok', icon: <Check className="h-3 w-3" strokeWidth={3} />, label: 'La zi', title: 'Nimic de făcut' })
   }
   return badges
+}
+
+/** Semnalul cel mai urgent al unui proiect decide culoarea railului plăcuței. */
+function railFor(att: Att): string | undefined {
+  if (att.overdue > 0) return 'var(--sg-danger)'
+  if (att.todo) return 'var(--sg-warn)'
+  if (att.unreadChat > 0 || att.unreadNotifications > 0) return 'var(--sg-accent)'
+  if (att.clean) return 'var(--sg-ok)'
+  return 'var(--sg-rule-strong)'
 }
 
 function AttentionBadges({ att, isClient, className = '' }: { att: Att; isClient: boolean; className?: string }) {
@@ -108,10 +142,12 @@ function AttentionBadges({ att, isClient, className = '' }: { att: Att; isClient
   return (
     <div className={`flex flex-wrap items-center gap-1.5 ${className}`}>
       {badges.map((b) => (
-        <span key={b.key} title={b.title} className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold ring-1 whitespace-nowrap ${b.cls}`}>
-          {b.icon}
-          {b.label}
-        </span>
+        <Signal key={b.key} tone={b.tone} className="whitespace-nowrap">
+          <span title={b.title} className="inline-flex items-center gap-1">
+            {b.icon}
+            {b.label}
+          </span>
+        </Signal>
       ))}
     </div>
   )
@@ -136,19 +172,23 @@ function AdminMenu({
   return (
     <div className={className}>
       <div className="relative">
-        <button
+        <IconButton
+          label="Opțiuni proiect"
+          aria-expanded={openMenuId === project.id}
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpenMenuId(openMenuId === project.id ? null : project.id) }}
-          aria-label="Opțiuni proiect"
-          className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-300 hover:text-slate-600 transition-colors"
         >
-          <MoreVertical className="w-4 h-4" />
-        </button>
+          <MoreVertical className="h-4 w-4" />
+        </IconButton>
         {openMenuId === project.id && (
-          <div className={`absolute right-0 w-60 bg-white rounded-2xl shadow-xl border border-slate-200 py-1 z-30 ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+          <FloatingSurface
+            role="menu"
+            className={`absolute right-0 z-30 w-64 rounded-[var(--radius-plate-lg)] py-1 ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}
+          >
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpenMenuId(null); onToggleAutomaticReminders(project) }}
               disabled={reminderToggleLoading}
-              className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 transition-colors disabled:opacity-60 ${remindersEnabled ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50'}`}
+              className="flex min-h-11 w-full items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors duration-[120ms] hover:bg-paper-sunk disabled:opacity-60"
+              style={{ color: remindersEnabled ? 'var(--sg-warn)' : 'var(--sg-ok)' }}
             >
               {reminderToggleLoading
                 ? <Loader2 className="w-4 h-4 animate-spin" />
@@ -157,15 +197,16 @@ function AdminMenu({
                   : <Bell className="w-4 h-4" />}
               {remindersActionLabel(remindersEnabled)}
             </button>
-            <div className="my-1 border-t border-slate-100" />
+            <div className="my-1 border-t border-rule" />
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpenMenuId(null); onRequestDelete(project) }}
-              className="w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors"
+              className="flex min-h-11 w-full items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors duration-[120ms] hover:bg-[var(--sg-danger-soft)]"
+              style={{ color: 'var(--sg-danger)' }}
             >
-              <Trash2 className="w-4 h-4" />
+              <Trash2 className="h-4 w-4" />
               Șterge proiectul
             </button>
-          </div>
+          </FloatingSurface>
         )}
       </div>
     </div>
@@ -180,42 +221,37 @@ function CollapsibleSection({ group, defaultOpen }: { group: FilterGroup; defaul
   const opts = query ? group.options.filter((o) => o.name.toLowerCase().includes(query)) : group.options
 
   return (
-    <div className="border-t border-slate-100">
-      <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between py-3.5 text-left">
+    <div className="border-t border-rule">
+      <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex min-h-11 w-full items-center justify-between py-3.5 text-left">
         <span className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-slate-700">{group.title}</span>
+          <span className="text-sm font-semibold text-ink">{group.title}</span>
           {group.selected.size > 0 && (
-            <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-100 text-indigo-600 text-[10px] font-bold">{group.selected.size}</span>
+            <Counter n={group.selected.size} />
           )}
         </span>
-        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`h-4 w-4 text-ink-faint transition-transform duration-[120ms] ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
         <div className="pb-3">
-          <div className="relative mb-2">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-            <input
+          <div className="mb-2">
+            <SearchInput
+              size="sm"
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={setQ}
               placeholder={`Caută ${group.title.toLowerCase()}…`}
-              className="w-full h-9 pl-9 pr-8 rounded-lg border border-slate-200 bg-slate-50/60 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 focus:bg-white transition"
+              label={`Caută ${group.title.toLowerCase()}`}
             />
-            {q && (
-              <button onClick={() => setQ('')} aria-label="Șterge" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
           </div>
           <div className="max-h-56 overflow-y-auto">
             {opts.length === 0 ? (
-              <p className="py-4 text-center text-xs text-slate-400">Niciun rezultat</p>
+              <p className="py-4 text-center text-xs text-ink-faint">Niciun rezultat</p>
             ) : (
               opts.map((o) => (
-                <button key={o.key} onClick={() => group.toggle(o.key)} className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-slate-50 text-sm">
+                <button key={o.key} onClick={() => group.toggle(o.key)} aria-pressed={group.selected.has(o.key)} className="flex min-h-11 w-full items-center gap-2.5 rounded-[var(--radius-plate)] px-2 py-2 text-sm transition-colors duration-[120ms] hover:bg-paper-sunk">
                   <Tick on={group.selected.has(o.key)} />
-                  <span className="flex-1 text-left text-slate-700 truncate">{o.name}</span>
-                  {typeof o.count === 'number' && <span className="text-[11px] text-slate-400 font-medium tabular-nums">{o.count}</span>}
+                  <span className="flex-1 truncate text-left text-ink">{o.name}</span>
+                  {typeof o.count === 'number' && <span className="text-xs font-medium text-ink-faint">{o.count}</span>}
                 </button>
               ))
             )}
@@ -232,7 +268,7 @@ function FilterModal({
 }: {
   open: boolean
   onClose: () => void
-  attentionOptions: { key: string; label: string; dot: string; count: number }[]
+  attentionOptions: { key: string; label: string; tone: SignalTone; count: number }[]
   attentionSel: Set<string>
   onToggleAtt: (k: string) => void
   sections: FilterGroup[]
@@ -253,21 +289,25 @@ function FilterModal({
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center">
-      <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
-      <div className="relative w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 flex flex-col max-h-[88vh] sm:max-h-[80vh] fade-in-up">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-          <h2 className="text-base font-bold text-slate-800">Filtre</h2>
-          <button onClick={onClose} aria-label="Închide" className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors">
-            <X className="w-4 h-4" />
-          </button>
+      <Scrim onClick={onClose} />
+      <FloatingSurface
+        role="dialog"
+        ariaModal
+        ariaLabel="Filtre"
+        className="relative flex max-h-[88vh] w-full flex-col rounded-t-[var(--radius-plate-lg)] sm:max-h-[80vh] sm:max-w-lg sm:rounded-[var(--radius-plate-lg)]"
+      >
+        <div className="flex items-center justify-between border-b border-rule px-6 py-4">
+          <h2 className="text-base font-bold text-ink">Filtre</h2>
+          <IconButton label="Închide filtrele" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </IconButton>
         </div>
 
         {/* Corp */}
         <div className="flex-1 overflow-y-auto px-6">
           {/* Atenție — pastile */}
           <div className="py-4">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2.5">Necesită atenție</p>
+            <h3 className="mb-2.5 text-sm font-semibold text-ink">Necesită atenție</h3>
             <div className="flex flex-wrap gap-2">
               {attentionOptions.map((o) => {
                 const on = attentionSel.has(o.key)
@@ -275,11 +315,12 @@ function FilterModal({
                   <button
                     key={o.key}
                     onClick={() => onToggleAtt(o.key)}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${on ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}
+                    aria-pressed={on}
+                    className={`inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-plate)] border px-3 text-xs font-semibold transition-colors duration-[120ms] sm:min-h-9 ${on ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : 'border-rule text-ink-soft hover:border-rule-strong hover:text-ink'}`}
                   >
-                    <span className={`w-2 h-2 rounded-full ${o.dot}`} />
+                    <ToneDot tone={o.tone} />
                     {o.label}
-                    <span className={`tabular-nums ${on ? 'text-indigo-400' : 'text-slate-400'}`}>{o.count}</span>
+                    <span className={on ? 'text-[var(--sg-accent)]' : 'text-ink-faint'}>{o.count}</span>
                   </button>
                 )
               })}
@@ -292,19 +333,15 @@ function FilterModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between gap-3 px-6 py-3.5 border-t border-slate-100">
-          <button
-            onClick={onClearAll}
-            disabled={activeCount === 0}
-            className="text-sm font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-40 disabled:hover:text-slate-500 transition-colors"
-          >
+        <div className="flex items-center justify-between gap-3 border-t border-rule px-6 py-3.5">
+          <Button variant="quiet" onClick={onClearAll} disabled={activeCount === 0}>
             Resetează{activeCount > 0 ? ` (${activeCount})` : ''}
-          </button>
-          <button onClick={onClose} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold shadow-lg shadow-indigo-600/20 transition-all active:scale-95">
+          </Button>
+          <Button variant="primary" onClick={onClose}>
             Arată {resultCount} {resultCount === 1 ? 'proiect' : 'proiecte'}
-          </button>
+          </Button>
         </div>
-      </div>
+      </FloatingSurface>
     </div>,
     document.body,
   )
@@ -326,33 +363,41 @@ function TaskRow({ req, todayTs, mode }: { req: any; todayTs: number; mode: 'cli
   const isRejected = req.status === 'rejected'
   const isReview = req.status === 'review'
 
-  const accent = isOverdue ? 'bg-red-400' : isRejected ? 'bg-red-300' : isReview ? 'bg-blue-300' : 'bg-amber-300'
-  const rowBg = isOverdue ? 'bg-red-50/40 hover:bg-red-50/70' : 'hover:bg-slate-50/70'
-  const pill = mode === 'client'
-    ? (isRejected ? { cls: 'bg-red-50 text-red-500', label: 'Respins' } : { cls: 'bg-amber-50 text-amber-600', label: 'De încărcat' })
-    : (isReview ? { cls: 'bg-blue-50 text-blue-500', label: 'Verificare' } : { cls: 'bg-amber-50 text-amber-600', label: 'La client' })
+  const tone: SignalTone = isOverdue || isRejected ? 'danger' : isReview ? 'warn' : 'warn'
+  const label = mode === 'client'
+    ? (isRejected ? 'Respins' : 'De încărcat')
+    : (isReview ? 'De verificat' : 'La client')
+
   return (
-    <Link href={buildRequestHref(req)} className={`group relative flex items-center gap-3 pl-4 pr-4 py-3 transition-colors ${rowBg}`}>
-      <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${accent}`} />
-      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${isOverdue ? 'bg-red-100' : 'bg-slate-100'}`}>
-        {isOverdue ? <AlertTriangle className="w-3.5 h-3.5 text-red-400" /> : <FileText className="w-3.5 h-3.5 text-slate-400" />}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className={`text-sm font-semibold truncate leading-snug ${isOverdue ? 'text-red-700' : 'text-slate-800'}`}>{req.name}</p>
-        <p className="text-[11px] text-slate-400 truncate mt-0.5">
+    <Link href={buildRequestHref(req)} className="group flex min-h-11 items-center gap-3 px-4 py-3 transition-colors duration-[120ms] hover:bg-paper-sunk">
+      <span
+        aria-hidden="true"
+        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[var(--radius-plate)]"
+        style={{ background: TONE[tone].bg, color: TONE[tone].fg }}
+      >
+        {isOverdue ? <AlertTriangle className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold leading-snug text-ink">{req.name}</p>
+        <p className="mt-0.5 truncate text-xs text-ink-soft">
           {req.project_title}
-          {req.phase_name && <span className="text-slate-300"> · {req.phase_name}</span>}
-          {req.activity_name && <span className="text-slate-300"> / {req.activity_name}</span>}
+          {req.phase_name && <span className="text-ink-faint"> · {req.phase_name}</span>}
+          {req.activity_name && <span className="text-ink-faint"> / {req.activity_name}</span>}
         </p>
       </div>
       {dl && (
-        <div className={`hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md flex-shrink-0 ${isOverdue ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
-          <Clock className="w-2.5 h-2.5" />
+        <span
+          className="hidden flex-shrink-0 items-center gap-1 rounded-[var(--radius-plate)] px-2 py-0.5 text-xs font-semibold sm:inline-flex"
+          style={isOverdue
+            ? { background: TONE.danger.bg, color: TONE.danger.fg }
+            : { background: 'var(--sg-paper-sunk)', color: 'var(--sg-ink-soft)' }}
+        >
+          <Clock className="h-2.5 w-2.5" aria-hidden="true" />
           {dl.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })}
-        </div>
+        </span>
       )}
-      <span className={`hidden md:inline-flex flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-md ${pill.cls}`}>{pill.label}</span>
-      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 transition-colors flex-shrink-0" />
+      <Signal tone={tone} className="hidden flex-shrink-0 md:inline-flex">{label}</Signal>
+      <ChevronRight className="h-4 w-4 flex-shrink-0 text-ink-faint transition-colors duration-[120ms] group-hover:text-[var(--sg-accent)]" aria-hidden="true" />
     </Link>
   )
 }
@@ -361,15 +406,15 @@ function TaskRow({ req, todayTs, mode }: { req: any; todayTs: number; mode: 'cli
 function DocRow({ doc }: { doc: any }) {
   const date = doc.created_at ? new Date(doc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' }) : null
   return (
-    <Link href={`/projects/${doc.project_id}?phase=${GENERAL_PHASE_ID}&document=${doc.id}#general-requests`} className="group flex items-center gap-3 pl-4 pr-4 py-3 hover:bg-slate-50/70 transition-colors">
-      <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
-        <FileText className="w-3.5 h-3.5 text-indigo-500" />
+    <Link href={`/projects/${doc.project_id}?phase=${GENERAL_PHASE_ID}&document=${doc.id}#general-requests`} className="group flex min-h-11 items-center gap-3 px-4 py-3 transition-colors duration-[120ms] hover:bg-paper-sunk">
+      <span aria-hidden="true" className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[var(--radius-plate)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]">
+        <FileText className="h-3.5 w-3.5" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold leading-snug text-ink">{doc.name}</p>
+        <p className="mt-0.5 truncate text-xs text-ink-soft">{doc.project_title}{date && <span className="text-ink-faint"> · {date}</span>}</p>
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-slate-800 truncate leading-snug">{doc.name}</p>
-        <p className="text-[11px] text-slate-400 truncate mt-0.5">{doc.project_title}{date && <span className="text-slate-300"> · {date}</span>}</p>
-      </div>
-      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 transition-colors flex-shrink-0" />
+      <ChevronRight className="h-4 w-4 flex-shrink-0 text-ink-faint transition-colors duration-[120ms] group-hover:text-[var(--sg-accent)]" aria-hidden="true" />
     </Link>
   )
 }
@@ -402,18 +447,23 @@ function PriorityDrawer({
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex justify-end">
-      <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
-      <div className="relative w-full sm:max-w-md h-full bg-white shadow-2xl flex flex-col drawer-slide-in">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-          <h2 className="text-base font-bold text-slate-800">{title}</h2>
-          <button onClick={onClose} aria-label="Închide" className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors">
-            <X className="w-4 h-4" />
-          </button>
+      <Scrim onClick={onClose} />
+      <FloatingSurface
+        role="dialog"
+        ariaModal
+        ariaLabel={title}
+        className="drawer-slide-in relative flex h-full w-full flex-col border-y-0 border-r-0 sm:max-w-md"
+      >
+        <div className="flex items-center justify-between border-b border-rule px-5 py-4">
+          <h2 className="text-base font-bold text-ink">{title}</h2>
+          <IconButton label={`Închide ${title.toLowerCase()}`} onClick={onClose}>
+            <X className="h-4 w-4" />
+          </IconButton>
         </div>
 
         <div className="flex-1 overflow-y-auto">
           {requests.length > 0 && (
-            <div className="divide-y divide-slate-50">
+            <div className="divide-y divide-rule">
               {requests.map((req) => (
                 <TaskRow key={req.id} req={req} todayTs={todayTs} mode={isClient ? 'client' : 'staff'} />
               ))}
@@ -421,31 +471,29 @@ function PriorityDrawer({
           )}
 
           {!isClient && requests.length > 0 && (
-            <Link href="/my-requests" onClick={onClose} className="flex items-center justify-center gap-1 px-5 py-3 text-xs font-semibold text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50/50 transition-colors">
-              Vezi toate <span aria-hidden>→</span>
+            <Link href="/my-requests" onClick={onClose} className="flex min-h-11 items-center justify-center gap-1 border-t border-rule px-5 py-3 text-sm font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)]">
+              Vezi toate cererile <span aria-hidden="true">→</span>
             </Link>
           )}
 
           {showDocs && (
             <>
-              <p className="px-5 pt-5 pb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Documente recente</p>
-              <div className="divide-y divide-slate-50">
+              <h3 className="border-t border-rule px-5 pb-2 pt-5 text-sm font-semibold text-ink">Documente recente</h3>
+              <div className="divide-y divide-rule">
                 {docs.map((doc) => <DocRow key={doc.id} doc={doc} />)}
               </div>
             </>
           )}
 
           {empty && (
-            <div className="py-20 flex flex-col items-center justify-center text-center gap-2">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center mb-1">
-                <Check className="w-6 h-6 text-emerald-400" strokeWidth={2.5} />
-              </div>
-              <p className="text-sm font-semibold text-slate-600">Totul e la zi!</p>
-              <p className="text-xs text-slate-400">Nu ai nimic de făcut.</p>
+            <div className="px-5 py-16">
+              <EmptyState title="Totul e la zi">
+                Nu aștept nimic de la tine acum. Când apare o cerere sau un termen, o găsești aici.
+              </EmptyState>
             </div>
           )}
         </div>
-      </div>
+      </FloatingSurface>
     </div>,
     document.body,
   )
@@ -700,8 +748,9 @@ export default function Dashboard() {
 
   if (loading || authLoading) {
     return (
-      <div className="flex h-[80vh] items-center justify-center">
-        <div className="w-10 h-10 border-4 border-slate-100 border-t-indigo-600 rounded-full animate-spin"></div>
+      <div className="flex h-[80vh] items-center justify-center" role="status" aria-live="polite">
+        <Spinner />
+        <span className="sr-only">Se încarcă proiectele…</span>
       </div>
     )
   }
@@ -723,23 +772,21 @@ export default function Dashboard() {
   const visibleSortOptions = SORT_OPTIONS.filter((o) => o.key !== 'client' || clientOptions.length > 1)
   const effectiveSortKey = visibleSortOptions.some((o) => o.key === sortKey) ? sortKey : 'recent'
   const sortLabel = SORT_OPTIONS.find((o) => o.key === effectiveSortKey)?.label ?? 'Sortare'
-  const btnBase = 'inline-flex items-center gap-2 h-10 px-3.5 rounded-xl border text-sm font-medium transition-colors'
 
-  const legendItems = [
-    { dot: 'bg-red-400', label: 'Depășite', desc: 'termen depășit' },
+  const legendItems: { tone: SignalTone; label: string; desc: string }[] = [
+    { tone: 'danger', label: 'Depășite', desc: 'termenul a trecut' },
     isClient
-      ? { dot: 'bg-amber-400', label: 'De încărcat', desc: 'documente cerute' }
-      : { dot: 'bg-blue-400', label: 'De verificat', desc: 'așteaptă verificarea ta' },
-    ...(!isClient ? [{ dot: 'bg-amber-400', label: 'La client', desc: 'așteaptă document de la client' }] : []),
-    { dot: 'bg-rose-400', label: 'Chat necitit', desc: 'mesaje noi' },
-    { dot: 'bg-violet-400', label: 'Notificări necitite', desc: 'actualizări noi' },
-    { dot: 'bg-emerald-400', label: 'La zi', desc: 'nimic de făcut' },
+      ? { tone: 'warn', label: 'De încărcat', desc: 'documente cerute de la tine' }
+      : { tone: 'warn', label: 'De verificat', desc: 'așteaptă verificarea ta' },
+    ...(!isClient ? [{ tone: 'neutral' as SignalTone, label: 'La client', desc: 'așteaptă document de la client' }] : []),
+    { tone: 'neutral', label: 'Necitite', desc: 'mesaje sau notificări noi' },
+    { tone: 'ok', label: 'La zi', desc: 'nimic de făcut' },
   ]
 
-  const activeChips: { key: string; name: string; dot?: string; remove: () => void }[] = [
+  const activeChips: { key: string; name: string; tone?: SignalTone; remove: () => void }[] = [
     ...Array.from(attentionFilter).map((k) => {
       const o = ATTENTION_OPTIONS.find((x) => x.key === k)
-      return { key: `a-${k}`, name: o?.label ?? k, dot: o?.dot, remove: () => toggleIn(setAttentionFilter, k) }
+      return { key: `a-${k}`, name: o?.label ?? k, tone: o?.tone, remove: () => toggleIn(setAttentionFilter, k) }
     }),
     ...Array.from(clientFilter).map((k) => {
       const o = clientOptions.find((x) => x.key === k)
@@ -752,82 +799,98 @@ export default function Dashboard() {
   ]
 
   return (
-    <div className="flex flex-col gap-6 fade-in-up">
-      {/* HEADER */}
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">{currentDate}</p>
-          <h1 className="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight">Salut, {firstName}!</h1>
-        </div>
-        <div className="flex items-center gap-2.5 flex-shrink-0">
-          {showPriority && (
-            <button
-              onClick={() => setPriorityOpen(true)}
-              className="relative inline-flex items-center gap-2 h-10 px-4 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:border-indigo-300 hover:bg-slate-50 transition-colors active:scale-95"
-            >
-              {overdueReqs > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-white" />}
-              <span className="hidden sm:inline">{priorityLabel}</span>
-              <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-slate-100 text-slate-500 text-[11px] font-bold">{priorityCount}</span>
-            </button>
-          )}
-          {canCreateProject && (
-            <Link href="/projects/new">
-              <button className="flex items-center gap-2 px-4 md:px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold shadow-lg shadow-indigo-600/20 transition-all active:scale-95">
-                <Plus className="w-4 h-4" strokeWidth={2.5} />
+    <div className="flex flex-col gap-6">
+      <LocationStrip
+        segments={[{ label: 'Bonie', href: '/' }, { label: 'Proiecte' }]}
+        action={
+          <>
+            {showPriority && (
+              <Button
+                variant="secondary"
+                onClick={() => setPriorityOpen(true)}
+                aria-label={`${priorityLabel}: ${priorityCount}${overdueReqs > 0 ? `, din care ${overdueReqs} cu termen depășit` : ''}`}
+              >
+                {overdueReqs > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="h-2 w-2 rounded-[1px]"
+                    style={{ background: 'var(--sg-danger)' }}
+                  />
+                )}
+                <span>{priorityLabel}</span>
+                <Counter n={priorityCount} variant="quiet" />
+              </Button>
+            )}
+            {canCreateProject && (
+              <ButtonLink href="/projects/new" variant="primary" label="Proiect nou">
+                <Plus className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
                 <span className="hidden sm:inline">Proiect nou</span>
-              </button>
-            </Link>
+              </ButtonLink>
+            )}
+          </>
+        }
+      />
+
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Salut, {firstName}</h1>
+        <p className="mt-2 text-sm text-ink-soft">
+          {currentDate}
+          {projects.length > 0 && (
+            <>
+              {' · '}
+              {projects.length} {projects.length === 1 ? 'proiect' : 'proiecte'}
+              {overdueReqs > 0 && (
+                <>
+                  {', '}
+                  <span className="font-semibold" style={{ color: 'var(--sg-danger)' }}>
+                    {overdueReqs} {overdueReqs === 1 ? 'termen depășit' : 'termene depășite'}
+                  </span>
+                </>
+              )}
+            </>
           )}
-        </div>
+        </p>
       </div>
 
       {projects.length === 0 ? (
         /* EMPTY — niciun proiect deloc */
-        <div className="py-24 flex flex-col items-center justify-center text-center border-2 border-dashed border-slate-200 rounded-3xl bg-slate-50/50">
-          <div className="w-14 h-14 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-center mb-4">
-            <FileText className="w-6 h-6 text-slate-300" />
-          </div>
-          <h3 className="text-lg font-bold text-slate-900">Niciun proiect activ</h3>
-          <p className="text-slate-500 mt-1">{canCreateProject ? 'Creează primul proiect pentru a începe.' : 'Lista este goală momentan.'}</p>
-          {canCreateProject && (
-            <Link href="/projects/new">
-              <button className="mt-6 flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold shadow-lg shadow-indigo-600/20 transition-all active:scale-95">
-                <Plus className="w-4 h-4" strokeWidth={2.5} /> Proiect nou
-              </button>
-            </Link>
-          )}
-        </div>
+        <EmptyState
+          title="Niciun proiect deocamdată"
+          action={canCreateProject ? (
+            <ButtonLink href="/projects/new" variant="primary">
+              <Plus className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" /> Proiect nou
+            </ButtonLink>
+          ) : undefined}
+        >
+          {canCreateProject
+            ? 'Un proiect pornește de la un șablon de faze și activități, sau de la zero.'
+            : 'Când consultantul îți deschide un proiect, apare aici.'}
+        </EmptyState>
       ) : (
         <>
           {/* TOOLBAR */}
-          <div className="flex flex-col gap-3 pb-1 border-b border-slate-200/60">
+          <div className="flex flex-col gap-3 border-b border-rule pb-3">
             <div className="flex flex-wrap items-center gap-2.5">
               {/* Search */}
-              <div className="relative flex-1 min-w-[220px]">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-                <input
+              <div className="min-w-[220px] flex-1">
+                <SearchInput
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Caută după titlu sau client…"
-                  aria-label="Caută proiecte"
-                  className="w-full h-10 pl-10 pr-9 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 transition"
+                  onChange={setSearch}
+                  placeholder="Caută după titlu, client sau cod…"
+                  label="Caută proiecte"
                 />
-                {search && (
-                  <button onClick={() => setSearch('')} aria-label="Șterge căutarea" className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500">
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
               </div>
 
               {/* Filtre → modal */}
               <button
                 onClick={() => setFilterOpen(true)}
-                className={`${btnBase} ${activeFilterCount > 0 ? 'border-indigo-300 text-indigo-700 bg-indigo-50/60' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-800'}`}
+                aria-label="Filtre"
+                className={buttonClass('secondary', 'md', activeFilterCount > 0 ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : '')}
               >
-                <SlidersHorizontal className="w-4 h-4" />
+                <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
                 <span className="hidden sm:inline">Filtre</span>
                 {activeFilterCount > 0 && (
-                  <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-indigo-600 text-white text-[11px] font-bold">{activeFilterCount}</span>
+                  <Counter n={activeFilterCount} />
                 )}
               </button>
 
@@ -835,106 +898,114 @@ export default function Dashboard() {
               <div className="relative">
                 <button
                   onClick={(e) => { e.stopPropagation(); setSortOpen((v) => !v) }}
-                  className={`${btnBase} border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-800`}
+                  aria-expanded={sortOpen}
+                  aria-label={`Sortare: ${sortLabel}`}
+                  className={buttonClass('secondary')}
                 >
-                  <ArrowUpDown className="w-4 h-4" />
+                  <ArrowUpDown className="h-4 w-4" aria-hidden="true" />
                   <span className="hidden md:inline">{sortLabel}</span>
                 </button>
                 {sortOpen && (
-                  <div onClick={(e) => e.stopPropagation()} className="absolute right-0 top-full mt-2 w-52 bg-white rounded-2xl shadow-xl border border-slate-200 p-1.5 z-40">
+                  <FloatingSurface
+                    role="menu"
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute right-0 top-full z-40 mt-2 w-56 rounded-[var(--radius-plate-lg)] p-1.5"
+                  >
                     {visibleSortOptions.map((o) => (
                       <button
                         key={o.key}
                         onClick={() => { setSortKey(o.key); setSortOpen(false) }}
-                        className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-sm text-left transition-colors ${effectiveSortKey === o.key ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}
+                        aria-pressed={effectiveSortKey === o.key}
+                        className={`flex min-h-11 w-full items-center justify-between rounded-[var(--radius-plate)] px-2.5 py-2 text-left text-sm transition-colors duration-[120ms] sm:min-h-9 ${effectiveSortKey === o.key ? 'bg-[var(--sg-accent-soft)] font-semibold text-[var(--sg-accent-ink)]' : 'text-ink-soft hover:bg-paper-sunk hover:text-ink'}`}
                       >
                         {o.label}
-                        {effectiveSortKey === o.key && <Check className="w-3.5 h-3.5" strokeWidth={3} />}
+                        {effectiveSortKey === o.key && <Check className="h-3.5 w-3.5" strokeWidth={3} aria-hidden="true" />}
                       </button>
                     ))}
-                  </div>
+                  </FloatingSurface>
                 )}
               </div>
 
               {/* View toggle */}
-              <div className="flex items-center rounded-xl border border-slate-200 bg-white p-0.5">
-                <button onClick={() => setView('grid')} aria-label="Vizualizare grilă" aria-pressed={view === 'grid'} className={`p-1.5 rounded-lg transition-colors ${view === 'grid' ? 'bg-slate-100 text-slate-700' : 'text-slate-400 hover:text-slate-600'}`}>
-                  <LayoutGrid className="w-4 h-4" />
+              <div className="flex items-center rounded-[var(--radius-plate)] border border-rule bg-plate p-0.5">
+                <button onClick={() => setView('grid')} aria-label="Vizualizare grilă" aria-pressed={view === 'grid'} className={`flex h-10 w-10 items-center justify-center rounded-[1px] transition-colors duration-[120ms] sm:h-8 sm:w-8 ${view === 'grid' ? 'bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : 'text-ink-faint hover:bg-paper-sunk hover:text-ink'}`}>
+                  <LayoutGrid className="h-4 w-4" />
                 </button>
-                <button onClick={() => setView('list')} aria-label="Vizualizare listă" aria-pressed={view === 'list'} className={`p-1.5 rounded-lg transition-colors ${view === 'list' ? 'bg-slate-100 text-slate-700' : 'text-slate-400 hover:text-slate-600'}`}>
-                  <List className="w-4 h-4" />
+                <button onClick={() => setView('list')} aria-label="Vizualizare listă" aria-pressed={view === 'list'} className={`flex h-10 w-10 items-center justify-center rounded-[1px] transition-colors duration-[120ms] sm:h-8 sm:w-8 ${view === 'list' ? 'bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : 'text-ink-faint hover:bg-paper-sunk hover:text-ink'}`}>
+                  <List className="h-4 w-4" />
                 </button>
               </div>
-            </div>
 
-            {/* Rând rezultate + filtre active */}
-            <div className="flex items-center gap-2 min-h-[24px] flex-wrap">
-              <span className="text-xs font-medium text-slate-400">
-                {filtered.length} {filtered.length === 1 ? 'proiect' : 'proiecte'}
-                {filtered.length !== projects.length && <span className="text-slate-300"> din {projects.length}</span>}
-              </span>
               <div className="relative">
-                <button
+                <IconButton
+                  label="Ce înseamnă semnele"
+                  aria-expanded={legendOpen}
                   onClick={(e) => { e.stopPropagation(); setLegendOpen((v) => !v) }}
-                  aria-label="Ce înseamnă culorile"
-                  className="flex items-center justify-center w-5 h-5 rounded-full text-slate-300 hover:text-slate-500 hover:bg-slate-100 transition-colors"
                 >
-                  <Info className="w-3.5 h-3.5" />
-                </button>
+                  <Info className="h-4 w-4" />
+                </IconButton>
                 {legendOpen && (
-                  <div onClick={(e) => e.stopPropagation()} className="absolute left-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-200 p-3 z-40">
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-1 pb-1.5">Ce înseamnă culorile</p>
+                  <FloatingSurface
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute left-0 top-full z-40 mt-2 w-72 rounded-[var(--radius-plate-lg)] p-3"
+                  >
+                    <h3 className="px-1 pb-1.5 text-sm font-semibold text-ink">Ce înseamnă semnele</h3>
                     <div className="flex flex-col gap-0.5">
                       {legendItems.map((it) => (
                         <div key={it.label} className="flex items-center gap-2.5 px-1 py-1.5">
-                          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${it.dot}`} />
-                          <span className="text-sm font-semibold text-slate-700">{it.label}</span>
-                          <span className="text-xs text-slate-400 truncate">— {it.desc}</span>
+                          <ToneDot tone={it.tone} />
+                          <span className="text-sm font-semibold text-ink">{it.label}</span>
+                          <span className="truncate text-xs text-ink-soft">— {it.desc}</span>
                         </div>
                       ))}
                     </div>
-                    <div className="my-1.5 border-t border-slate-100" />
-                    <p className="px-1 text-[11px] text-slate-400 leading-relaxed">Bordura cardului preia culoarea celei mai urgente stări.</p>
-                  </div>
+                    <div className="my-1.5 border-t border-rule" />
+                    <p className="px-1 text-xs leading-relaxed text-ink-soft">Banda de sus a plăcuței preia semnul cel mai urgent al proiectului.</p>
+                  </FloatingSurface>
                 )}
               </div>
+
+            </div>
+
+            {/* Rând rezultate + filtre active */}
+            {(anyFilterActive || activeChips.length > 0) && (
+            <div className="flex flex-wrap items-center gap-2">
+              {anyFilterActive && (
+                <span className="text-sm font-medium text-ink-soft" role="status" aria-live="polite">
+                  {filtered.length} {filtered.length === 1 ? 'proiect' : 'proiecte'} din {projects.length}
+                </span>
+              )}
               {activeChips.map((chip) => (
-                <button key={chip.key} onClick={chip.remove} className="inline-flex items-center gap-1 rounded-full bg-slate-100 hover:bg-slate-200 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600 transition-colors">
-                  {chip.dot && <span className={`w-1.5 h-1.5 rounded-full ${chip.dot}`} />}
-                  {chip.name} <X className="w-3 h-3" />
+                <button key={chip.key} onClick={chip.remove} aria-label={`Scoate filtrul ${chip.name}`} className="inline-flex min-h-8 items-center gap-1.5 rounded-[var(--radius-plate)] border border-rule bg-plate px-2.5 text-xs font-semibold text-ink-soft transition-colors duration-[120ms] hover:border-rule-strong hover:text-ink">
+                  {chip.tone && <ToneDot tone={chip.tone} />}
+                  {chip.name} <X className="h-3 w-3" aria-hidden="true" />
                 </button>
               ))}
               {anyFilterActive && (
-                <button onClick={clearAll} className="text-[11px] font-semibold text-indigo-500 hover:text-indigo-700 ml-auto">Șterge tot</button>
+                <button onClick={clearAll} className="ml-auto text-sm font-semibold text-[var(--sg-accent)] underline-offset-4 hover:underline">Șterge tot</button>
               )}
             </div>
+            )}
           </div>
 
           {/* REZULTATE */}
           {filtered.length === 0 ? (
-            <div className="py-20 flex flex-col items-center justify-center text-center gap-2">
-              <div className="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center mb-1">
-                <Search className="w-5 h-5 text-slate-300" />
-              </div>
-              <p className="text-sm font-semibold text-slate-600">Niciun proiect găsit</p>
-              <p className="text-xs text-slate-400">Încearcă alți termeni sau șterge filtrele.</p>
-              <button onClick={clearAll} className="mt-3 px-4 py-2 text-sm font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors">Șterge filtrele</button>
-            </div>
+            <EmptyState
+              title="Niciun proiect nu se potrivește"
+              action={<Button variant="secondary" onClick={clearAll}>Șterge filtrele</Button>}
+            >
+              Încearcă alți termeni de căutare, sau scoate filtrele active.
+            </EmptyState>
           ) : view === 'grid' ? (
             /* GRID */
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
-              {filtered.map((project, idx) => {
+            <div className="grid grid-cols-1 gap-4 pb-10 md:grid-cols-2 lg:grid-cols-3">
+              {filtered.map((project) => {
                 const att = attentionByProject.get(project.id)!
-                const accent = att.overdue > 0 ? 'border-red-300 hover:border-red-400' : att.unreadChat > 0 ? 'border-rose-300 hover:border-rose-400' : att.unreadNotifications > 0 ? 'border-violet-300 hover:border-violet-400' : 'border-slate-300 hover:border-indigo-300'
                 return (
-                  <div
-                    key={project.id}
-                    className={`group relative bg-white border rounded-3xl shadow-sm hover:shadow-lg hover:shadow-slate-900/[0.06] hover:-translate-y-0.5 transition-all duration-300 ${accent}`}
-                    style={{ animationDelay: `${idx * 40}ms` }}
-                  >
-                    <Link href={`/projects/${project.id}`} className="flex flex-col h-full p-6">
-                      <h3 className="text-xl font-bold text-slate-900 leading-snug line-clamp-2 group-hover:text-indigo-600 transition-colors pr-10">{project.title}</h3>
-                      <p className="text-sm text-slate-400 mt-1.5">{clientName(project)}</p>
+                  <Plate key={project.id} rail={railFor(att)} interactive className="group">
+                    <Link href={`/projects/${project.id}`} className="flex h-full flex-col p-5 pt-6">
+                      <h3 className="line-clamp-2 pr-10 text-lg font-bold leading-snug text-ink transition-colors duration-[120ms] group-hover:text-[var(--sg-accent)]">{project.title}</h3>
+                      <p className="mt-1.5 text-sm text-ink-soft">{clientName(project)}</p>
                       <AttentionBadges att={att} isClient={isClient} className="mt-4" />
                     </Link>
                     {isAdmin && (
@@ -945,25 +1016,24 @@ export default function Dashboard() {
                         onRequestDelete={(p) => { setProjectToDelete(p); setShowDeleteModal(true) }}
                         onToggleAutomaticReminders={handleToggleAutomaticReminders}
                         reminderToggleLoadingId={reminderToggleLoadingId}
-                        className="absolute top-3 right-3 z-10"
+                        className="absolute right-2 top-2 z-10"
                       />
                     )}
-                  </div>
+                  </Plate>
                 )
               })}
             </div>
           ) : (
             /* LISTĂ */
-            <div className="flex flex-col gap-2.5 pb-10">
+            <div className="flex flex-col gap-2 pb-10">
               {filtered.map((project) => {
                 const att = attentionByProject.get(project.id)!
-                const accent = att.overdue > 0 ? 'border-red-300' : att.unreadChat > 0 ? 'border-rose-300' : att.unreadNotifications > 0 ? 'border-violet-300' : 'border-slate-300'
                 return (
-                  <div key={project.id} className={`group relative bg-white border rounded-2xl hover:shadow-md hover:shadow-slate-900/[0.05] hover:border-indigo-200 transition-all ${accent}`}>
-                    <Link href={`/projects/${project.id}`} className="flex items-center gap-4 pl-5 pr-3 py-4">
+                  <Plate key={project.id} rail={railFor(att)} interactive className="group">
+                    <Link href={`/projects/${project.id}`} className="flex items-center gap-4 py-4 pl-5 pr-3 pt-5">
                       <div className="min-w-0 flex-1">
-                        <h3 className="font-semibold text-slate-900 truncate group-hover:text-indigo-600 transition-colors">{project.title}</h3>
-                        <p className="text-xs text-slate-400 truncate mt-0.5">{clientName(project)}</p>
+                        <h3 className="truncate font-semibold text-ink transition-colors duration-[120ms] group-hover:text-[var(--sg-accent)]">{project.title}</h3>
+                        <p className="mt-0.5 truncate text-sm text-ink-soft">{clientName(project)}</p>
                       </div>
                       <AttentionBadges att={att} isClient={isClient} className="hidden sm:flex" />
                       {isAdmin ? (
@@ -976,10 +1046,10 @@ export default function Dashboard() {
                           reminderToggleLoadingId={reminderToggleLoadingId}
                         />
                       ) : (
-                        <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 transition-colors flex-shrink-0 mr-2" />
+                        <ChevronRight className="mr-2 h-4 w-4 flex-shrink-0 text-ink-faint transition-colors duration-[120ms] group-hover:text-[var(--sg-accent)]" aria-hidden="true" />
                       )}
                     </Link>
-                  </div>
+                  </Plate>
                 )
               })}
             </div>

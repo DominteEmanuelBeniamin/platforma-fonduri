@@ -1,11 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { downloadBlob } from '@/lib/file-preview'
+import { Fragment, useEffect, useMemo, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { LocationStrip } from '@/components/ui/LocationStrip'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { useToast } from '@/app/providers/ToastProvider'
 import {
-  LogIn,
   LogOut,
   Plus,
   PlusSquare,
@@ -19,11 +21,8 @@ import {
   Search,
   X,
   ChevronDown,
-  Calendar,
-  Activity,
-  Clock,
-  Shield,
-  Globe,
+  ChevronLeft,
+  ChevronRight,
   Download,
   Users,
   Briefcase,
@@ -35,10 +34,18 @@ import {
   HardDrive,
   Share2,
   History,
+  Filter,
   FileDown,
+  Shield,
+  LogIn,
+  Activity,
 } from 'lucide-react'
 import SelectFilter from '@/components/SelectFilter'
 import { AUDIT_ACTION_LABELS, AUDIT_ENTITY_LABELS } from '@/lib/audit-catalog'
+import { Spinner } from '@/components/ui/Spinner'
+import { Button } from '@/components/ui/Button'
+import { IconButton } from '@/components/ui/IconButton'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 interface AuditLog {
   id: string
@@ -81,23 +88,23 @@ type ActionConfig = {
 }
 
 const ACTION_CONFIG: Record<string, ActionConfig> = {
-  login: { color: 'text-emerald-700', bgColor: 'bg-emerald-50', borderColor: 'border-emerald-200', icon: LogIn },
-  logout: { color: 'text-slate-600', bgColor: 'bg-slate-100', borderColor: 'border-slate-200', icon: LogOut },
-  create: { color: 'text-blue-700', bgColor: 'bg-blue-50', borderColor: 'border-blue-200', icon: Plus },
-  add: { color: 'text-cyan-700', bgColor: 'bg-cyan-50', borderColor: 'border-cyan-200', icon: PlusSquare },
-  update: { color: 'text-amber-700', bgColor: 'bg-amber-50', borderColor: 'border-amber-200', icon: Pencil },
-  publish: { color: 'text-emerald-700', bgColor: 'bg-emerald-50', borderColor: 'border-emerald-200', icon: CheckSquare },
-  propagate: { color: 'text-purple-700', bgColor: 'bg-purple-50', borderColor: 'border-purple-200', icon: Share2 },
-  delete: { color: 'text-red-700', bgColor: 'bg-red-50', borderColor: 'border-red-200', icon: Trash2 },
-  download: { color: 'text-violet-700', bgColor: 'bg-violet-50', borderColor: 'border-violet-200', icon: Download },
-  notify: { color: 'text-sky-700', bgColor: 'bg-sky-50', borderColor: 'border-sky-200', icon: Mail },
-  deadline_reminder_digest: { color: 'text-indigo-700', bgColor: 'bg-indigo-50', borderColor: 'border-indigo-200', icon: Mail },
+  login: { color: 'text-[var(--sg-ok)]', bgColor: 'bg-[var(--sg-ok-soft)]', borderColor: 'border-[var(--sg-ok)]', icon: LogIn },
+  logout: { color: 'text-ink-soft', bgColor: 'bg-paper-sunk', borderColor: 'border-rule', icon: LogOut },
+  create: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: Plus },
+  add: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: PlusSquare },
+  update: { color: 'text-[var(--sg-warn)]', bgColor: 'bg-[var(--sg-warn-soft)]', borderColor: 'border-[var(--sg-warn)]', icon: Pencil },
+  publish: { color: 'text-[var(--sg-ok)]', bgColor: 'bg-[var(--sg-ok-soft)]', borderColor: 'border-[var(--sg-ok)]', icon: CheckSquare },
+  propagate: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: Share2 },
+  delete: { color: 'text-[var(--sg-danger)]', bgColor: 'bg-[var(--sg-danger-soft)]', borderColor: 'border-[var(--sg-danger)]', icon: Trash2 },
+  download: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: Download },
+  notify: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: Mail },
+  deadline_reminder_digest: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: Mail },
 }
 
 const DEFAULT_ACTION: ActionConfig = {
-  color: 'text-slate-600',
-  bgColor: 'bg-slate-100',
-  borderColor: 'border-slate-200',
+  color: 'text-ink-soft',
+  bgColor: 'bg-paper-sunk',
+  borderColor: 'border-rule',
   icon: Activity,
 }
 
@@ -148,9 +155,70 @@ const getActionLabel = (key: string) =>
 const getEntityLabel = (key: string) =>
   AUDIT_ENTITY_LABELS[key as keyof typeof AUDIT_ENTITY_LABELS] ?? formatUnknownKey(key)
 
+// Cele mai citite acțiuni ca pastile de un click; restul rămân în dropdown-ul
+// „Altă acțiune", ca să nu se piardă nimic din filtrare.
+const QUICK_ACTIONS: { key: string; label: string }[] = [
+  { key: '', label: 'Toate' },
+  { key: 'login', label: 'Autentificări' },
+  { key: 'create', label: 'Creări' },
+  { key: 'update', label: 'Modificări' },
+  { key: 'delete', label: 'Ștergeri' },
+  { key: 'publish', label: 'Publicări' },
+]
+
+const toISODate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const todayISO = () => toISODate(new Date())
+const daysAgoISO = (n: number) => {
+  const d = new Date()
+  d.setDate(d.getDate() - n)
+  return toISODate(d)
+}
+
+type QuickRange = 'all' | 'today' | '7d' | '30d' | 'custom'
+const QUICK_RANGES: { key: QuickRange; label: string }[] = [
+  { key: 'all', label: 'Tot' },
+  { key: 'today', label: 'Azi' },
+  { key: '7d', label: '7 zile' },
+  { key: '30d', label: '30 zile' },
+]
+const quickRangeDates = (key: QuickRange): [string, string] => {
+  if (key === 'today') return [todayISO(), todayISO()]
+  if (key === '7d') return [daysAgoISO(6), todayISO()]
+  if (key === '30d') return [daysAgoISO(29), todayISO()]
+  return ['', '']
+}
+const detectQuickRange = (from: string, to: string): QuickRange => {
+  if (!from && !to) return 'all'
+  if (from === todayISO() && to === todayISO()) return 'today'
+  if (from === daysAgoISO(6) && to === todayISO()) return '7d'
+  if (from === daysAgoISO(29) && to === todayISO()) return '30d'
+  return 'custom'
+}
+
+/** Registrul se citește pe zile, nu pe rânduri identice repetate: „Azi”,
+ *  „Ieri”, apoi data — data însăși dispare din fiecare rând, unde rămâne
+ *  doar ora. */
+const dayGroupKey = (iso: string) => {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+}
+const dayGroupLabel = (iso: string) => {
+  const d = new Date(iso)
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate())
+  const diffDays = Math.round((startOf(new Date()).getTime() - startOf(d).getTime()) / 86_400_000)
+  const dateLabel = d.toLocaleDateString('ro-RO', { day: '2-digit', month: 'long', year: 'numeric' })
+  if (diffDays === 0) return `Azi · ${dateLabel}`
+  if (diffDays === 1) return `Ieri · ${dateLabel}`
+  return dateLabel
+}
+const formatTime = (iso: string) =>
+  new Date(iso).toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' })
+
 export default function AuditPage() {
   const router = useRouter()
   const { loading: authLoading, token, apiFetch, profile } = useAuth()
+  const { showToast } = useToast()
 
   const [logs, setLogs] = useState<AuditLog[]>([])
   const [pagination, setPagination] = useState<Pagination | null>(null)
@@ -170,6 +238,7 @@ export default function AuditPage() {
   const [exporting, setExporting] = useState(false)
 
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const [customRangeOpen, setCustomRangeOpen] = useState(false)
 
   const fetchStats = useCallback(async () => {
     try {
@@ -273,6 +342,15 @@ export default function AuditPage() {
     setToDate('')
     setSearch('')
     setSearchInput('')
+    setCustomRangeOpen(false)
+  }
+
+  const applyQuickRange = (key: QuickRange) => {
+    if (key === 'custom') { setCustomRangeOpen(true); return }
+    const [from, to] = quickRangeDates(key)
+    setFromDate(from)
+    setToDate(to)
+    setCustomRangeOpen(false)
   }
 
   const escapeCsvCell = (val: unknown): string => {
@@ -301,16 +379,18 @@ export default function AuditPage() {
       const allRows: AuditLog[] = []
       let page = 1
       const MAX_PAGES = 50
+      let truncated = false
 
       while (page <= MAX_PAGES) {
         params.set('page', String(page))
         const res = await apiFetch(`/api/audit?${params.toString()}`)
         const json = await res.json()
-        if (!res.ok) throw new Error(json?.error || 'Export esuat')
+        if (!res.ok) throw new Error(json?.error || 'Export eșuat')
         const rows: AuditLog[] = json.logs || []
         allRows.push(...rows)
         const pg = json.pagination
         if (!pg || !pg.hasNext) break
+        if (page === MAX_PAGES) truncated = true
         page++
       }
 
@@ -351,21 +431,20 @@ export default function AuditPage() {
       }
       const csv = lines.join('\n')
       const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
       const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')
-      a.download = `audit-${ts}.csv`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-    } catch (err) {
+      downloadBlob(blob, `audit-${ts}.csv`)
+      if (truncated) {
+        showToast(`Exportul s-a oprit la ${allRows.length.toLocaleString('ro-RO')} de înregistrări — îngustează filtrele pentru un export complet.`, 'warning')
+      } else {
+        showToast(`Export descărcat: ${allRows.length.toLocaleString('ro-RO')} de înregistrări.`, 'success')
+      }
+    } catch (err: any) {
       console.error('CSV export failed:', err)
+      showToast(err?.message || 'Exportul a eșuat. Reîncearcă.', 'error')
     } finally {
       setExporting(false)
     }
-  }, [apiFetch, actionType, entityType, entityId, userIdFilter, fromDate, toDate, search])
+  }, [apiFetch, actionType, entityType, entityId, userIdFilter, fromDate, toDate, search, showToast])
 
   const toggleRowExpand = (id: string) => {
     setExpandedRows(prev => {
@@ -373,17 +452,6 @@ export default function AuditPage() {
       if (next.has(id)) next.delete(id)
       else next.add(id)
       return next
-    })
-  }
-
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr)
-    return date.toLocaleDateString('ro-RO', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
     })
   }
 
@@ -416,10 +484,28 @@ export default function AuditPage() {
     )
   }, [stats])
 
+  // Restul acțiunilor, cele fără pastilă proprie — dropdown-ul nu mai repetă
+  // ce acoperă deja QUICK_ACTIONS.
+  const otherActionKeys = useMemo(
+    () => availableActionKeys.filter(key => !QUICK_ACTIONS.some(q => q.key === key)),
+    [availableActionKeys]
+  )
+
+  // Prima intrare din fiecare zi, ca să știe randarea unde pune antetul „Azi” / „Ieri” / dată.
+  const dayHeaderBefore = useMemo(() => {
+    const ids = new Set<string>()
+    let lastKey: string | null = null
+    for (const log of logs) {
+      const key = dayGroupKey(log.created_at)
+      if (key !== lastKey) { ids.add(log.id); lastKey = key }
+    }
+    return ids
+  }, [logs])
+
   if (authLoading || (loading && logs.length === 0)) {
     return (
       <div className="flex h-[80vh] items-center justify-center">
-        <div className="w-10 h-10 border-4 border-slate-100 border-t-indigo-600 rounded-full animate-spin" />
+        <Spinner />
       </div>
     )
   }
@@ -441,25 +527,19 @@ export default function AuditPage() {
   const selectedEntityLabel = entityId ? `id: ${entityId.slice(0, 8)}…` : null
 
   return (
-    <div className="flex flex-col gap-8 fade-in-up pb-10">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-slate-200/60">
-        <div>
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Administrare</p>
-          <h1 className="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight">Jurnal de Audit</h1>
-          <p className="text-slate-500 mt-1">Toate acțiunile din sistem, în ordine cronologică.</p>
-        </div>
+    <div className="flex flex-col gap-6 pb-10">
+      <LocationStrip segments={[{ label: 'Bonie', href: '/' }, { label: 'Jurnal de audit' }]} />
+
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Jurnal de audit</h1>
+        <p className="mt-2 text-sm text-ink-soft">
+          {statsLoading || !stats
+            ? 'Toate acțiunile din sistem, în ordine cronologică.'
+            : `${stats.totalLogs.toLocaleString('ro-RO')} de acțiuni înregistrate, din care ${stats.recentLogs.toLocaleString('ro-RO')} în ultima săptămână. ${(stats.byAction.login || 0).toLocaleString('ro-RO')} autentificări, ${(stats.byAction.update || 0).toLocaleString('ro-RO')} modificări.`}
+        </p>
       </div>
 
-      {!statsLoading && stats && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon={Shield} iconBg="bg-slate-100" iconColor="text-slate-600" label="Total înregistrări" value={stats.totalLogs} valueColor="text-slate-900" />
-          <StatCard icon={Clock} iconBg="bg-indigo-50" iconColor="text-indigo-600" label="Ultima săptămână" value={stats.recentLogs} valueColor="text-indigo-600" />
-          <StatCard icon={LogIn} iconBg="bg-emerald-50" iconColor="text-emerald-600" label="Autentificări" value={stats.byAction.login || 0} valueColor="text-emerald-600" />
-          <StatCard icon={Activity} iconBg="bg-amber-50" iconColor="text-amber-600" label="Modificări" value={stats.byAction.update || 0} valueColor="text-amber-600" />
-        </div>
-      )}
-
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4">
+      <div className="space-y-4 rounded-[var(--radius-plate)] border border-rule bg-plate p-4 sm:p-5">
         <div className="flex min-w-0 flex-col md:flex-row md:items-center gap-3">
           <form onSubmit={handleSearch} className="flex-1 min-w-0 flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1 min-w-0">
@@ -467,56 +547,101 @@ export default function AuditPage() {
                 type="text"
                 value={searchInput}
                 onChange={e => setSearchInput(e.target.value)}
-                placeholder="Caută după descriere sau entitate..."
-                className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                placeholder="Caută după descriere sau entitate…"
+                aria-label="Caută în jurnalul de audit"
+                className="h-11 w-full rounded-[var(--radius-plate)] border border-rule bg-plate pl-10 pr-4 text-sm text-ink placeholder:text-ink-faint transition-colors duration-[120ms] focus:border-[var(--sg-accent)] sm:h-10"
               />
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" aria-hidden="true" />
             </div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 whitespace-nowrap"
-            >
-              <Search className="w-4 h-4" />
+            <Button type="submit" variant="primary" disabled={loading}>
+              <Search className="h-4 w-4" aria-hidden="true" />
               Caută
-            </button>
+            </Button>
           </form>
 
           <div className="flex w-full sm:w-auto flex-wrap items-center gap-2 shrink-0">
-            <button
-              onClick={exportCsv}
-              disabled={exporting || loading}
-              className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 whitespace-nowrap"
-            >
-              <FileDown className="w-4 h-4" />
+            <Button variant="secondary" onClick={exportCsv} disabled={exporting || loading}>
+              <FileDown className="h-4 w-4" aria-hidden="true" />
               {exporting ? 'Se exportă…' : 'Export CSV'}
-            </button>
+            </Button>
 
             {hasFilters && (
-              <button
-                onClick={clearFilters}
-                className="px-3 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap"
-                title="Resetează filtrele"
-              >
-                <X className="w-4 h-4" />
+              <Button variant="quiet" onClick={clearFilters}>
+                <X className="h-4 w-4" aria-hidden="true" />
                 Resetează
-              </button>
+              </Button>
             )}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 items-end gap-3">
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtrează rapid după acțiune">
+          <span className="mr-0.5 text-xs font-medium text-ink-soft">Acțiune</span>
+          {QUICK_ACTIONS.map(({ key, label }) => (
+            <Button
+              key={key || '__all__'}
+              type="button"
+              variant="secondary"
+              size="sm"
+              aria-pressed={actionType === key}
+              onClick={() => setActionType(actionType === key ? '' : key)}
+              className={actionType === key ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : ''}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtrează rapid după interval">
+          <span className="mr-0.5 text-xs font-medium text-ink-soft">Interval</span>
+          {QUICK_RANGES.map(({ key, label }) => {
+            const active = detectQuickRange(fromDate, toDate) === key
+            return (
+              <Button
+                key={key}
+                type="button"
+                variant="secondary"
+                size="sm"
+                aria-pressed={active}
+                onClick={() => applyQuickRange(key)}
+                className={active ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : ''}
+              >
+                {label}
+              </Button>
+            )
+          })}
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            aria-pressed={customRangeOpen || detectQuickRange(fromDate, toDate) === 'custom'}
+            onClick={() => setCustomRangeOpen(v => !v)}
+            className={detectQuickRange(fromDate, toDate) === 'custom' ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : ''}
+          >
+            Interval personalizat
+          </Button>
+        </div>
+
+        {(customRangeOpen || detectQuickRange(fromDate, toDate) === 'custom') && (
+          <div className="grid max-w-sm grid-cols-2 gap-2">
+            <DateInput value={fromDate} onChange={setFromDate} ariaLabel="De la" />
+            <DateInput value={toDate} onChange={setToDate} ariaLabel="Până la" />
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 items-end gap-3">
           <SelectFilter
-            value={actionType}
+            value={otherActionKeys.includes(actionType) ? actionType : ''}
             onChange={setActionType}
-            placeholder="Toate acțiunile"
-            options={availableActionKeys.map(key => ({ value: key, label: getActionLabel(key) }))}
+            placeholder="Altă acțiune…"
+            ariaLabel="Filtrează după alte tipuri de acțiune"
+            options={otherActionKeys.map(key => ({ value: key, label: getActionLabel(key) }))}
           />
 
           <SelectFilter
             value={entityType}
             onChange={setEntityType}
             placeholder="Toate entitățile"
+            ariaLabel="Filtrează după tipul entității"
             options={availableEntityKeys.map(key => ({ value: key, label: getEntityLabel(key) }))}
           />
 
@@ -524,31 +649,26 @@ export default function AuditPage() {
             value={userIdFilter}
             onChange={setUserIdFilter}
             placeholder="Toți utilizatorii"
+            ariaLabel="Filtrează după utilizator"
             options={sortedUsers.map(u => ({ value: u.id, label: u.full_name || u.email }))}
-            className="sm:col-span-2 xl:col-span-1"
           />
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 sm:col-span-2 xl:col-span-2 gap-2 min-w-0">
-            <DateInput value={fromDate} onChange={setFromDate} ariaLabel="De la" />
-            <DateInput value={toDate} onChange={setToDate} ariaLabel="Până la" />
-          </div>
         </div>
 
         {(selectedUserLabel || selectedEntityLabel) && (
           <div className="flex flex-wrap gap-2 pt-1">
             {selectedUserLabel && (
-              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+              <span className="inline-flex items-center gap-2 rounded-[var(--radius-plate)] border border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] px-3 py-1.5 text-xs font-medium text-[var(--sg-accent)]">
                 Utilizator: {selectedUserLabel}
-                <button onClick={() => setUserIdFilter('')} className="hover:text-indigo-900" aria-label="Elimină filtrul utilizatorului">
-                  <X className="w-3 h-3" />
+                <button onClick={() => setUserIdFilter('')} className="hover:text-[var(--sg-accent-ink)]" aria-label="Elimină filtrul utilizatorului">
+                  <X className="h-3 w-3" />
                 </button>
               </span>
             )}
             {selectedEntityLabel && (
-              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span className="inline-flex items-center gap-2 rounded-[var(--radius-plate)] border border-[var(--sg-ok)] bg-[var(--sg-ok-soft)] px-3 py-1.5 text-xs font-medium text-[var(--sg-ok)]">
                 Istoric entitate ({selectedEntityLabel})
-                <button onClick={() => setEntityId('')} className="hover:text-emerald-900" aria-label="Elimină filtrul entității">
-                  <X className="w-3 h-3" />
+                <button onClick={() => setEntityId('')} className="hover:brightness-90" aria-label="Elimină filtrul entității">
+                  <X className="h-3 w-3" />
                 </button>
               </span>
             )}
@@ -557,15 +677,15 @@ export default function AuditPage() {
       </div>
 
       {pagination && (
-        <div className="flex items-center justify-between text-sm text-slate-500">
+        <div className="flex items-center justify-between text-sm text-ink-soft">
           <p>
             {pagination.total === 0 ? 'Nicio înregistrare găsită' : (
               <>
-                Afișează <span className="font-medium text-slate-700">{(pagination.page - 1) * pagination.limit + 1}</span>
+                Afișează <span className="font-medium text-ink">{(pagination.page - 1) * pagination.limit + 1}</span>
                 {' - '}
-                <span className="font-medium text-slate-700">{Math.min(pagination.page * pagination.limit, pagination.total)}</span>
+                <span className="font-medium text-ink">{Math.min(pagination.page * pagination.limit, pagination.total)}</span>
                 {' din '}
-                <span className="font-medium text-slate-700">{pagination.total.toLocaleString()}</span>
+                <span className="font-medium text-ink">{pagination.total.toLocaleString()}</span>
                 {' înregistrări'}
               </>
             )}
@@ -573,33 +693,61 @@ export default function AuditPage() {
         </div>
       )}
 
-      <div className="space-y-3">
-        {loading ? (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
-            <div className="w-8 h-8 border-4 border-slate-100 border-t-indigo-600 rounded-full animate-spin mx-auto" />
+      {loading ? (
+        <div className="rounded-[var(--radius-plate)] border border-rule bg-plate p-12 text-center">
+          <Spinner size="md" className="mx-auto" />
+        </div>
+      ) : logs.length === 0 ? (
+        <EmptyState
+          title="Nicio înregistrare găsită"
+          action={hasFilters ? <Button variant="secondary" onClick={clearFilters}>Șterge filtrele</Button> : undefined}
+        >
+          {hasFilters ? 'Încearcă alte filtre sau șterge-le pe cele active.' : 'Jurnalul e gol deocamdată — orice acțiune din platformă apare aici.'}
+        </EmptyState>
+      ) : (
+        <div className="overflow-hidden rounded-[var(--radius-plate)] border border-rule bg-plate">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[780px] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-rule bg-paper-sunk">
+                  <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Ora</th>
+                  <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Utilizator</th>
+                  <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Acțiune</th>
+                  <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Entitate</th>
+                  <th scope="col" className="w-full px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Descriere</th>
+                  <th scope="col" className="px-4 py-2.5 w-px"><span className="sr-only">Acțiuni</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map(log => (
+                  <Fragment key={log.id}>
+                    {dayHeaderBefore.has(log.id) && (
+                      <tr className="border-b border-rule bg-paper-sunk">
+                        <td colSpan={6} className="px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-soft">
+                          {dayGroupLabel(log.created_at)}
+                        </td>
+                      </tr>
+                    )}
+                    <LogRow
+                      log={log}
+                      isExpanded={expandedRows.has(log.id)}
+                      onToggle={() => toggleRowExpand(log.id)}
+                      onViewHistory={
+                        log.entity_id ? () => setEntityId(log.entity_id as string) : undefined
+                      }
+                      onFilterUser={
+                        log.user_id && log.user_id !== userIdFilter ? () => setUserIdFilter(log.user_id as string) : undefined
+                      }
+                      formatTime={formatTime}
+                      formatJSON={formatJSON}
+                    />
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
           </div>
-        ) : logs.length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center text-slate-500">
-            <FileText className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-            <p className="font-medium">Nicio înregistrare găsită</p>
-            <p className="text-sm mt-1">Încearcă să modifici filtrele selectate.</p>
-          </div>
-        ) : (
-          logs.map(log => (
-            <LogRow
-              key={log.id}
-              log={log}
-              isExpanded={expandedRows.has(log.id)}
-              onToggle={() => toggleRowExpand(log.id)}
-              onViewHistory={
-                log.entity_id ? () => setEntityId(log.entity_id as string) : undefined
-              }
-              formatDate={formatDate}
-              formatJSON={formatJSON}
-            />
-          ))
-        )}
-      </div>
+        </div>
+      )}
 
       {pagination && pagination.totalPages > 1 && (
         <Paginator pagination={pagination} onPageChange={fetchLogs} />
@@ -609,185 +757,159 @@ export default function AuditPage() {
   )
 }
 
-function StatCard({
-  icon: Icon, iconBg, iconColor, label, value, valueColor,
-}: {
-  icon: React.ElementType
-  iconBg: string
-  iconColor: string
-  label: string
-  value: number
-  valueColor: string
-}) {
-  return (
-    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-      <div className={`w-11 h-11 rounded-xl ${iconBg} flex items-center justify-center`}>
-        <Icon className={`w-5 h-5 ${iconColor}`} />
-      </div>
-      <div>
-        <p className="text-xs text-slate-500 font-medium uppercase">{label}</p>
-        <p className={`text-2xl font-bold mt-0.5 ${valueColor}`}>{value.toLocaleString()}</p>
-      </div>
-    </div>
-  )
-}
 
 function DateInput({ value, onChange, ariaLabel }: { value: string; onChange: (v: string) => void; ariaLabel: string }) {
   return (
     <label className="block min-w-0">
-      <span className="mb-1 block text-xs font-medium text-slate-600">{ariaLabel}</span>
+      <span className="mb-1 block text-xs font-medium text-ink-soft">{ariaLabel}</span>
       <input
         type="date"
         value={value}
         onChange={e => onChange(e.target.value)}
         aria-label={ariaLabel}
-        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+        className="h-11 w-full rounded-[var(--radius-plate)] border border-rule bg-plate px-3 text-sm text-ink transition-colors duration-[120ms] focus:border-[var(--sg-accent)] sm:h-10"
       />
     </label>
   )
 }
 
 function LogRow({
-  log, isExpanded, onToggle, onViewHistory, formatDate, formatJSON,
+  log, isExpanded, onToggle, onViewHistory, onFilterUser, formatTime, formatJSON,
 }: {
   log: AuditLog
   isExpanded: boolean
   onToggle: () => void
   onViewHistory?: () => void
-  formatDate: (s: string) => string
+  onFilterUser?: () => void
+  formatTime: (s: string) => string
   formatJSON: (o: Record<string, unknown> | null) => string
 }) {
   const action = getActionConfig(log.action_type)
   const entity = getEntityConfig(log.entity_type)
   const ActionIcon = action.icon
   const EntityIcon = entity.icon
-  const hasDetails = log.old_values || log.new_values
+  const hasDetails = Boolean(log.old_values || log.new_values)
   const isSystem = !log.user_id
+  const detailsId = `audit-detalii-${log.id}`
 
   return (
-    <div
-      className={`min-w-0 bg-white rounded-xl border shadow-sm transition-all ${
-        isExpanded ? 'border-indigo-200 shadow-md' : 'border-slate-200 hover:border-slate-300'
-      }`}
-    >
-      <div className="p-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-4 mb-3">
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            <Calendar className="w-4 h-4" />
-            <span>{formatDate(log.created_at)}</span>
+    <>
+      <tr
+        onClick={() => hasDetails && onToggle()}
+        className={`border-b border-rule last:border-b-0 align-top transition-colors ${
+          hasDetails ? 'cursor-pointer hover:bg-paper-sunk' : ''
+        } ${isExpanded ? 'bg-paper-sunk' : ''}`}
+      >
+        <td className="px-4 py-3">
+          <div className="flex items-center gap-1.5">
+            {hasDetails ? (
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); onToggle() }}
+                aria-expanded={isExpanded}
+                aria-controls={isExpanded ? detailsId : undefined}
+                aria-label={`${isExpanded ? 'Ascunde' : 'Arată'} detaliile — ${getActionLabel(log.action_type)} · ${getEntityLabel(log.entity_type)}`}
+                className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:text-ink"
+              >
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} aria-hidden />
+              </button>
+            ) : (
+              <span className="w-6 flex-shrink-0" aria-hidden />
+            )}
+            <span className="whitespace-nowrap tabular-nums text-ink-soft">{formatTime(log.created_at)}</span>
           </div>
+        </td>
 
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-xs font-semibold text-slate-600">
+        <td className="px-4 py-3">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-paper-sunk text-xs font-semibold text-ink-soft">
               {(isSystem ? 'S' : (log.user?.full_name?.[0] || log.user?.email?.[0] || '?')).toUpperCase()}
             </div>
             <div className="min-w-0">
-              <p className="break-words text-sm font-medium text-slate-900">{isSystem ? 'Sistem' : log.user?.full_name || 'Necunoscut'}</p>
-              {!isSystem && log.user?.email && <p className="break-all text-xs text-slate-400">{log.user.email}</p>}
+              <p className="truncate text-sm font-medium text-ink">{isSystem ? 'Sistem' : log.user?.full_name || 'Necunoscut'}</p>
+              {!isSystem && log.user?.email && <p className="truncate text-xs text-ink-faint">{log.user.email}</p>}
             </div>
+            {onFilterUser && (
+              <IconButton
+                label={`Filtrează jurnalul după ${log.user?.full_name || log.user?.email || 'acest utilizator'}`}
+                onClick={e => { e.stopPropagation(); onFilterUser() }}
+                className="!h-7 !w-7 shrink-0"
+              >
+                <Filter className="h-3.5 w-3.5" />
+              </IconButton>
+            )}
           </div>
+        </td>
 
+        <td className="px-4 py-3">
           <span
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${action.bgColor} ${action.borderColor} ${action.color}`}
+            className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-[var(--radius-plate)] border px-2.5 py-1 text-xs font-semibold ${action.bgColor} ${action.borderColor} ${action.color}`}
           >
-            <ActionIcon className="w-3.5 h-3.5" />
+            <ActionIcon className="h-3.5 w-3.5" />
             {getActionLabel(log.action_type)}
           </span>
+        </td>
 
+        <td className="px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center">
-              <EntityIcon className="w-4 h-4 text-slate-500" />
-            </div>
+            <EntityIcon className="h-4 w-4 flex-shrink-0 text-ink-soft" aria-hidden />
             <div className="min-w-0">
-              <span className="break-words text-sm text-slate-600">{getEntityLabel(log.entity_type)}</span>
+              <span className="block text-sm text-ink-soft">{getEntityLabel(log.entity_type)}</span>
               {log.entity_name && (
-                <span className="break-all text-sm text-slate-400 ml-1">• {log.entity_name}</span>
+                <span className="block truncate text-xs text-ink-faint" title={log.entity_name}>{log.entity_name}</span>
               )}
             </div>
           </div>
+        </td>
 
-          <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
-            {log.ip_address && (
-              <div className="hidden lg:flex items-center gap-1.5 text-xs text-slate-400 font-mono bg-slate-50 px-2 py-1 rounded">
-                <Globe className="w-3 h-3" />
-                {log.ip_address}
-              </div>
-            )}
-            {onViewHistory && (
-              <button
-                onClick={onViewHistory}
-                title="Vezi istoricul acestei entități"
-                className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
-              >
-                <History className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </div>
+        <td className="px-4 py-3">
+          <p className="text-sm leading-snug text-ink">{log.description || <span className="text-ink-faint">—</span>}</p>
+        </td>
 
-        {log.description && (
-          <div className="flex min-w-0 flex-col sm:flex-row sm:items-start gap-3 pt-3 border-t border-slate-100">
-            <div className="min-w-0 flex-1">
-              <p className="break-words text-sm text-slate-700 leading-relaxed">{log.description}</p>
-            </div>
-            {hasDetails && (
-              <button
-                onClick={onToggle}
-                className={`self-start flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  isExpanded ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {isExpanded ? 'Ascunde' : 'Detalii'}
-                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-              </button>
-            )}
-          </div>
-        )}
-
-        {!log.description && hasDetails && (
-          <div className="flex justify-end pt-3 border-t border-slate-100">
-            <button
-              onClick={onToggle}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                isExpanded ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+        <td className="px-4 py-3">
+          {onViewHistory && (
+            <IconButton
+              label={`Vezi istoricul — ${log.entity_name || getEntityLabel(log.entity_type)}`}
+              onClick={e => { e.stopPropagation(); onViewHistory() }}
+              className="!h-9 !w-9"
             >
-              {isExpanded ? 'Ascunde detalii' : 'Vezi detalii'}
-              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-            </button>
-          </div>
-        )}
-      </div>
+              <History className="h-4 w-4" />
+            </IconButton>
+          )}
+        </td>
+      </tr>
 
       {isExpanded && hasDetails && (
-        <div className="px-4 pb-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-slate-50 rounded-xl">
-            {log.old_values && (
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-2 h-2 rounded-full bg-red-400" />
-                  <p className="text-xs font-semibold text-slate-600 uppercase">Valori vechi</p>
+        <tr id={detailsId} className="border-b border-rule bg-paper-sunk last:border-b-0">
+          <td colSpan={6} className="px-4 py-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {log.old_values && (
+                <div>
+                  <div className="mb-2 flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-[var(--sg-danger)]" />
+                    <p className="text-xs font-semibold uppercase text-ink-soft">Valori vechi</p>
+                  </div>
+                  <pre className="max-h-48 overflow-auto rounded-[var(--radius-plate)] border border-rule bg-plate p-3 font-mono text-xs text-ink">
+                    {formatJSON(log.old_values)}
+                  </pre>
                 </div>
-                <pre className="text-xs bg-white text-slate-700 p-3 rounded-lg overflow-auto max-h-48 border border-slate-200 font-mono">
-                  {formatJSON(log.old_values)}
-                </pre>
-              </div>
-            )}
-            {log.new_values && (
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                  <p className="text-xs font-semibold text-slate-600 uppercase">Valori noi</p>
+              )}
+              {log.new_values && (
+                <div>
+                  <div className="mb-2 flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-[var(--sg-ok)]" />
+                    <p className="text-xs font-semibold uppercase text-ink-soft">Valori noi</p>
+                  </div>
+                  <pre className="max-h-48 overflow-auto rounded-[var(--radius-plate)] border border-rule bg-plate p-3 font-mono text-xs text-ink">
+                    {formatJSON(log.new_values)}
+                  </pre>
                 </div>
-                <pre className="text-xs bg-white text-slate-700 p-3 rounded-lg overflow-auto max-h-48 border border-slate-200 font-mono">
-                  {formatJSON(log.new_values)}
-                </pre>
-              </div>
-            )}
-          </div>
-        </div>
+              )}
+            </div>
+          </td>
+        </tr>
       )}
-    </div>
+    </>
   )
 }
 
@@ -798,14 +920,15 @@ function Paginator({
   onPageChange: (page: number) => void
 }) {
   return (
-    <div className="flex w-full flex-wrap items-center justify-center gap-2 pt-4">
-      <button
+    <nav aria-label="Pagini" className="flex w-full flex-wrap items-center justify-center gap-2 pt-4">
+      <Button
+        variant="secondary"
         onClick={() => onPageChange(pagination.page - 1)}
         disabled={!pagination.hasPrev}
-        className="flex-1 min-w-0 justify-center px-4 py-2 text-center text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-white rounded-lg border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors sm:flex-none"
+        className="min-w-0 flex-1 sm:flex-none"
       >
-        ← Anterior
-      </button>
+        <ChevronLeft className="h-4 w-4" aria-hidden="true" /> Anterior
+      </Button>
       <div className="hidden items-center gap-1 sm:flex">
         {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
           let pageNum: number
@@ -813,14 +936,17 @@ function Paginator({
           else if (pagination.page <= 3) pageNum = i + 1
           else if (pagination.page >= pagination.totalPages - 2) pageNum = pagination.totalPages - 4 + i
           else pageNum = pagination.page - 2 + i
+          const isCurrent = pageNum === pagination.page
           return (
             <button
               key={pageNum}
               onClick={() => onPageChange(pageNum)}
-              className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
-                pageNum === pagination.page
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:bg-white hover:text-slate-900 border border-slate-200'
+              aria-current={isCurrent ? 'page' : undefined}
+              aria-label={`Pagina ${pageNum}`}
+              className={`flex h-9 w-9 items-center justify-center rounded-[var(--radius-plate)] text-sm font-medium transition-colors duration-[120ms] ${
+                isCurrent
+                  ? 'bg-[var(--sg-accent)] text-white'
+                  : 'border border-rule text-ink-soft hover:bg-paper-sunk hover:text-ink'
               }`}
             >
               {pageNum}
@@ -828,13 +954,14 @@ function Paginator({
           )
         })}
       </div>
-      <button
+      <Button
+        variant="secondary"
         onClick={() => onPageChange(pagination.page + 1)}
         disabled={!pagination.hasNext}
-        className="flex-1 min-w-0 justify-center px-4 py-2 text-center text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-white rounded-lg border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors sm:flex-none"
+        className="min-w-0 flex-1 sm:flex-none"
       >
-        Următor →
-      </button>
-    </div>
+        Următor <ChevronRight className="h-4 w-4" aria-hidden="true" />
+      </Button>
+    </nav>
   )
 }
