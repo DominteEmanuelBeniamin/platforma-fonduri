@@ -2,10 +2,12 @@
 
 import { useState, useEffect, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
-import { FolderOpen, Plus, ChevronRight } from 'lucide-react'
+import { FolderOpen, Plus, ChevronRight, Edit2 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { LocationStrip } from '@/components/ui/LocationStrip'
 import { ButtonLink } from '@/components/ui/Button'
+import { IconButton } from '@/components/ui/IconButton'
+import { Signal } from '@/components/ui/Signal'
 import { Spinner } from '@/components/ui/Spinner'
 
 interface ProjectStatus {
@@ -21,6 +23,7 @@ interface TemplateOverview {
   id: string
   name: string
   description: string | null
+  status: 'draft' | 'published'
   phases: {
     id: string
     name: string
@@ -112,7 +115,7 @@ export default function AdminOverviewPage() {
               <FolderOpen className="h-4 w-4" aria-hidden="true" />
               <span className="hidden sm:inline">Proiect nou</span>
             </ButtonLink>
-            <ButtonLink href="/admin/templates" variant="primary" label="Șablon nou">
+            <ButtonLink href="/admin/templates?new=1" variant="primary" label="Șablon nou">
               <Plus className="h-4 w-4" aria-hidden="true" />
               <span className="hidden sm:inline">Șablon nou</span>
             </ButtonLink>
@@ -135,7 +138,7 @@ export default function AdminOverviewPage() {
               Un șablon codifică felul în care lucrezi un tip de finanțare: fazele, activitățile și documentele cerute. Un proiect nou pornește din el, nu de la zero.
             </p>
             <div className="mt-5 flex justify-center">
-              <ButtonLink href="/admin/templates" variant="primary">
+              <ButtonLink href="/admin/templates?new=1" variant="primary">
                 <Plus className="h-4 w-4" aria-hidden="true" /> Creează primul șablon
               </ButtonLink>
             </div>
@@ -147,9 +150,11 @@ export default function AdminOverviewPage() {
                 <thead>
                   <tr className="border-b border-rule bg-paper-sunk">
                     <th scope="col" className="w-full px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Șablon</th>
+                    <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Status</th>
                     <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Faze</th>
                     <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Activități</th>
                     <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Documente</th>
+                    <th scope="col" className="w-px px-4 py-2.5"><span className="sr-only">Acțiuni</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -187,13 +192,28 @@ export default function AdminOverviewPage() {
                               </div>
                             </div>
                           </td>
+                          <td className="whitespace-nowrap px-4 py-3">
+                            <Signal tone={template.status === 'draft' ? 'draft' : 'ok'}>
+                              {template.status === 'draft' ? 'Ciornă' : 'Publicat'}
+                            </Signal>
+                          </td>
                           <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-ink-soft">{phaseCount}</td>
                           <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-ink-soft">{getTotalActivities(template)}</td>
                           <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-ink-soft">{getTotalDocuments(template)}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
+                              <IconButton
+                                label={`Editează șablonul ${template.name}`}
+                                onClick={() => router.push(`/admin/templates?edit=${template.id}`)}
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </IconButton>
+                            </div>
+                          </td>
                         </tr>
                         {expanded && phaseCount > 0 && (
                           <tr id={detailsId} className="border-b border-rule bg-paper-sunk last:border-b-0">
-                            <td colSpan={4} className="px-4 py-3 pl-11">
+                            <td colSpan={6} className="px-4 py-3 pl-11">
                               <ol className="flex flex-col gap-2">
                                 {template.phases.map((phase, index) => {
                                   const status = getStatusById(phase.project_status_id)
