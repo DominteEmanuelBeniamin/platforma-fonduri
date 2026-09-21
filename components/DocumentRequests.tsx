@@ -2,7 +2,6 @@
 'use client'
 import { useEffect, useMemo, useState, JSX, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import * as Dialog from '@radix-ui/react-dialog'
 import {
   FileText,
   Plus,
@@ -12,7 +11,6 @@ import {
   Clock,
   Calendar,
   X,
-  Paperclip,
   ChevronRight,
   Eye,
   MessageSquare,
@@ -35,18 +33,21 @@ import { useToast } from '@/app/providers/ToastProvider'
 import { usePatchField } from '@/hooks/usePatchField'
 import { useReminderStates } from '@/hooks/useReminderStates'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
-import { buildPreviewPageUrl, isPreviewableFile, openInNewTab } from '@/lib/file-preview'
+import type { PickedFile } from './document-requests/types'
+import SendDocumentModal from './document-requests/SendDocumentModal'
+import RequestFormDialog from './document-requests/RequestFormDialog'
+import { buildPreviewPageUrl, isPreviewableFile, openInNewTab, downloadUrl } from '@/lib/file-preview'
 import { publishBlockers } from '@/lib/publish-rules'
 import {
   formatFileSize,
   getFileExtension,
   runClientUpload,
   validateUploadFile,
-  type ClientUploadCandidate,
   type PendingClientUploadCompletion,
   type UploadValidationError,
 } from '@/lib/client-upload'
-import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS } from '@/lib/requirement-type'
+import { RequirementType } from '@/lib/requirement-type'
+import { Spinner } from '@/components/ui/Spinner'
 
 interface DocumentRequest {
   id: string
@@ -105,16 +106,8 @@ interface DocumentRequest {
   } | null
 }
 
-type PickedFile = ClientUploadCandidate & {
-  validationError?: UploadValidationError
-  uploadProgress?: number // 0-100
-  uploadStatus?: 'pending' | 'uploading' | 'success' | 'error'
-  uploadError?: string
-}
 
-function normalizeFileName(filename: string | null | undefined): string {
-  return (filename || '').trim().toLowerCase()
-}
+
 
 function getRequestAttachments(request: DocumentRequest) {
   return request.attachments?.length
@@ -569,15 +562,8 @@ export default function DocumentRequests({
     setSendFiles(prev => prev.map(f => f.id === fileId ? { ...f, ...patch } : f))
   }
 
-  const forceDownload = (url: string) => {
-    const a = document.createElement('a')
-    a.href = url
-    a.download = ''
-    a.rel = 'noopener'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-  }
+  /** `''` ca nume: descarcă, dar păstrează numele trimis de server. */
+  const forceDownload = (url: string) => downloadUrl(url, '')
 
   const fetchRequests = async () => {
     // Dacă avem date externe, delegăm refresh-ul la pagina părinte
@@ -1002,19 +988,19 @@ export default function DocumentRequests({
 
 
   const statusConfig: Record<string, { label: string; dot: string; icon: string }> = {
-    pending: { label: isClient ? 'De încărcat' : 'Așteaptă răspuns', dot: 'bg-amber-400', icon: 'bg-amber-50 text-amber-600' },
-    review: { label: 'În verificare', dot: 'bg-blue-400', icon: 'bg-blue-50 text-blue-600' },
-    approved: { label: 'Aprobat', dot: 'bg-emerald-400', icon: 'bg-emerald-50 text-emerald-600' },
-    rejected: { label: 'Respins', dot: 'bg-red-400', icon: 'bg-red-50 text-red-600' },
+    pending: { label: isClient ? 'De încărcat' : 'Așteaptă răspuns', dot: 'bg-[var(--sg-warn)]', icon: 'bg-[var(--sg-warn-soft)] text-[var(--sg-warn)]' },
+    review: { label: 'În verificare', dot: 'bg-[var(--sg-accent)]', icon: 'bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]' },
+    approved: { label: 'Aprobat', dot: 'bg-[var(--sg-ok)]', icon: 'bg-[var(--sg-ok-soft)] text-[var(--sg-ok)]' },
+    rejected: { label: 'Respins', dot: 'bg-[var(--sg-danger)]', icon: 'bg-[var(--sg-danger-soft)] text-[var(--sg-danger)]' },
   }
   const isEmbedded = activityId !== undefined
 
   if (loading) {
     return (
-      <div className={`bg-white min-h-[400px] flex items-center justify-center ${isEmbedded ? '' : 'rounded-2xl border border-slate-200'}`}>
+      <div className={`bg-white min-h-[400px] flex items-center justify-center ${isEmbedded ? '' : 'rounded-2xl border border-rule'}`}>
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-4 border-slate-100 border-t-indigo-600 rounded-full animate-spin"></div>
-          <p className="text-sm text-slate-500 font-medium">Se încarcă documentele...</p>
+          <Spinner />
+          <p className="text-sm text-ink-soft font-medium">Se încarcă documentele...</p>
         </div>
       </div>
     )
@@ -1022,19 +1008,19 @@ export default function DocumentRequests({
 
   return (
     <>
-      <div className={`bg-white ${isEmbedded ? '' : 'rounded-2xl border border-slate-200 shadow-sm overflow-hidden'}`}>
+      <div className={`bg-white ${isEmbedded ? '' : 'rounded-2xl border border-rule shadow-sm overflow-hidden'}`}>
         {(!isEmbedded || (activityId === null && isAdminOrConsultant)) && (
-        <div className={`${isEmbedded ? 'flex items-center justify-between px-4 pb-5 sm:pb-6 border-b border-slate-100' : 'p-4 sm:p-5 border-b border-slate-100'}`}>
+        <div className={`${isEmbedded ? 'flex items-center justify-between px-4 pb-5 sm:pb-6 border-b border-rule' : 'p-4 sm:p-5 border-b border-rule'}`}>
           <div className={`flex items-center ${isEmbedded ? 'w-full justify-between' : 'flex-col gap-3 xl:flex-row xl:items-start xl:justify-between'}`}>
             {!isEmbedded && <div className="flex items-center gap-3 min-w-0 flex-1">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-500/20">
+              <div className="w-10 h-10 rounded-xl bg-[var(--sg-accent)] flex items-center justify-center flex-shrink-0">
                 <FileText className="w-5 h-5 text-white" />
               </div>
               <div className="min-w-0">
-                <h2 className="text-base font-semibold leading-snug text-slate-900 break-words">
+                <h2 className="text-base font-semibold leading-snug text-ink break-words">
                   {activityName ?? (isClient ? 'Documente de completat' : 'Cereri documente')}
                 </h2>
-                <p className="text-xs text-slate-500 hidden sm:block">
+                <p className="text-xs text-ink-soft hidden sm:block">
                   {activityName ? `${requests.length} cereri` : (isClient ? 'Descarcă, completează și încarcă' : `${requests.length} cereri în total`)}
                 </p>
               </div>
@@ -1047,16 +1033,16 @@ export default function DocumentRequests({
                     type="button"
                     title="Trimite documente"
                     onClick={() => setShowSendDoc(true)}
-                    className="flex items-center gap-2 whitespace-nowrap px-3 sm:px-4 py-2.5 rounded-xl text-sm font-medium transition-all bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-600/10"
+                    className="flex items-center gap-2 whitespace-nowrap px-3 sm:px-4 py-2.5 rounded-xl text-sm font-medium transition-all bg-[var(--sg-ok)] text-white hover:brightness-90"
                   >
-                    <Upload className="w-4 h-4" /><span className="hidden sm:inline">Trimite documente</span>
+                    <Upload className="w-4 h-4" aria-hidden="true" /><span className="hidden sm:inline">Trimite documente</span><span className="sr-only sm:hidden">Trimite documente</span>
                   </button>
                 )}
                 <button
                   onClick={openCreateForm}
-                  className="flex items-center gap-2 whitespace-nowrap px-3 sm:px-4 py-2.5 rounded-xl text-sm font-medium transition-all bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-900/10"
+                  className="flex items-center gap-2 whitespace-nowrap px-3 sm:px-4 py-2.5 rounded-xl text-sm font-medium transition-all bg-ink text-white hover:brightness-90"
                 >
-                  <Plus className="w-4 h-4" /><span className="hidden sm:inline">Cerere de document nouă</span>
+                  <Plus className="w-4 h-4" aria-hidden="true" /><span className="hidden sm:inline">Cerere de document nouă</span><span className="sr-only sm:hidden">Cerere de document nouă</span>
                 </button>
               </div>
             )}
@@ -1064,198 +1050,51 @@ export default function DocumentRequests({
         </div>
         )}
 
-        <Dialog.Root open={showForm && isAdminOrConsultant} onOpenChange={open => { if (!open) closeRequestForm() }}>
-          <Dialog.Portal>
-            <Dialog.Overlay className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[999999]" />
-            <Dialog.Content
-              onCloseAutoFocus={event => event.preventDefault()}
-              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl z-[999999] focus:outline-none"
-            >
-              <div className="p-4 sm:p-5 bg-slate-50/80">
-                <div className="flex items-start justify-between gap-3 mb-4">
-                  <div>
-                    <Dialog.Title className="text-sm font-semibold text-slate-900">
-                      {editingRequest ? 'Modifică cererea de document' : 'Cerere de document nouă'}
-                    </Dialog.Title>
-                    <Dialog.Description className="text-xs text-slate-500">
-                      {editingRequest ? 'Actualizează detaliile cererii pentru client.' : 'Completează detaliile cererii pentru client.'}
-                    </Dialog.Description>
-                  </div>
-                  <Dialog.Close asChild>
-                    <button
-                      type="button"
-                      className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors flex-shrink-0"
-                      aria-label="Închide"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </Dialog.Close>
-                </div>
-                <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">Titlu document</label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">Termen limită</label>
-                  <input
-                    type="date"
-                    value={deadline}
-                    onChange={(e) => setDeadline(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all bg-white"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">Instrucțiuni</label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={3}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none resize-none transition-all bg-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">Tip cerință</label>
-                <div className="flex flex-wrap gap-4">
-                  {REQUIREMENT_TYPES.map(rt => (
-                    <label key={rt} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="liveDocCategory"
-                        value={rt}
-                        checked={category === rt}
-                        onChange={() => setCategory(rt)}
-                        className="w-4 h-4 border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <span className="text-sm text-slate-700">{REQUIREMENT_LABELS[rt]}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                <label className="flex-1 cursor-pointer">
-                  <div className={`px-4 py-3 border-2 border-dashed rounded-xl text-center transition-all ${
-                    templateFiles.length > 0 ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                  }`}>
-                    <div className="flex items-center justify-center gap-2 text-sm">
-                      <Paperclip className={`w-4 h-4 ${templateFiles.length > 0 ? 'text-indigo-600' : 'text-slate-400'}`} />
-                      <span className={templateFiles.length > 0 ? 'text-indigo-700 font-medium' : 'text-slate-500'}>
-                        {templateFiles.length > 0
-                          ? templateFiles.map(file => file.name).join(', ')
-                          : editingRequest
-                          ? 'Adaugă modele (opțional)'
-                          : 'Atașează modele (opțional)'}
-                      </span>
-                    </div>
-                  </div>
-                  <input
-                    type="file"
-                    multiple
-                    onClick={(e) => { e.currentTarget.value = '' }}
-                    onChange={handleTemplateFileChange}
-                    className="hidden"
-                  />
-                </label>
-
-                <button
-                  type="submit"
-                  disabled={submitting || !name.trim()}
-                  className="px-6 py-3 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-600/20 active:scale-[0.98]"
-                >
-                  {submitting
-                    ? editingRequest ? 'Se salvează...' : 'Se trimite...'
-                    : editingRequest ? 'Salvează modificările' : 'Trimite cerere'}
-                </button>
-              </div>
-              {(templateAttachments.length > 0 || templateFiles.length > 0) && (
-                <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  {templateAttachments.map(attachment => (
-                    <div key={attachment.id} className="flex items-center gap-2 text-xs text-slate-600">
-                      <Paperclip className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                      <span className="min-w-0 flex-1 truncate">{attachment.original_name || attachment.storage_path.split('/').pop() || 'model atașat'}</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTemplateAttachments(current => current.filter(item => item.id !== attachment.id))
-                          setTemplateAttachmentsTouched(true)
-                        }}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        Elimină
-                      </button>
-                    </div>
-                  ))}
-                  {templateFiles.map((file, index) => (
-                    <div key={`${file.name}-${file.size}-${index}`} className="flex items-center gap-2 text-xs text-indigo-700">
-                      <Paperclip className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
-                      <span className="min-w-0 flex-1 truncate">{file.name}</span>
-                      <span className="text-indigo-500">{formatFileSize(file.size)}</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTemplateFiles(current => current.filter((_, fileIndex) => fileIndex !== index))
-                          setTemplateAttachmentsTouched(true)
-                        }}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        Elimină
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {templateFileError && <FeedbackMessage variant="error" className="text-xs"><span className="whitespace-pre-line">{templateFileError}</span></FeedbackMessage>}
-              {editingRequest?.attachment_missing_at && (
-                <div className="flex items-center gap-2 text-xs text-amber-700">
-                  <AlertCircle className="w-3.5 h-3.5" />
-                  <span>Modelul existent este indisponibil. Alege un fișier nou pentru înlocuire.</span>
-                </div>
-              )}
-                </form>
-              </div>
-            </Dialog.Content>
-          </Dialog.Portal>
-        </Dialog.Root>
+      <RequestFormDialog
+        open={showForm && isAdminOrConsultant}
+        editing={editingRequest}
+        submitting={submitting}
+        name={name} onNameChange={setName}
+        description={description} onDescriptionChange={setDescription}
+        category={category} onCategoryChange={setCategory}
+        deadline={deadline} onDeadlineChange={setDeadline}
+        templateFiles={templateFiles} onTemplateFilesChange={setTemplateFiles}
+        onPickTemplateFiles={handleTemplateFileChange}
+        templateAttachments={templateAttachments} onTemplateAttachmentsChange={setTemplateAttachments}
+        templateFileError={templateFileError}
+        onTemplateAttachmentsTouched={setTemplateAttachmentsTouched}
+        onClose={closeRequestForm}
+        onSubmit={handleSubmit}
+      />
 
         {!activityId && (outgoingDocs.length > 0 || isAdminOrConsultant) && (
-          <div className="border-b border-slate-100 bg-emerald-50/30">
+          <div className="border-b border-rule bg-[var(--sg-ok-soft)]">
             <div className="px-4 sm:px-5 py-3 flex items-center gap-2">
-              <FolderUp className="w-4 h-4 text-emerald-600" />
-              <h3 className="text-sm font-semibold text-slate-900">Documente trimise clientului</h3>
-              <span className="text-xs text-slate-500">({outgoingDocs.length})</span>
+              <FolderUp className="w-4 h-4 text-[var(--sg-ok)]" />
+              <h3 className="text-sm font-semibold text-ink">Documente trimise clientului</h3>
+              <span className="text-xs text-ink-soft">({outgoingDocs.length})</span>
             </div>
             {outgoingDocs.length === 0 ? (
               isAdminOrConsultant && (
-                <p className="px-4 sm:px-5 pb-4 text-xs text-slate-500">
+                <p className="px-4 sm:px-5 pb-4 text-xs text-ink-soft">
                   Trimite documente către client cu butonul „Trimite documente”.
                 </p>
               )
             ) : (
-              <div className="divide-y divide-emerald-100/70">
+              <div className="divide-y divide-[var(--sg-ok)]">
                 {outgoingDocs.map((doc: DocumentRequest) => (
                   <button
                     key={doc.id}
                     type="button"
                     onClick={() => setSelectedOutgoingDoc(doc)}
-                    className="w-full px-4 sm:px-5 py-3 flex items-center gap-3 text-left hover:bg-emerald-50/70 transition-colors"
+                    className="w-full px-4 sm:px-5 py-3 flex items-center gap-3 text-left hover:bg-[var(--sg-ok-soft)] transition-colors"
                   >
-                    <div className="w-9 h-9 rounded-lg bg-white border border-emerald-200 flex items-center justify-center text-emerald-600 flex-shrink-0">
+                    <div className="w-9 h-9 rounded-lg bg-white border border-[var(--sg-ok)] flex items-center justify-center text-[var(--sg-ok)] flex-shrink-0">
                       <FileText className="w-4 h-4" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
-                        <p className="min-w-0 text-sm font-medium text-slate-900 break-words">{doc.name}</p>
+                        <p className="min-w-0 text-sm font-medium text-ink break-words">{doc.name}</p>
                         <PublishStatusControl
                           status={doc.visibility ?? 'draft'}
                           canPublish={false}
@@ -1264,11 +1103,11 @@ export default function DocumentRequests({
                           size="sm"
                         />
                       </div>
-                      <p className="text-xs text-slate-500 truncate">
+                      <p className="text-xs text-ink-soft truncate">
                         {getRequestAttachments(doc).map(attachment => attachment.original_name || attachment.storage_path.split('/').pop() || 'document').join(', ')} · {new Date(doc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </p>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-emerald-300 flex-shrink-0" />
+                    <ChevronRight className="w-4 h-4 text-[var(--sg-ok)] flex-shrink-0" />
                   </button>
                 ))}
               </div>
@@ -1276,14 +1115,14 @@ export default function DocumentRequests({
           </div>
         )}
 
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-rule">
           {requests.length === 0 ? (
             <div className="p-8 sm:p-12 text-center">
-              <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <FileText className="w-8 h-8 text-slate-400" />
+              <div className="w-16 h-16 bg-paper-sunk rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <FileText className="w-8 h-8 text-ink-faint" />
               </div>
-              <p className="font-semibold text-slate-900 mb-1">Nicio cerere încă</p>
-              <p className="text-sm text-slate-500 max-w-xs mx-auto">
+              <p className="font-semibold text-ink mb-1">Nicio cerere încă</p>
+              <p className="text-sm text-ink-soft max-w-xs mx-auto">
                 {isClient ? 'Vei fi notificat când consultantul adaugă cereri noi.' : 'Creează prima cerere de document pentru client.'}
               </p>
             </div>
@@ -1298,7 +1137,7 @@ export default function DocumentRequests({
                   key={req.id}
                   id={`request-${req.id}`}
                   onDragOver={e => handleReqDragOver(e, req.id)}
-                  className={`group scroll-mt-24 px-4 py-4 sm:px-5 transition-colors cursor-pointer hover:bg-slate-50/80 ${
+                  className={`group scroll-mt-24 px-4 py-4 sm:px-5 transition-colors cursor-pointer hover:bg-paper-sunk ${
                     draggedReqId === req.id ? 'opacity-50' : ''
                   }`}
                   onClick={() => setSelectedRequest(req)}
@@ -1311,7 +1150,7 @@ export default function DocumentRequests({
                         onDragEnd={handleReqDragEnd}
                         onClick={e => e.stopPropagation()}
                         title="Trage pentru a reordona"
-                        className="mt-2.5 -ml-1.5 p-0.5 rounded text-slate-300 hover:text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing flex-shrink-0"
+                        className="mt-2.5 -ml-1.5 p-0.5 rounded text-ink-faint hover:text-ink-soft opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing flex-shrink-0"
                       >
                         <GripVertical className="w-4 h-4" />
                       </span>
@@ -1322,14 +1161,14 @@ export default function DocumentRequests({
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start gap-2">
-                        <h3 className="flex-1 min-w-0 font-semibold text-slate-900 text-sm sm:text-base leading-snug break-words">{req.name}</h3>
+                        <h3 className="flex-1 min-w-0 font-semibold text-ink text-sm sm:text-base leading-snug break-words">{req.name}</h3>
                         <div className="flex items-center gap-0.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
                           {!isFolded && isAdminOrConsultant && (
                             <>
                               <button
                                 type="button"
                                 onClick={() => openEditForm(req)}
-                                className="p-1.5 rounded-lg text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                                className="p-1.5 rounded-lg text-ink-faint hover:text-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] transition-colors"
                                 title="Modifică cererea"
                                 aria-label="Modifică cererea"
                               >
@@ -1338,7 +1177,7 @@ export default function DocumentRequests({
                               <button
                                 type="button"
                                 onClick={() => setRequestToDelete(req)}
-                                className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                className="p-1.5 rounded-lg text-ink-faint hover:text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)] transition-colors"
                                 title="Șterge din proiect"
                                 aria-label="Șterge din proiect"
                               >
@@ -1349,7 +1188,7 @@ export default function DocumentRequests({
                           <button
                             type="button"
                             onClick={() => toggleRequestFold(req.id)}
-                            className="p-1.5 rounded-lg text-slate-300 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                            className="p-1.5 rounded-lg text-ink-faint hover:text-ink-soft hover:bg-paper-sunk transition-colors"
                             aria-label={isFolded ? 'Arată detaliile cererii' : 'Ascunde detaliile cererii'}
                             aria-expanded={!isFolded}
                           >
@@ -1359,7 +1198,7 @@ export default function DocumentRequests({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 mt-2">
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2 py-1 text-xs text-slate-600">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-paper-sunk px-2 py-1 text-xs text-ink-soft">
                           <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
                           {status.label}
                         </span>
@@ -1376,7 +1215,7 @@ export default function DocumentRequests({
                         )}
                         {!isFolded && req.deadline_at && (
                           <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs ${
-                            isOverdue ? 'bg-red-50 text-red-600 font-medium' : 'bg-slate-50 text-slate-600'
+                            isOverdue ? 'bg-[var(--sg-danger-soft)] text-[var(--sg-danger)] font-medium' : 'bg-paper-sunk text-ink-soft'
                           }`}>
                             <Clock className="w-3.5 h-3.5" />
                             Termen: {new Date(req.deadline_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -1388,7 +1227,7 @@ export default function DocumentRequests({
                         <>
 
 
-                          {req.description && <p className="mt-3 text-sm text-slate-600 leading-6 line-clamp-2">{req.description}</p>}
+                          {req.description && <p className="mt-3 text-sm text-ink-soft leading-6 line-clamp-2">{req.description}</p>}
 
                         </>
                       )}
@@ -1397,10 +1236,10 @@ export default function DocumentRequests({
                   </div>
 
                   {isClient && (req.attachment_missing_at || missingAttachments.has(req.id)) && (
-                    <div className="mt-4 p-3 bg-amber-50 border border-amber-100 rounded-xl" onClick={(e) => e.stopPropagation()}>
+                    <div className="mt-4 p-3 bg-[var(--sg-warn-soft)] border border-[var(--sg-warn)] rounded-xl" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-start gap-2">
-                        <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                        <p className="text-sm text-amber-800">
+                        <AlertCircle className="w-4 h-4 text-[var(--sg-warn)] flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-[var(--sg-warn)]">
                           Modelul pentru această cerere este momentan indisponibil. Echipa îl va atașa când este disponibil; așteaptă actualizarea cererii înainte de completare.
                         </p>
                       </div>
@@ -1408,19 +1247,19 @@ export default function DocumentRequests({
                   )}
 
                   {isClient && (req.status === 'pending' || req.status === 'rejected') && (
-                    <div className="mt-4 pt-4 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
+                    <div className="mt-4 pt-4 border-t border-rule" onClick={(e) => e.stopPropagation()}>
                       {uploadingFor === req.id && showFilePreview && clientFiles.length > 0 ? (
                         // PREVIEW ȘI GESTIONARE FIȘIERE
                         <div className="space-y-3">
                           {/* Header cu statistici */}
-                          <div className="flex items-center justify-between p-3 bg-indigo-50 rounded-xl border border-indigo-100">
+                          <div className="flex items-center justify-between p-3 bg-[var(--sg-accent-soft)] rounded-xl border border-[var(--sg-accent)]">
                             <div className="flex items-center gap-3">
-                              <Files className="w-5 h-5 text-indigo-600" />
+                              <Files className="w-5 h-5 text-[var(--sg-accent)]" />
                               <div>
-                                <p className="text-sm font-bold text-indigo-900">
+                                <p className="text-sm font-bold text-[var(--sg-accent)]">
                                   {fileStats.total} {fileStats.total === 1 ? 'fișier' : 'fișiere'} selectat{fileStats.total !== 1 ? 'e' : ''}
                                 </p>
-                                <p className="text-xs text-indigo-600">
+                                <p className="text-xs text-[var(--sg-accent)]">
                                   {fileStats.valid} valid{fileStats.valid !== 1 ? 'e' : ''} • {formatFileSize(fileStats.totalSize)}
                                   {fileStats.invalid > 0 && ` • ${fileStats.invalid} erori`}
                                 </p>
@@ -1430,7 +1269,7 @@ export default function DocumentRequests({
                             <button
                               onClick={clearAllFiles}
                               disabled={submitting}
-                              className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-white transition-all disabled:opacity-50"
+                              className="p-2 text-ink-faint hover:text-ink-soft rounded-lg hover:bg-white transition-all disabled:opacity-50"
                               title="Anulează tot"
                             >
                               <X className="w-5 h-5" />
@@ -1451,28 +1290,28 @@ export default function DocumentRequests({
                                   key={pickedFile.id}
                                   className={`p-3 rounded-xl border transition-all ${
                                     hasError
-                                      ? 'bg-red-50 border-red-200'
+                                      ? 'bg-[var(--sg-danger-soft)] border-[var(--sg-danger)]'
                                       : isSuccess
-                                      ? 'bg-emerald-50 border-emerald-200'
+                                      ? 'bg-[var(--sg-ok-soft)] border-[var(--sg-ok)]'
                                       : isError
-                                      ? 'bg-red-50 border-red-200'
+                                      ? 'bg-[var(--sg-danger-soft)] border-[var(--sg-danger)]'
                                       : isUploading
-                                      ? 'bg-blue-50 border-blue-200'
-                                      : 'bg-white border-slate-200'
+                                      ? 'bg-[var(--sg-accent-soft)] border-[var(--sg-accent)]'
+                                      : 'bg-white border-rule'
                                   }`}
                                 >
                                   <div className="flex items-start gap-3">
                                     {/* Icon */}
                                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
                                       hasError
-                                        ? 'bg-red-100 text-red-600'
+                                        ? 'bg-[var(--sg-danger-soft)] text-[var(--sg-danger)]'
                                         : isSuccess
-                                        ? 'bg-emerald-100 text-emerald-600'
+                                        ? 'bg-[var(--sg-ok-soft)] text-[var(--sg-ok)]'
                                         : isError
-                                        ? 'bg-red-100 text-red-600'
+                                        ? 'bg-[var(--sg-danger-soft)] text-[var(--sg-danger)]'
                                         : isUploading
-                                        ? 'bg-blue-100 text-blue-600'
-                                        : 'bg-slate-100 text-slate-600'
+                                        ? 'bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]'
+                                        : 'bg-paper-sunk text-ink-soft'
                                     }`}>
                                       {isUploading ? (
                                         <Loader2 className="w-5 h-5 animate-spin" />
@@ -1488,11 +1327,11 @@ export default function DocumentRequests({
                                     {/* Info */}
                                     <div className="flex-1 min-w-0">
                                       <p className={`text-sm font-medium truncate ${
-                                        hasError || isError ? 'text-red-900' : isSuccess ? 'text-emerald-900' : 'text-slate-900'
+                                        hasError || isError ? 'text-[var(--sg-danger)]' : isSuccess ? 'text-[var(--sg-ok)]' : 'text-ink'
                                       }`}>
                                         {pickedFile.name}
                                       </p>
-                                      <p className="text-xs text-slate-500 mt-0.5">
+                                      <p className="text-xs text-ink-soft mt-0.5">
                                         {formatFileSize(pickedFile.size)}
                                         {pickedFile.relativePath && ` • ${pickedFile.relativePath}`}
                                       </p>
@@ -1505,7 +1344,7 @@ export default function DocumentRequests({
 
                                       {/* Success Message */}
                                       {isSuccess && (
-                                        <p className="text-xs text-emerald-600 font-medium mt-1 flex items-center gap-1">
+                                        <p className="text-xs text-[var(--sg-ok)] font-medium mt-1 flex items-center gap-1">
                                           <CheckCircle2 className="w-3 h-3" />
                                           Încărcat cu succes
                                         </p>
@@ -1514,9 +1353,9 @@ export default function DocumentRequests({
                                       {/* Progress Bar */}
                                       {isUploading && (
                                         <div className="mt-2">
-                                          <div className="h-1.5 bg-blue-100 rounded-full overflow-hidden">
+                                          <div className="h-1.5 bg-[var(--sg-accent-soft)] rounded-full overflow-hidden">
                                             <div
-                                              className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                                              className="h-full bg-[var(--sg-accent)] rounded-full transition-all duration-300"
                                               style={{ width: `${pickedFile.uploadProgress || 0}%` }}
                                             />
                                           </div>
@@ -1528,7 +1367,7 @@ export default function DocumentRequests({
                                     {(isPending || hasError) && !submitting && (
                                       <button
                                         onClick={() => removeFile(pickedFile.id)}
-                                        className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-white transition-all flex-shrink-0"
+                                        className="p-1.5 text-ink-faint hover:text-[var(--sg-danger)] rounded-lg hover:bg-white transition-all flex-shrink-0"
                                         title="Elimină"
                                       >
                                         <X className="w-4 h-4" />
@@ -1545,7 +1384,7 @@ export default function DocumentRequests({
                             {/* Add more files */}
                             <div className="flex gap-2 flex-1">
                               <label className="flex-1 cursor-pointer">
-                                <div className="flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-slate-600 hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-600 transition-all">
+                                <div className="flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-rule rounded-xl text-ink-soft hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)] transition-all">
                                   <Plus className="w-4 h-4" />
                                   <span className="text-sm font-medium">Adaugă mai multe</span>
                                 </div>
@@ -1564,7 +1403,7 @@ export default function DocumentRequests({
 
                               {canUploadFolder && (
                                 <label className="flex-1 cursor-pointer">
-                                  <div className="flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-slate-600 hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-600 transition-all">
+                                  <div className="flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-rule rounded-xl text-ink-soft hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)] transition-all">
                                     <FolderUp className="w-4 h-4" />
                                     <span className="text-sm font-medium hidden sm:inline">Folder</span>
                                   </div>
@@ -1591,7 +1430,7 @@ export default function DocumentRequests({
                             <button
                               onClick={() => handleClientUpload(req.id)}
                               disabled={submitting || fileStats.valid === 0 || fileStats.uploading > 0}
-                              className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 whitespace-nowrap"
+                              className="px-6 py-2.5 bg-[var(--sg-accent)] text-white rounded-xl text-sm font-bold hover:bg-[var(--sg-accent-ink)] disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 whitespace-nowrap"
                             >
                               {submitting ? (
                                 <>
@@ -1609,14 +1448,14 @@ export default function DocumentRequests({
 
                           {/* Warnings pentru validări */}
                           {fileStats.invalid > 0 && (
-                            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                            <div className="p-3 bg-[var(--sg-warn-soft)] border border-[var(--sg-warn)] rounded-xl">
                               <div className="flex items-start gap-2">
-                                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                                <AlertCircle className="w-4 h-4 text-[var(--sg-warn)] flex-shrink-0 mt-0.5" />
                                 <div>
-                                  <p className="text-xs font-bold text-amber-900">
+                                  <p className="text-xs font-bold text-[var(--sg-warn)]">
                                     {fileStats.invalid} {fileStats.invalid === 1 ? 'fișier are' : 'fișiere au'} erori de validare
                                   </p>
-                                  <p className="text-xs text-amber-700 mt-1">
+                                  <p className="text-xs text-[var(--sg-warn)] mt-1">
                                     Doar fișierele valide vor fi încărcate. Elimină sau înlocuiește fișierele cu erori.
                                   </p>
                                 </div>
@@ -1628,7 +1467,7 @@ export default function DocumentRequests({
                         // SELECTARE INIȚIALĂ
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           <label className="cursor-pointer block">
-                            <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-slate-200 rounded-xl text-slate-500 hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-600 transition-all">
+                            <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-rule rounded-xl text-ink-soft hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)] transition-all">
                               <Upload className="w-4 h-4" />
                               <span className="text-sm font-medium">{req.status === 'rejected' ? 'Reîncarcă fișiere' : 'Încarcă fișiere'}</span>
                             </div>
@@ -1646,7 +1485,7 @@ export default function DocumentRequests({
 
                           {canUploadFolder ? (
                             <label className="cursor-pointer block">
-                              <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-slate-200 rounded-xl text-slate-500 hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-600 transition-all">
+                              <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-rule rounded-xl text-ink-soft hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)] transition-all">
                                 <FolderUp className="w-4 h-4" />
                                 <span className="text-sm font-medium">{req.status === 'rejected' ? 'Reîncarcă folder' : 'Încarcă folder'}</span>
                               </div>
@@ -1667,7 +1506,7 @@ export default function DocumentRequests({
                               />
                             </label>
                           ) : (
-                            <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-slate-200 rounded-xl text-slate-300">
+                            <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-rule rounded-xl text-ink-faint">
                               <FolderUp className="w-4 h-4" />
                               <span className="text-sm font-medium">Folder indisponibil pe mobil</span>
                             </div>
@@ -1676,12 +1515,12 @@ export default function DocumentRequests({
                       )}
 
                       {req.status === 'rejected' && (
-                        <div className="mt-3 p-3 bg-red-50 border border-red-100 rounded-xl">
+                        <div className="mt-3 p-3 bg-[var(--sg-danger-soft)] border border-[var(--sg-danger)] rounded-xl">
                           <div className="flex items-start gap-2">
-                            <MessageSquare className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                            <MessageSquare className="w-4 h-4 text-[var(--sg-danger)] flex-shrink-0 mt-0.5" />
                             <div>
-                              <p className="text-xs font-semibold text-red-800 mb-0.5">Motiv respingere:</p>
-                              <p className="text-sm text-red-700">
+                              <p className="text-xs font-semibold text-[var(--sg-danger)] mb-0.5">Motiv respingere:</p>
+                              <p className="text-sm text-[var(--sg-danger)]">
                                 {requestMeta.get(req.id)?.rejectionReason || 'Motivul respingerii nu este disponibil pentru acest istoric.'}
                               </p>
                             </div>
@@ -1692,8 +1531,8 @@ export default function DocumentRequests({
                   )}
 
                   {isClient && req.status === 'approved' && (
-                    <div className="mt-4 pt-4 border-t border-slate-100">
-                      <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-4 py-2.5 rounded-xl">
+                    <div className="mt-4 pt-4 border-t border-rule">
+                      <div className="flex items-center gap-2 text-[var(--sg-ok)] bg-[var(--sg-ok-soft)] px-4 py-2.5 rounded-xl">
                         <CheckCircle2 className="w-4 h-4" />
                         <span className="text-sm font-semibold">Document aprobat cu succes</span>
                       </div>
@@ -1701,8 +1540,8 @@ export default function DocumentRequests({
                   )}
 
                   {isClient && req.status === 'review' && (
-                    <div className="mt-4 pt-4 border-t border-slate-100">
-                      <div className="flex items-center gap-2 text-blue-600 bg-blue-50 px-4 py-2.5 rounded-xl">
+                    <div className="mt-4 pt-4 border-t border-rule">
+                      <div className="flex items-center gap-2 text-[var(--sg-accent)] bg-[var(--sg-accent-soft)] px-4 py-2.5 rounded-xl">
                         <Eye className="w-4 h-4" />
                         <span className="text-sm font-medium">Documentul este în curs de verificare</span>
                       </div>
@@ -1713,7 +1552,7 @@ export default function DocumentRequests({
                     <div className="mt-3" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => downloadUploadedFileById(req.files![req.files!.length - 1].id)}
-                        className="text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1.5"
+                        className="text-xs text-[var(--sg-accent)] hover:text-[var(--sg-accent-ink)] flex items-center gap-1.5"
                       >
                         <Download className="w-3.5 h-3.5" />
                         Descarcă ultimul fișier încărcat (test)
@@ -1728,9 +1567,9 @@ export default function DocumentRequests({
             <button
               type="button"
               onClick={openCreateForm}
-              className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-indigo-700 bg-indigo-50/50 hover:bg-indigo-50 transition-colors"
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[var(--sg-accent)] bg-[var(--sg-accent-soft)] hover:brightness-90 transition-colors"
             >
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]">
                 <Plus className="w-4 h-4" />
               </span>
               <span className="text-sm font-semibold">Adaugă cerere de document nouă</span>
@@ -1761,14 +1600,14 @@ export default function DocumentRequests({
       {selectedOutgoingDoc && createPortal((
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-4">
+            <div className="flex items-start justify-between gap-4 border-b border-rule px-6 py-4">
               <div className="min-w-0">
-                <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-[var(--sg-ok)] bg-[var(--sg-ok-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--sg-ok)]">
                   <FolderUp className="w-3 h-3" />
                   Document trimis clientului
                 </div>
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <h3 className="text-lg font-semibold text-slate-900 break-words">{selectedOutgoingDoc.name}</h3>
+                  <h3 className="text-lg font-semibold text-ink break-words">{selectedOutgoingDoc.name}</h3>
                   {isAdminOrConsultant && (
                     <PublishStatusControl
                       status={selectedOutgoingDoc.visibility ?? 'draft'}
@@ -1778,7 +1617,7 @@ export default function DocumentRequests({
                     />
                   )}
                 </div>
-                <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+                <p className="mt-1 flex items-center gap-1.5 text-xs text-ink-soft">
                   <Calendar className="w-3.5 h-3.5" />
                   {new Date(selectedOutgoingDoc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </p>
@@ -1786,7 +1625,7 @@ export default function DocumentRequests({
               <button
                 type="button"
                 onClick={() => setSelectedOutgoingDoc(null)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                className="rounded-lg p-1 text-ink-faint hover:bg-paper-sunk hover:text-ink-soft"
                 aria-label="Închide"
               >
                 <X className="w-5 h-5" />
@@ -1796,15 +1635,15 @@ export default function DocumentRequests({
             <div className="max-h-[70vh] space-y-5 overflow-y-auto px-6 py-5">
               {selectedOutgoingDoc.description && (
                 <div>
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Descriere</p>
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{selectedOutgoingDoc.description}</p>
+                  <h4 className="mb-1 text-sm font-semibold text-ink">Descriere</h4>
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{selectedOutgoingDoc.description}</p>
                 </div>
               )}
 
               <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                <h4 className="mb-2 text-sm font-semibold text-ink">
                   Atașamente ({getRequestAttachments(selectedOutgoingDoc).length})
-                </p>
+                </h4>
                 <div className="space-y-2">
                   {getRequestAttachments(selectedOutgoingDoc).map((attachment, index) => {
                     const isMissing = Boolean(attachment.missing_at || missingAttachments.has(selectedOutgoingDoc.id))
@@ -1815,8 +1654,8 @@ export default function DocumentRequests({
                         key={attachment.id || `${attachment.storage_path}-${index}`}
                         className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
                           isMissing
-                            ? 'border-amber-200 bg-amber-50 text-amber-800'
-                            : 'border-emerald-200 bg-emerald-50/50 text-emerald-800 hover:bg-emerald-50'
+                            ? 'border-[var(--sg-warn)] bg-[var(--sg-warn-soft)] text-[var(--sg-warn)]'
+                            : 'border-[var(--sg-ok)] bg-[var(--sg-ok-soft)] text-[var(--sg-ok)] hover:bg-[var(--sg-ok-soft)]'
                         }`}
                       >
                         <button
@@ -1835,7 +1674,7 @@ export default function DocumentRequests({
                             onClick={() => openInNewTab(buildPreviewPageUrl({ type: 'attachment', id: selectedOutgoingDoc.id, name: label, attachmentId: attachment.id }))}
                             title="Deschide"
                             aria-label={`Deschide ${label}`}
-                            className="rounded-lg p-2 hover:bg-emerald-100"
+                            className="rounded-lg p-2 hover:bg-[var(--sg-ok-soft)]"
                           >
                             <Eye className="w-4 h-4" />
                           </button>
@@ -1848,14 +1687,14 @@ export default function DocumentRequests({
             </div>
 
             {isAdminOrConsultant && (
-              <div className="flex justify-center gap-2 border-t border-slate-100 bg-slate-50 px-6 py-4">
+              <div className="flex justify-center gap-2 border-t border-rule bg-paper-sunk px-6 py-4">
                 <button
                   type="button"
                   onClick={() => {
                     setRequestToDelete(selectedOutgoingDoc)
                     setSelectedOutgoingDoc(null)
                   }}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-100 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--sg-danger)] bg-white px-3 py-2 text-sm font-medium text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)]"
                 >
                   <Trash2 className="w-4 h-4" />
                   Șterge documentul
@@ -1899,194 +1738,19 @@ export default function DocumentRequests({
         loading={deleteLoading}
       />
 
-      {showSendDoc && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-semibold text-slate-900">Trimite documente către client</h3>
-              <button type="button" onClick={closeSendDoc} className="p-1 text-slate-400 hover:text-slate-600" disabled={sendSubmitting}>
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleSendDocument}>
-              <div className="p-6 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Documente *</label>
-                  {sendFiles.length === 0 ? (
-                    <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:border-emerald-300 hover:bg-emerald-50/50 transition-colors">
-                      <Upload className="w-8 h-8 text-slate-400" />
-                      <span className="text-sm text-slate-600 font-medium">Click pentru a încărca documente</span>
-                      <span className="text-xs text-slate-400">PDF, DOC, DOCX, XLS, XLSX, CSV, imagini</span>
-                      <input
-                        type="file"
-                        multiple
-                        onClick={(e) => { e.currentTarget.value = '' }}
-                        onChange={(e) => {
-                          processSendFiles(e.currentTarget.files)
-                          e.currentTarget.value = ''
-                        }}
-                        className="hidden"
-                      />
-                    </label>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between p-3 bg-emerald-50 border border-emerald-100 rounded-xl">
-                        <div className="flex items-center gap-3">
-                          <Files className="w-5 h-5 text-emerald-600" />
-                          <div>
-                            <p className="text-sm font-bold text-emerald-900">
-                              {sendFileStats.total} {sendFileStats.total === 1 ? 'document selectat' : 'documente selectate'}
-                            </p>
-                            <p className="text-xs text-emerald-600">
-                              {sendFileStats.valid} {sendFileStats.valid === 1 ? 'document valid' : 'documente valide'} • {formatFileSize(sendFileStats.totalSize)}
-                              {sendFileStats.invalid > 0 && ` • ${sendFileStats.invalid} erori`}
-                            </p>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setSendFiles([])}
-                          disabled={sendSubmitting}
-                          className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-white transition-all disabled:opacity-50"
-                          title="Anulează tot"
-                        >
-                          <X className="w-5 h-5" />
-                        </button>
-                      </div>
-
-                      <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
-                        {sendFiles.map((pickedFile) => {
-                          const hasError = !!pickedFile.validationError
-                          const isUploading = pickedFile.uploadStatus === 'uploading'
-                          const isSuccess = pickedFile.uploadStatus === 'success'
-                          const isError = pickedFile.uploadStatus === 'error'
-                          const normalizedName = normalizeFileName(pickedFile.name)
-                          const hasSameNameInSelection = normalizedName !== '' && sendFiles.some(file => file.id !== pickedFile.id && normalizeFileName(file.name) === normalizedName)
-                          const hasSameNameInOutgoing = normalizedName !== '' && outgoingDocs.some((doc: any) => normalizeFileName(doc.attachment_original_name || doc.name) === normalizedName)
-                          const nameWarning = !hasError && !isError && !isSuccess
-                            ? hasSameNameInOutgoing
-                              ? 'Există deja un document trimis cu acest nume'
-                              : hasSameNameInSelection
-                              ? 'Ai selectat deja un document cu acest nume'
-                              : ''
-                            : ''
-
-                          return (
-                            <div
-                              key={pickedFile.id}
-                              className={`p-3 rounded-xl border transition-all ${
-                                hasError || isError
-                                  ? 'bg-red-50 border-red-200'
-                                  : isSuccess
-                                  ? 'bg-emerald-50 border-emerald-200'
-                                  : isUploading
-                                  ? 'bg-blue-50 border-blue-200'
-                                  : nameWarning
-                                  ? 'bg-amber-50 border-amber-200'
-                                  : 'bg-white border-slate-200'
-                              }`}
-                            >
-                              <div className="flex items-start gap-3">
-                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                                  hasError || isError
-                                    ? 'bg-red-100 text-red-600'
-                                    : isSuccess
-                                    ? 'bg-emerald-100 text-emerald-600'
-                                    : isUploading
-                                    ? 'bg-blue-100 text-blue-600'
-                                    : nameWarning
-                                    ? 'bg-amber-100 text-amber-600'
-                                    : 'bg-slate-100 text-slate-600'
-                                }`}>
-                                  {isUploading ? (
-                                    <Loader2 className="w-5 h-5 animate-spin" />
-                                  ) : isSuccess ? (
-                                    <CheckCircle2 className="w-5 h-5" />
-                                  ) : (isError || hasError) ? (
-                                    <AlertCircle className="w-5 h-5" />
-                                  ) : nameWarning ? (
-                                    <AlertCircle className="w-5 h-5" />
-                                  ) : (
-                                    getFileIcon(pickedFile)
-                                  )}
-                                </div>
-
-                                <div className="flex-1 min-w-0">
-                                  <p className={`text-sm font-medium truncate ${
-                                    hasError || isError ? 'text-red-900' : isSuccess ? 'text-emerald-900' : nameWarning ? 'text-amber-900' : 'text-slate-900'
-                                  }`}>
-                                    {pickedFile.name}
-                                  </p>
-                                  <p className="text-xs text-slate-500 mt-0.5">{formatFileSize(pickedFile.size)}</p>
-                                  {hasError && <FeedbackMessage variant="error" className="mt-1 text-xs">{pickedFile.validationError?.message}</FeedbackMessage>}
-                                  {isError && pickedFile.uploadError && <FeedbackMessage variant="error" className="mt-1 text-xs">{pickedFile.uploadError}</FeedbackMessage>}
-                                  {nameWarning && (
-                                    <p className="text-xs text-amber-700 font-medium mt-1 flex items-center gap-1">
-                                      <AlertCircle className="w-3 h-3" />
-                                      {nameWarning}
-                                    </p>
-                                  )}
-                                  {isSuccess && (
-                                    <p className="text-xs text-emerald-600 font-medium mt-1 flex items-center gap-1">
-                                      <CheckCircle2 className="w-3 h-3" />
-                                      Trimis
-                                    </p>
-                                  )}
-                                </div>
-
-                                {!sendSubmitting && !isUploading && !isSuccess && (
-                                  <button
-                                    type="button"
-                                    onClick={() => removeSendFile(pickedFile.id)}
-                                    className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-white transition-all flex-shrink-0"
-                                    title="Elimină"
-                                  >
-                                    <X className="w-4 h-4" />
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-
-                      <label className="cursor-pointer block">
-                        <div className="flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-slate-600 hover:border-emerald-300 hover:bg-emerald-50/50 hover:text-emerald-600 transition-all">
-                          <Plus className="w-4 h-4" />
-                          <span className="text-sm font-medium">Adaugă mai multe</span>
-                        </div>
-                        <input
-                          type="file"
-                          multiple
-                          onClick={(e) => { e.currentTarget.value = '' }}
-                          onChange={(e) => {
-                            processSendFiles(e.currentTarget.files)
-                            e.currentTarget.value = ''
-                          }}
-                          disabled={sendSubmitting}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
-                  )}
-                </div>
-                <p className="text-xs text-slate-500">Clientul va putea descărca aceste documente. Nu i se va cere să încarce nimic înapoi.</p>
-              </div>
-              <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-3">
-                <button type="button" onClick={closeSendDoc} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-white" disabled={sendSubmitting}>
-                  Anulează
-                </button>
-                <button type="submit" disabled={sendSubmitting || sendFileStats.valid === 0 || sendFileStats.uploading > 0} className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center gap-2">
-                  {sendSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                  {sendSubmitting
-                    ? sendFileStats.valid === 1 ? 'Se trimite...' : 'Se trimit...'
-                    : sendFileStats.valid === 1 ? 'Trimite document (1)' : `Trimite documente${sendFileStats.valid > 0 ? ` (${sendFileStats.valid})` : ''}`}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <SendDocumentModal
+        open={showSendDoc}
+        files={sendFiles}
+        fileStats={sendFileStats}
+        submitting={sendSubmitting}
+        outgoingDocs={outgoingDocs}
+        onClose={closeSendDoc}
+        onSubmit={handleSendDocument}
+        onPickFiles={processSendFiles}
+        onRemoveFile={removeSendFile}
+        onClearFiles={() => setSendFiles([])}
+        getFileIcon={getFileIcon}
+      />
     </>
   )
 }

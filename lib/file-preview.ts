@@ -63,6 +63,33 @@ export function buildPreviewPageUrl(target: {
   return `/preview/${target.type}/${target.id}${query}`
 }
 
+/**
+ * Pornește o descărcare în browser. Dansul cu un `<a>` invizibil era scris de
+ * mână în nouă locuri, cu mici diferențe între ele.
+ *
+ * `filename` lipsă = lasă serverul să spună cum se cheamă fișierul (antetul
+ * `Content-Disposition`); `''` = forțează descărcarea, tot cu numele lui.
+ */
+export function downloadUrl(url: string, filename?: string) {
+  const a = document.createElement('a')
+  a.href = url
+  a.rel = 'noopener'
+  if (filename !== undefined) a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
+/** Același lucru pentru ceva construit în pagină (CSV, arhivă, imagine). */
+export function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  try {
+    downloadUrl(url, filename)
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 export function openInNewTab(url: string) {
   const a = document.createElement('a')
   a.href = url

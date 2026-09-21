@@ -34,6 +34,12 @@ import {
   saveAutomaticReminders,
 } from '@/lib/automatic-reminders'
 import ProjectChatDrawer from '@/components/ProjectChatDrawer'
+import { ProjectBoard, type BoardRow, type BoardItem } from '@/components/ProjectBoard'
+import { bandFor } from '@/lib/signage'
+import { LocationStrip } from '@/components/ui/LocationStrip'
+import { Button } from '@/components/ui/Button'
+import { IconButton } from '@/components/ui/IconButton'
+import { Counter } from '@/components/ui/Counter'
 import ProjectPhasesSidebar from '@/components/ProjectPhasesSidebar'
 import RowActionsMenu from '@/components/RowActionsMenu'
 import {
@@ -69,6 +75,7 @@ import {
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { usePatchField } from '@/hooks/usePatchField'
+import { Spinner } from '@/components/ui/Spinner'
 
 // Secțiunea distinctă „Cereri generale" (documente fără fază/activitate).
 // Aceeași valoare ajunge în `?phase=` din deep-linkurile calendarului.
@@ -125,7 +132,7 @@ function ProjectDetailsContent() {
   const [activeView, setActiveView] = useState<ProjectView>(
     targetView === 'documents' || targetView === 'calendar' ? targetView : 'phases'
   )
-  const [landingView, setLandingView] = useState<'action-needed' | 'browse'>(hasDeepLink ? 'browse' : 'action-needed')
+  const [landingView, setLandingView] = useState<'board' | 'action-needed' | 'browse'>(hasDeepLink ? 'browse' : 'board')
   const [landingViewInitialized, setLandingViewInitialized] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [autoOpenRequestId, setAutoOpenRequestId] = useState<string | null>(null)
@@ -877,10 +884,46 @@ function ProjectDetailsContent() {
   }, [allDocRequests, phaseNameById, isClient])
   const actionNeededCount = pendingUploads.length + waitingOnClient.length
 
+  const boardTodayTs = useMemo(() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime()
+  }, [])
+
+  /** Rândurile Panoului cu chei: fiecare fază cu cererile ei, plus rândul
+   *  cererilor generale, care nu aparțin niciunei faze. */
+  const boardRows: BoardRow[] = useMemo(() => {
+    const vii = allDocRequests.filter((r: any) => !r.is_outgoing && !r.deleted_at)
+    const dupaFaza = new Map<string, BoardItem[]>()
+    for (const r of vii as any[]) {
+      const cheie = r.activity?.phase_id ?? GENERAL_ID
+      const lista = dupaFaza.get(cheie) ?? []
+      lista.push({
+        id: r.id,
+        name: r.name,
+        status: r.status ?? null,
+        deadline_at: r.deadline_at ?? null,
+        activity_id: r.activity?.id ?? r.activity_id ?? null,
+        activity_name: r.activity?.name ?? null,
+      })
+      dupaFaza.set(cheie, lista)
+    }
+    const rows: BoardRow[] = phases.map((f, i) => ({
+      id: f.id,
+      name: f.name,
+      band: bandFor(i),
+      draft: canEdit ? f.visibility !== 'published' : false,
+      items: dupaFaza.get(f.id) ?? [],
+    }))
+    const generale = dupaFaza.get(GENERAL_ID)
+    if (generale?.length) {
+      rows.push({ id: GENERAL_ID, name: 'Cereri generale', band: bandFor(phases.length), items: generale })
+    }
+    return rows
+  }, [phases, allDocRequests, canEdit])
+
   // Fără params deschidem mereu "Ce ai de făcut"; params expliciți duc la browse.
   useEffect(() => {
     if (loading || landingViewInitialized) return
-    setLandingView(hasDeepLink ? 'browse' : 'action-needed')
+    setLandingView(hasDeepLink ? 'browse' : 'board')
     setLandingViewInitialized(true)
   }, [loading, landingViewInitialized, hasDeepLink])
 
@@ -934,10 +977,10 @@ function ProjectDetailsContent() {
 
   if (authLoading || loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-50">
+      <div className="flex h-screen items-center justify-center bg-paper" role="status" aria-live="polite">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin" />
-          <p className="text-sm text-slate-500">Se încarcă...</p>
+          <Spinner />
+          <p className="text-sm text-ink-soft">Se încarcă proiectul…</p>
         </div>
       </div>
     )
@@ -948,12 +991,12 @@ function ProjectDetailsContent() {
   // general și ar fi arătat, în pagina unui proiect, termenele tuturor.
   if (!project || !projectId) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-50">
+      <div className="flex h-screen items-center justify-center bg-paper" role="status" aria-live="polite">
         <div className="text-center">
-          <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-3" />
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">Proiect negăsit</h2>
+          <AlertCircle className="mx-auto mb-3 h-12 w-12" style={{ color: 'var(--sg-danger)' }} aria-hidden="true" />
+          <h2 className="mb-4 text-lg font-semibold text-ink">Proiectul nu există sau nu ai acces la el</h2>
           <button onClick={() => router.push('/')}
-            className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium inline-flex items-center gap-2">
+            className="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-plate)] bg-[var(--sg-accent)] px-4 text-sm font-semibold text-white sm:min-h-10">
             <ArrowLeft className="w-4 h-4" /> Înapoi
           </button>
         </div>
@@ -964,140 +1007,115 @@ function ProjectDetailsContent() {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="project-scope min-h-screen flex flex-col bg-[var(--p-bg)] text-[var(--p-ink)] w-screen ml-[calc(50%-50vw)] mr-[calc(50%-50vw)]">
+    <div className="project-scope flex min-h-screen flex-col text-ink">
 
-      {/* ── Top bar ── */}
-      <header className="bg-[var(--p-surface)] border-b border-[var(--p-border)] sticky top-0 z-20">
-        <div className="px-4 sm:px-6 h-14 flex items-center gap-3">
-          <button onClick={() => router.push('/')}
-            className="flex items-center gap-1.5 text-sm text-[var(--p-ink-soft)] hover:text-[var(--p-ink)] transition-colors flex-shrink-0">
-            <ArrowLeft className="w-4 h-4" />
-            <span className="font-medium hidden sm:block">Proiecte</span>
-          </button>
-          <span className="text-[var(--p-border-strong)] hidden sm:block">/</span>
-
-          {/* Editable title */}
-          {isEditingTitle ? (
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <input
-                value={editTitle}
-                onChange={e => setEditTitle(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleSaveTitle(); if (e.key === 'Escape') setIsEditingTitle(false) }}
-                autoFocus disabled={saving}
-                className="flex-1 text-sm font-semibold text-slate-900 bg-transparent border-b border-indigo-500 focus:outline-none py-0.5 min-w-0"
-              />
-              <button onClick={handleSaveTitle} disabled={saving}
-                className="p-1 rounded bg-emerald-100 text-emerald-600 flex-shrink-0">
-                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-              </button>
-              <button onClick={() => setIsEditingTitle(false)}
-                className="p-1 rounded bg-slate-100 text-slate-500 flex-shrink-0">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <h1 className="font-display text-base font-semibold text-[var(--p-ink)] truncate">{project.title}</h1>
-              {isAdmin && (
-                <button onClick={() => { setEditTitle(project.title); setIsEditingTitle(true) }}
-                  className="p-1 rounded text-slate-300 hover:text-slate-600 hover:bg-slate-100 flex-shrink-0">
-                  <Pencil className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Meta pills */}
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              onClick={() => setMobileSidebarOpen(true)}
-              title="Faze proiect"
-              aria-label="Deschide fazele proiectului"
-              className="md:hidden inline-flex items-center justify-center w-7 h-7 rounded-full text-[var(--p-ink-soft)] bg-[var(--p-surface)] border border-[var(--p-border-strong)] hover:bg-[var(--p-surface-2)]"
-            >
-              <Layers className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              onClick={() => setSearchOpen(true)}
-              title="Caută în proiect"
-              className="inline-flex items-center justify-center w-7 h-7 rounded-full text-[var(--p-ink-soft)] bg-[var(--p-surface)] border border-[var(--p-border-strong)] hover:bg-[var(--p-surface-2)]"
-            >
-              <Search className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              onClick={handleOpenChat}
-              className="relative inline-flex items-center gap-1.5 text-xs font-medium text-[var(--p-ink-soft)] bg-[var(--p-surface)] border border-[var(--p-border-strong)] px-2.5 py-1 rounded-full hover:bg-[var(--p-surface-2)]"
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
+      {/* Fâșia de locație. Înainte, pagina își desena propria bară de
+          navigare sub cea a aplicației — două bare una peste alta, cu o dungă
+          moartă între ele. Acum e una singură, iar acțiunile proiectului stau
+          la dreapta ei. */}
+      <LocationStrip
+        segments={[{ label: 'Proiecte', href: '/' }, { label: project.title }]}
+        action={
+          <>
+            {isAdmin && !isEditingTitle && (
+              <IconButton label="Redenumește proiectul" onClick={() => { setEditTitle(project.title); setIsEditingTitle(true) }}>
+                <Pencil className="h-4 w-4" />
+              </IconButton>
+            )}
+            <IconButton label="Toate fazele: reordonare, activități, echipă" onClick={() => setMobileSidebarOpen(true)}>
+              <Layers className="h-4 w-4" />
+            </IconButton>
+            <IconButton label="Caută în proiect" onClick={() => setSearchOpen(true)}>
+              <Search className="h-4 w-4" />
+            </IconButton>
+            <Button variant="secondary" size="sm" onClick={handleOpenChat} className="relative">
+              <MessageSquare className="h-4 w-4" aria-hidden="true" />
               Chat
-              {unreadCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-bold shadow">
-                  {unreadCount > 99 ? '99+' : unreadCount}
-                </span>
-              )}
-            </button>
-
+              {unreadCount > 0 && <Counter n={unreadCount} label={`${unreadCount} mesaje necitite`} className="ml-1" />}
+            </Button>
             {canEdit && (
-              <button
+              <Button
+                variant={hasUnnotifiedUpdates ? 'primary' : 'secondary'}
+                size="sm"
                 onClick={handleNotifyClient}
+                aria-label="Anunță clientul despre actualizări"
                 disabled={!hasUnnotifiedUpdates || notifyingClient}
                 title={hasUnnotifiedUpdates ? 'Anunță clientul despre actualizări: noutăți publicate și documente verificate' : 'Nicio actualizare de anunțat'}
-                className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
-                  hasUnnotifiedUpdates
-                    ? 'text-white bg-[var(--p-accent)] border-transparent hover:opacity-90'
-                    : 'text-[var(--p-ink-faint)] bg-[var(--p-surface)] border-[var(--p-border-strong)] opacity-60 cursor-not-allowed'
-                } disabled:cursor-not-allowed`}
               >
-                {notifyingClient ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
-                <span className="hidden sm:block">Anunță clientul</span>
-              </button>
+                {notifyingClient ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Megaphone className="h-4 w-4" aria-hidden="true" />}
+                <span className="hidden sm:inline">Anunță clientul</span>
+              </Button>
             )}
-
-            {/* Pornite, e doar o iconiță ca celelalte; oprite, se face pastilă
-                galbenă cu text. Starea neobișnuită e cea care merită spațiu —
-                altfel butonul ar striga pe fiecare proiect în care totul e
-                normal. Iconița arată starea, titlul spune ce face apăsarea. */}
+            {/* Pornite, reminderele sunt o iconiță ca oricare alta; oprite, se
+                fac plăcuță cu text. Starea neobișnuită e cea care merită
+                spațiu — altfel butonul ar striga pe fiecare proiect normal. */}
             {isAdmin && (
-              <button
-                onClick={handleToggleAutomaticReminders}
-                disabled={togglingReminders}
-                title={
-                  automaticRemindersEnabled(project)
-                    ? 'Reminderele automate sunt pornite. Apasă ca să le oprești.'
-                    : 'Reminderele automate sunt oprite. Apasă ca să le pornești.'
-                }
-                aria-label={remindersActionLabel(automaticRemindersEnabled(project))}
-                className={`inline-flex items-center gap-1.5 rounded-full border text-xs font-medium transition-colors disabled:opacity-60 ${
-                  automaticRemindersEnabled(project)
-                    ? 'w-7 h-7 justify-center text-[var(--p-ink-soft)] bg-[var(--p-surface)] border-[var(--p-border-strong)] hover:bg-[var(--p-surface-2)]'
-                    : 'px-2.5 py-1 text-amber-700 bg-amber-50 border-amber-200 hover:bg-amber-100'
-                }`}
-              >
-                {togglingReminders
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  : automaticRemindersEnabled(project)
-                    ? <Bell className="w-3.5 h-3.5" />
-                    : <BellOff className="w-3.5 h-3.5" />}
-                {!automaticRemindersEnabled(project) && (
-                  <span className="hidden sm:block">Remindere oprite</span>
-                )}
-              </button>
+              automaticRemindersEnabled(project) ? (
+                <IconButton
+                  label={remindersActionLabel(true)}
+                  title="Reminderele automate sunt pornite. Apasă ca să le oprești."
+                  disabled={togglingReminders}
+                  onClick={handleToggleAutomaticReminders}
+                >
+                  {togglingReminders ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
+                </IconButton>
+              ) : (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={togglingReminders}
+                  onClick={handleToggleAutomaticReminders}
+                  title="Reminderele automate sunt oprite. Apasă ca să le pornești."
+                  aria-label={remindersActionLabel(false)}
+                  className="border-[var(--sg-warn)] bg-[var(--sg-warn-soft)] text-[var(--sg-warn)]"
+                >
+                  {togglingReminders ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <BellOff className="h-4 w-4" aria-hidden="true" />}
+                  <span className="hidden sm:inline">Remindere oprite</span>
+                </Button>
+              )
             )}
-
-            <span className="hidden sm:flex items-center gap-1.5 text-xs text-[var(--p-ink-soft)] bg-[var(--p-surface-2)] px-2.5 py-1 rounded-full">
-              <Building2 className="w-3.5 h-3.5" />
+            <span className="hidden items-center gap-1.5 rounded-[var(--radius-plate)] bg-paper-sunk px-2.5 py-1 text-xs text-ink-soft lg:flex">
+              <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
               {project.profiles?.full_name || 'Client'}
             </span>
-          </div>
+          </>
+        }
+      />
+
+      {/* Titlul paginii. A dispărut odată cu antetul vechi și pagina a rămas
+          fără `h1` — fâșia de locație e navigație, nu titlu. */}
+      {!isEditingTitle && (
+        <h1 className="mb-6 text-3xl font-bold tracking-tight text-ink md:text-4xl">
+          {project.title}
+        </h1>
+      )}
+
+      {isEditingTitle && (
+        <div className="mb-4 flex items-center gap-2">
+          <input
+            value={editTitle}
+            onChange={e => setEditTitle(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleSaveTitle(); if (e.key === 'Escape') setIsEditingTitle(false) }}
+            autoFocus
+            disabled={saving}
+            aria-label="Titlul proiectului"
+            className="h-11 min-w-0 flex-1 rounded-[var(--radius-plate)] border border-rule bg-plate px-3 text-sm font-semibold text-ink focus:border-[var(--sg-accent)] sm:h-10"
+          />
+          <Button variant="primary" size="sm" onClick={handleSaveTitle} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
+            Salvează
+          </Button>
+          <Button variant="quiet" size="sm" onClick={() => setIsEditingTitle(false)}>Renunță</Button>
         </div>
-      </header>
+      )}
 
       {/* ── Body: sidebar + main ── */}
       <div className="flex flex-1 w-full px-4 sm:px-6">
 
-        {/* ══ SIDEBAR — ascuns în vederile Documente și Calendar ══ */}
+        {/* Sidebar-ul nu mai e navigație: numele se tăiau și nu se puteau
+            deosebi două faze. Navigarea trăiește în panou și în coridorul de
+            faze; aici rămâne doar panoul de reordonare, activități și echipă,
+            deschis la cerere. */}
         {activeView === 'phases' && (
           <ProjectPhasesSidebar
             phases={phases}
@@ -1152,8 +1170,8 @@ function ProjectDetailsContent() {
                   aria-current={activeView === view ? 'page' : undefined}
                   className={`flex h-full items-center gap-2 px-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                     activeView === view
-                      ? 'border-indigo-600 text-indigo-600'
-                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                      ? 'border-[var(--sg-accent)] text-[var(--sg-accent-ink)]'
+                      : 'border-transparent text-ink-soft hover:text-ink'
                   }`}
                 >
                   <Icon className="w-4 h-4" />
@@ -1167,7 +1185,7 @@ function ProjectDetailsContent() {
                       <span
                         aria-hidden
                         className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                          urgent ? 'bg-[var(--p-danger-soft)] text-[var(--p-danger)]' : 'bg-slate-100 text-slate-600'
+                          urgent ? 'bg-[var(--sg-danger-soft)] text-[var(--sg-danger)]' : 'bg-paper-sunk text-ink-soft'
                         }`}
                       >
                         {count}
@@ -1200,255 +1218,270 @@ function ProjectDetailsContent() {
             />
           ) : (
             <>
-              <div className="flex items-center gap-2 px-4 sm:px-6 pt-4">
-                <button
+              {/* Fâșia „arde acum”: numărul e o poartă, nu un ornament — duce
+                  direct la lista de rezolvat. Sub ea, Panoul cu chei. */}
+              <div className="flex flex-wrap items-center gap-2 px-4 pt-4 sm:px-6">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  aria-pressed={landingView === 'board'}
+                  onClick={() => setLandingView('board')}
+                  className={landingView === 'board' ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : ''}
+                >
+                  Panoul proiectului
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  aria-pressed={landingView === 'action-needed'}
                   onClick={() => setLandingView('action-needed')}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                    landingView === 'action-needed'
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
+                  className={landingView === 'action-needed' ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : ''}
                 >
                   Ce ai de făcut
-                  {actionNeededCount > 0 && (
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                      landingView === 'action-needed' ? 'bg-white/20' : 'bg-white'
-                    }`}>
-                      {actionNeededCount}
-                    </span>
-                  )}
-                </button>
-                <button
-                  onClick={() => setLandingView('browse')}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                    landingView === 'browse'
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  Fazele proiectului
-                </button>
+                  {actionNeededCount > 0 && <Counter n={actionNeededCount} className="ml-1.5" />}
+                </Button>
+
               </div>
 
               {landingView === 'action-needed' ? (
                 <ActionNeededPanel items={pendingUploads} waitingItems={waitingOnClient} isClient={isClient} onJump={jumpToActivity} />
-              ) : phases.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center p-8">
-              <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
-                <Layers className="w-8 h-8 text-slate-400" />
-              </div>
-              <h2 className="text-lg font-semibold text-slate-900 mb-1">Niciun template importat</h2>
-              <p className="text-sm text-slate-500 max-w-xs">
-                Importați un template de proiect pentru a vedea fazele și cererile de documente organizate pe activități.
-              </p>
-            </div>
-          ) : (
-            <div className="p-4 sm:p-8 space-y-5 max-w-5xl mx-auto">
-              <div className="flex items-center justify-between gap-3 mb-1">
-                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Faze &amp; Activități</h2>
-                <button
-                  onClick={handleToggleAllPhases}
-                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 flex-shrink-0"
-                >
-                  {allPhasesExpanded ? 'Restrânge toate fazele' : 'Extinde toate fazele'}
-                </button>
-              </div>
-
-              {phases.filter(phase => expandedPhases.has(phase.id)).map(phase => (
-                <PhaseAccordionSection
-                  key={phase.id}
-                  id={phase.id}
-                  title={phase.name}
-                  subtitle={`${phase.activities?.length ?? 0} activit${phase.activities?.length === 1 ? 'ate' : 'ăți'}`}
-                  color={canEdit ? (phase.visibility === 'published' ? 'var(--p-success)' : 'var(--p-warning)') : undefined}
-                  headerRight={
-                    <PublishStatusControl
-                      status={phase.visibility ?? 'draft'}
-                      canPublish={canEdit}
-                      showPublishedStatus={canEdit}
-                      onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}`, {
-                        title: 'Publică faza?',
-                        description: 'Faza va deveni vizibilă clientului. Activitățile și cererile deja publicate din această fază vor deveni vizibile.',
-                      })}
+              ) : landingView === 'board' ? (
+                boardRows.length === 0 ? (
+                  <div className="mx-auto max-w-5xl p-4 sm:p-8">
+                    <div className="rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-6 py-12 text-center">
+                      <p className="text-base font-semibold text-ink">Proiectul n-are încă faze</p>
+                      <p className="mx-auto mt-2 max-w-[52ch] text-sm leading-6 text-ink-soft">
+                        Importă un șablon ca să apară fazele și activitățile, sau adaugă-le pe rând.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mx-auto max-w-5xl p-4 sm:p-8">
+                    <ProjectBoard
+                      rows={boardRows}
+                      todayTs={boardTodayTs}
+                      onOpen={(item, rowId) => jumpToActivity(
+                        rowId === GENERAL_ID ? null : rowId,
+                        item.activity_id,
+                        item.id,
+                      )}
                     />
-                  }
-                  actions={canEdit ? (
-                    <RowActionsMenu
-                      label={`Acțiuni pentru faza ${phase.name}`}
-                      busy={duplicatingId === phase.id || deletingId === phase.id}
-                      actions={[
-                        {
-                          label: 'Redenumește',
-                          icon: <Pencil className="w-3 h-3" />,
-                          onSelect: () => setRenamingId(phase.id),
-                        },
-                        {
-                          label: 'Duplică',
-                          icon: <Copy className="w-3 h-3" />,
-                          onSelect: () => { void handleDuplicatePhase(phase.id, phase.name) },
-                        },
-                        {
-                          label: 'Șterge',
-                          icon: <Trash2 className="w-3 h-3" />,
-                          danger: true,
-                          hidden: !isAdmin,
-                          onSelect: () => { void askToDeletePhase(phase) },
-                        },
-                      ]}
-                    />
-                  ) : undefined}
-                  renaming={renamingId === phase.id}
-                  renameLoading={savingRename === phase.id}
-                  onRenameSubmit={name => { void renameItem(`/api/projects/${projectId}/phases/${phase.id}`, phase.id, name) }}
-                  onRenameCancel={() => setRenamingId(null)}
-                  open={expandedPhases.has(phase.id)}
-                  onOpenChange={() => handleToggleExpand(phase.id)}
-                >
-                  {(phase.activities?.length ?? 0) === 0 && !canEdit ? (
-                    <p className="text-sm text-[var(--p-ink-faint)]">Nicio activitate în această fază.</p>
+                  </div>
+                )
+              ) : landingView === 'browse' ? (
+                <div className="mx-auto max-w-5xl p-4 sm:p-8">
+                  <div className="mb-5 flex items-center justify-end">
+                    <Button variant="quiet" size="sm" onClick={handleToggleAllPhases}>
+                      {allPhasesExpanded ? 'Restrânge toate fazele' : 'Extinde toate fazele'}
+                    </Button>
+                  </div>
+                  {phases.length === 0 ? (
+                    <div className="rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-6 py-12 text-center">
+                      <p className="text-base font-semibold text-ink">Niciun șablon importat</p>
+                      <p className="mx-auto mt-2 max-w-[52ch] text-sm leading-6 text-ink-soft">
+                        Importă un șablon ca să apară fazele și activitățile, cu cererile de documente organizate pe ele.
+                      </p>
+                    </div>
                   ) : (
-                    <>
-                    {phase.activities?.map(activity => (
-                      <ActivityFold
-                        key={activity.id}
-                        activity={activity}
-                        requestCount={allDocRequests.filter((r: any) => !r.is_outgoing && r.activity_id === activity.id).length}
-                        open={expandedActivityIds.has(activity.id)}
-                        onOpenChange={() => handleToggleActivity(activity.id)}
-                        canAssign={canEdit}
-                        projectMembers={projectMembers}
-                        onAssign={assignedTo => { handleAssignActivity(phase.id, activity.id, assignedTo).catch(() => {}) }}
-                        visibility={activity.visibility}
-                        canPublish={canEdit}
-                        publishBlockers={publishBlockers({
-                          kind: 'activity',
-                          currentDeadline: activity.deadline_at,
-                          currentAssignee: activity.assigned_to,
-                        })}
-                        onSetDeadline={date => saveActivityDeadline(phase.id, activity.id, date)}
-                        actions={canEdit ? (
-                          <RowActionsMenu
-                            label={`Acțiuni pentru activitatea ${activity.name}`}
-                            busy={duplicatingId === activity.id || deletingId === activity.id}
-                            actions={[
-                              {
-                                label: 'Redenumește',
-                                icon: <Pencil className="w-3 h-3" />,
-                                onSelect: () => setRenamingId(activity.id),
-                              },
-                              {
-                                label: 'Duplică',
-                                icon: <Copy className="w-3 h-3" />,
-                                onSelect: () => { void handleDuplicateActivity(phase.id, activity.id, activity.name) },
-                              },
-                              {
-                                label: 'Șterge',
-                                icon: <Trash2 className="w-3 h-3" />,
-                                danger: true,
-                                hidden: !isAdmin,
-                                onSelect: () => { void askToDeleteActivity(phase, activity) },
-                              },
-                            ]}
-                          />
-                        ) : undefined}
-                        renaming={renamingId === activity.id}
-                        renameLoading={savingRename === activity.id}
-                        onRenameSubmit={name => { void renameItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, activity.id, name) }}
-                        onRenameCancel={() => setRenamingId(null)}
-                        onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, {
-                          title: 'Publică activitatea?',
-                          description: phase.visibility === 'published'
-                            ? 'Activitatea va deveni vizibilă clientului.'
-                            : `Activitatea va fi publicată, dar clientul o va vedea doar după ce publici faza „${phase.name}”.`,
-                        })}
-                      >
-                        <DocumentRequests
-                          projectId={projectId}
-                          activityId={activity.id}
-                          activityName={activity.name}
-                          parentActivityVisibility={activity.visibility}
-                          parentActivityAssignee={activity.assigned_to}
-                          parentPhaseName={phase.name}
-                          parentPhaseVisibility={phase.visibility}
-                          projectMembers={projectMembers}
-                          externalRequests={allDocRequests}
-                          onRefresh={refreshDocs}
-                          clientEmail={project?.profiles?.email ?? null}
-                          clientName={project?.profiles?.full_name ?? null}
-                          projectTitle={project?.title}
-                          autoOpenRequestId={autoOpenRequestId}
+                    <div className="space-y-5">
+                  {phases.filter(phase => expandedPhases.has(phase.id)).map(phase => (
+                    <PhaseAccordionSection
+                      key={phase.id}
+                      id={phase.id}
+                      title={phase.name}
+                      subtitle={`${phase.activities?.length ?? 0} activit${phase.activities?.length === 1 ? 'ate' : 'ăți'}`}
+                      band={bandFor(phases.findIndex(p => p.id === phase.id))}
+                      draft={canEdit && phase.visibility !== 'published'}
+                      headerRight={
+                        <PublishStatusControl
+                          status={phase.visibility ?? 'draft'}
+                          canPublish={canEdit}
+                          showPublishedStatus={canEdit}
+                          onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}`, {
+                            title: 'Publică faza?',
+                            description: 'Faza va deveni vizibilă clientului. Activitățile și cererile deja publicate din această fază vor deveni vizibile.',
+                          })}
                         />
-                      </ActivityFold>
-                    ))}
-                    {canEdit && (
-                      showAddActivity[phase.id] ? (
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            autoFocus
-                            value={newActivityName[phase.id] || ''}
-                            onChange={e => setNewActivityName(prev => ({ ...prev, [phase.id]: e.target.value }))}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') handleAddActivity(phase.id)
-                              if (e.key === 'Escape') setShowAddActivity(prev => ({ ...prev, [phase.id]: false }))
-                            }}
-                            placeholder="Nume activitate..."
-                            disabled={!!addingActivity[phase.id]}
-                            className="flex-1 text-sm px-3 py-2 rounded-lg border border-[var(--p-border-strong)] bg-[var(--p-surface)] text-[var(--p-ink)] outline-none focus:ring-2 focus:ring-[var(--p-accent)]/20 focus:border-[var(--p-accent)]"
-                          />
-                          <button
-                            onClick={() => handleAddActivity(phase.id)}
-                            disabled={!!addingActivity[phase.id] || !(newActivityName[phase.id] || '').trim()}
-                            className="p-2 rounded-lg bg-[var(--p-success-soft)] text-[var(--p-success)] hover:opacity-80 disabled:opacity-40 flex-shrink-0"
-                          >
-                            {addingActivity[phase.id] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                          </button>
-                          <button
-                            onClick={() => setShowAddActivity(prev => ({ ...prev, [phase.id]: false }))}
-                            className="p-2 rounded-lg bg-[var(--p-surface-2)] text-[var(--p-ink-soft)] hover:opacity-80 flex-shrink-0"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
+                      }
+                      actions={canEdit ? (
+                        <RowActionsMenu
+                          label={`Acțiuni pentru faza ${phase.name}`}
+                          busy={duplicatingId === phase.id || deletingId === phase.id}
+                          actions={[
+                            {
+                              label: 'Redenumește',
+                              icon: <Pencil className="w-3 h-3" />,
+                              onSelect: () => setRenamingId(phase.id),
+                            },
+                            {
+                              label: 'Duplică',
+                              icon: <Copy className="w-3 h-3" />,
+                              onSelect: () => { void handleDuplicatePhase(phase.id, phase.name) },
+                            },
+                            {
+                              label: 'Șterge',
+                              icon: <Trash2 className="w-3 h-3" />,
+                              danger: true,
+                              hidden: !isAdmin,
+                              onSelect: () => { void askToDeletePhase(phase) },
+                            },
+                          ]}
+                        />
+                      ) : undefined}
+                      renaming={renamingId === phase.id}
+                      renameLoading={savingRename === phase.id}
+                      onRenameSubmit={name => { void renameItem(`/api/projects/${projectId}/phases/${phase.id}`, phase.id, name) }}
+                      onRenameCancel={() => setRenamingId(null)}
+                      open={expandedPhases.has(phase.id)}
+                      onOpenChange={() => handleToggleExpand(phase.id)}
+                    >
+                      {(phase.activities?.length ?? 0) === 0 && !canEdit ? (
+                        <p className="text-sm text-[var(--p-ink-faint)]">Nicio activitate în această fază.</p>
                       ) : (
-                        <button
-                          onClick={() => setShowAddActivity(prev => ({ ...prev, [phase.id]: true }))}
-                          className="flex items-center gap-1.5 text-sm font-medium text-[var(--p-accent)] hover:opacity-80 transition-opacity"
-                        >
-                          <Plus className="w-4 h-4" />
-                          Adaugă activitate
-                        </button>
-                      )
-                    )}
-                    </>
+                        <>
+                        {phase.activities?.map(activity => (
+                          <ActivityFold
+                            key={activity.id}
+                            activity={activity}
+                            requestCount={allDocRequests.filter((r: any) => !r.is_outgoing && r.activity_id === activity.id).length}
+                            open={expandedActivityIds.has(activity.id)}
+                            onOpenChange={() => handleToggleActivity(activity.id)}
+                            canAssign={canEdit}
+                            projectMembers={projectMembers}
+                            onAssign={assignedTo => { handleAssignActivity(phase.id, activity.id, assignedTo).catch(() => {}) }}
+                            visibility={activity.visibility}
+                            canPublish={canEdit}
+                            publishBlockers={publishBlockers({
+                              kind: 'activity',
+                              currentDeadline: activity.deadline_at,
+                              currentAssignee: activity.assigned_to,
+                            })}
+                            onSetDeadline={date => saveActivityDeadline(phase.id, activity.id, date)}
+                            actions={canEdit ? (
+                              <RowActionsMenu
+                                label={`Acțiuni pentru activitatea ${activity.name}`}
+                                busy={duplicatingId === activity.id || deletingId === activity.id}
+                                actions={[
+                                  {
+                                    label: 'Redenumește',
+                                    icon: <Pencil className="w-3 h-3" />,
+                                    onSelect: () => setRenamingId(activity.id),
+                                  },
+                                  {
+                                    label: 'Duplică',
+                                    icon: <Copy className="w-3 h-3" />,
+                                    onSelect: () => { void handleDuplicateActivity(phase.id, activity.id, activity.name) },
+                                  },
+                                  {
+                                    label: 'Șterge',
+                                    icon: <Trash2 className="w-3 h-3" />,
+                                    danger: true,
+                                    hidden: !isAdmin,
+                                    onSelect: () => { void askToDeleteActivity(phase, activity) },
+                                  },
+                                ]}
+                              />
+                            ) : undefined}
+                            renaming={renamingId === activity.id}
+                            renameLoading={savingRename === activity.id}
+                            onRenameSubmit={name => { void renameItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, activity.id, name) }}
+                            onRenameCancel={() => setRenamingId(null)}
+                            onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, {
+                              title: 'Publică activitatea?',
+                              description: phase.visibility === 'published'
+                                ? 'Activitatea va deveni vizibilă clientului.'
+                                : `Activitatea va fi publicată, dar clientul o va vedea doar după ce publici faza „${phase.name}”.`,
+                            })}
+                          >
+                            <DocumentRequests
+                              projectId={projectId}
+                              activityId={activity.id}
+                              activityName={activity.name}
+                              parentActivityVisibility={activity.visibility}
+                              parentActivityAssignee={activity.assigned_to}
+                              parentPhaseName={phase.name}
+                              parentPhaseVisibility={phase.visibility}
+                              projectMembers={projectMembers}
+                              externalRequests={allDocRequests}
+                              onRefresh={refreshDocs}
+                              clientEmail={project?.profiles?.email ?? null}
+                              clientName={project?.profiles?.full_name ?? null}
+                              projectTitle={project?.title}
+                              autoOpenRequestId={autoOpenRequestId}
+                            />
+                          </ActivityFold>
+                        ))}
+                        {canEdit && (
+                          showAddActivity[phase.id] ? (
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                autoFocus
+                                value={newActivityName[phase.id] || ''}
+                                onChange={e => setNewActivityName(prev => ({ ...prev, [phase.id]: e.target.value }))}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') handleAddActivity(phase.id)
+                                  if (e.key === 'Escape') setShowAddActivity(prev => ({ ...prev, [phase.id]: false }))
+                                }}
+                                placeholder="Nume activitate..."
+                                disabled={!!addingActivity[phase.id]}
+                                className="flex-1 text-sm px-3 py-2 rounded-lg border border-[var(--p-border-strong)] bg-[var(--p-surface)] text-[var(--p-ink)] outline-none focus:ring-2 focus:ring-[var(--p-accent)]/20 focus:border-[var(--p-accent)]"
+                              />
+                              <button
+                                onClick={() => handleAddActivity(phase.id)}
+                                disabled={!!addingActivity[phase.id] || !(newActivityName[phase.id] || '').trim()}
+                                className="p-2 rounded-lg bg-[var(--p-success-soft)] text-[var(--p-success)] hover:opacity-80 disabled:opacity-40 flex-shrink-0"
+                              >
+                                {addingActivity[phase.id] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                              </button>
+                              <button
+                                onClick={() => setShowAddActivity(prev => ({ ...prev, [phase.id]: false }))}
+                                className="p-2 rounded-lg bg-[var(--p-surface-2)] text-[var(--p-ink-soft)] hover:opacity-80 flex-shrink-0"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setShowAddActivity(prev => ({ ...prev, [phase.id]: true }))}
+                              className="flex min-h-11 items-center gap-1.5 text-sm font-medium text-[var(--sg-accent)] underline-offset-4 hover:underline sm:min-h-9"
+                            >
+                              <Plus className="w-4 h-4" />
+                              Adaugă activitate
+                            </button>
+                          )
+                        )}
+                        </>
+                      )}
+                    </PhaseAccordionSection>
+                  ))}
+                    </div>
                   )}
-                </PhaseAccordionSection>
-              ))}
 
-              {/* ── Secțiune distinctă: Cereri generale (fără fază/activitate) ── */}
-              {expandedPhases.has(GENERAL_ID) && (
-                <PhaseAccordionSection
-                  id={GENERAL_ID}
-                  title="Cereri generale"
-                  subtitle="Documente care nu țin de o anumită fază a proiectului."
-                  icon={<FolderOpen className="w-4 h-4 text-indigo-500 flex-shrink-0" />}
-                  headerRight={
-                    isAdmin ? (
-                      <select
-                        value={project?.general_consultant_id ?? ''}
-                        onClick={e => e.stopPropagation()}
-                        onChange={e => handleAssignGeneralConsultant(e.target.value || null)}
-                        aria-label="Atribuie consultant pentru cererile generale"
-                        className="max-w-40 text-xs border border-slate-200 rounded-md px-1.5 py-1 text-slate-700 bg-white"
-                      >
-                        <option value="">Neatribuit</option>
-                        {projectMembers.map(m => <option key={m.id} value={m.id}>{m.full_name || m.email}</option>)}
-                      </select>
-                    ) : (
-                      <span className="text-xs text-slate-500">
-                        {project?.general_consultant?.full_name ?? project?.general_consultant?.email ?? 'Neatribuit'}
-                      </span>
-                    )
-                  }
+                  {/* ── Secțiune distinctă: Cereri generale (fără fază/activitate) ── */}
+                  {expandedPhases.has(GENERAL_ID) && (
+                    <PhaseAccordionSection
+                      id={GENERAL_ID}
+                      title="Cereri generale"
+                      subtitle="Documente care nu țin de o anumită fază a proiectului."
+                      icon={<FolderOpen className="h-4 w-4 shrink-0 text-[var(--sg-accent)]" aria-hidden="true" />}
+                      headerRight={
+                        isAdmin ? (
+                          <select
+                            value={project?.general_consultant_id ?? ''}
+                            onClick={e => e.stopPropagation()}
+                            onChange={e => handleAssignGeneralConsultant(e.target.value || null)}
+                            aria-label="Atribuie consultant pentru cererile generale"
+                            className="h-11 max-w-44 rounded-[var(--radius-plate)] border border-rule bg-plate px-2 text-sm text-ink focus:border-[var(--sg-accent)] sm:h-9"
+                          >
+                            <option value="">Neatribuit</option>
+                            {projectMembers.map(m => <option key={m.id} value={m.id}>{m.full_name || m.email}</option>)}
+                          </select>
+                        ) : (
+                          <span className="text-sm text-ink-soft">
+                            {project?.general_consultant?.full_name ?? project?.general_consultant?.email ?? 'Neatribuit'}
+                          </span>
+                        )
+                      }
                   open={expandedPhases.has(GENERAL_ID)}
                   onOpenChange={() => handleToggleExpand(GENERAL_ID)}
                 >
@@ -1480,7 +1513,7 @@ function ProjectDetailsContent() {
                 </PhaseAccordionSection>
               )}
             </div>
-          )}
+                  ) : null}
             </>
           )}
         </main>
@@ -1532,8 +1565,8 @@ export default function ProjectDetailsPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex h-screen items-center justify-center bg-slate-50">
-          <div className="w-10 h-10 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin" />
+        <div className="flex h-screen items-center justify-center bg-paper" role="status" aria-live="polite">
+          <Spinner />
         </div>
       }
     >

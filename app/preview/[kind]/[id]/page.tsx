@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, use } from 'react'
 import { Download, Loader2, AlertCircle, FileText } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
-import { getExtension, isImageFileName } from '@/lib/file-preview'
+import { getExtension, isImageFileName, downloadUrl } from '@/lib/file-preview'
 
 // Vizualizare într-o pagină proprie: fișierul e descărcat din Supabase Storage
 // (URL semnat, obținut în culise) și afișat printr-un blob URL. Adresa din bară
@@ -125,12 +125,7 @@ export default function PreviewPage({
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error || 'Eroare la descărcare')
-      const a = document.createElement('a')
-      a.href = data.url
-      a.rel = 'noopener'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
+      downloadUrl(data.url)
     } catch {
       showToast('Nu am putut descărca fișierul. Reîncearcă.', 'error')
     } finally {
@@ -139,46 +134,46 @@ export default function PreviewPage({
   }
 
   return (
-    <div className="h-screen flex flex-col bg-slate-100">
+    <div className="h-screen flex flex-col bg-paper-sunk">
       {/* Bară de titlu */}
-      <div className="flex-shrink-0 flex items-center gap-3 px-4 sm:px-6 py-3 bg-white border-b border-slate-200 shadow-sm z-10">
-        <div className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 flex-shrink-0">
+      <div className="flex-shrink-0 flex items-center gap-3 px-4 sm:px-6 py-3 bg-white border-b border-rule shadow-sm z-10">
+        <div className="w-9 h-9 rounded-lg bg-[var(--sg-accent-soft)] border border-[var(--sg-accent)] flex items-center justify-center text-[var(--sg-accent)] flex-shrink-0">
           <FileText className="w-4 h-4" />
         </div>
-        <p className="flex-1 min-w-0 truncate text-sm font-semibold text-slate-900">
+        <p className="flex-1 min-w-0 truncate text-sm font-semibold text-ink">
           {fileName || 'Document'}
         </p>
         <button
           onClick={handleDownload}
           disabled={downloading}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-60 flex-shrink-0"
+          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-rule bg-white text-sm font-semibold text-ink hover:bg-paper-sunk transition-colors disabled:opacity-60 flex-shrink-0"
         >
           {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-          <span className="hidden sm:inline">Descarcă</span>
+          <span className="hidden sm:inline">Descarcă</span><span className="sr-only sm:hidden">Descarcă</span>
         </button>
       </div>
 
       {/* Conținut */}
       {status === 'loading' && (
         <div className="flex-1 flex flex-col items-center justify-center gap-3">
-          <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-          <p className="text-sm text-slate-500">Se încarcă fișierul…</p>
+          <Loader2 className="w-8 h-8 animate-spin text-[var(--sg-accent)]" />
+          <p className="text-sm text-ink-soft">Se încarcă fișierul…</p>
         </div>
       )}
 
       {status === 'error' && (
         <div className="flex-1 flex flex-col items-center justify-center px-6 text-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center">
-            <AlertCircle className="w-8 h-8 text-amber-600" />
+          <div className="w-16 h-16 rounded-2xl bg-[var(--sg-warn-soft)] border border-[var(--sg-warn)] flex items-center justify-center">
+            <AlertCircle className="w-8 h-8 text-[var(--sg-warn)]" />
           </div>
           <div>
-            <p className="text-base font-bold text-slate-900 mb-1">Vizualizarea nu este disponibilă</p>
-            <p className="text-sm text-slate-500 max-w-md">{error}</p>
+            <p className="text-base font-bold text-ink mb-1">Vizualizarea nu este disponibilă</p>
+            <p className="text-sm text-ink-soft max-w-md">{error}</p>
           </div>
           <button
             onClick={handleDownload}
             disabled={downloading}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--sg-accent)] text-white text-sm font-semibold hover:bg-[var(--sg-accent-ink)] transition-colors disabled:opacity-60"
           >
             {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
             Descarcă fișierul

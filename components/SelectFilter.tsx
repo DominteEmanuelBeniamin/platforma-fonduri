@@ -2,6 +2,7 @@
 
 import { ChevronDown } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
+import { FloatingSurface } from './ui/Surface'
 
 export type SelectFilterOption = { value: string; label: string }
 
@@ -126,42 +127,40 @@ export default function SelectFilter({
         aria-activedescendant={open ? optionId(active) : undefined}
         onClick={() => (open ? setOpen(false) : openAt(selectedIndex))}
         onKeyDown={onKeyDown}
-        className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-left text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        className="flex h-11 w-full items-center justify-between gap-2 rounded-[var(--radius-plate)] border border-rule bg-plate px-4 text-left text-sm transition-colors duration-[120ms] focus:border-[var(--sg-accent)] sm:h-10"
       >
-        <span className={`truncate ${selected ? 'text-slate-700' : 'text-slate-500'}`}>
+        <span className={`truncate ${selected ? 'text-ink' : 'text-ink-soft'}`}>
           {selected?.label ?? placeholder}
         </span>
-        <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`h-4 w-4 shrink-0 text-ink-faint transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div
-          ref={listRef}
-          id={listboxId}
-          role="listbox"
-          aria-label={ariaLabel}
-          className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+        <FloatingSurface
+          className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-[var(--radius-plate-lg)] py-1"
         >
-          {items.map((option, index) => (
-            <button
-              key={option.value || '__all__'}
-              id={optionId(index)}
-              type="button"
-              role="option"
-              tabIndex={-1}
-              aria-selected={index === selectedIndex}
-              onPointerEnter={() => setActiveIndex(index)}
-              onClick={() => commit(index)}
-              className={`block w-full truncate px-4 py-2 text-left text-sm transition-colors ${index === selectedIndex
-                ? 'bg-indigo-50 font-semibold text-indigo-700'
-                : index === active
-                  ? 'bg-slate-50 text-slate-700'
-                  : 'text-slate-600'}`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+          <div ref={listRef} id={listboxId} role="listbox" aria-label={ariaLabel}>
+            {items.map((option, index) => (
+              <button
+                key={option.value || '__all__'}
+                id={optionId(index)}
+                type="button"
+                role="option"
+                tabIndex={-1}
+                aria-selected={index === selectedIndex}
+                onPointerEnter={() => setActiveIndex(index)}
+                onClick={() => commit(index)}
+                className={`block w-full truncate px-4 py-2 text-left text-sm transition-colors duration-[120ms] ${index === selectedIndex
+                  ? 'bg-[var(--sg-accent-soft)] font-semibold text-[var(--sg-accent)]'
+                  : index === active
+                    ? 'bg-paper-sunk text-ink'
+                    : 'text-ink-soft'}`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </FloatingSurface>
       )}
     </div>
   )

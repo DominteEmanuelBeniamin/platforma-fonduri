@@ -12,7 +12,8 @@ import {
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { useRouter } from 'next/navigation'
-import { isPreviewableFile, buildPreviewPageUrl, openInNewTab } from '@/lib/file-preview'
+import { isPreviewableFile, buildPreviewPageUrl, openInNewTab, downloadUrl } from '@/lib/file-preview'
+import { formatDate } from '@/lib/signage'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -59,7 +60,7 @@ function FileThumb({ path, previewUrl }: { path: string; previewUrl?: string }) 
   const e = getExt(path)
   if (isImageExt(e) && previewUrl) {
     return (
-      <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 border border-slate-100 shadow-sm">
+      <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 border border-rule shadow-sm">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={previewUrl} alt="" className="w-full h-full object-cover" />
       </div>
@@ -104,14 +105,10 @@ function StatusPill({ status }: { status: string }) {
 
 function RoleBadge({ role }: { role: string }) {
   if (role === 'admin')
-    return <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-red-50 text-red-700 ring-1 ring-red-200"><Shield className="w-3 h-3" />Administrator</span>
+    return <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-[var(--sg-danger-soft)] text-[var(--sg-danger)] ring-1 ring-[var(--sg-danger)]"><Shield className="w-3 h-3" />Administrator</span>
   if (role === 'consultant')
-    return <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-purple-50 text-purple-700 ring-1 ring-purple-200"><Briefcase className="w-3 h-3" />Consultant</span>
-  return <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"><Building2 className="w-3 h-3" />Client</span>
-}
-
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' })
+    return <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-[var(--sg-accent-soft)] text-[var(--sg-accent)] ring-1 ring-[var(--sg-accent)]"><Briefcase className="w-3 h-3" />Consultant</span>
+  return <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-[var(--sg-ok-soft)] text-[var(--sg-ok)] ring-1 ring-[var(--sg-ok)]"><Building2 className="w-3 h-3" />Client</span>
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -218,8 +215,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
       })
       if (!res.ok) { showToast('Nu am putut descărca fișierul. Reîncearcă.', 'error'); return }
       const { url } = await res.json()
-      const a = document.createElement('a'); a.href = url; a.rel = 'noopener'
-      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      downloadUrl(url)
     } finally { setDownloading(null) }
   }
 
@@ -278,25 +274,25 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
         style={{ fontFamily: "'Google Sans', Roboto, Arial, sans-serif" }}>
 
         {/* ── Header ── */}
-        <div className="flex-shrink-0 px-6 pt-5 pb-4 border-b border-slate-100">
+        <div className="flex-shrink-0 px-6 pt-5 pb-4 border-b border-rule">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-4">
               {/* Avatar */}
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white flex items-center justify-center text-lg font-bold flex-shrink-0 shadow-md">
+              <div className="w-14 h-14 rounded-2xl bg-[var(--sg-accent)] text-white flex items-center justify-center text-lg font-bold flex-shrink-0 shadow-md">
                 {initials}
               </div>
               <div>
-                <h2 className="text-base font-bold text-slate-900 leading-tight">{user.full_name || '—'}</h2>
-                <p className="text-xs text-slate-400 mt-0.5">{user.email}</p>
+                <h2 className="text-base font-bold text-ink leading-tight">{user.full_name || '—'}</h2>
+                <p className="text-xs text-ink-faint mt-0.5">{user.email}</p>
                 <div className="mt-2 flex items-center gap-2 flex-wrap">
                   <RoleBadge role={user.role} />
                   {user.cif && (
-                    <span className="text-[11px] font-medium bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
+                    <span className="text-[11px] font-medium bg-paper-sunk text-ink-soft px-2 py-0.5 rounded-full">
                       CIF {user.cif}
                     </span>
                   )}
                   {user.specializare && (
-                    <span className="text-[11px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
+                    <span className="text-[11px] bg-paper-sunk text-ink-soft px-2 py-0.5 rounded-full">
                       {user.specializare}
                     </span>
                   )}
@@ -304,7 +300,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
               </div>
             </div>
             <button onClick={onClose}
-              className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors flex-shrink-0">
+              className="p-2 rounded-xl text-ink-faint hover:text-ink hover:bg-paper-sunk transition-colors flex-shrink-0">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -319,7 +315,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                 stats.pending  > 0 && { label: `${stats.pending} în așteptare`, dot: '#f59e0b' },
                 stats.rejected > 0 && { label: `${stats.rejected} respinse`, dot: '#ef4444' },
               ].filter(Boolean).map((s: any) => (
-                <span key={s.label} className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                <span key={s.label} className="inline-flex items-center gap-1.5 text-xs text-ink-soft">
                   <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: s.dot }} />
                   {s.label}
                 </span>
@@ -330,7 +326,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
 
         {/* ── Search + Filters ── */}
         {!loading && allDocs.length > 0 && (
-          <div className="flex-shrink-0 px-6 py-3 border-b border-slate-100 flex gap-2 flex-wrap items-center">
+          <div className="flex-shrink-0 px-6 py-3 border-b border-rule flex gap-2 flex-wrap items-center">
             {/* Search */}
             <div className="relative flex-1 min-w-[180px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#9aa0a6' }} />
@@ -452,7 +448,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
               {sorted.map((req, idx) => {
                 const latest = [...(req.files ?? [])].sort((a: any, b: any) => b.version_number - a.version_number)[0] ?? null
                 const previewUrl = latest ? previewUrls[latest.id] : undefined
-                const dateStr = latest?.created_at ? fmtDate(latest.created_at) : fmtDate(req.created_at)
+                const dateStr = latest?.created_at ? formatDate(latest.created_at) : formatDate(req.created_at)
 
                 return (
                   <div key={req.id}

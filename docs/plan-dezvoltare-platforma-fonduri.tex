@@ -1,0 +1,223 @@
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[a4paper,top=14mm,bottom=14mm,left=16mm,right=16mm,headheight=22pt,headsep=3mm]{geometry}
+\usepackage{fontspec}
+\usepackage[romanian]{babel}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usepackage{tcolorbox}
+\usepackage{lastpage}
+\usepackage{enumitem}
+\usepackage{pifont}
+
+\tcbuselibrary{skins,breakable,raster}
+
+\setmainfont{Inter}
+\setsansfont{Inter}
+\emergencystretch=2em
+
+\definecolor{Navy}{HTML}{17223B}
+\definecolor{Blue}{HTML}{2456C4}
+\definecolor{BlueSoft}{HTML}{EDF2FC}
+\definecolor{Ink}{HTML}{202938}
+\definecolor{Muted}{HTML}{626D7C}
+\definecolor{Line}{HTML}{DDE3EB}
+\definecolor{Green}{HTML}{147A4B}
+\definecolor{GreenSoft}{HTML}{E7F5ED}
+\definecolor{Amber}{HTML}{96660C}
+\definecolor{AmberSoft}{HTML}{FBF1DE}
+
+\setlist[itemize]{leftmargin=5mm,itemsep=1.3mm,topsep=1.5mm}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=Blue,
+  urlcolor=Blue,
+  pdfauthor={Platforma Fonduri},
+  pdftitle={Platforma Fonduri — Plan de livrare}
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize\color{Muted}Platforma Fonduri · Plan de livrare}
+\fancyfoot[R]{\footnotesize\color{Muted}\thepage/\pageref*{LastPage}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{Line}\leaders\hrule height \headrulewidth\hfill}}
+
+\newtcolorbox{requirementbox}[1][]{
+  enhanced, breakable,
+  colback=white,
+  colframe=Line,
+  boxrule=0.6pt,
+  arc=1.7mm,
+  left=3.5mm,right=3.5mm,top=2.4mm,bottom=2.4mm,
+  borderline west={2.4pt}{0pt}{Blue},
+  before skip=1.8mm,
+  after skip=1.8mm,
+  #1
+}
+
+\newtcolorbox{statbox}[1][]{
+  enhanced, breakable,
+  colback=BlueSoft,
+  colframe=Line,
+  boxrule=0.6pt,
+  arc=1.7mm,
+  left=3mm,right=3mm,top=2.6mm,bottom=2.6mm,
+  #1
+}
+
+\newtcolorbox{donebox}[1][]{
+  enhanced, breakable,
+  colback=GreenSoft,
+  colframe=Green,
+  boxrule=0.6pt,
+  arc=1.7mm,
+  left=3.5mm,right=3.5mm,top=2.4mm,bottom=2.4mm,
+  before skip=1.8mm,
+  after skip=1.8mm,
+  #1
+}
+
+\newtcolorbox{notebox}[1][]{
+  enhanced, breakable,
+  colback=BlueSoft,
+  colframe=Blue,
+  boxrule=0.6pt,
+  arc=1.7mm,
+  left=3.5mm,right=3.5mm,top=2.4mm,bottom=2.4mm,
+  before skip=1.8mm,
+  after skip=1.8mm,
+  #1
+}
+
+\newtcolorbox{riskbox}[1][]{
+  enhanced, breakable,
+  colback=AmberSoft,
+  colframe=Amber,
+  boxrule=0.6pt,
+  arc=1.7mm,
+  left=3.5mm,right=3.5mm,top=2.4mm,bottom=2.4mm,
+  before skip=1.8mm,
+  after skip=1.8mm,
+  #1
+}
+
+\newtcolorbox{checkpointbox}[1][]{
+  enhanced, breakable,
+  colback=white,
+  colframe=Line,
+  boxrule=0.6pt,
+  arc=1.7mm,
+  left=3.5mm,right=3.5mm,top=2.4mm,bottom=2.4mm,
+  borderline west={2.4pt}{0pt}{Muted},
+  before skip=1.8mm,
+  after skip=1.8mm,
+  #1
+}
+
+\newcommand{\phase}[3]{%
+  \begin{requirementbox}
+  \makebox[\linewidth]{\textbf{\color{Navy}#1}\hfill{\footnotesize\color{Muted}#2}}\par
+  \vspace{1.3mm}
+  #3
+  \end{requirementbox}
+}
+
+\newcommand{\checkpoint}[3]{%
+  \begin{checkpointbox}
+  \makebox[\linewidth]{\textbf{\color{Muted}#1}\hfill{\footnotesize\color{Muted}#2}}\par
+  \vspace{1mm}
+  {\footnotesize\color{Muted}#3}
+  \end{checkpointbox}
+}
+
+\newcommand{\rn}[1]{\textbf{\footnotesize\color{Blue}#1}~}
+\newcommand{\aside}[1]{{\footnotesize\color{Muted}~— #1}}
+
+\begin{document}
+
+{\fontsize{13}{16}\selectfont\bfseries\color{Navy}Deja disponibil acum}\par
+\vspace{1mm}
+{\footnotesize\color{Muted}Live pe platformă, fără să mai aștepte roadmap-ul de mai jos.}\par
+\vspace{1.5mm}
+
+\begin{donebox}
+\begin{itemize}[label={\color{Green}\ding{51}},leftmargin=5.5mm]
+\item \rn{\#1} Reordonare manuală a fazelor și cererilor
+\item \rn{\#2} Trimiterea mai multor documente deodată
+\item \rn{\#9} Cererile de documente se deschid corect pentru client
+\item \rn{\#14} Clientul vede mereu ultima versiune a documentului
+\item \rn{\#17} Previzualizare PDF și imagini direct în browser
+\item \rn{\#18} Mai multe fișiere-model pe aceeași cerere
+\end{itemize}
+\end{donebox}
+
+\vspace{4mm}
+{\fontsize{13}{16}\selectfont\bfseries\color{Navy}Ce urmează, în ordine}\par
+\vspace{1mm}
+{\footnotesize\color{Muted}Fiecare fază e utilizabilă de-a lungul ei, nu doar la final — se poate arăta progres real la fiecare 1–2 săptămâni.}\par
+\vspace{1.5mm}
+
+\begin{notebox}
+\textbf{\color{Blue}Notă despre audit (\#22):} nu apare ca fază separată mai jos — fiecare funcționalitate nouă înregistrează din construcție acțiunile relevante în jurnalul de audit, pe măsură ce se livrează, nu abia la final.
+\end{notebox}
+
+\phase{Faza 1}{17 – 31 iulie}{
+\begin{itemize}
+\item \rn{\#3} Pagina principală (Home), refăcută și mai ușor de folosit\aside{„elementele necitite” arată doar chatul până se leagă cu centrul de notificări din Faza 4 (\#19)}
+\item \rn{\#4} Pagina fiecărui proiect, refăcută\aside{calendarul rămâne loc rezervat până în Faza 3 (\#12); Drive-ul arată organizarea actuală până la dosarele pe fază din Faza 3 (\#13); chatul rămâne neschimbat până la restricția din Faza 5 (\#16)}
+\item \rn{\#11} Căutare rapidă în interiorul unui proiect\aside{parte din refacerea paginii proiectului (\#4), livrate împreună}
+\item \rn{\#5} Mesajele din aplicație arată clar dacă e o confirmare, o avertizare sau o eroare reală
+\item \rn{\#6} Șabloanele trec printr-o etapă de verificare înainte să fie publicate
+\item \rn{\#8} Fazele și cererile pot fi ținute „în lucru” până sunt gata, ascunse din proiect și căutare\aside{notificarea prin email către client la publicare ajunge în Faza 2, odată cu \#7; ascunderea din calendar se activează în Faza 3 (\#12), din notificări în Faza 4 (\#19)}
+\end{itemize}
+}
+
+\phase{Faza 2}{3 – 7 august}{
+\begin{itemize}
+\item \rn{\#7} Emailuri trimise direct din platformă, de pe adresa firmei — nu din inboxul personal al consultantului\aside{include și notificarea de publicare cerută de \#8}
+\item \rn{\#10} Consultanții pot crea proiecte fără să aștepte un administrator
+\end{itemize}
+}
+
+\phase{Faza 3}{10 – 14 august}{
+\begin{itemize}
+\item \rn{\#12 \#20} Calendar de termene în fiecare proiect, plus unul general pentru fiecare consultant\aside{include integrarea finală în pagina proiectului (\#4) și ascunderea elementelor „în lucru” cerută de \#8}
+\item \rn{\#21} Remindere automate trimise pe email înainte de fiecare termen
+\item \rn{\#13} Documentele organizate pe dosare, câte unul per fază, în Drive
+\end{itemize}
+}
+
+\phase{Faza 4}{17 – 28 august}{
+\begin{itemize}
+\item \rn{\#19} Centru unic de notificări pentru toți utilizatorii\aside{acoperă evenimentele de la lansare încolo; publicările (\#8) și reminderele (\#21) din Fazele 2-3 nu apar retroactiv, doar cele noi; câteva zile în plus față de estimarea inițială, e cel mai complex item din tot planul}
+\item \rn{\#23} Tablou de bord pentru administrator, cu toate proiectele, stadiul și termenele
+\item \rn{\#24} Listă centralizată cu toate task-urile, sortate după termen
+\end{itemize}
+}
+
+\phase{Faza 5}{31 august – 4 septembrie}{
+\begin{itemize}
+\item \rn{\#15} Duplicarea rapidă a fazelor și activităților deja definite
+\item \rn{\#16} În chat se pot trimite imagini și linkuri către documentele proiectului\aside{restul fișierelor rămân în fluxurile lor dedicate, iar chatul îndrumă acolo}
+\item \rn{\#22} Verificare finală: confirmăm că toate acțiunile noi din Fazele 1-4 apar corect în jurnalul de audit
+\end{itemize}
+}
+
+\begin{notebox}
+\textbf{\color{Blue}Faza 6, în afara celor 24 de cerințe:} pe parcursul dezvoltării a ieșit la iveală că nimic din platformă nu poate fi marcat ca terminat: niciuna din cele 54 de activități și niciuna din cele 40 de faze. De aceea tabloul de bord livrat în Faza 4 arată zero peste tot, iar reminderele continuă să sune pentru muncă deja făcută. Faza 6 astupă golul și închide livrarea.
+\end{notebox}
+
+\phase{Faza 6}{7 – 11 septembrie}{
+\begin{itemize}
+\item Activitățile și fazele pot fi marcate ca finalizate, și readuse în lucru dacă e nevoie\aside{de aici încolo tabloul de bord și calendarul arată numere reale, iar reminderele se opresc pentru ce e gata}
+\item Un proiect terminat poate fi închis și iese din listele curente, fără să se piardă
+\item Revizie finală înainte de predare: fluxurile complete pe toate rolurile, pe calculator și pe telefon, plus emailurile verificate pe conturi reale
+\end{itemize}
+}
+
+\end{document}

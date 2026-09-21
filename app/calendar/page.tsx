@@ -6,6 +6,7 @@ import { CalendarDays, Loader2 } from 'lucide-react'
 
 import { useAuth } from '@/app/providers/AuthProvider'
 import CalendarSurface from '@/components/calendar/CalendarSurface'
+import { Spinner } from '@/components/ui/Spinner'
 
 /**
  * Calendarul general (cerința 20): termenele din toate proiectele în care
@@ -28,7 +29,7 @@ function GeneralCalendarContent() {
   // eroarea de 403 licărind înainte de redirect.
   if (authLoading || !token || !profile || profile.role === 'client') {
     return (
-      <div className="flex items-center justify-center gap-2 py-24 text-sm text-slate-500">
+      <div className="flex items-center justify-center gap-2 py-24 text-sm text-ink-soft" role="status">
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
         Se încarcă...
       </div>
@@ -60,7 +61,7 @@ export default function GeneralCalendarPage() {
     <Suspense
       fallback={
         <div className="flex items-center justify-center py-24">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
+          <Spinner />
         </div>
       }
     >

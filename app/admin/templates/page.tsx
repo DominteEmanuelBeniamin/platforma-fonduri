@@ -1,14 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
+import { useState, useEffect, useRef, useCallback, useMemo, Fragment, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createPortal } from 'react-dom'
 import {
-  Layers, Activity, FileText, ArrowLeft, Plus, Trash2,
-  ChevronDown, ChevronRight, Check, X, Paperclip, Upload,
-  Loader2, Edit2, AlertCircle, GripVertical, Copy
+  Layers, Activity, FileText, Plus, Trash2,
+  ChevronDown, ChevronRight, ChevronUp, Check, X, Paperclip, Upload,
+  Loader2, Edit2, AlertCircle, GripVertical, Copy,
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS, REQUIREMENT_BADGE, normalizeRequirementType } from '@/lib/requirement-type'
@@ -23,6 +22,15 @@ import {
   resolveDuplicationForSave,
 } from '@/app/api/_utils/template-duplication'
 import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
+import { Spinner } from '@/components/ui/Spinner'
+import { LocationStrip } from '@/components/ui/LocationStrip'
+import { Button } from '@/components/ui/Button'
+import { IconButton } from '@/components/ui/IconButton'
+import { SearchInput } from '@/components/ui/SearchInput'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { Plate } from '@/components/ui/Plate'
+import { Signal } from '@/components/ui/Signal'
+import { FloatingSurface, Scrim } from '@/components/ui/Surface'
 
 interface ProjectStatus {
   id: string
@@ -193,7 +201,7 @@ function generateSlug(text: string): string {
     .toLowerCase()
     .trim()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9\s-]/g, '')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
@@ -288,8 +296,74 @@ function getDeleteModalText(target: TemplateDeleteTarget | null) {
   }
 }
 
-export default function AdminTemplatesPage() {
+/** Reordonare cu un pas — perechea accesibilă de la tastatură a tragerii cu mouse-ul. */
+function moveInArray<T extends { id: string }>(list: T[], id: string, direction: -1 | 1): T[] {
+  const index = list.findIndex(item => item.id === id)
+  const targetIndex = index + direction
+  if (index === -1 || targetIndex < 0 || targetIndex >= list.length) return list
+  const next = [...list]
+  const [item] = next.splice(index, 1)
+  next.splice(targetIndex, 0, item)
+  return next
+}
+
+/** Câmpul de formular: etichetă, ajutor vizibil sub câmp și input. */
+function Camp({
+  label, required, hint, error, children,
+}: { label: string; required?: boolean; hint?: string; error?: string | null; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-semibold text-ink">
+        {label}{required && <span className="ml-0.5 text-[var(--sg-danger)]" aria-hidden="true">*</span>}
+      </span>
+      {children}
+      {error ? (
+        <span className="mt-1 block text-xs text-[var(--sg-danger)]">{error}</span>
+      ) : hint ? (
+        <span className="mt-1 block text-xs text-ink-soft">{hint}</span>
+      ) : null}
+    </label>
+  )
+}
+
+const inputClass =
+  'h-11 w-full rounded-[var(--radius-plate)] border border-rule bg-plate px-3 text-sm text-ink ' +
+  'placeholder:text-ink-faint transition-colors duration-[120ms] focus:border-[var(--sg-accent)] sm:h-10'
+const inputErrorClass =
+  'h-11 w-full rounded-[var(--radius-plate)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-3 text-sm text-ink ' +
+  'placeholder:text-ink-faint transition-colors duration-[120ms] focus:border-[var(--sg-danger)] sm:h-10'
+
+/** Perechea sus/jos — alternativa la tastatură a tragerii cu mouse-ul, cerută de WCAG 2.1.1. */
+function ReorderButtons({
+  itemLabel, onUp, onDown, disableUp, disableDown,
+}: { itemLabel: string; onUp: () => void; onDown: () => void; disableUp: boolean; disableDown: boolean }) {
+  return (
+    <div className="flex flex-col" role="group" aria-label={`Reordonează ${itemLabel}`}>
+      <button
+        type="button"
+        onClick={onUp}
+        disabled={disableUp}
+        aria-label={`Mută ${itemLabel} mai sus`}
+        className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
+      >
+        <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={onDown}
+        disabled={disableDown}
+        aria-label={`Mută ${itemLabel} mai jos`}
+        className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
+      >
+        <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+    </div>
+  )
+}
+
+function AdminTemplatesContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { loading: authLoading, token, apiFetch, profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const canEditTemplate = (template: Template) => isAdmin || template.status === 'draft'
@@ -298,10 +372,11 @@ export default function AdminTemplatesPage() {
   const [templates, setTemplates] = useState<Template[]>([])
   const [statuses, setStatuses] = useState<ProjectStatus[]>([])
   const [loading, setLoading] = useState(true)
-  
+  const [templateSearch, setTemplateSearch] = useState('')
+
   const [showForm, setShowForm] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null)
-  
+
   const [templateName, setTemplateName] = useState('')
   const [templateDescription, setTemplateDescription] = useState('')
   const [phases, setPhases] = useState<TemplatePhase[]>([])
@@ -315,6 +390,17 @@ export default function AdminTemplatesPage() {
   const [publishTarget, setPublishTarget] = useState<Template | null>(null)
   const [publishLoading, setPublishLoading] = useState(false)
   const [publishError, setPublishError] = useState<string | null>(null)
+  const [expandedTemplateIds, setExpandedTemplateIds] = useState<Set<string>>(new Set())
+  const deepLinkAppliedRef = useRef(false)
+
+  const toggleTemplateExpanded = (templateId: string) => {
+    setExpandedTemplateIds(current => {
+      const next = new Set(current)
+      if (next.has(templateId)) next.delete(templateId)
+      else next.add(templateId)
+      return next
+    })
+  }
 
   const [addingDocTo, setAddingDocTo] = useState<{ phaseId: string, activityId: string } | null>(null)
   const [editingDocId, setEditingDocId] = useState<string | null>(null)
@@ -371,6 +457,27 @@ export default function AdminTemplatesPage() {
           }
         : p))
     }
+  }
+
+  const movePhase = (phaseId: string, direction: -1 | 1) => {
+    setPhases(prev => moveInArray(prev, phaseId, direction))
+  }
+
+  const moveActivity = (phaseId: string, activityId: string, direction: -1 | 1) => {
+    setPhases(prev => prev.map(p => p.id === phaseId
+      ? { ...p, activities: moveInArray(p.activities, activityId, direction) }
+      : p))
+  }
+
+  const moveDocRequirement = (phaseId: string, activityId: string, docId: string, direction: -1 | 1) => {
+    setPhases(prev => prev.map(p => p.id === phaseId
+      ? {
+          ...p,
+          activities: p.activities.map(a => a.id === activityId
+            ? { ...a, document_requirements: moveInArray(a.document_requirements, docId, direction) }
+            : a),
+        }
+      : p))
   }
 
   const fetchData = useCallback(async () => {
@@ -474,24 +581,24 @@ export default function AdminTemplatesPage() {
   }
 
   const addActivity = (phaseId: string) => {
-    setPhases(phases.map(p => 
-      p.id === phaseId 
+    setPhases(phases.map(p =>
+      p.id === phaseId
         ? { ...p, activities: [...p.activities, { id: generateId(), name: '', document_requirements: [], expanded: true }] }
         : p
     ))
   }
 
   const updateActivity = (phaseId: string, activityId: string, updates: Partial<TemplateActivity>) => {
-    setPhases(phases.map(p => 
-      p.id === phaseId 
+    setPhases(phases.map(p =>
+      p.id === phaseId
         ? { ...p, activities: p.activities.map(a => a.id === activityId ? { ...a, ...updates } : a) }
         : p
     ))
   }
 
   const removeActivity = (phaseId: string, activityId: string) => {
-    setPhases(phases.map(p => 
-      p.id === phaseId 
+    setPhases(phases.map(p =>
+      p.id === phaseId
         ? { ...p, activities: p.activities.filter(a => a.id !== activityId) }
         : p
     ))
@@ -585,13 +692,13 @@ export default function AdminTemplatesPage() {
   }
 
   const removeDocRequirement = (phaseId: string, activityId: string, docId: string) => {
-    setPhases(phases.map(p => 
-      p.id === phaseId 
-        ? { ...p, activities: p.activities.map(a => 
-            a.id === activityId 
+    setPhases(phases.map(p =>
+      p.id === phaseId
+        ? { ...p, activities: p.activities.map(a =>
+            a.id === activityId
               ? { ...a, document_requirements: a.document_requirements.filter(d => d.id !== docId) }
               : a
-          )} 
+          )}
         : p
     ))
   }
@@ -661,7 +768,7 @@ export default function AdminTemplatesPage() {
     ))
   }
 
-  const getStatusColor = (statusId: string) => statuses.find(s => s.id === statusId)?.color || '#6B7280'
+  const getStatusColor = (statusId: string) => statuses.find(s => s.id === statusId)?.color || 'var(--sg-rule-strong)'
 
   const clearValidationError = (key: string) => {
     setValidationErrors(prev => {
@@ -760,11 +867,11 @@ export default function AdminTemplatesPage() {
     }
   }
 
-  const openCreateForm = () => {
+  const openCreateForm = useCallback(() => {
     setFormError(null)
     setValidationErrors(new Set())
     setShowForm(true)
-  }
+  }, [])
 
   const resetForm = () => {
     setTemplateName('')
@@ -1210,8 +1317,8 @@ export default function AdminTemplatesPage() {
     }
   }
 
-  const handleEdit = (template: Template) => {
-    if (!canEditTemplate(template)) return
+  const handleEdit = useCallback((template: Template) => {
+    if (!(isAdmin || template.status === 'draft')) return
     setEditingTemplate(template)
     setTemplateName(template.name)
     setTemplateDescription(template.description || '')
@@ -1252,7 +1359,32 @@ export default function AdminTemplatesPage() {
     })) || []
     setPhases(editablePhases)
     setShowForm(true)
-  }
+  }, [isAdmin])
+
+  // Legătura care lipsea: `/admin` (panoul-director) trimite aici cu
+  // ?edit=<id> sau ?new=1 fiindcă lista lui e doar de citit. Fără asta un
+  // administrator nu avea cum să ajungă la editarea unui șablon existent.
+  useEffect(() => {
+    if (loading || deepLinkAppliedRef.current) return
+    const editId = searchParams.get('edit')
+    const isNew = searchParams.get('new') === '1'
+    if (!editId && !isNew) return
+
+    deepLinkAppliedRef.current = true
+    if (editId) {
+      const target = templates.find(t => t.id === editId)
+      if (target && (isAdmin || target.status === 'draft')) {
+        handleEdit(target)
+      } else if (target) {
+        showToast('Acest șablon e publicat — doar un administrator îl poate edita.', 'info')
+      } else {
+        showToast('Șablonul căutat nu a fost găsit.', 'error')
+      }
+    } else if (isNew) {
+      openCreateForm()
+    }
+    router.replace('/admin/templates')
+  }, [loading, templates, searchParams, isAdmin, handleEdit, openCreateForm, router, showToast])
 
   const affectedPropagationProjects = (propagationPreview?.eligible ?? []).filter(hasPropagationChanges)
   const selectedPropagationProjects = affectedPropagationProjects.filter(project =>
@@ -1265,56 +1397,215 @@ export default function AdminTemplatesPage() {
   const deleteModalText = getDeleteModalText(deleteTarget)
   const docModalHasTemplate = Boolean(newDocTemplates.length > 0 || newDocAttachments.length > 0)
 
+  const filteredTemplates = useMemo(() => {
+    const q = templateSearch.trim().toLowerCase()
+    if (!q) return templates
+    return templates.filter(t =>
+      t.name.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q)
+    )
+  }, [templates, templateSearch])
+
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+      <div className="flex h-[60vh] items-center justify-center" role="status" aria-live="polite">
+        <Spinner size="md" />
+        <span className="sr-only">Se încarcă șabloanele…</span>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-5xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <Link href="/admin" className="text-slate-400 hover:text-slate-600">
-                <ArrowLeft className="w-5 h-5" />
-              </Link>
-              <h1 className="text-2xl font-bold text-slate-900">Template-uri Proiecte</h1>
+    <div>
+      <LocationStrip
+        segments={[
+          { label: 'Bonie', href: '/' },
+          { label: 'Șabloane', href: '/admin' },
+          ...(showForm
+            ? [{ label: editingTemplate ? (editingTemplate.name.trim() || 'Șablon fără nume') : 'Șablon nou' }]
+            : [{ label: 'Gestionează' }]),
+        ]}
+        action={
+          !showForm ? (
+            <Button variant="primary" onClick={openCreateForm} aria-label="Șablon nou">
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Șablon nou</span>
+            </Button>
+          ) : (
+            <Button variant="quiet" onClick={resetForm}>
+              <X className="h-4 w-4" aria-hidden="true" />
+              Renunță
+            </Button>
+          )
+        }
+      />
+
+      {!showForm && (
+        <>
+          <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Șabloane</h1>
+          <p className="mt-2 text-sm text-ink-soft">
+            {templates.length} {templates.length === 1 ? 'șablon' : 'șabloane'} — creează, editează, publică sau șterge.
+          </p>
+
+          {templates.length > 0 && (
+            <div className="mt-6 max-w-sm border-b border-rule pb-4">
+              <SearchInput value={templateSearch} onChange={setTemplateSearch} placeholder="Caută după nume sau descriere…" label="Caută șabloane" />
             </div>
-            <p className="text-slate-500">Gestionează template-urile pentru crearea rapidă de proiecte</p>
-          </div>
-          {!showForm && (
-            <button
-              onClick={openCreateForm}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700"
-            >
-              <Plus className="w-4 h-4" /> Template nou
-            </button>
           )}
-        </div>
 
-        {/* Form */}
-        {showForm && (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 overflow-hidden">
-            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-              <h2 className="font-semibold text-slate-900">
-                {editingTemplate ? 'Editează Template' : 'Template Nou'}
-              </h2>
-              <button onClick={resetForm} className="p-1 text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+          <div className={templates.length > 0 ? 'mt-4 pb-10' : 'mt-6 pb-10'}>
+            {templates.length === 0 ? (
+              <EmptyState
+                title="Niciun șablon creat"
+                action={
+                  <Button variant="primary" onClick={openCreateForm}>
+                    <Plus className="h-4 w-4" aria-hidden="true" /> Creează primul șablon
+                  </Button>
+                }
+              >
+                Un șablon codifică felul în care lucrezi un tip de finanțare: fazele, activitățile și documentele cerute. Creează-l o dată, refolosește-l la fiecare proiect nou.
+              </EmptyState>
+            ) : filteredTemplates.length === 0 ? (
+              <EmptyState
+                title="Niciun șablon nu se potrivește"
+                action={<Button variant="secondary" onClick={() => setTemplateSearch('')}>Șterge căutarea</Button>}
+              >
+                Încearcă alt termen de căutare.
+              </EmptyState>
+            ) : (
+              <div className="overflow-hidden rounded-[var(--radius-plate)] border border-rule bg-plate">
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b border-rule bg-paper-sunk">
+                        <th scope="col" className="w-full px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Șablon</th>
+                        <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Status</th>
+                        <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Faze</th>
+                        <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Activități</th>
+                        <th scope="col" className="w-px px-4 py-2.5"><span className="sr-only">Acțiuni</span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredTemplates.map((template) => {
+                        const phaseCount = template.phases?.length || 0
+                        const activityCount = template.phases?.reduce((sum, p) => sum + (p.activities?.length || 0), 0) || 0
+                        const expanded = expandedTemplateIds.has(template.id)
+                        const detailsId = `faze-template-${template.id}`
+                        const editable = canEditTemplate(template)
+                        return (
+                          <Fragment key={template.id}>
+                            <tr
+                              onClick={() => phaseCount > 0 && toggleTemplateExpanded(template.id)}
+                              className={`border-b border-rule last:border-b-0 transition-colors ${phaseCount > 0 ? 'cursor-pointer hover:bg-paper-sunk' : ''} ${expanded ? 'bg-paper-sunk' : ''}`}
+                            >
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1.5">
+                                  {phaseCount > 0 ? (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); toggleTemplateExpanded(template.id) }}
+                                      aria-expanded={expanded}
+                                      aria-controls={expanded ? detailsId : undefined}
+                                      aria-label={`${expanded ? 'Ascunde' : 'Arată'} fazele — ${template.name}`}
+                                      className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:text-ink"
+                                    >
+                                      <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} aria-hidden />
+                                    </button>
+                                  ) : (
+                                    <span className="w-6 flex-shrink-0" aria-hidden />
+                                  )}
+                                  <div className="min-w-0">
+                                    <span className="font-medium text-ink">{template.name}</span>
+                                    {template.description && (
+                                      <span className="ml-2 truncate text-ink-soft">{template.description}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <Signal tone={template.status === 'draft' ? 'draft' : 'ok'}>
+                                  {template.status === 'draft' ? 'Ciornă' : 'Publicat'}
+                                </Signal>
+                              </td>
+                              <td className="px-4 py-3 text-right tabular-nums text-ink-soft whitespace-nowrap">{phaseCount}</td>
+                              <td className="px-4 py-3 text-right tabular-nums text-ink-soft whitespace-nowrap">{activityCount}</td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                  {editable && (
+                                    <IconButton label={`Editează șablonul ${template.name}`} onClick={() => handleEdit(template)}>
+                                      <Edit2 className="h-4 w-4" />
+                                    </IconButton>
+                                  )}
+                                  {isAdmin && template.status === 'draft' && (
+                                    <IconButton label={`Publică șablonul ${template.name}`} onClick={() => requestPublishTemplate(template)}>
+                                      <Check className="h-4 w-4" />
+                                    </IconButton>
+                                  )}
+                                  {isAdmin && (
+                                    <IconButton label={`Șterge șablonul ${template.name}`} tone="danger" onClick={() => requestDeleteTemplate(template)}>
+                                      <Trash2 className="h-4 w-4" />
+                                    </IconButton>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                            {expanded && phaseCount > 0 && (
+                              <tr id={detailsId} className="border-b border-rule bg-paper-sunk last:border-b-0">
+                                <td colSpan={5} className="px-4 py-3 pl-11">
+                                  <ol className="flex flex-col gap-2">
+                                    {template.phases.map((phase, index) => {
+                                      const status = statuses.find(s => s.id === phase.project_status_id)
+                                      return (
+                                        <li key={phase.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+                                          {/* Culoarea statusului e aleasă de administrator, deci nu poate
+                                              garanta contrast pe text alb — o purtăm ca semn de identitate
+                                              pe muchie, cu numele scris în cerneală. */}
+                                          <span
+                                            aria-hidden="true"
+                                            className="mt-1 h-3.5 w-[var(--sg-rail)] shrink-0 self-start rounded-[1px]"
+                                            style={{ background: status?.color || 'var(--sg-rule-strong)' }}
+                                          />
+                                          <span className="w-5 shrink-0 text-ink-faint">{index + 1}.</span>
+                                          <span className="min-w-0 flex-1 font-medium text-ink">{phase.name}</span>
+                                          {status && <span className="shrink-0 text-ink-soft">{status.name}</span>}
+                                          <span className="shrink-0 text-ink-faint">
+                                            {phase.activities?.length || 0} {phase.activities?.length === 1 ? 'activitate' : 'activități'}
+                                          </span>
+                                        </li>
+                                      )
+                                    })}
+                                  </ol>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
-            <div className="p-6 space-y-6">
-              {formError && <FeedbackMessage variant="error">{formError}</FeedbackMessage>}
+      {showForm && (
+        <>
+          <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">
+            {editingTemplate ? 'Editează șablonul' : 'Șablon nou'}
+          </h1>
+          <p className="mt-2 text-sm text-ink-soft">
+            {editingTemplate
+              ? 'Modifică fazele, activitățile și cererile de documente ale acestui șablon.'
+              : 'Definește fazele, activitățile și documentele cerute — un proiect nou pornește de aici.'}
+          </p>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Nume template *</label>
+          <div className="mt-6 space-y-6 pb-16">
+            {formError && <FeedbackMessage variant="error">{formError}</FeedbackMessage>}
+
+            <Plate className="p-5">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Camp label="Nume șablon" required error={hasValidationError('template:name') ? 'Numele șablonului este obligatoriu.' : null}>
                   <input
                     type="text"
                     value={templateName}
@@ -1323,59 +1614,71 @@ export default function AdminTemplatesPage() {
                       clearValidationError('template:name')
                     }}
                     placeholder="Ex: Proiect Standard"
-                    className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
-                      hasValidationError('template:name') ? 'border-red-300 bg-red-50' : 'border-slate-200'
-                    }`}
+                    className={hasValidationError('template:name') ? inputErrorClass : inputClass}
                   />
-                  {hasValidationError('template:name') && (
-                    <p className="mt-1 text-xs text-red-600">Numele template-ului este obligatoriu.</p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Descriere</label>
+                </Camp>
+                <Camp label="Descriere">
                   <input
                     type="text"
                     value={templateDescription}
                     onChange={(e) => setTemplateDescription(e.target.value)}
-                    placeholder="Descriere scurtă..."
-                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    placeholder="Descriere scurtă…"
+                    className={inputClass}
                   />
-                </div>
+                </Camp>
+              </div>
+            </Plate>
+
+            <div>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-ink">Faze și activități</h2>
+                {phases.length > 0 && (
+                  <span className="text-xs text-ink-soft">
+                    {phases.length} {phases.length === 1 ? 'fază' : 'faze'}
+                  </span>
+                )}
               </div>
 
-              {/* Faze */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-3">Faze și Activități</label>
+              {phases.length === 0 ? (
+                <EmptyState title="Nicio fază încă">
+                  Un șablon fără faze nu poate fi salvat. Adaugă prima fază pentru a începe să definești fluxul de lucru.
+                </EmptyState>
+              ) : (
                 <div className="space-y-4">
                   {phases.map((phase, phaseIdx) => (
-                    <div
+                    <Plate
                       key={phase.id}
-                      className={`border border-slate-200 rounded-xl overflow-hidden ${
-                        dragItem?.kind === 'phase' && dragItem.id === phase.id ? 'opacity-50' : ''
-                      }`}
+                      rail={getStatusColor(phase.project_status_id)}
+                      className={`overflow-hidden !p-0 ${dragItem?.kind === 'phase' && dragItem.id === phase.id ? 'opacity-50' : ''}`}
                     >
                       <div
-                        className="px-4 py-3 bg-slate-50 flex items-center gap-3"
+                        className="flex items-center gap-2 bg-paper-sunk px-4 py-3"
                         onDragOver={e => handleReorderDragOver(e, 'phase', '', phase.id)}
                       >
                         <span
                           draggable
+                          aria-hidden="true"
                           onDragStart={e => { setDragItem({ kind: 'phase', parentKey: '', id: phase.id }); e.dataTransfer.effectAllowed = 'move' }}
                           onDragEnd={() => setDragItem(null)}
                           title="Trage pentru a reordona"
-                          className="-ml-1 p-0.5 rounded text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing"
+                          className="-ml-1 cursor-grab p-0.5 text-ink-faint hover:text-ink-soft active:cursor-grabbing"
                         >
-                          <GripVertical className="w-4 h-4" />
+                          <GripVertical className="h-4 w-4" />
                         </span>
-                        <button onClick={() => updatePhase(phase.id, { expanded: !phase.expanded })} className="text-slate-400">
-                          {phase.expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                        </button>
-                        <div 
-                          className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                          style={{ backgroundColor: getStatusColor(phase.project_status_id) }}
+                        <ReorderButtons
+                          itemLabel={`faza ${phase.name || phaseIdx + 1}`}
+                          onUp={() => movePhase(phase.id, -1)}
+                          onDown={() => movePhase(phase.id, 1)}
+                          disableUp={phaseIdx === 0}
+                          disableDown={phaseIdx === phases.length - 1}
+                        />
+                        <IconButton
+                          label={phase.expanded ? `Restrânge faza ${phase.name || phaseIdx + 1}` : `Extinde faza ${phase.name || phaseIdx + 1}`}
+                          onClick={() => updatePhase(phase.id, { expanded: !phase.expanded })}
                         >
-                          {phaseIdx + 1}
-                        </div>
+                          {phase.expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                        </IconButton>
+                        <span className="w-6 shrink-0 text-center text-sm font-semibold tabular-nums text-ink-soft">{phaseIdx + 1}</span>
                         <input
                           type="text"
                           value={phase.name}
@@ -1383,9 +1686,10 @@ export default function AdminTemplatesPage() {
                             updatePhase(phase.id, { name: e.target.value })
                             clearValidationError(`phase:${phase.id}:name`)
                           }}
-                          placeholder="Nume fază..."
-                          className={`flex-1 px-3 py-1.5 border rounded-lg text-sm ${
-                            hasValidationError(`phase:${phase.id}:name`) ? 'border-red-300 bg-red-50' : 'border-slate-200'
+                          placeholder="Nume fază…"
+                          aria-label={`Nume pentru faza ${phaseIdx + 1}`}
+                          className={`h-10 flex-1 rounded-[var(--radius-plate)] border bg-plate px-3 text-sm text-ink placeholder:text-ink-faint transition-colors duration-[120ms] focus:border-[var(--sg-accent)] ${
+                            hasValidationError(`phase:${phase.id}:name`) ? 'border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]' : 'border-rule'
                           }`}
                         />
                         <select
@@ -1394,56 +1698,58 @@ export default function AdminTemplatesPage() {
                             updatePhase(phase.id, { project_status_id: e.target.value })
                             clearValidationError(`phase:${phase.id}:project_status_id`)
                           }}
-                          className={`px-3 py-1.5 border rounded-lg text-sm ${
-                            hasValidationError(`phase:${phase.id}:project_status_id`) ? 'border-red-300 bg-red-50' : 'border-slate-200'
+                          aria-label={`Status de proiect pentru faza ${phaseIdx + 1}`}
+                          className={`h-10 rounded-[var(--radius-plate)] border bg-plate px-2 text-sm text-ink transition-colors duration-[120ms] focus:border-[var(--sg-accent)] ${
+                            hasValidationError(`phase:${phase.id}:project_status_id`) ? 'border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]' : 'border-rule'
                           }`}
                         >
                           {statuses.map(s => (
                             <option key={s.id} value={s.id}>{s.name}</option>
                           ))}
                         </select>
-                        <button
-                          onClick={() => duplicatePhase(phase.id)}
-                          title="Duplică faza cu tot ce conține"
-                          aria-label={`Duplică faza ${phase.name || phaseIdx + 1}`}
-                          className="p-1.5 text-slate-400 hover:text-indigo-600"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => requestDeletePhase(phase)} className="p-1.5 text-slate-400 hover:text-red-600">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <IconButton label={`Duplică faza ${phase.name || phaseIdx + 1}`} onClick={() => duplicatePhase(phase.id)}>
+                          <Copy className="h-4 w-4" />
+                        </IconButton>
+                        <IconButton label={`Șterge faza ${phase.name || phaseIdx + 1}`} tone="danger" onClick={() => requestDeletePhase(phase)}>
+                          <Trash2 className="h-4 w-4" />
+                        </IconButton>
                       </div>
 
                       {phase.expanded && (
-                        <div className="p-4 space-y-3">
+                        <div className="space-y-3 p-4">
                           {(hasValidationError(`phase:${phase.id}:name`) || hasValidationError(`phase:${phase.id}:project_status_id`)) && (
-                            <p className="text-xs text-red-600">
+                            <p className="text-xs text-[var(--sg-danger)]">
                               Completează numele fazei și statusul înainte de salvare.
                             </p>
                           )}
 
-                          {phase.activities.map((activity) => (
+                          {phase.activities.map((activity, activityIdx) => (
                             <div
                               key={activity.id}
-                              className={`pl-4 border-l-2 border-slate-200 ${
-                                dragItem?.kind === 'activity' && dragItem.id === activity.id ? 'opacity-50' : ''
-                              }`}
+                              className={`border-l border-rule pl-4 ${dragItem?.kind === 'activity' && dragItem.id === activity.id ? 'opacity-50' : ''}`}
                             >
                               <div
-                                className="flex items-center gap-2 mb-2"
+                                className="mb-2 flex flex-wrap items-center gap-2"
                                 onDragOver={e => handleReorderDragOver(e, 'activity', phase.id, activity.id)}
                               >
                                 <span
                                   draggable
+                                  aria-hidden="true"
                                   onDragStart={e => { setDragItem({ kind: 'activity', parentKey: phase.id, id: activity.id }); e.dataTransfer.effectAllowed = 'move' }}
                                   onDragEnd={() => setDragItem(null)}
                                   title="Trage pentru a reordona"
-                                  className="-ml-1 p-0.5 rounded text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing"
+                                  className="-ml-1 cursor-grab p-0.5 text-ink-faint hover:text-ink-soft active:cursor-grabbing"
                                 >
-                                  <GripVertical className="w-3.5 h-3.5" />
+                                  <GripVertical className="h-3.5 w-3.5" />
                                 </span>
-                                <Activity className="w-4 h-4 text-slate-400" />
+                                <ReorderButtons
+                                  itemLabel={`activitatea ${activity.name || activityIdx + 1}`}
+                                  onUp={() => moveActivity(phase.id, activity.id, -1)}
+                                  onDown={() => moveActivity(phase.id, activity.id, 1)}
+                                  disableUp={activityIdx === 0}
+                                  disableDown={activityIdx === phase.activities.length - 1}
+                                />
+                                <Activity className="h-4 w-4 shrink-0 text-ink-faint" aria-hidden="true" />
                                 <input
                                   type="text"
                                   value={activity.name}
@@ -1451,106 +1757,115 @@ export default function AdminTemplatesPage() {
                                     updateActivity(phase.id, activity.id, { name: e.target.value })
                                     clearValidationError(`activity:${phase.id}:${activity.id}:name`)
                                   }}
-                                  placeholder="Nume activitate..."
-                                  className={`flex-1 px-3 py-1.5 border rounded-lg text-sm ${
-                                    hasValidationError(`activity:${phase.id}:${activity.id}:name`) ? 'border-red-300 bg-red-50' : 'border-slate-200'
+                                  placeholder="Nume activitate…"
+                                  aria-label={`Nume pentru activitatea ${activityIdx + 1} din faza ${phase.name || phaseIdx + 1}`}
+                                  className={`h-9 min-w-[160px] flex-1 rounded-[var(--radius-plate)] border bg-plate px-3 text-sm text-ink placeholder:text-ink-faint transition-colors duration-[120ms] focus:border-[var(--sg-accent)] ${
+                                    hasValidationError(`activity:${phase.id}:${activity.id}:name`) ? 'border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]' : 'border-rule'
                                   }`}
                                 />
                                 <select
                                   value={activity.default_consultant_id ?? ''}
                                   onChange={e => updateActivity(phase.id, activity.id, { default_consultant_id: e.target.value || undefined })}
-                                  className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 bg-white focus:border-indigo-400 outline-none min-w-[150px]"
+                                  aria-label={`Consultant implicit pentru activitatea ${activity.name || activityIdx + 1}`}
+                                  className="h-9 min-w-[150px] rounded-[var(--radius-plate)] border border-rule bg-plate px-2 text-xs text-ink transition-colors duration-[120ms] focus:border-[var(--sg-accent)]"
                                 >
                                   <option value="">Consultant implicit</option>
                                   {consultants.map(c => (
                                     <option key={c.id} value={c.id}>{c.full_name || c.email}</option>
                                   ))}
                                 </select>
-                                <button onClick={() => updateActivity(phase.id, activity.id, { expanded: !activity.expanded })} className="p-1 text-slate-400">
-                                  {activity.expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                                </button>
-                                <button
-                                  onClick={() => duplicateActivity(phase.id, activity.id)}
-                                  title="Duplică activitatea cu cererile ei"
-                                  aria-label={`Duplică activitatea ${activity.name}`}
-                                  className="p-1 text-slate-400 hover:text-indigo-600"
+                                <IconButton
+                                  label={activity.expanded ? `Restrânge activitatea ${activity.name || activityIdx + 1}` : `Extinde activitatea ${activity.name || activityIdx + 1}`}
+                                  className="!h-9 !w-9"
+                                  onClick={() => updateActivity(phase.id, activity.id, { expanded: !activity.expanded })}
                                 >
-                                  <Copy className="w-4 h-4" />
-                                </button>
-                                <button onClick={() => requestDeleteActivity(phase.id, activity)} className="p-1 text-slate-400 hover:text-red-500">
-                                  <X className="w-4 h-4" />
-                                </button>
+                                  {activity.expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                                </IconButton>
+                                <IconButton label={`Duplică activitatea ${activity.name || activityIdx + 1}`} className="!h-9 !w-9" onClick={() => duplicateActivity(phase.id, activity.id)}>
+                                  <Copy className="h-3.5 w-3.5" />
+                                </IconButton>
+                                <IconButton label={`Șterge activitatea ${activity.name || activityIdx + 1}`} tone="danger" className="!h-9 !w-9" onClick={() => requestDeleteActivity(phase.id, activity)}>
+                                  <X className="h-3.5 w-3.5" />
+                                </IconButton>
                               </div>
 
                               {activity.expanded && (
-                                <div className="ml-6 space-y-2">
+                                <div className="ml-5 space-y-2">
                                   {hasValidationError(`activity:${phase.id}:${activity.id}:name`) && (
-                                    <p className="text-xs text-red-600">Numele activității este obligatoriu.</p>
+                                    <p className="text-xs text-[var(--sg-danger)]">Numele activității este obligatoriu.</p>
                                   )}
 
-                                  {activity.document_requirements.map(doc => (
+                                  {activity.document_requirements.map((doc, docIdx) => (
                                     <div
                                       key={doc.id}
                                       onDragOver={e => handleReorderDragOver(e, 'doc', `${phase.id}:${activity.id}`, doc.id)}
-                                      className={`flex items-start gap-2 p-3 rounded-lg border ${
+                                      className={`flex items-start gap-2 rounded-[var(--radius-plate)] border p-3 ${
                                         hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:name`) ||
                                         hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`)
-                                          ? 'bg-red-50 border-red-200'
+                                          ? 'border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]'
                                           : doc.is_outgoing
-                                          ? 'bg-sky-50 border-sky-100'
-                                          : 'bg-slate-50 border-slate-100'
+                                          ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)]'
+                                          : 'border-rule bg-paper-sunk'
                                       } ${dragItem?.kind === 'doc' && dragItem.id === doc.id ? 'opacity-50' : ''}`}
                                     >
                                       <span
                                         draggable
+                                        aria-hidden="true"
                                         onDragStart={e => { setDragItem({ kind: 'doc', parentKey: `${phase.id}:${activity.id}`, id: doc.id }); e.dataTransfer.effectAllowed = 'move' }}
                                         onDragEnd={() => setDragItem(null)}
                                         title="Trage pentru a reordona"
-                                        className="-ml-1 mt-0.5 p-0.5 rounded text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing"
+                                        className="-ml-1 mt-0.5 cursor-grab p-0.5 text-ink-faint hover:text-ink-soft active:cursor-grabbing"
                                       >
-                                        <GripVertical className="w-3.5 h-3.5" />
+                                        <GripVertical className="h-3.5 w-3.5" />
                                       </span>
-                                      <FileText className={`w-4 h-4 mt-0.5 ${doc.is_outgoing ? 'text-sky-500' : 'text-slate-400'}`} />
-                                      <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <span className="font-medium text-sm text-slate-900">{doc.name || 'Document fără nume'}</span>
+                                      <ReorderButtons
+                                        itemLabel={`cererea ${doc.name || docIdx + 1}`}
+                                        onUp={() => moveDocRequirement(phase.id, activity.id, doc.id, -1)}
+                                        onDown={() => moveDocRequirement(phase.id, activity.id, doc.id, 1)}
+                                        disableUp={docIdx === 0}
+                                        disableDown={docIdx === activity.document_requirements.length - 1}
+                                      />
+                                      <FileText className={`mt-0.5 h-4 w-4 shrink-0 ${doc.is_outgoing ? 'text-[var(--sg-accent)]' : 'text-ink-faint'}`} aria-hidden="true" />
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <span className="text-sm font-medium text-ink">{doc.name || 'Document fără nume'}</span>
                                           {doc.is_outgoing ? (
-                                            <span className="text-xs px-1.5 py-0.5 rounded border bg-sky-100 text-sky-700 border-sky-200">
+                                            <span className="rounded-[var(--radius-plate)] border border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] px-1.5 py-0.5 text-xs text-[var(--sg-accent)]">
                                               Document de trimis
                                             </span>
                                           ) : REQUIREMENT_BADGE[doc.requirement_type] && (
-                                            <span className={`text-xs px-1.5 py-0.5 rounded border ${REQUIREMENT_BADGE[doc.requirement_type].bg} ${REQUIREMENT_BADGE[doc.requirement_type].text} ${REQUIREMENT_BADGE[doc.requirement_type].border}`}>
+                                            <span className={`rounded-[var(--radius-plate)] border px-1.5 py-0.5 text-xs ${REQUIREMENT_BADGE[doc.requirement_type].bg} ${REQUIREMENT_BADGE[doc.requirement_type].text} ${REQUIREMENT_BADGE[doc.requirement_type].border}`}>
                                               {REQUIREMENT_LABELS[doc.requirement_type]}
                                             </span>
                                           )}
                                         </div>
                                         {hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:name`) && (
-                                          <p className="text-xs text-red-600 mt-0.5">Numele documentului este obligatoriu.</p>
+                                          <p className="mt-0.5 text-xs text-[var(--sg-danger)]">Numele documentului este obligatoriu.</p>
                                         )}
                                         {hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`) && (
-                                          <p className="text-xs text-red-600 mt-0.5">Documentul de trimis are nevoie de fișier atașat.</p>
+                                          <p className="mt-0.5 text-xs text-[var(--sg-danger)]">Documentul de trimis are nevoie de fișier atașat.</p>
                                         )}
                                         {doc.description && (
-                                          <p className="text-xs text-slate-500 mt-0.5">{doc.description}</p>
+                                          <p className="mt-0.5 text-xs text-ink-soft">{doc.description}</p>
                                         )}
                                         {(doc.templateAttachments.length > 0 || doc.templateFiles.length > 0) && (
-                                          <div className={`flex items-center gap-1 mt-1 text-xs ${hasMissingTemplateAttachment(doc) ? 'text-amber-700' : doc.is_outgoing ? 'text-sky-700' : 'text-indigo-600'}`}>
-                                            {hasMissingTemplateAttachment(doc) ? <AlertCircle className="w-3 h-3" /> : <Paperclip className="w-3 h-3" />}
+                                          <div className={`mt-1 flex items-center gap-1 text-xs ${hasMissingTemplateAttachment(doc) ? 'text-[var(--sg-warn)]' : 'text-[var(--sg-accent)]'}`}>
+                                            {hasMissingTemplateAttachment(doc) ? <AlertCircle className="h-3 w-3" aria-hidden="true" /> : <Paperclip className="h-3 w-3" aria-hidden="true" />}
                                             <span>{[
                                               ...doc.templateAttachments.map(a => `${a.original_name || a.storage_path.split('/').pop() || 'fișier atașat'}${a.missing_at ? ' (indisponibil)' : ''}`),
                                               ...doc.templateFiles.map(file => file.name),
                                             ].filter(Boolean).join(', ')}</span>
                                           </div>
                                         )}
-                                        <div className="flex items-center gap-2 mt-2">
-                                          <label className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 bg-white text-xs text-slate-600 hover:text-indigo-700 hover:border-indigo-200 cursor-pointer">
-                                            <Upload className="w-3 h-3" />
+                                        <div className="mt-2 flex items-center gap-2">
+                                          <label className="inline-flex cursor-pointer items-center gap-1 rounded-[var(--radius-plate)] border border-rule bg-plate px-2 py-1 text-xs text-ink-soft hover:border-[var(--sg-accent)] hover:text-[var(--sg-accent)]">
+                                            <Upload className="h-3 w-3" aria-hidden="true" />
                                             {doc.templateAttachments.length > 0 || doc.templateFiles.length > 0
                                               ? doc.is_outgoing ? 'Adaugă documente' : 'Adaugă modele'
                                               : doc.is_outgoing ? 'Atașează documente' : 'Atașează modele'}
                                             <input
                                               type="file"
-                                              className="hidden"
+                                              className="sr-only"
                                               accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp"
                                               multiple
                                               onChange={(e) => {
@@ -1570,158 +1885,65 @@ export default function AdminTemplatesPage() {
                                           </label>
                                         </div>
                                       </div>
-                                      <button onClick={() => openEditDocModal(phase.id, activity.id, doc)} className="p-1 text-slate-400 hover:text-indigo-600" title="Modifică cererea">
-                                        <Edit2 className="w-4 h-4" />
-                                      </button>
-                                      <button onClick={() => requestDeleteDocRequirement(phase.id, activity.id, doc)} className="p-1 text-slate-400 hover:text-red-500" title="Șterge cererea">
-                                        <X className="w-4 h-4" />
-                                      </button>
+                                      <IconButton label={`Modifică cererea ${doc.name || 'fără nume'}`} className="!h-9 !w-9" onClick={() => openEditDocModal(phase.id, activity.id, doc)}>
+                                        <Edit2 className="h-3.5 w-3.5" />
+                                      </IconButton>
+                                      <IconButton label={`Șterge cererea ${doc.name || 'fără nume'}`} tone="danger" className="!h-9 !w-9" onClick={() => requestDeleteDocRequirement(phase.id, activity.id, doc)}>
+                                        <X className="h-3.5 w-3.5" />
+                                      </IconButton>
                                     </div>
                                   ))}
                                   <button
+                                    type="button"
                                     onClick={() => openAddDocModal(phase.id, activity.id)}
-                                    className="flex items-center gap-1 py-2 px-3 text-xs text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg"
+                                    className="flex items-center gap-1 rounded-[var(--radius-plate)] px-3 py-2 text-xs font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)]"
                                   >
-                                    <Plus className="w-3 h-3" /> Adaugă cerere document
+                                    <Plus className="h-3 w-3" aria-hidden="true" /> Adaugă cerere document
                                   </button>
                                 </div>
                               )}
                             </div>
                           ))}
                           <button
+                            type="button"
                             onClick={() => addActivity(phase.id)}
-                            className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1 ml-4"
+                            className="ml-4 flex items-center gap-1 text-sm font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:text-[var(--sg-accent-ink)]"
                           >
-                            <Plus className="w-4 h-4" /> Adaugă activitate
+                            <Plus className="h-4 w-4" aria-hidden="true" /> Adaugă activitate
                           </button>
                         </div>
                       )}
-                    </div>
+                    </Plate>
                   ))}
-
-                  <button
-                    onClick={addPhase}
-                    className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-indigo-400 hover:text-indigo-600 flex items-center justify-center gap-2"
-                  >
-                    <Plus className="w-5 h-5" /> Adaugă fază nouă
-                  </button>
                 </div>
-              </div>
+              )}
 
-              <div className="flex gap-3 pt-4 border-t border-slate-100">
-                <button
-                  onClick={resetForm}
-                  className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-slate-700 font-medium hover:bg-slate-50"
-                >
-                  Anulează
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={saving || !templateName.trim()}
-                  className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                  {saving ? 'Se salvează...' : (editingTemplate ? 'Salvează modificările' : 'Creează template')}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={addPhase}
+                className="mt-4 flex w-full items-center justify-center gap-2 rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-4 py-3 text-sm font-semibold text-ink-soft transition-colors duration-[120ms] hover:border-[var(--sg-accent)] hover:text-[var(--sg-accent)]"
+              >
+                <Plus className="h-5 w-5" aria-hidden="true" /> Adaugă fază nouă
+              </button>
+            </div>
+
+            <div className="flex flex-col-reverse gap-3 border-t border-rule pt-4 sm:flex-row">
+              <Button variant="secondary" className="sm:flex-1" onClick={resetForm}>
+                Anulează
+              </Button>
+              <Button
+                variant="primary"
+                className="sm:flex-1"
+                onClick={handleSave}
+                disabled={saving || !templateName.trim()}
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
+                {saving ? 'Se salvează…' : (editingTemplate ? 'Salvează modificările' : 'Creează template')}
+              </Button>
             </div>
           </div>
-        )}
-
-        {/* Templates list */}
-        {!showForm && (
-          <div className="space-y-4">
-            {templates.length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
-                <Layers className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">Niciun template creat</h3>
-                <p className="text-slate-500 mb-4">Creează primul template pentru a genera proiecte rapid</p>
-                <button
-                  onClick={openCreateForm}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700"
-                >
-                  <Plus className="w-4 h-4" /> Creează template
-                </button>
-              </div>
-            ) : (
-              templates.map((template) => (
-                <div key={template.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                  <div className="px-6 py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
-                        <Layers className="w-6 h-6 text-purple-600" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-semibold text-slate-900">{template.name}</h3>
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${template.status === 'draft' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                            {template.status === 'draft' ? 'Ciornă' : 'Publicat'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-4 mt-1 text-sm text-slate-500">
-                          <span>{template.phases?.length || 0} faze</span>
-                          <span>{template.phases?.reduce((sum, p) => sum + (p.activities?.length || 0), 0) || 0} activități</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {canEditTemplate(template) && (
-                        <button
-                          onClick={() => handleEdit(template)}
-                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"
-                          title="Editează template-ul"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                      )}
-                      {isAdmin && template.status === 'draft' && (
-                        <button
-                          onClick={() => requestPublishTemplate(template)}
-                          className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg"
-                          title="Publică template-ul"
-                        >
-                          <Check className="w-4 h-4" />
-                        </button>
-                      )}
-                      {isAdmin && (
-                        <button
-                          onClick={() => requestDeleteTemplate(template)}
-                          className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
-                          title="Șterge template-ul"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  {template.phases && template.phases.length > 0 && (
-                    <div className="px-6 py-3 bg-slate-50 border-t border-slate-100">
-                      <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                        {template.phases.map((phase, index) => {
-                          const status = statuses.find(s => s.id === phase.project_status_id)
-                          return (
-                            <div key={phase.id} className="flex items-center flex-shrink-0">
-                              <div
-                                className="px-3 py-1 rounded-full text-xs font-medium text-white"
-                                style={{ backgroundColor: status?.color || '#6B7280' }}
-                              >
-                                {phase.name || `Faza ${index + 1}`}
-                              </div>
-                              {index < template.phases.length - 1 && (
-                                <ChevronRight className="w-4 h-4 text-slate-300 mx-1" />
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        )}
-      </div>
+        </>
+      )}
 
       <ConfirmDeleteModal
         isOpen={!!deleteTarget}
@@ -1735,14 +1957,14 @@ export default function AdminTemplatesPage() {
         error={deleteError}
       >
         {deleteTarget && (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 space-y-2">
+          <div className="rounded-[var(--radius-plate)] border border-rule bg-paper-sunk p-4 text-sm text-ink space-y-2">
             {deleteTarget.type === 'template' && (
               <>
-                <p className="font-semibold text-slate-900">{deleteTarget.templateName}</p>
+                <p className="font-semibold text-ink">{deleteTarget.templateName}</p>
                 <p>
                   Conține {deleteTarget.phaseCount} faze, {deleteTarget.activityCount} activități și {deleteTarget.documentCount} cereri de document.
                 </p>
-                <p className="text-red-700">
+                <p className="text-[var(--sg-danger)]">
                   Dacă template-ul este folosit de proiecte existente, ștergerea va fi blocată.
                 </p>
               </>
@@ -1750,7 +1972,7 @@ export default function AdminTemplatesPage() {
 
             {deleteTarget.type === 'phase' && (
               <>
-                <p className="font-semibold text-slate-900">{deleteTarget.phaseName}</p>
+                <p className="font-semibold text-ink">{deleteTarget.phaseName}</p>
                 <p>
                   Include {deleteTarget.activityCount} activități și {deleteTarget.documentCount} cereri de document.
                 </p>
@@ -1759,13 +1981,13 @@ export default function AdminTemplatesPage() {
 
             {deleteTarget.type === 'activity' && (
               <>
-                <p className="font-semibold text-slate-900">{deleteTarget.activityName}</p>
+                <p className="font-semibold text-ink">{deleteTarget.activityName}</p>
                 <p>Include {deleteTarget.documentCount} cereri de document.</p>
               </>
             )}
 
             {deleteTarget.type === 'document' && (
-              <p className="font-semibold text-slate-900">{deleteTarget.documentName}</p>
+              <p className="font-semibold text-ink">{deleteTarget.documentName}</p>
             )}
           </div>
         )}
@@ -1785,64 +2007,62 @@ export default function AdminTemplatesPage() {
         error={publishError}
       >
         {publishTarget && (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 space-y-2">
-            <p className="font-semibold text-slate-900">{publishTarget.name}</p>
+          <div className="rounded-[var(--radius-plate)] border border-rule bg-paper-sunk p-4 text-sm text-ink space-y-2">
+            <p className="font-semibold text-ink">{publishTarget.name}</p>
             <p>După aprobare, consultanții nu îl mai pot edita.</p>
-            <p className="text-red-700">Template-ul nu poate reveni la ciornă.</p>
+            <p className="text-[var(--sg-danger)]">Template-ul nu poate reveni la ciornă.</p>
           </div>
         )}
       </ConfirmDeleteModal>
 
       {propagationPreview && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="template-propagation-title"
-        >
-          <div className="absolute inset-0" onClick={closeTemplatePropagation} />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="px-6 py-5 border-b border-slate-100 bg-slate-50 flex items-start gap-4">
-              <div className="w-11 h-11 rounded-xl bg-indigo-100 flex items-center justify-center flex-shrink-0">
-                <Layers className="w-5 h-5 text-indigo-600" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <Scrim onClick={closeTemplatePropagation} />
+          <FloatingSurface
+            role="dialog"
+            ariaModal
+            ariaLabel="Propagă modificările template-ului"
+            className="relative flex w-full max-w-3xl max-h-[90vh] flex-col overflow-hidden rounded-[var(--radius-plate-lg)]"
+          >
+            <div className="flex items-start gap-4 border-b border-rule bg-paper-sunk px-6 py-5">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-plate)] bg-[var(--sg-accent-soft)]">
+                <Layers className="h-5 w-5 text-[var(--sg-accent)]" aria-hidden="true" />
               </div>
-              <div className="flex-1 min-w-0 pr-10">
-                <h3 id="template-propagation-title" className="text-lg font-semibold text-slate-900">
+              <div className="min-w-0 flex-1 pr-10">
+                <h2 id="template-propagation-title" className="text-lg font-bold text-ink">
                   Propagă modificările template-ului
-                </h3>
-                <p className="text-sm text-slate-500 mt-1 truncate">
+                </h2>
+                <p className="mt-1 truncate text-sm text-ink-soft">
                   {propagationPreview.template?.name || 'Template editat'}
                 </p>
               </div>
-              <button
-                type="button"
+              <IconButton
+                label="Închide"
                 onClick={closeTemplatePropagation}
                 disabled={propagationApplying}
-                aria-label="Închide"
-                className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 hover:bg-white rounded-lg disabled:opacity-50"
+                className="absolute right-4 top-4"
               >
-                <X className="w-5 h-5" />
-              </button>
+                <X className="h-5 w-5" />
+              </IconButton>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div className="p-3 rounded-xl border border-indigo-100 bg-indigo-50">
-                  <p className="text-xs font-medium text-indigo-600">Proiecte selectate</p>
-                  <p className="text-xl font-semibold text-indigo-950 mt-1">{selectedPropagationProjects.length}</p>
+            <div className="flex-1 space-y-5 overflow-y-auto p-6">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+                <div className="rounded-[var(--radius-plate)] border border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] p-3">
+                  <p className="text-xs font-medium text-[var(--sg-accent)]">Proiecte selectate</p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums text-[var(--sg-accent)]">{selectedPropagationProjects.length}</p>
                 </div>
-                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
-                  <p className="text-xs font-medium text-slate-500">Faze</p>
-                  <p className="text-xl font-semibold text-slate-900 mt-1">{selectedPropagationTotals.phases}</p>
+                <div className="rounded-[var(--radius-plate)] border border-rule bg-paper-sunk p-3">
+                  <p className="text-xs font-medium text-ink-soft">Faze</p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums text-ink">{selectedPropagationTotals.phases}</p>
                 </div>
-                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
-                  <p className="text-xs font-medium text-slate-500">Activități</p>
-                  <p className="text-xl font-semibold text-slate-900 mt-1">{selectedPropagationTotals.activities}</p>
+                <div className="rounded-[var(--radius-plate)] border border-rule bg-paper-sunk p-3">
+                  <p className="text-xs font-medium text-ink-soft">Activități</p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums text-ink">{selectedPropagationTotals.activities}</p>
                 </div>
-                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
-                  <p className="text-xs font-medium text-slate-500">Cereri document</p>
-                  <p className="text-xl font-semibold text-slate-900 mt-1">{selectedPropagationTotals.document_requests}</p>
+                <div className="rounded-[var(--radius-plate)] border border-rule bg-paper-sunk p-3">
+                  <p className="text-xs font-medium text-ink-soft">Cereri document</p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums text-ink">{selectedPropagationTotals.document_requests}</p>
                 </div>
               </div>
 
@@ -1851,11 +2071,11 @@ export default function AdminTemplatesPage() {
               <section className="space-y-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-900">Proiecte eligibile</h4>
-                    <p className="text-xs text-slate-500">{affectedPropagationProjects.length} proiect(e) cu modificări</p>
+                    <h3 className="text-sm font-semibold text-ink">Proiecte eligibile</h3>
+                    <p className="text-xs text-ink-soft">{affectedPropagationProjects.length} proiect(e) cu modificări</p>
                   </div>
                   {affectedPropagationProjects.length > 0 && (
-                    <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                    <label className="inline-flex items-center gap-2 text-sm font-medium text-ink">
                       <input
                         type="checkbox"
                         checked={allPropagationProjectsSelected}
@@ -1863,7 +2083,7 @@ export default function AdminTemplatesPage() {
                           e.target.checked ? affectedPropagationProjects.map(project => project.project_id) : []
                         )}
                         disabled={propagationApplying}
-                        className="w-4 h-4 rounded border-slate-300 text-indigo-600"
+                        className="h-4 w-4 border-rule-strong text-[var(--sg-accent)]"
                       />
                       Selectează toate
                     </label>
@@ -1872,11 +2092,11 @@ export default function AdminTemplatesPage() {
 
                 <div className="space-y-2">
                   {affectedPropagationProjects.length === 0 && (
-                    <div className="p-4 rounded-xl border border-slate-200 bg-slate-50">
-                      <p className="text-sm font-medium text-slate-700">
+                    <div className="rounded-[var(--radius-plate)] border border-rule bg-paper-sunk p-4">
+                      <p className="text-sm font-medium text-ink">
                         Nu există proiecte eligibile pentru propagare automată.
                       </p>
-                      <p className="text-xs text-slate-500 mt-1">
+                      <p className="mt-1 text-xs text-ink-soft">
                         Verifică proiectele blocate de mai jos pentru motivul exact.
                       </p>
                     </div>
@@ -1887,10 +2107,10 @@ export default function AdminTemplatesPage() {
                     return (
                       <label
                         key={project.project_id}
-                        className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-colors ${
+                        className={`flex cursor-pointer items-start gap-3 rounded-[var(--radius-plate)] border p-4 transition-colors duration-[120ms] ${
                           checked
-                            ? 'border-indigo-200 bg-indigo-50/70'
-                            : 'border-slate-200 bg-white hover:bg-slate-50'
+                            ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)]'
+                            : 'border-rule bg-plate hover:bg-paper-sunk'
                         } ${propagationApplying ? 'cursor-not-allowed opacity-70' : ''}`}
                       >
                         <input
@@ -1898,18 +2118,18 @@ export default function AdminTemplatesPage() {
                           checked={checked}
                           onChange={() => togglePropagationProject(project.project_id)}
                           disabled={propagationApplying}
-                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 mt-1"
+                          className="mt-1 h-4 w-4 border-rule-strong text-[var(--sg-accent)]"
                         />
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-slate-900 break-words">{project.project_title}</p>
-                          <div className="flex flex-wrap gap-2 mt-2">
-                            <span className="px-2 py-1 rounded-md bg-white border border-slate-200 text-xs text-slate-600">
+                          <p className="break-words text-sm font-semibold text-ink">{project.project_title}</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <span className="rounded-[var(--radius-plate)] border border-rule bg-plate px-2 py-1 text-xs text-ink-soft">
                               {project.totals.phases} faze
                             </span>
-                            <span className="px-2 py-1 rounded-md bg-white border border-slate-200 text-xs text-slate-600">
+                            <span className="rounded-[var(--radius-plate)] border border-rule bg-plate px-2 py-1 text-xs text-ink-soft">
                               {project.totals.activities} activități
                             </span>
-                            <span className="px-2 py-1 rounded-md bg-white border border-slate-200 text-xs text-slate-600">
+                            <span className="rounded-[var(--radius-plate)] border border-rule bg-plate px-2 py-1 text-xs text-ink-soft">
                               {project.totals.document_requests} cereri
                             </span>
                           </div>
@@ -1923,14 +2143,14 @@ export default function AdminTemplatesPage() {
               {(propagationPreview.ineligible ?? []).length > 0 && (
                 <section className="space-y-3">
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-900">Proiecte blocate</h4>
-                    <p className="text-xs text-slate-500">Nu vor fi modificate automat.</p>
+                    <h3 className="text-sm font-semibold text-ink">Proiecte blocate</h3>
+                    <p className="text-xs text-ink-soft">Nu vor fi modificate automat.</p>
                   </div>
                   <div className="space-y-2">
                     {(propagationPreview.ineligible ?? []).map((project) => (
-                      <div key={project.project_id} className="p-4 rounded-xl border border-amber-200 bg-amber-50/70">
-                        <p className="text-sm font-semibold text-amber-950 break-words">{project.project_title}</p>
-                        <ul className="mt-2 space-y-1 text-xs text-amber-800">
+                      <div key={project.project_id} className="rounded-[var(--radius-plate)] border border-[var(--sg-warn)] bg-[var(--sg-warn-soft)] p-4">
+                        <p className="break-words text-sm font-semibold text-[var(--sg-warn)]">{project.project_title}</p>
+                        <ul className="mt-2 space-y-1 text-xs text-[var(--sg-warn)]">
                           {(project.blocked_reasons && project.blocked_reasons.length > 0
                             ? project.blocked_reasons
                             : ['Mapping incomplet pentru propagare.']
@@ -1945,61 +2165,58 @@ export default function AdminTemplatesPage() {
               )}
             </div>
 
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex flex-col-reverse gap-3 sm:flex-row">
-              <button
-                type="button"
-                onClick={closeTemplatePropagation}
-                disabled={propagationApplying}
-                className="sm:flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-white disabled:opacity-50"
-              >
+            <div className="flex flex-col-reverse gap-3 border-t border-rule bg-paper-sunk px-6 py-4 sm:flex-row">
+              <Button variant="secondary" className="sm:flex-1" onClick={closeTemplatePropagation} disabled={propagationApplying}>
                 Mai târziu
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="primary"
+                className="sm:flex-1"
                 onClick={applyTemplatePropagation}
                 disabled={propagationApplying || propagationSelectedProjectIds.length === 0}
-                className="sm:flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {propagationApplying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                {propagationApplying ? 'Se propagă...' : `Propagă în ${propagationSelectedProjectIds.length} proiect(e)`}
-              </button>
+                {propagationApplying ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
+                {propagationApplying ? 'Se propagă…' : `Propagă în ${propagationSelectedProjectIds.length} proiect(e)`}
+              </Button>
             </div>
-          </div>
+          </FloatingSurface>
         </div>
       )}
 
       {/* Modal document */}
       {addingDocTo && createPortal((
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
-              <h3 className="font-semibold text-slate-900">{editingDocId ? 'Modifică cererea de document' : 'Adaugă cerere document'}</h3>
-              <button onClick={closeDocModal} className="p-1 text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
-              </button>
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+          <Scrim onClick={closeDocModal} />
+          <FloatingSurface
+            role="dialog"
+            ariaModal
+            ariaLabel={editingDocId ? 'Modifică cererea de document' : 'Adaugă cerere document'}
+            className="relative flex w-full max-w-md max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-[var(--radius-plate-lg)]"
+          >
+            <div className="flex shrink-0 items-center justify-between border-b border-rule px-6 py-4">
+              <h2 className="font-bold text-ink">{editingDocId ? 'Modifică cererea de document' : 'Adaugă cerere document'}</h2>
+              <IconButton label="Închide" onClick={closeDocModal}><X className="h-5 w-5" /></IconButton>
             </div>
-            <div className="p-6 space-y-4 overflow-y-auto flex-1">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Nume document *</label>
+            <div className="flex-1 space-y-4 overflow-y-auto p-6">
+              <Camp label="Nume document" required>
                 <input
                   type="text"
                   value={newDocName}
                   onChange={(e) => setNewDocName(e.target.value)}
                   placeholder="Ex: Certificat constatator"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                  className={inputClass}
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Descriere</label>
+              </Camp>
+              <Camp label="Descriere">
                 <textarea
                   value={newDocDescription}
                   onChange={(e) => setNewDocDescription(e.target.value)}
-                  placeholder="Instrucțiuni pentru client..."
+                  placeholder="Instrucțiuni pentru client…"
                   rows={3}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg resize-none"
+                  className="w-full resize-none rounded-[var(--radius-plate)] border border-rule bg-plate px-3 py-2 text-sm text-ink placeholder:text-ink-faint transition-colors duration-[120ms] focus:border-[var(--sg-accent)]"
                 />
-              </div>
-              <label className="flex items-start gap-2 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 cursor-pointer">
+              </Camp>
+              <label className="flex cursor-pointer items-start gap-2 rounded-[var(--radius-plate)] border border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] px-3 py-2">
                 <input
                   type="checkbox"
                   checked={newDocOutgoing}
@@ -2007,17 +2224,17 @@ export default function AdminTemplatesPage() {
                     setNewDocOutgoing(e.target.checked)
                     if (e.target.checked) setNewDocCategory('optional')
                   }}
-                  className="w-4 h-4 mt-0.5 border-slate-300 text-sky-600"
+                  className="mt-0.5 h-4 w-4 border-rule-strong text-[var(--sg-accent)]"
                 />
                 <span>
-                  <span className="block text-sm font-medium text-slate-800">Document de trimis (fără răspuns)</span>
-                  <span className="block text-xs text-slate-500">Clientul îl poate descărca, fără upload înapoi.</span>
+                  <span className="block text-sm font-medium text-ink">Document de trimis (fără răspuns)</span>
+                  <span className="block text-xs text-ink-soft">Clientul îl poate descărca, fără upload înapoi.</span>
                 </span>
               </label>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  {newDocOutgoing ? 'Documente atașate *' : 'Modele / template-uri (opțional)'}
-                </label>
+                <span className="mb-2 block text-sm font-semibold text-ink">
+                  {newDocOutgoing ? <>Documente atașate<span className="ml-0.5 text-[var(--sg-danger)]" aria-hidden="true">*</span></> : 'Modele / template-uri (opțional)'}
+                </span>
                 <input
                   ref={newDocFileInputRef}
                   type="file"
@@ -2025,27 +2242,27 @@ export default function AdminTemplatesPage() {
                     addNewDocTemplateFiles(e.currentTarget.files)
                     e.currentTarget.value = ''
                   }}
-                  className="hidden"
+                  className="sr-only"
                   accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp"
                   multiple
                 />
                 {(newDocAttachments.length > 0 || newDocTemplates.length > 0) ? (
-                  <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg space-y-2">
+                  <div className="space-y-2 rounded-[var(--radius-plate)] border border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] p-3">
                     {newDocAttachments.map(attachment => (
                       <div key={attachment.id} className="flex items-center gap-3">
                         {attachment.missing_at ? (
-                          <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                          <AlertCircle className="h-4 w-4 shrink-0 text-[var(--sg-warn)]" aria-hidden="true" />
                         ) : (
-                          <Paperclip className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                          <Paperclip className="h-4 w-4 shrink-0 text-[var(--sg-accent)]" aria-hidden="true" />
                         )}
-                        <p className={`text-sm font-medium truncate flex-1 ${attachment.missing_at ? 'text-amber-800' : 'text-indigo-900'}`}>
+                        <p className={`flex-1 truncate text-sm font-medium ${attachment.missing_at ? 'text-[var(--sg-warn)]' : 'text-[var(--sg-accent)]'}`}>
                           {attachment.original_name || attachment.storage_path.split('/').pop() || 'fișier atașat'}
                           {attachment.missing_at && <span className="ml-1 text-xs">(indisponibil)</span>}
                         </p>
                         <button
                           type="button"
                           onClick={() => setNewDocAttachments(current => current.filter(item => item.id !== attachment.id))}
-                          className="text-xs text-red-600 hover:text-red-700"
+                          className="text-xs font-medium text-[var(--sg-danger)] hover:brightness-90"
                         >
                           Elimină
                         </button>
@@ -2053,13 +2270,13 @@ export default function AdminTemplatesPage() {
                     ))}
                     {newDocTemplates.map((file, index) => (
                       <div key={`${file.name}-${file.size}-${index}`} className="flex items-center gap-3">
-                        <Paperclip className="w-4 h-4 text-indigo-600 flex-shrink-0" />
-                        <p className="text-sm font-medium text-indigo-900 truncate flex-1">{file.name}</p>
-                        <p className="text-xs text-indigo-600">{(file.size / 1024).toFixed(1)} KB</p>
+                        <Paperclip className="h-4 w-4 shrink-0 text-[var(--sg-accent)]" aria-hidden="true" />
+                        <p className="flex-1 truncate text-sm font-medium text-[var(--sg-accent)]">{file.name}</p>
+                        <p className="text-xs text-[var(--sg-accent)]">{(file.size / 1024).toFixed(1)} KB</p>
                         <button
                           type="button"
                           onClick={() => setNewDocTemplates(current => current.filter((_, fileIndex) => fileIndex !== index))}
-                          className="text-xs text-red-600 hover:text-red-700"
+                          className="text-xs font-medium text-[var(--sg-danger)] hover:brightness-90"
                         >
                           Elimină
                         </button>
@@ -2068,9 +2285,9 @@ export default function AdminTemplatesPage() {
                     <button
                       type="button"
                       onClick={() => newDocFileInputRef.current?.click()}
-                      className="inline-flex items-center gap-1 text-xs text-indigo-700 hover:text-indigo-900"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--sg-accent)] hover:text-[var(--sg-accent-ink)]"
                     >
-                      <Upload className="w-3 h-3" />
+                      <Upload className="h-3 w-3" aria-hidden="true" />
                       Adaugă fișiere
                     </button>
                   </div>
@@ -2078,56 +2295,68 @@ export default function AdminTemplatesPage() {
                   <button
                     type="button"
                     onClick={() => newDocFileInputRef.current?.click()}
-                    className="w-full flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors"
+                    className="flex w-full flex-col items-center justify-center gap-2 rounded-[var(--radius-plate)] border-2 border-dashed border-rule p-6 transition-colors duration-[120ms] hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)]"
                   >
-                    <Upload className="w-8 h-8 text-slate-400" />
-                    <span className="text-sm text-slate-600 font-medium">Click pentru a adăuga fișiere</span>
-                    <span className="text-xs text-slate-400">PDF, DOC, DOCX, XLS, XLSX, CSV, imagini</span>
+                    <Upload className="h-8 w-8 text-ink-faint" aria-hidden="true" />
+                    <span className="text-sm font-medium text-ink-soft">Click pentru a adăuga fișiere</span>
+                    <span className="text-xs text-ink-faint">PDF, DOC, DOCX, XLS, XLSX, CSV, imagini</span>
                   </button>
                 )}
                 {newDocOutgoing && !docModalHasTemplate && (
-                  <p className="mt-1 text-xs text-red-600">Documentul de trimis are nevoie de fișier atașat.</p>
+                  <p className="mt-1 text-xs text-[var(--sg-danger)]">Documentul de trimis are nevoie de fișier atașat.</p>
                 )}
               </div>
               {!newDocOutgoing && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Tip cerință</label>
-                <div className="space-y-2">
-                  {REQUIREMENT_TYPES.map(rt => (
-                    <label key={rt} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="newDocCategoryTemplate"
-                        value={rt}
-                        checked={newDocCategory === rt}
-                        onChange={() => setNewDocCategory(rt)}
-                        className="w-4 h-4 border-slate-300 text-indigo-600"
-                      />
-                      <span className="text-sm text-slate-700">{REQUIREMENT_LABELS[rt]}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
+                <fieldset>
+                  <legend className="mb-2 text-sm font-semibold text-ink">Tip cerință</legend>
+                  <div className="space-y-2">
+                    {REQUIREMENT_TYPES.map(rt => (
+                      <label key={rt} className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="radio"
+                          name="newDocCategoryTemplate"
+                          value={rt}
+                          checked={newDocCategory === rt}
+                          onChange={() => setNewDocCategory(rt)}
+                          className="h-4 w-4 border-rule-strong text-[var(--sg-accent)]"
+                        />
+                        <span className="text-sm text-ink">{REQUIREMENT_LABELS[rt]}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
               )}
             </div>
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-3 flex-shrink-0">
-              <button
-                onClick={closeDocModal}
-                className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-white"
-              >
+            <div className="flex shrink-0 gap-3 border-t border-rule bg-paper-sunk px-6 py-4">
+              <Button variant="secondary" className="flex-1" onClick={closeDocModal}>
                 Anulează
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
+                className="flex-1"
                 onClick={confirmAddDoc}
                 disabled={!newDocName.trim() || (newDocOutgoing && !docModalHasTemplate)}
-                className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                <Check className="w-4 h-4" /> {editingDocId ? 'Salvează' : 'Adaugă'}
-              </button>
+                <Check className="h-4 w-4" aria-hidden="true" /> {editingDocId ? 'Salvează' : 'Adaugă'}
+              </Button>
             </div>
-          </div>
+          </FloatingSurface>
         </div>
       ), document.body)}
     </div>
+  )
+}
+
+export default function AdminTemplatesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-[60vh] items-center justify-center" role="status" aria-live="polite">
+          <Spinner size="md" />
+        </div>
+      }
+    >
+      <AdminTemplatesContent />
+    </Suspense>
   )
 }

@@ -63,12 +63,18 @@ export const REMINDER_LABELS: Record<ReminderType, string> = {
   overdue: 'Termen depășit',
 }
 
+/**
+ * Cât de aproape e termenul, în tonurile rezervate ale programului de
+ * semnalizare. Cele cinci praguri se mapează pe patru tonuri — „peste o
+ * săptămână” e neutru, restul urcă spre roșu — fiindcă sistemul are patru
+ * semnale, nu cinci nuanțe de portocaliu.
+ */
 export const REMINDER_BADGE: Record<ReminderType, { bg: string; text: string; border: string }> = {
-  '1_week': { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-  '3_days': { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
-  '1_day': { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
-  same_day: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
-  overdue: { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200' },
+  '1_week':  { bg: 'bg-paper-sunk',                text: 'text-ink-soft',                 border: 'border-rule' },
+  '3_days':  { bg: 'bg-[var(--sg-warn-soft)]',     text: 'text-[var(--sg-warn)]',         border: 'border-[var(--sg-warn)]' },
+  '1_day':   { bg: 'bg-[var(--sg-warn-soft)]',     text: 'text-[var(--sg-warn)]',         border: 'border-[var(--sg-warn)]' },
+  same_day:  { bg: 'bg-[var(--sg-danger-soft)]',   text: 'text-[var(--sg-danger)]',       border: 'border-[var(--sg-danger)]' },
+  overdue:   { bg: 'bg-[var(--sg-danger-soft)]',   text: 'text-[var(--sg-danger)]',       border: 'border-[var(--sg-danger)]' },
 }
 
 export function formatDeadline(deadlineAt: string): string {

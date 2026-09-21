@@ -11,10 +11,14 @@ import {
   Clock,
   AlertTriangle,
   Mail,
-  ArrowLeft,
   CheckCircle2,
   Loader2,
 } from 'lucide-react'
+import { LocationStrip } from '@/components/ui/LocationStrip'
+import { ButtonLink } from '@/components/ui/Button'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { Signal } from '@/components/ui/Signal'
+import { TONE, formatDate, type SignalTone } from '@/lib/signage'
 import {
   getManualReminderType,
   REMINDER_LABELS,
@@ -22,6 +26,7 @@ import {
 } from '@/lib/document-reminder'
 import { useReminderStates } from '@/hooks/useReminderStates'
 import { getReminderDisplayStatus } from '@/components/ReminderStatus'
+import { Spinner } from '@/components/ui/Spinner'
 
 export default function MyRequestsPage() {
   const router = useRouter()
@@ -82,8 +87,9 @@ export default function MyRequestsPage() {
 
   if (loading || authLoading) {
     return (
-      <div className="flex h-[80vh] items-center justify-center">
-        <div className="w-10 h-10 border-4 border-slate-100 border-t-indigo-600 rounded-full animate-spin" />
+      <div className="flex h-[80vh] items-center justify-center" role="status" aria-live="polite">
+        <Spinner />
+        <span className="sr-only">Se încarcă cererile…</span>
       </div>
     )
   }
@@ -100,66 +106,48 @@ export default function MyRequestsPage() {
   })
   const noDeadline = requests.filter((r: any) => !r.deadline_at)
 
-  const groups = [
-    { key: 'overdue', label: 'Depășite', items: overdue, accent: 'text-red-500', dot: 'bg-red-400' },
-    { key: 'upcoming', label: 'Upcoming', items: upcoming, accent: 'text-amber-600', dot: 'bg-amber-400' },
-    { key: 'none', label: 'Fără termen', items: noDeadline, accent: 'text-slate-500', dot: 'bg-slate-300' },
+  const groups: { key: string; label: string; items: any[]; tone: SignalTone }[] = [
+    { key: 'overdue', label: 'Cu termen depășit', items: overdue, tone: 'danger' as SignalTone },
+    { key: 'upcoming', label: 'Cu termen în față', items: upcoming, tone: 'warn' as SignalTone },
+    { key: 'none', label: 'Fără termen', items: noDeadline, tone: 'neutral' as SignalTone },
   ].filter(g => g.items.length > 0)
 
   return (
-    <div className="flex flex-col gap-8 fade-in-up">
-      {/* Header */}
-      <div className="flex items-center gap-4 pb-6 border-b border-slate-200/60">
-        <Link href="/">
-          <button className="w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center transition-colors shadow-sm">
-            <ArrowLeft className="w-4 h-4 text-slate-500" />
-          </button>
-        </Link>
-        <div className="flex-1">
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Cereri de documente</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            {requests.length === 0
-              ? 'Nicio cerere activă'
-              : `${requests.length} cereri în așteptare${overdue.length > 0 ? ` · ${overdue.length} depășite` : ''}`}
-          </p>
-        </div>
-        {overdue.length > 0 && (
-          <span className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full bg-red-50 text-red-500 border border-red-100">
-            <AlertTriangle className="w-3 h-3" />
-            {overdue.length} depășite
-          </span>
-        )}
-      </div>
+    <div className="flex flex-col">
+      <LocationStrip
+        segments={[{ label: 'Bonie', href: '/' }, { label: 'Cereri de documente' }]}
+        action={overdue.length > 0
+          ? <Signal tone="danger">{overdue.length} cu termen depășit</Signal>
+          : undefined}
+      />
+
+      <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Cereri de documente</h1>
+      <p className="mt-2 mb-8 text-sm text-ink-soft">
+        {requests.length === 0
+          ? 'Nicio cerere în așteptare.'
+          : `${requests.length} ${requests.length === 1 ? 'cerere așteaptă' : 'cereri așteaptă'} răspuns de la clienți.`}
+      </p>
 
       {/* Empty */}
       {requests.length === 0 ? (
-        <div className="py-24 flex flex-col items-center justify-center text-center gap-3">
-          <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center mb-2">
-            <CheckCircle2 className="w-7 h-7 text-indigo-300" />
-          </div>
-          <p className="text-base font-bold text-slate-700">Totul e la zi!</p>
-          <p className="text-sm text-slate-400">Nu ai cereri de documente în așteptare.</p>
-          <Link href="/">
-            <button className="mt-4 px-4 py-2 text-sm font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors">
-              Înapoi la dashboard
-            </button>
-          </Link>
-        </div>
+        <EmptyState
+          title="Totul e la zi"
+          action={<ButtonLink href="/" variant="secondary">Înapoi la proiecte</ButtonLink>}
+        >
+          Nicio cerere nu așteaptă răspuns. Când trimiți una nouă, apare aici, ordonată după termen.
+        </EmptyState>
       ) : (
         <div className="flex flex-col gap-8">
           {groups.map(group => (
             <div key={group.key}>
               {/* Group label */}
-              <div className="flex items-center gap-2 mb-3">
-                <span className={`w-2 h-2 rounded-full ${group.dot}`} />
-                <span className={`text-xs font-bold uppercase tracking-wider ${group.accent}`}>
-                  {group.label}
-                </span>
-                <span className="text-xs text-slate-400 font-medium">({group.items.length})</span>
-              </div>
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink">
+                <Signal tone={group.tone}>{group.label}</Signal>
+                <span className="font-medium text-ink-soft">{group.items.length}</span>
+              </h2>
 
               {/* Cards */}
-              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm divide-y divide-slate-50">
+              <div className="divide-y divide-rule overflow-hidden rounded-[var(--radius-plate)] border border-rule bg-plate">
                 {group.items.map((req: any) => {
                   const reminderType = getManualReminderType(req.deadline_at) ?? '1_week'
                   const state = reminderStates[req.id]
@@ -189,96 +177,72 @@ export default function MyRequestsPage() {
                     !isOverdue &&
                     deadline.getTime() - today.getTime() <= 3 * 24 * 60 * 60 * 1000
 
-                  const accentColor = isOverdue
-                    ? 'bg-red-400'
-                    : reminderType === 'same_day'
-                    ? 'bg-orange-400'
-                    : reminderType === '1_day'
-                    ? 'bg-orange-300'
-                    : reminderType === '3_days'
-                    ? 'bg-amber-300'
-                    : 'bg-slate-200'
-
-                  const rowBg = isOverdue ? 'bg-red-50/30 hover:bg-red-50/50' : 'hover:bg-slate-50/60'
+                  const tone: SignalTone = isOverdue
+                    ? 'danger'
+                    : isSoon || reminderType === 'same_day' || reminderType === '1_day' || reminderType === '3_days'
+                    ? 'warn'
+                    : 'neutral'
 
                   return (
-                    <div
-                      key={req.id}
-                      className={`relative flex items-center gap-4 pl-4 pr-5 py-4 transition-colors ${rowBg}`}
-                    >
-                      {/* Accent bar */}
-                      <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${accentColor}`} />
+                    <div key={req.id} className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors duration-[120ms] hover:bg-paper-sunk sm:flex-nowrap sm:gap-4">
+                      <span
+                        aria-hidden="true"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-plate)]"
+                        style={{ background: TONE[tone].bg, color: TONE[tone].fg }}
+                      >
+                        {isOverdue ? <AlertTriangle className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+                      </span>
 
-                      {/* Icon */}
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                        isOverdue ? 'bg-red-100' : 'bg-slate-100'
-                      }`}>
-                        {isOverdue
-                          ? <AlertTriangle className="w-4 h-4 text-red-400" />
-                          : <FileText className="w-4 h-4 text-slate-400" />
-                        }
-                      </div>
-
-                      {/* Text */}
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-sm font-semibold truncate ${isOverdue ? 'text-red-700' : 'text-slate-800'}`}>
-                          {req.name}
-                        </p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <Link href={`/projects/${req.project_id}`}>
-                            <span className="text-[11px] text-indigo-400 hover:text-indigo-600 hover:underline">
-                              {req.project_title}
-                            </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-ink">{req.name}</p>
+                        {/* O frază, nu un rând de flex: linkul rămâne inline în
+                            text, cum îl vrea și excepția din 2.5.8, iar
+                            interlinia îi dă înălțimea. */}
+                        <p className="mt-0.5 truncate text-xs leading-6 text-ink-soft">
+                          <Link
+                            href={`/projects/${req.project_id}`}
+                            className="font-medium text-[var(--sg-accent)] underline-offset-4 hover:underline"
+                          >
+                            {req.project_title}
                           </Link>
-                          {req.client_name && (
-                            <>
-                              <span className="text-[11px] text-slate-200">·</span>
-                              <span className="text-[11px] text-slate-400">{req.client_name}</span>
-                            </>
-                          )}
-                        </div>
+                          {req.client_name && <> · {req.client_name}</>}
+                        </p>
                       </div>
 
                       {/* Deadline */}
                       {deadline ? (
-                        <div className={`hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-md flex-shrink-0 ${
-                          isOverdue
-                            ? 'bg-red-100 text-red-600'
-                            : isSoon
-                            ? 'bg-amber-50 text-amber-600'
-                            : 'bg-slate-100 text-slate-500'
-                        }`}>
-                          <Clock className="w-2.5 h-2.5" />
-                          {deadline.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
-                        </div>
+                        <span
+                          className="hidden shrink-0 items-center gap-1 rounded-[var(--radius-plate)] px-2.5 py-1 text-xs font-semibold sm:inline-flex"
+                          style={{ background: TONE[tone].bg, color: TONE[tone].fg }}
+                        >
+                          <Clock className="h-3 w-3" aria-hidden="true" />
+                          {formatDate(deadline)}
+                        </span>
                       ) : (
-                        <span className="hidden sm:block text-[11px] text-slate-300 flex-shrink-0">Fără termen</span>
+                        <span className="hidden shrink-0 text-xs text-ink-soft sm:block">Fără termen</span>
                       )}
 
                       {/* Status */}
-                      <span className={`hidden md:inline-flex flex-shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-md ${
-                        req.status === 'review'
-                          ? 'bg-blue-50 text-blue-500'
-                          : req.status === 'rejected'
-                          ? 'bg-red-50 text-red-500'
-                          : 'bg-amber-50 text-amber-600'
-                      }`}>
-                        {req.status === 'review' ? 'Verificare' : req.status === 'rejected' ? 'Respins' : 'Așteaptă răspuns'}
-                      </span>
+                      <Signal
+                        tone={req.status === 'rejected' ? 'danger' : req.status === 'review' ? 'warn' : 'neutral'}
+                        className="hidden shrink-0 md:inline-flex"
+                      >
+                        {req.status === 'review' ? 'De verificat' : req.status === 'rejected' ? 'Respins' : 'La client'}
+                      </Signal>
 
                       {canRemind && (
                         reminderBlockedReason ? (
-                          <div
+                          <span
                             title={reminderBlockedReason}
-                            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-slate-200 text-xs font-medium text-slate-300 cursor-not-allowed"
+                            className="flex min-h-9 shrink-0 items-center gap-1.5 rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-3 text-xs font-medium text-ink-faint"
                           >
-                            <Mail className="w-3.5 h-3.5" />
+                            <Mail className="h-3.5 w-3.5" aria-hidden="true" />
                             Reminder
-                          </div>
+                          </span>
                         ) : reminderStatesLoading ? (
-                          <div className="flex-shrink-0 p-2 text-slate-300" aria-label="Se verifică reminderul">
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          </div>
+                          <span className="shrink-0 p-2 text-ink-faint" role="status" aria-label="Se verifică reminderul">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          </span>
                         ) : (() => {
                           const sentAt = thresholdState?.sent_at ?? null
                           const isSent = displayStatus === 'sent'
@@ -295,11 +259,11 @@ export default function MyRequestsPage() {
                               onClick={() => sendReminder(req.id, req.name)}
                               disabled={!!sendingId || isClaimed}
                               title={tooltipTitle}
-                              className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all hover:shadow-sm active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${
+                              className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-[var(--radius-plate)] border px-3 text-xs font-semibold transition-colors duration-[120ms] disabled:cursor-not-allowed disabled:opacity-55 sm:min-h-9 ${
                                 isSent
-                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'
+                                  ? 'border-[var(--sg-ok)] bg-[var(--sg-ok-soft)] text-[var(--sg-ok)]'
                                   : isSkipped
-                                  ? 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                                  ? 'border-rule bg-paper-sunk text-ink-soft'
                                   : `${badge.bg} ${badge.text} ${badge.border}`
                               }`}
                             >
@@ -309,7 +273,7 @@ export default function MyRequestsPage() {
                                 ? <CheckCircle2 className="w-3.5 h-3.5" />
                                 : <Mail className="w-3.5 h-3.5" />}
                               <span className="hidden sm:inline">
-                                {isSending ? 'Se trimite...' : isClaimed ? 'În curs' : isSent || isSkipped ? 'Trimite din nou' : 'Reminder'}
+                                {isSending ? 'Se trimite…' : isClaimed ? 'În curs' : isSent || isSkipped ? 'Trimite din nou' : 'Reminder'}
                               </span>
                             </button>
                           )

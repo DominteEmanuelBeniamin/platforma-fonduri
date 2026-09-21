@@ -23,8 +23,8 @@ export default function CalendarDayDialog({ dayKey, events, withProject, onClose
   return (
     <Dialog.Root open onOpenChange={open => { if (!open) onClose() }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[999999] bg-slate-900/50 backdrop-blur-sm" />
-        <Dialog.Content className="project-scope fixed left-1/2 top-[12vh] z-[999999] flex max-h-[70vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 flex-col overflow-hidden rounded-2xl bg-[var(--p-surface)] shadow-2xl focus:outline-none">
+        <Dialog.Overlay className="fixed inset-0 z-[999999] backdrop-blur-sm" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }} />
+        <Dialog.Content className="fixed left-1/2 top-[12vh] z-[999999] flex max-h-[70vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 flex-col overflow-hidden rounded-2xl bg-[var(--p-surface)] shadow-2xl focus:outline-none">
           <div className="flex flex-shrink-0 items-center gap-3 border-b border-[var(--p-border)] px-4 py-3">
             <div className="min-w-0 flex-1">
               <Dialog.Title className="truncate font-display text-sm font-semibold text-[var(--p-ink)]">

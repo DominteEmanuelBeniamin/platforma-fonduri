@@ -44,3 +44,10 @@ next-env.d.ts
 /test-results/
 /playwright-report/
 /blob-report/
+
+# claude code / impeccable local state
+.claude/
+.impeccable/
+
+# supabase local state
+supabase/.temp/

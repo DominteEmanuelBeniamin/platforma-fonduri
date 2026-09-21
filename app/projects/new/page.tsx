@@ -80,7 +80,7 @@ function generateId() {
 }
 
 export default function NewProjectPage() {
-  const { apiFetch } = useAuth()
+  const { apiFetch, token, loading: authLoading } = useAuth()
   const { showToast } = useToast()
   const router = useRouter()
 
@@ -112,6 +112,7 @@ export default function NewProjectPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    if (authLoading || !token) return
     const fetchClients = async () => {
       try {
         const res = await apiFetch('/api/clients')
@@ -124,9 +125,10 @@ export default function NewProjectPage() {
       }
     }
     fetchClients()
-  }, [apiFetch])
+  }, [apiFetch, authLoading, token])
 
   useEffect(() => {
+    if (authLoading || !token) return
     const fetchData = async () => {
       try {
         const [templatesRes, statusesRes, usersRes] = await Promise.all([
@@ -152,7 +154,7 @@ export default function NewProjectPage() {
       }
     }
     fetchData()
-  }, [apiFetch])
+  }, [apiFetch, authLoading, token])
 
   // Phase functions
   const addPhase = () => {
@@ -465,35 +467,35 @@ export default function NewProjectPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/50">
+    <div className="min-h-screen bg-paper-sunk">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         
         {/* Breadcrumb */}
         <div className="flex items-center gap-3">
-          <button onClick={() => router.push('/')} className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 group">
+          <button onClick={() => router.push('/')} className="flex min-h-11 items-center gap-2 text-sm text-ink-soft transition-colors duration-[120ms] hover:text-ink sm:min-h-9 group">
             <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
             <span className="font-medium">Proiecte</span>
           </button>
-          <span className="text-slate-300">/</span>
-          <span className="text-sm font-medium text-slate-900">Dosar Nou</span>
+          <span className="text-ink-faint">/</span>
+          <span className="text-sm font-medium text-ink">Dosar Nou</span>
         </div>
 
         {/* Header */}
         <div className="text-center space-y-3">
-          <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight">Deschide Dosar Nou</h1>
-          <p className="text-slate-500 text-sm sm:text-base max-w-md mx-auto">Completează informațiile pentru a crea un nou proiect</p>
+          <h1 className="text-3xl sm:text-4xl font-bold text-ink tracking-tight">Deschide Dosar Nou</h1>
+          <p className="text-ink-soft text-sm sm:text-base max-w-md mx-auto">Completează informațiile pentru a crea un nou proiect</p>
         </div>
 
         <form onSubmit={handleCreate} className="space-y-6">
           {/* Card: Informații de bază */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100">
-              <h2 className="font-semibold text-slate-900">Informații proiect</h2>
+          <div className="bg-white rounded-xl border border-rule shadow-sm overflow-hidden">
+            <div className="px-6 py-4 bg-paper-sunk border-b border-rule">
+              <h2 className="font-semibold text-ink">Informații proiect</h2>
             </div>
             <div className="p-6 space-y-4">
               <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                  <FileText className="w-4 h-4 text-slate-500" />
+                <label className="flex items-center gap-2 text-sm font-medium text-ink">
+                  <FileText className="w-4 h-4 text-ink-soft" />
                   Nume Proiect *
                 </label>
                 <input 
@@ -502,17 +504,17 @@ export default function NewProjectPage() {
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   required
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-3 bg-paper-sunk border border-rule rounded-lg text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-[var(--sg-accent)] focus:border-transparent"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                  <Building2 className="w-4 h-4 text-slate-500" />
+                <label className="flex items-center gap-2 text-sm font-medium text-ink">
+                  <Building2 className="w-4 h-4 text-ink-soft" />
                   Beneficiar (Client) *
                 </label>
                 {loadingClients ? (
-                  <div className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center gap-2 text-slate-400">
+                  <div className="w-full px-4 py-3 bg-paper-sunk border border-rule rounded-lg flex items-center gap-2 text-ink-faint">
                     <Loader2 className="w-4 h-4 animate-spin" />
                     <span className="text-sm">Se încarcă...</span>
                   </div>
@@ -521,7 +523,7 @@ export default function NewProjectPage() {
                     value={selectedClientId} 
                     onChange={(e) => setSelectedClientId(e.target.value)}
                     required
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-4 py-3 bg-paper-sunk border border-rule rounded-lg text-ink focus:outline-none focus:ring-2 focus:ring-[var(--sg-accent)]"
                   >
                     <option value="">Alege beneficiarul</option>
                     {clients.map(client => (
@@ -532,9 +534,9 @@ export default function NewProjectPage() {
                   </select>
                 )}
                 {clients.length === 0 && !loadingClients && (
-                  <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                    <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0" />
-                    <p className="text-sm text-amber-900">Nu există clienți.</p>
+                  <div className="flex items-start gap-2 p-3 bg-[var(--sg-warn-soft)] border border-[var(--sg-warn)] rounded-lg">
+                    <AlertCircle className="w-5 h-5 text-[var(--sg-warn)] flex-shrink-0" />
+                    <p className="text-sm text-[var(--sg-warn)]">Nu există clienți.</p>
                   </div>
                 )}
               </div>
@@ -542,29 +544,29 @@ export default function NewProjectPage() {
           </div>
 
           {/* Card: Mod creare */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100">
-              <h2 className="font-semibold text-slate-900">Structură proiect</h2>
+          <div className="bg-white rounded-xl border border-rule shadow-sm overflow-hidden">
+            <div className="px-6 py-4 bg-paper-sunk border-b border-rule">
+              <h2 className="font-semibold text-ink">Structură proiect</h2>
             </div>
             <div className="p-6">
               {/* Selectare mod */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <button type="button" onClick={() => { setCreationMode(null); setSelectedTemplateId(null); setManualPhases([]) }}
-                  className={`p-4 rounded-xl border-2 text-left transition-all ${creationMode === null ? 'border-slate-400 bg-slate-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                  <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center mb-3">
-                    <FolderPlus className="w-5 h-5 text-slate-600" />
+                  className={`p-4 rounded-xl border-2 text-left transition-all ${creationMode === null ? 'border-rule-strong bg-paper-sunk' : 'border-rule hover:border-rule-strong'}`}>
+                  <div className="w-10 h-10 bg-paper-sunk rounded-lg flex items-center justify-center mb-3">
+                    <FolderPlus className="w-5 h-5 text-ink-soft" />
                   </div>
-                  <p className="font-medium text-slate-900">Proiect gol</p>
-                  <p className="text-xs text-slate-500 mt-1">Fără faze predefinite</p>
+                  <p className="font-medium text-ink">Proiect gol</p>
+                  <p className="text-xs text-ink-soft mt-1">Fără faze predefinite</p>
                 </button>
 
                 <button type="button" onClick={() => { setCreationMode('template'); setManualPhases([]) }}
-                  className={`p-4 rounded-xl border-2 text-left transition-all ${creationMode === 'template' ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                  <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center mb-3">
-                    <Layers className="w-5 h-5 text-indigo-600" />
+                  className={`p-4 rounded-xl border-2 text-left transition-all ${creationMode === 'template' ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)]' : 'border-rule hover:border-rule-strong'}`}>
+                  <div className="w-10 h-10 bg-[var(--sg-accent-soft)] rounded-lg flex items-center justify-center mb-3">
+                    <Layers className="w-5 h-5 text-[var(--sg-accent)]" />
                   </div>
-                  <p className="font-medium text-slate-900">Din template</p>
-                  <p className="text-xs text-slate-500 mt-1">Importă faze predefinite</p>
+                  <p className="font-medium text-ink">Din template</p>
+                  <p className="text-xs text-ink-soft mt-1">Importă faze predefinite</p>
                 </button>
 
                 {/* „Creare manuală" ascunsă la cerere — fazele se definesc din template sau ulterior, din sidebar-ul proiectului */}
@@ -574,37 +576,37 @@ export default function NewProjectPage() {
               {creationMode === 'template' && (
                 <div className="space-y-3">
                   {loadingTemplates ? (
-                    <div className="text-center py-8 text-slate-500">Se încarcă template-urile...</div>
+                    <div className="text-center py-8 text-ink-soft">Se încarcă template-urile...</div>
                   ) : templates.length === 0 ? (
                     <div className="text-center py-8">
-                      <Layers className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-                      <p className="text-slate-500">Nu există template-uri.</p>
+                      <Layers className="w-10 h-10 text-ink-faint mx-auto mb-2" />
+                      <p className="text-ink-soft">Nu există template-uri.</p>
                     </div>
                   ) : (
                     templates.map(template => (
                       <div key={template.id}>
                         <button type="button" onClick={() => { setSelectedTemplateId(template.id); setTemplateActivityConsultants({}) }}
-                          className={`w-full p-4 rounded-xl border-2 text-left transition-all ${selectedTemplateId === template.id ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                          className={`w-full p-4 rounded-xl border-2 text-left transition-all ${selectedTemplateId === template.id ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)]' : 'border-rule hover:border-rule-strong'}`}>
                           <div className="flex items-center justify-between">
                             <div>
-                              <p className="font-medium text-slate-900">{template.name}</p>
-                              {template.description && <p className="text-xs text-slate-500">{template.description}</p>}
+                              <p className="font-medium text-ink">{template.name}</p>
+                              {template.description && <p className="text-xs text-ink-soft">{template.description}</p>}
                             </div>
-                            <span className="text-xs text-slate-500">{template.phases?.length || 0} faze</span>
+                            <span className="text-xs text-ink-soft">{template.phases?.length || 0} faze</span>
                           </div>
                         </button>
 
                         {/* Activități cu consultant — vizibile când template-ul e selectat */}
                         {selectedTemplateId === template.id && (
-                          <div className="mt-2 ml-2 space-y-2 border-l-2 border-indigo-100 pl-4">
+                          <div className="mt-2 ml-2 space-y-2 border-l-2 border-[var(--sg-accent)] pl-4">
                             {template.phases?.flatMap(phase =>
                               (phase.activities || []).map(act => (
                                 <div key={act.id} className="flex items-center gap-3 py-1">
-                                  <span className="text-sm text-slate-600 flex-1 truncate">{act.name}</span>
+                                  <span className="text-sm text-ink-soft flex-1 truncate">{act.name}</span>
                                   <select
                                     value={templateActivityConsultants[act.id] ?? ''}
                                     onChange={e => setTemplateActivityConsultants(prev => ({ ...prev, [act.id]: e.target.value }))}
-                                    className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 bg-white focus:border-indigo-400 outline-none min-w-[160px]"
+                                    className="text-xs border border-rule rounded-lg px-2 py-1.5 text-ink bg-white focus:border-[var(--sg-accent)] outline-none min-w-[160px]"
                                   >
                                     <option value="">Fără consultant</option>
                                     {consultants.map(c => (
@@ -626,22 +628,22 @@ export default function NewProjectPage() {
               {creationMode === 'manual' && (
                 <div className="space-y-4">
                   {manualPhases.map((phase, phaseIdx) => (
-                    <div key={phase.id} className="border border-slate-200 rounded-xl overflow-hidden">
+                    <div key={phase.id} className="border border-rule rounded-xl overflow-hidden">
                       {/* Phase header */}
-                      <div className="px-4 py-3 bg-slate-50 flex items-center gap-3">
-                        <button type="button" onClick={() => updatePhase(phase.id, { expanded: !phase.expanded })} className="text-slate-400">
+                      <div className="px-4 py-3 bg-paper-sunk flex items-center gap-3">
+                        <button type="button" onClick={() => updatePhase(phase.id, { expanded: !phase.expanded })} className="text-ink-faint">
                           {phase.expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                         </button>
                         <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: getStatusColor(phase.project_status_id) }}>
                           {phaseIdx + 1}
                         </div>
                         <input type="text" value={phase.name} onChange={(e) => updatePhase(phase.id, { name: e.target.value })}
-                          placeholder="Nume fază..." className="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm" />
+                          placeholder="Nume fază..." className="flex-1 px-3 py-1.5 border border-rule rounded-lg text-sm" />
                         <select value={phase.project_status_id} onChange={(e) => updatePhase(phase.id, { project_status_id: e.target.value })}
-                          className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm">
+                          className="px-3 py-1.5 border border-rule rounded-lg text-sm">
                           {statuses.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
-                        <button type="button" onClick={() => removePhase(phase.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                        <button type="button" onClick={() => removePhase(phase.id)} className="p-1.5 text-ink-faint hover:text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)] rounded-lg">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -650,25 +652,25 @@ export default function NewProjectPage() {
                       {phase.expanded && (
                         <div className="p-4 space-y-3">
                           {phase.activities.map((activity) => (
-                            <div key={activity.id} className="pl-4 border-l-2 border-slate-200">
+                            <div key={activity.id} className="pl-4 border-l-2 border-rule">
                               <div className="flex items-center gap-2 mb-2">
-                                <Activity className="w-4 h-4 text-slate-400" />
+                                <Activity className="w-4 h-4 text-ink-faint" />
                                 <input type="text" value={activity.name} onChange={(e) => updateActivity(phase.id, activity.id, { name: e.target.value })}
-                                  placeholder="Nume activitate..." className="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm" />
+                                  placeholder="Nume activitate..." className="flex-1 px-3 py-1.5 border border-rule rounded-lg text-sm" />
                                 <select
                                   value={activity.assigned_to ?? ''}
                                   onChange={e => updateActivity(phase.id, activity.id, { assigned_to: e.target.value || undefined })}
-                                  className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 bg-white focus:border-indigo-400 outline-none min-w-[140px]"
+                                  className="text-xs border border-rule rounded-lg px-2 py-1.5 text-ink bg-white focus:border-[var(--sg-accent)] outline-none min-w-[140px]"
                                 >
                                   <option value="">Consultant...</option>
                                   {consultants.map(c => (
                                     <option key={c.id} value={c.id}>{c.full_name || c.email}</option>
                                   ))}
                                 </select>
-                                <button type="button" onClick={() => updateActivity(phase.id, activity.id, { expanded: !activity.expanded })} className="p-1 text-slate-400">
+                                <button type="button" onClick={() => updateActivity(phase.id, activity.id, { expanded: !activity.expanded })} className="p-1 text-ink-faint">
                                   {activity.expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                                 </button>
-                                <button type="button" onClick={() => removeActivity(phase.id, activity.id)} className="p-1 text-slate-400 hover:text-red-500">
+                                <button type="button" onClick={() => removeActivity(phase.id, activity.id)} className="p-1 text-ink-faint hover:text-[var(--sg-danger)]">
                                   <X className="w-4 h-4" />
                                 </button>
                               </div>
@@ -677,42 +679,42 @@ export default function NewProjectPage() {
                               {activity.expanded && (
                                 <div className="ml-6 space-y-2">
                                   {activity.documentRequests.map(doc => (
-                                    <div key={doc.id} className="flex items-start gap-2 p-3 bg-slate-50 rounded-lg border border-slate-100">
-                                      <FileText className="w-4 h-4 text-slate-400 mt-0.5" />
+                                    <div key={doc.id} className="flex items-start gap-2 p-3 bg-paper-sunk rounded-lg border border-rule">
+                                      <FileText className="w-4 h-4 text-ink-faint mt-0.5" />
                                       <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 flex-wrap">
-                                          <span className="font-medium text-sm text-slate-900">{doc.name}</span>
+                                          <span className="font-medium text-sm text-ink">{doc.name}</span>
                                           {REQUIREMENT_BADGE[doc.requirement_type] && (
                                             <span className={`text-xs px-1.5 py-0.5 rounded ${REQUIREMENT_BADGE[doc.requirement_type]!.bg} ${REQUIREMENT_BADGE[doc.requirement_type]!.text}`}>
                                               {REQUIREMENT_LABELS[doc.requirement_type]}
                                             </span>
                                           )}
                                         </div>
-                                        {doc.description && <p className="text-xs text-slate-500 mt-0.5">{doc.description}</p>}
+                                        {doc.description && <p className="text-xs text-ink-soft mt-0.5">{doc.description}</p>}
                                         {doc.templateFiles.length > 0 && (
-                                          <div className="flex items-center gap-1 mt-1 text-xs text-indigo-600">
+                                          <div className="flex items-center gap-1 mt-1 text-xs text-[var(--sg-accent)]">
                                             <Paperclip className="w-3 h-3" />
                                             <span>{doc.templateFiles.map(file => file.name).join(', ')}</span>
                                           </div>
                                         )}
                                       </div>
-                                      <button type="button" onClick={() => openEditDocModal(phase.id, activity.id, doc)} className="p-1 text-slate-400 hover:text-indigo-600" title="Modifică cererea">
+                                      <button type="button" onClick={() => openEditDocModal(phase.id, activity.id, doc)} className="p-1 text-ink-faint hover:text-[var(--sg-accent)]" title="Modifică cererea">
                                         <Pencil className="w-4 h-4" />
                                       </button>
-                                      <button type="button" onClick={() => removeDocRequest(phase.id, activity.id, doc.id)} className="p-1 text-slate-400 hover:text-red-500" title="Șterge cererea">
+                                      <button type="button" onClick={() => removeDocRequest(phase.id, activity.id, doc.id)} className="p-1 text-ink-faint hover:text-[var(--sg-danger)]" title="Șterge cererea">
                                         <X className="w-4 h-4" />
                                       </button>
                                     </div>
                                   ))}
                                   <button type="button" onClick={() => openAddDocModal(phase.id, activity.id)}
-                                    className="flex items-center gap-1 py-2 px-3 text-xs text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg">
+                                    className="flex items-center gap-1 py-2 px-3 text-xs text-[var(--sg-accent)] hover:text-[var(--sg-accent-ink)] hover:bg-[var(--sg-accent-soft)] rounded-lg">
                                     <Plus className="w-3 h-3" /> Adaugă cerere document
                                   </button>
                                 </div>
                               )}
                             </div>
                           ))}
-                          <button type="button" onClick={() => addActivity(phase.id)} className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1 ml-4">
+                          <button type="button" onClick={() => addActivity(phase.id)} className="text-sm text-[var(--sg-accent)] hover:text-[var(--sg-accent-ink)] flex items-center gap-1 ml-4">
                             <Plus className="w-4 h-4" /> Adaugă activitate
                           </button>
                         </div>
@@ -720,7 +722,7 @@ export default function NewProjectPage() {
                     </div>
                   ))}
 
-                  <button type="button" onClick={addPhase} className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-indigo-400 hover:text-indigo-600 flex items-center justify-center gap-2">
+                  <button type="button" onClick={addPhase} className="w-full py-3 border-2 border-dashed border-rule-strong rounded-xl text-ink-soft hover:border-[var(--sg-accent)] hover:text-[var(--sg-accent)] flex items-center justify-center gap-2">
                     <Plus className="w-5 h-5" /> Adaugă fază nouă
                   </button>
                 </div>
@@ -730,11 +732,11 @@ export default function NewProjectPage() {
 
           {/* Buttons */}
           <div className="flex flex-col-reverse sm:flex-row gap-3">
-            <button type="button" onClick={() => router.push('/')} className="flex-1 px-5 py-3 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50">
+            <button type="button" onClick={() => router.push('/')} className="flex-1 px-5 py-3 bg-white border border-rule text-ink rounded-lg text-sm font-semibold hover:bg-paper-sunk">
               Anulează
             </button>
             <button type="submit" disabled={loading || !title || !selectedClientId}
-              className="flex-1 px-5 py-3 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+              className="flex-1 px-5 py-3 bg-[var(--sg-accent)] text-white rounded-lg text-sm font-semibold hover:bg-[var(--sg-accent-ink)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -755,62 +757,62 @@ export default function NewProjectPage() {
       {addingDocToActivity && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-semibold text-slate-900">{editingDocId ? 'Modifică cererea de document' : 'Adaugă cerere document'}</h3>
-              <button onClick={closeAddDocModal} className="p-1 text-slate-400 hover:text-slate-600">
+            <div className="px-6 py-4 border-b border-rule flex items-center justify-between">
+              <h3 className="font-semibold text-ink">{editingDocId ? 'Modifică cererea de document' : 'Adaugă cerere document'}</h3>
+              <button onClick={closeAddDocModal} className="p-1 text-ink-faint hover:text-ink-soft">
                 <X className="w-5 h-5" />
               </button>
             </div>
             
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Nume document *</label>
+                <label className="block text-sm font-medium text-ink mb-1">Nume document *</label>
                 <input type="text" value={newDocName} onChange={(e) => setNewDocName(e.target.value)}
-                  placeholder="Ex: Certificat constatator" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
+                  placeholder="Ex: Certificat constatator" className="w-full px-3 py-2 border border-rule rounded-lg text-sm focus:ring-2 focus:ring-[var(--sg-accent)] focus:border-transparent" />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Descriere</label>
+                <label className="block text-sm font-medium text-ink mb-1">Descriere</label>
                 <textarea value={newDocDescription} onChange={(e) => setNewDocDescription(e.target.value)}
-                  placeholder="Instrucțiuni pentru client..." rows={3} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none" />
+                  placeholder="Instrucțiuni pentru client..." rows={3} className="w-full px-3 py-2 border border-rule rounded-lg text-sm focus:ring-2 focus:ring-[var(--sg-accent)] focus:border-transparent resize-none" />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Model / Template (opțional)</label>
+                <label className="block text-sm font-medium text-ink mb-2">Model / Template (opțional)</label>
                 {newDocTemplates.length > 0 ? (
-                  <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg space-y-1">
-                    {newDocTemplates.map(file => <p key={`${file.name}-${file.size}`} className="text-sm font-medium text-indigo-900 truncate">{file.name}</p>)}
-                    <button type="button" onClick={() => setNewDocTemplates([])} className="text-xs text-indigo-700">Elimină selecția</button>
+                  <div className="p-3 bg-[var(--sg-accent-soft)] border border-[var(--sg-accent)] rounded-lg space-y-1">
+                    {newDocTemplates.map(file => <p key={`${file.name}-${file.size}`} className="text-sm font-medium text-[var(--sg-accent)] truncate">{file.name}</p>)}
+                    <button type="button" onClick={() => setNewDocTemplates([])} className="text-xs text-[var(--sg-accent)]">Elimină selecția</button>
                   </div>
                 ) : (
-                  <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors">
-                    <Upload className="w-8 h-8 text-slate-400" />
-                    <span className="text-sm text-slate-600 font-medium">Click pentru a încărca</span>
-                    <span className="text-xs text-slate-400">PDF, DOC, DOCX, XLS, XLSX, CSV, imagini</span>
+                  <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-rule rounded-xl cursor-pointer hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] transition-colors">
+                    <Upload className="w-8 h-8 text-ink-faint" />
+                    <span className="text-sm text-ink-soft font-medium">Click pentru a încărca</span>
+                    <span className="text-xs text-ink-faint">PDF, DOC, DOCX, XLS, XLSX, CSV, imagini</span>
                     <input ref={fileInputRef} type="file" multiple onChange={(e) => setNewDocTemplates(Array.from(e.target.files ?? []))} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp" />
                   </label>
                 )}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Tip cerință</label>
+                <label className="block text-sm font-medium text-ink mb-2">Tip cerință</label>
                 <div className="space-y-2">
                   {REQUIREMENT_TYPES.map(rt => (
                     <label key={rt} className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" name="newDocCategory" value={rt} checked={newDocCategory === rt} onChange={() => setNewDocCategory(rt)} className="w-4 h-4 border-slate-300 text-indigo-600 focus:ring-indigo-500" />
-                      <span className="text-sm text-slate-700">{REQUIREMENT_LABELS[rt]}</span>
+                      <input type="radio" name="newDocCategory" value={rt} checked={newDocCategory === rt} onChange={() => setNewDocCategory(rt)} className="w-4 h-4 border-rule-strong text-[var(--sg-accent)] focus:ring-[var(--sg-accent)]" />
+                      <span className="text-sm text-ink">{REQUIREMENT_LABELS[rt]}</span>
                     </label>
                   ))}
                 </div>
               </div>
             </div>
 
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-3">
-              <button type="button" onClick={closeAddDocModal} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-white">
+            <div className="px-6 py-4 bg-paper-sunk border-t border-rule flex gap-3">
+              <button type="button" onClick={closeAddDocModal} className="flex-1 px-4 py-2.5 border border-rule rounded-lg text-sm font-medium text-ink hover:bg-white">
                 Anulează
               </button>
               <button type="button" onClick={confirmAddDoc} disabled={!newDocName.trim()}
-                className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                className="flex-1 px-4 py-2.5 bg-[var(--sg-accent)] text-white rounded-lg text-sm font-medium hover:bg-[var(--sg-accent-ink)] disabled:opacity-50 flex items-center justify-center gap-2">
                 <Check className="w-4 h-4" /> {editingDocId ? 'Salvează' : 'Adaugă'}
               </button>
             </div>
