@@ -776,7 +776,7 @@ function ProjectRow({
               // Titlul e un link adevărat, ca ecranul să rămână accesibil de la
               // tastatură și proiectul să se poată deschide în tab nou.
               onClick={event => event.stopPropagation()}
-              className="inline-flex min-h-6 items-center font-medium text-ink underline-offset-4 hover:underline"
+              className="inline-flex min-h-6 min-w-6 items-center font-medium text-ink underline-offset-4 hover:underline"
             >
               {row.label}
             </Link>

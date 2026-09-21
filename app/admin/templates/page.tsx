@@ -1426,7 +1426,7 @@ function AdminTemplatesContent() {
         ]}
         action={
           !showForm ? (
-            <Button variant="primary" onClick={openCreateForm}>
+            <Button variant="primary" onClick={openCreateForm} aria-label="Șablon nou">
               <Plus className="h-4 w-4" aria-hidden="true" />
               <span className="hidden sm:inline">Șablon nou</span>
             </Button>
