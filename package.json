@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "node --experimental-strip-types --test lib/*.test.mjs",
     "smoke:supabase": "node scripts/smoke-supabase.mjs",
+    "dev:create-admin": "node scripts/create-local-admin.mjs",
     "smoke:duplicare": "node --experimental-strip-types scripts/smoke-duplicare.mjs",
     "test:e2e": "playwright test",
     "audit:check": "node --experimental-strip-types scripts/check-audit-contract.mjs",
