@@ -24,7 +24,7 @@ export function FeedbackMessage({
 
   return (
     <div
-      className={`flex items-start gap-3 rounded-xl border px-4 py-3 text-sm shadow-sm ${box} ${className}`}
+      className={`flex items-start gap-3 rounded-[var(--radius-plate)] border px-4 py-3 text-sm ${box} ${className}`}
       role={variant === 'error' || variant === 'warning' ? 'alert' : 'status'}
       aria-live={variant === 'error' || variant === 'warning' ? 'assertive' : 'polite'}
     >

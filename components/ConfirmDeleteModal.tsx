@@ -5,6 +5,9 @@ import { createPortal } from 'react-dom'
 import { AlertTriangle, X } from 'lucide-react'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { Spinner } from '@/components/ui/Spinner'
+import { Button } from '@/components/ui/Button'
+import { IconButton } from '@/components/ui/IconButton'
+import { FloatingSurface, Scrim } from '@/components/ui/Surface'
 
 interface ConfirmDeleteModalProps {
   isOpen: boolean
@@ -81,35 +84,31 @@ export default function ConfirmDeleteModal({
   const modalContent = (
     <div
       className="fixed inset-0 flex items-center justify-center p-4"
-      style={{
-        zIndex: 999999,
-        backgroundColor: 'rgba(0, 0, 0, 0.6)',
-        backdropFilter: 'blur(4px)'
-      }}
-      role="dialog"
-      aria-modal="true"
+      style={{ zIndex: 999999 }}
     >
-      {/* Backdrop */}
-      <div className="absolute inset-0" onClick={handleClose} />
+      <Scrim onClick={handleClose} />
 
-      {/* Modal */}
-      <div className="relative bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <FloatingSurface
+        role="dialog"
+        ariaModal
+        ariaLabel={title}
+        className="relative w-full max-w-md overflow-hidden rounded-[var(--radius-plate-lg)]"
+      >
         {/* Close button ALWAYS top-right */}
-        <button
-          type="button"
+        <IconButton
+          label="Închide"
           onClick={handleClose}
           disabled={loading}
-          aria-label="Închide"
-          className="absolute top-3 right-3 z-[60] p-2 text-ink-faint hover:text-ink-soft transition-colors rounded-lg hover:bg-paper-sunk disabled:opacity-50 disabled:cursor-not-allowed"
+          className="absolute top-3 right-3 z-[60]"
         >
           <X className="w-5 h-5" />
-        </button>
+        </IconButton>
 
         {/* Header */}
         <div className="px-6 py-5 border-b border-rule">
           <div className="flex items-start gap-4">
             {/* Warning Icon */}
-            <div className="w-12 h-12 rounded-full bg-[var(--sg-danger-soft)] flex items-center justify-center flex-shrink-0">
+            <div className="w-12 h-12 rounded-[var(--radius-plate)] bg-[var(--sg-danger-soft)] flex items-center justify-center flex-shrink-0">
               <AlertTriangle className="w-6 h-6 text-[var(--sg-danger)]" />
             </div>
 
@@ -138,7 +137,7 @@ export default function ConfirmDeleteModal({
               placeholder={confirmWord}
               autoFocus
               disabled={loading}
-              className="w-full px-4 py-3 rounded-xl border border-rule text-sm focus:border-[var(--sg-danger)] focus:ring-4 focus:ring-[var(--sg-danger)] outline-none transition-all bg-paper-sunk focus:bg-white disabled:opacity-60"
+              className="w-full px-4 py-3 rounded-[var(--radius-plate)] border border-rule text-sm focus:border-[var(--sg-danger)] focus:ring-4 focus:ring-[var(--sg-danger-soft)] outline-none transition-all bg-paper-sunk focus:bg-white disabled:opacity-60"
             />
           </div>
 
@@ -162,23 +161,15 @@ export default function ConfirmDeleteModal({
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-rule bg-paper-sunk flex gap-3">
-          <button
-            type="button"
-            onClick={handleClose}
-            disabled={loading}
-            className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-rule text-ink hover:bg-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
+          <Button variant="secondary" onClick={handleClose} disabled={loading} className="flex-1">
             Anulează
-          </button>
+          </Button>
 
-          <button
-            type="button"
+          <Button
+            variant="danger"
             onClick={handleConfirm}
             disabled={!isConfirmEnabled || loading}
-            className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            style={{
-              backgroundColor: isConfirmEnabled ? '#dc2626' : '#fca5a5'
-            }}
+            className="flex-1"
           >
             {loading ? (
               <>
@@ -188,9 +179,9 @@ export default function ConfirmDeleteModal({
             ) : (
               confirmText
             )}
-          </button>
+          </Button>
         </div>
-      </div>
+      </FloatingSurface>
     </div>
   )
 
