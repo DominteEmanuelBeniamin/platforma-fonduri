@@ -134,7 +134,7 @@ export interface ProjectTemplateUpdate {
 export interface TemplatePhase {
   id: string;
   template_id: string;
-  project_status_id: string;
+  project_status_id: string | null;
   name: string;
   slug: string;
   description: string | null;
@@ -149,7 +149,7 @@ export interface TemplatePhase {
 
 export interface TemplatePhaseCreate {
   template_id: string;
-  project_status_id: string;
+  project_status_id?: string | null;
   name: string;
   slug: string;
   description?: string;
@@ -158,7 +158,7 @@ export interface TemplatePhaseCreate {
 }
 
 export interface TemplatePhaseUpdate {
-  project_status_id?: string;
+  project_status_id?: string | null;
   name?: string;
   slug?: string;
   description?: string;

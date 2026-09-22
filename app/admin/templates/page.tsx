@@ -84,7 +84,7 @@ interface TemplateActivity {
 interface TemplatePhase {
   id: string
   name: string
-  project_status_id: string
+  project_status_id: string | null
   activities: TemplateActivity[]
   expanded: boolean
   duplication?: TemplateDuplication
@@ -99,7 +99,7 @@ interface Template {
   phases: {
     id: string
     name: string
-    project_status_id: string
+    project_status_id: string | null
     order_index: number
     activities?: {
       id: string
@@ -518,7 +518,7 @@ function AdminTemplatesContent() {
     setPhases([...phases, {
       id: generateId(),
       name: '',
-      project_status_id: statuses[0]?.id || '',
+      project_status_id: null,
       activities: [],
       expanded: true
     }])
@@ -768,7 +768,7 @@ function AdminTemplatesContent() {
     ))
   }
 
-  const getStatusColor = (statusId: string) => statuses.find(s => s.id === statusId)?.color || 'var(--sg-rule-strong)'
+  const getStatusColor = (statusId: string | null) => statuses.find(s => s.id === statusId)?.color || 'var(--sg-rule-strong)'
 
   const clearValidationError = (key: string) => {
     setValidationErrors(prev => {
@@ -799,11 +799,6 @@ function AdminTemplatesContent() {
         messages.push(`Faza ${phaseIdx + 1} nu are nume.`)
       }
 
-      if (!phase.project_status_id) {
-        errors.add(`phase:${phase.id}:project_status_id`)
-        messages.push(`Faza "${phaseLabel}" nu are status asociat.`)
-      }
-
       phase.activities.forEach((activity, activityIdx) => {
         const activityLabel = activity.name.trim() || `Activitatea ${activityIdx + 1}`
 
@@ -830,7 +825,6 @@ function AdminTemplatesContent() {
         current.map(phase => {
           const phaseHasErrors =
             errors.has(`phase:${phase.id}:name`) ||
-            errors.has(`phase:${phase.id}:project_status_id`) ||
             phase.activities.some(activity =>
               errors.has(`activity:${phase.id}:${activity.id}:name`) ||
               activity.document_requirements.some(doc =>
@@ -1692,21 +1686,6 @@ function AdminTemplatesContent() {
                             hasValidationError(`phase:${phase.id}:name`) ? 'border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]' : 'border-rule'
                           }`}
                         />
-                        <select
-                          value={phase.project_status_id}
-                          onChange={(e) => {
-                            updatePhase(phase.id, { project_status_id: e.target.value })
-                            clearValidationError(`phase:${phase.id}:project_status_id`)
-                          }}
-                          aria-label={`Status de proiect pentru faza ${phaseIdx + 1}`}
-                          className={`h-10 rounded-[var(--radius-plate)] border bg-plate px-2 text-sm text-ink transition-colors duration-[120ms] focus:border-[var(--sg-accent)] ${
-                            hasValidationError(`phase:${phase.id}:project_status_id`) ? 'border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]' : 'border-rule'
-                          }`}
-                        >
-                          {statuses.map(s => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                          ))}
-                        </select>
                         <IconButton label={`Duplică faza ${phase.name || phaseIdx + 1}`} onClick={() => duplicatePhase(phase.id)}>
                           <Copy className="h-4 w-4" />
                         </IconButton>
@@ -1717,9 +1696,9 @@ function AdminTemplatesContent() {
 
                       {phase.expanded && (
                         <div className="space-y-3 p-4">
-                          {(hasValidationError(`phase:${phase.id}:name`) || hasValidationError(`phase:${phase.id}:project_status_id`)) && (
+                          {hasValidationError(`phase:${phase.id}:name`) && (
                             <p className="text-xs text-[var(--sg-danger)]">
-                              Completează numele fazei și statusul înainte de salvare.
+                              Completează numele fazei înainte de salvare.
                             </p>
                           )}
 
