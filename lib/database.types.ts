@@ -426,7 +426,6 @@ export interface Project {
   general_consultant?: { id: string; full_name: string | null; email: string } | null;
   program?: Program;
   measure?: ProgramMeasure;
-  session?: MeasureSession;
   current_status?: ProjectStatus; // NOU
   template?: ProjectTemplate; // NOU
   phases?: ProjectPhase[];
@@ -1016,7 +1015,6 @@ export interface Database {
       profiles: { Row: Profile; Insert: ProfileCreate & { id: string }; Update: ProfileUpdate };
       programs: { Row: Program; Insert: ProgramCreate; Update: Partial<ProgramCreate> & { is_active?: boolean } };
       program_measures: { Row: ProgramMeasure; Insert: MeasureCreate; Update: Partial<MeasureCreate> & { is_active?: boolean } };
-      measure_sessions: { Row: MeasureSession; Insert: SessionCreate; Update: Partial<SessionCreate> & { status?: SessionStatus } };
       projects: { Row: Project; Insert: ProjectCreate; Update: ProjectUpdate };
       reminder_log: { Row: ReminderLog; Insert: Omit<ReminderLog, 'id' | 'created_at'>; Update: never };
       reminder_run_lease: { Row: { lease_name: string; owner_id: string; acquired_at: string; expires_at: string }; Insert: never; Update: never };
@@ -1033,24 +1031,12 @@ export interface Database {
       // Faze și activități proiect (actualizate)
       project_phases: { Row: ProjectPhase; Insert: ProjectPhaseCreate; Update: ProjectPhaseUpdate };
       project_activities: { Row: ProjectActivity; Insert: ProjectActivityCreate; Update: ProjectActivityUpdate };
-      activity_document_requirements: { Row: ActivityDocumentRequirement; Insert: ActivityDocumentRequirementCreate; Update: Partial<ActivityDocumentRequirementCreate> & { status?: DocumentRequirementStatus } };
-      activity_document_files: { Row: ActivityDocumentFile; Insert: ActivityDocumentFileCreate & { uploaded_by: string }; Update: ActivityDocumentFileReview & { reviewed_by?: string; reviewed_at?: string } };
       document_request_reviews: { Row: DocumentRequestReview; Insert: DocumentRequestReviewCreate; Update: DocumentRequestReviewUpdate };
       
       audit_logs: { Row: AuditLog; Insert: Omit<AuditLog, 'id' | 'created_at'>; Update: never };
       notifications: { Row: Notification; Insert: NotificationCreate; Update: NotificationUpdate };
     };
-    Views: {
-      programs_overview: { Row: ProgramOverview };
-      measures_overview: { Row: MeasureOverview };
-      sessions_overview: { Row: SessionOverview };
-      funding_hierarchy: { Row: FundingHierarchy };
-      project_progress_view: { Row: ProjectProgress };
-      activity_documents_status: { Row: ActivityDocumentsStatus };
-      project_activities_complete: { Row: ProjectActivityComplete };
-      project_phases_with_status: { Row: ProjectPhaseWithStatus }; // NOU
-      templates_overview: { Row: TemplateOverview }; // NOU
-    };
+    Views: { [_ in never]: never };
     Functions: {
       shift_project_phases_after_duplicate: {
         Args: { p_project_id: string; p_source_phase_id: string; p_copy_phase_id: string };
@@ -1060,11 +1046,9 @@ export interface Database {
         Args: { p_phase_id: string; p_source_activity_id: string; p_copy_activity_id: string };
         Returns: unknown;
       };
-      import_template_to_project: { Args: { p_project_id: string; p_template_id: string }; Returns: boolean }; // NOU
       advance_project_status: { Args: { p_project_id: string }; Returns: { previous_status: string; new_status: string; success: boolean }[] }; // NOU
       advance_project_phase: { Args: { p_project_id: string; p_complete_current?: boolean }; Returns: { previous_phase: string; current_phase: string; success: boolean }[] };
       revert_project_phase: { Args: { p_project_id: string; p_target_phase_slug: string }; Returns: boolean };
-      add_session: { Args: { p_measure_id: string; p_name: string; p_code?: string; p_start_date?: string; p_end_date?: string; p_budget?: number }; Returns: string };
       get_upcoming_deadlines: { Args: { p_days?: number; p_user_id?: string }; Returns: UpcomingDeadline[] };
       log_audit: { Args: { p_action_type: string; p_entity_type: string; p_entity_id: string; p_entity_name?: string; p_old_values?: Record<string, unknown>; p_new_values?: Record<string, unknown>; p_description?: string }; Returns: string };
       is_admin: { Args: Record<string, never>; Returns: boolean };
@@ -1088,17 +1072,6 @@ export interface Database {
       release_reminder_claim: { Args: { p_log_id: string; p_claim_token: string }; Returns: boolean };
       acquire_reminder_run_lease: { Args: { p_lease_name: string; p_owner_id: string; p_lease_seconds?: number }; Returns: { acquired: boolean; expires_at: string | null }[] };
       release_reminder_run_lease: { Args: { p_lease_name: string; p_owner_id: string }; Returns: boolean };
-      complete_document_upload_batch: {
-        Args: {
-          p_requirement_id: string;
-          p_upload_batch_id: string;
-          p_version_number: number;
-          p_uploaded_by: string;
-          p_rows: unknown;
-          p_ip_address?: string | null;
-        };
-        Returns: { created: boolean; file_count: number }[];
-      };
       complete_reserved_document_upload_batch: {
         Args: { p_upload_batch_id: string; p_actor_id: string; p_selected_file_ids: unknown; p_ip_address?: string | null };
         Returns: { created: boolean; version_number: number; file_count: number }[];
