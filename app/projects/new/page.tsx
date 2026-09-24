@@ -101,6 +101,7 @@ export default function NewProjectPage() {
   const [statuses, setStatuses] = useState<ProjectStatus[]>([])
   const [manualPhases, setManualPhases] = useState<ManualPhase[]>([])
   const [consultants, setConsultants] = useState<Consultant[]>([])
+  const canCreateFromTemplate = creationMode !== 'template' || templates.some(template => template.id === selectedTemplateId)
 
   // Pentru adding document modal
   const [addingDocToActivity, setAddingDocToActivity] = useState<{phaseId: string, activityId: string} | null>(null)
@@ -324,6 +325,7 @@ export default function NewProjectPage() {
   // Create project
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!canCreateFromTemplate) return
     setLoading(true)
 
     try {
@@ -735,7 +737,7 @@ export default function NewProjectPage() {
             <button type="button" onClick={() => router.push('/')} className="flex-1 px-5 py-3 bg-white border border-rule text-ink rounded-lg text-sm font-semibold hover:bg-paper-sunk">
               Anulează
             </button>
-            <button type="submit" disabled={loading || !title || !selectedClientId}
+            <button type="submit" disabled={loading || !title || !selectedClientId || !canCreateFromTemplate}
               className="flex-1 px-5 py-3 bg-[var(--sg-accent)] text-white rounded-lg text-sm font-semibold hover:bg-[var(--sg-accent-ink)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
               {loading ? (
                 <>

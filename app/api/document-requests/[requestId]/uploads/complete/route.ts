@@ -33,10 +33,7 @@ function isExpectedFile(value: unknown): value is ExpectedFile {
 
 function storageObjectSize(value: unknown): number | null {
   if (!value || typeof value !== 'object') return null
-  const metadata = (value as { metadata?: unknown }).metadata
-  if (!metadata || typeof metadata !== 'object') return null
-  const rawSize = (metadata as { size?: unknown; contentLength?: unknown }).size ??
-    (metadata as { contentLength?: unknown }).contentLength
+  const rawSize = (value as { size?: unknown }).size
   const size = typeof rawSize === 'number' ? rawSize : Number(rawSize)
   return Number.isSafeInteger(size) && size >= 0 ? size : null
 }
