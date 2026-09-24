@@ -17,8 +17,9 @@ create policy "Users can read own profile" on public.profiles
 -- acces total, pe orice rând, pentru orice cont autentificat. Celelalte
 -- policy-uri mai restrictive de pe aceste tabele erau oricum anulate de
 -- policy-urile astea (Postgres combină policy-urile permisive prin OR).
-revoke insert, update, select on public.document_requirements from anon, authenticated;
-revoke insert, update, select on public.files from anon, authenticated;
+-- Accesul aplicației trece prin service_role, deci revocăm și DELETE.
+revoke insert, update, select, delete on public.document_requirements from anon, authenticated;
+revoke insert, update, select, delete on public.files from anon, authenticated;
 
 -- project_members: policy-ul de SELECT era `USING (true)` — orice cont
 -- autentificat vedea toate atribuirile consultant↔proiect din toată
