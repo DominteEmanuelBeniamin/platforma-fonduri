@@ -109,6 +109,26 @@ const { error: uploadError } = await service.storage.from('project-files').uploa
 if (uploadError) throw uploadError
 const modelAttachment = [{ storage_path: modelPath, original_name: 'Model plan de afaceri.pdf', mime_type: 'application/pdf', file_size: pdf.length, order_index: 0 }]
 
+// ---------- Curățenie înainte de o nouă rulare ----------
+// Șabloanele de test se recunosc după nume sau după slug-ul inițial (oricare
+// poate fi schimbat din editor), iar proiectele după clienții @test.local.
+// Așa o rulare nouă nu lasă în urmă dubluri.
+const SEED_TEMPLATES = [
+  ['Start-Up Nation 2026', 'start-up-nation-2026'],
+  ['AFIR — Instalarea tinerilor fermieri (DR-30)', 'afir-dr-30'],
+  ['PNRR — Digitalizare IMM', 'pnrr-digitalizare-imm'],
+  ['PR Nord-Est 2021-2027 — Investiții în IMM-uri (Prioritatea 1)', 'pr-nord-est-imm-p1'],
+]
+const seedNames = SEED_TEMPLATES.map(([name]) => esc(name)).join(',')
+const seedSlugs = SEED_TEMPLATES.map(([name, slug]) => `${esc(slug)},${esc(slugify(name))}`).join(',')
+const seedTemplateIds = `select id from project_templates where name in (${seedNames}) or slug in (${seedSlugs})`
+const seedProjectIds = `select id from projects where template_id in (${seedTemplateIds})
+  or client_id in (select id from profiles where email like 'client.%@test.local')`
+sql(`delete from document_requirements where project_id in (${seedProjectIds})`)
+sql(`delete from projects where id in (${seedProjectIds})`)
+const removedTemplates = sql(`with removed as (delete from project_templates where id in (${seedTemplateIds}) returning 1) select count(*) from removed`)
+console.log('curățenie: șabloane de test vechi șterse:', removedTemplates)
+
 // ---------- Șabloane ----------
 const O = 'obligatoriu', C = 'daca_e_cazul', P = 'optional'
 const templates = [
@@ -165,12 +185,6 @@ const templates = [
 
 const created = {}
 for (const t of templates) {
-  const old = sql(`select id from project_templates where slug=${esc(t.slug)}`)
-  if (old) {
-    sql(`delete from document_requirements where project_id in (select id from projects where template_id=${esc(old)})`)
-    sql(`delete from projects where template_id=${esc(old)}`)
-    sql(`delete from project_templates where id=${esc(old)}`)
-  }
   const { template } = await api('POST', '/api/admin/templates', { name: t.name, slug: t.slug, description: t.description, measure_id: t.measure })
   const tree = { id: template.id, phases: [] }
   for (const [pIdx, [phaseName, statusSlug, activities]] of t.phases.entries()) {
@@ -313,12 +327,6 @@ trailer<</Root 1 0 R>>
     ],
   }
 
-  const old = sql(`select id from project_templates where slug=${esc(T.slug)}`)
-  if (old) {
-    sql(`delete from document_requirements where project_id in (select id from projects where template_id=${esc(old)})`)
-    sql(`delete from projects where template_id=${esc(old)}`)
-    sql(`delete from project_templates where id=${esc(old)}`)
-  }
   const measureId = sql(`select id from program_measures where slug='sun-2026' limit 1`) || null
   const { template } = await api('POST', '/api/admin/templates', { name: T.name, slug: T.slug, description: T.description, measure_id: measureId })
   let counts = { phases: 0, activities: 0, docs: 0, models: 0 }

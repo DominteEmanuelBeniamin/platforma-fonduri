@@ -1027,13 +1027,14 @@ function AdminTemplatesContent() {
         JSON.stringify(items.map(item => [item.storage_path, item.original_name || null]))
 
       if (editingTemplate) {
-        // PATCH template existent
+        // PATCH template existent. Slug-ul rămâne cel de la creare: e doar un
+        // identificator intern, iar regenerat din nume se lovea de unicitate
+        // când două șabloane ajungeau cu același nume.
         const res = await apiFetch(`/api/admin/templates/${editingTemplate.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: templateName.trim(),
-            slug: generateSlug(templateName.trim()),
             description: templateDescription.trim() || null,
           })
         })
