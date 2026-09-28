@@ -2,13 +2,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
+import { createStoragePathChecker, loadTemplateTree } from '@/app/api/_utils/template-tree'
+import { mapWithConcurrency } from '@/lib/template-tree'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const BUCKET = 'project-files'
+// Proiectele se aplică în paralel, dar puține odată: fiecare face zeci de
+// scrieri, iar rollback-ul unuia nu trebuie să concureze cu prea multe altele.
+const PROJECT_CONCURRENCY = 3
 
 interface RouteParams {
   params: Promise<{ templateId: string }>
@@ -51,16 +55,45 @@ type RollbackTracker = {
   }>
 }
 
-async function storagePathExists(path: string) {
-  const { data, error } = await supabaseAdmin.storage.from(BUCKET).createSignedUrl(path, 60)
-  if (error || !data?.signedUrl) return false
+// Stare comună tuturor proiectelor dintr-o singură aplicare: fiecare
+// `storage_path` se verifică o dată, iar o cerere-model lipsă se marchează o
+// dată, nu o dată per proiect.
+type PropagationContext = {
+  pathExists: (path: string) => Promise<boolean>
+  markTemplateDocMissing: (tDoc: any, checkedAt: string | null) => Promise<void>
+}
 
-  try {
-    const res = await fetch(data.signedUrl, { method: 'HEAD' })
-    return res.ok
-  } catch {
-    return false
+function createPropagationContext(): PropagationContext {
+  const marked = new Set<string>()
+  return {
+    pathExists: createStoragePathChecker(supabaseAdmin),
+    async markTemplateDocMissing(tDoc, checkedAt) {
+      if (marked.has(tDoc.id)) return
+      marked.add(tDoc.id)
+      await supabaseAdmin
+        .from('template_document_requirements')
+        .update({
+          attachment_missing_at: tDoc.attachment_missing_at || checkedAt,
+          attachment_missing_checked_at: checkedAt,
+        })
+        .eq('id', tDoc.id)
+    },
   }
+}
+
+function projectAttachmentRows(documentId: string, attachments: any[], actorId: string) {
+  return attachments.map((attachment: any, index: number) => ({
+    document_requirement_id: documentId,
+    source_template_attachment_id: attachment.id || null,
+    storage_path: attachment.storage_path,
+    original_name: attachment.original_name || null,
+    mime_type: attachment.mime_type || null,
+    file_size: typeof attachment.file_size === 'number' ? attachment.file_size : null,
+    order_index: index,
+    missing_at: attachment.missing_at || null,
+    missing_checked_at: attachment.missing_checked_at || null,
+    created_by: actorId,
+  }))
 }
 
 async function syncProjectAttachments(documentId: string, attachments: any[], actorId: string) {
@@ -70,57 +103,10 @@ async function syncProjectAttachments(documentId: string, attachments: any[], ac
     .eq('document_requirement_id', documentId)
   if (deleteError) throw deleteError
   if (attachments.length === 0) return
-  const { error } = await supabaseAdmin.from('document_requirement_attachments').insert(
-    attachments.map((attachment: any, index: number) => ({
-      document_requirement_id: documentId,
-      source_template_attachment_id: attachment.id || null,
-      storage_path: attachment.storage_path,
-      original_name: attachment.original_name || null,
-      mime_type: attachment.mime_type || null,
-      file_size: typeof attachment.file_size === 'number' ? attachment.file_size : null,
-      order_index: index,
-      missing_at: attachment.missing_at || null,
-      missing_checked_at: attachment.missing_checked_at || null,
-      created_by: actorId,
-    }))
-  )
+  const { error } = await supabaseAdmin
+    .from('document_requirement_attachments')
+    .insert(projectAttachmentRows(documentId, attachments, actorId))
   if (error) throw error
-}
-
-async function loadTemplate(templateId: string) {
-  const { data: phases, error: phasesError } = await supabaseAdmin
-    .from('template_phases')
-    .select('*')
-    .eq('template_id', templateId)
-    .eq('is_active', true)
-    .order('order_index')
-
-  if (phasesError) throw phasesError
-
-  return Promise.all((phases ?? []).map(async (phase: any) => {
-    const { data: activities, error: activitiesError } = await supabaseAdmin
-      .from('template_activities')
-      .select('*')
-      .eq('template_phase_id', phase.id)
-      .eq('is_active', true)
-      .order('order_index')
-
-    if (activitiesError) throw activitiesError
-
-    const activitiesWithDocs = await Promise.all((activities ?? []).map(async (activity: any) => {
-      const { data: docs, error: docsError } = await supabaseAdmin
-        .from('template_document_requirements')
-        .select('*, attachments:document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at)')
-        .eq('template_activity_id', activity.id)
-        .eq('is_active', true)
-        .order('order_index')
-
-      if (docsError) throw docsError
-      return { ...activity, document_requirements: docs ?? [] }
-    }))
-
-    return { ...phase, activities: activitiesWithDocs }
-  }))
 }
 
 async function loadProjectLineage(projectId: string) {
@@ -202,11 +188,13 @@ async function insertDocs(
   templateDocs: any[],
   actorId: string,
   rollback: RollbackTracker,
-  deletedDocBySource: Map<string, any>
+  deletedDocBySource: Map<string, any>,
+  ctx: PropagationContext
 ) {
   let applied = 0
   let skipped = 0
   const warnings: any[] = []
+  const pendingInserts: Array<{ tDoc: any; row: Record<string, any>; attachments: any[] }> = []
 
   if (!activityId) {
     throw new Error('Activitatea proiectului nu a putut fi identificată pentru propagarea cererilor de document.')
@@ -220,7 +208,7 @@ async function insertDocs(
       : []
     const attachmentPath = templateAttachments[0]?.storage_path || null
     const attachmentAvailable = attachmentPath && !tDoc.attachment_missing_at
-      ? await storagePathExists(attachmentPath)
+      ? await ctx.pathExists(attachmentPath)
       : false
     const attachmentCheckedAt = attachmentPath ? new Date().toISOString() : null
     const isOutgoing = tDoc.is_outgoing === true
@@ -231,13 +219,7 @@ async function insertDocs(
         template_document_requirement_id: tDoc.id,
         name: tDoc.name,
       })
-      await supabaseAdmin
-        .from('template_document_requirements')
-        .update({
-          attachment_missing_at: tDoc.attachment_missing_at || attachmentCheckedAt,
-          attachment_missing_checked_at: attachmentCheckedAt,
-        })
-        .eq('id', tDoc.id)
+      await ctx.markTemplateDocMissing(tDoc, attachmentCheckedAt)
     }
 
     if (isOutgoing && (!attachmentPath || !attachmentAvailable)) {
@@ -300,9 +282,10 @@ async function insertDocs(
       continue
     }
 
-    const { data: insertedDoc, error } = await supabaseAdmin
-      .from('document_requirements')
-      .insert({
+    pendingInserts.push({
+      tDoc,
+      attachments: templateAttachments,
+      row: {
         project_id: projectId,
         activity_id: activityId,
         name: tDoc.name,
@@ -319,19 +302,43 @@ async function insertDocs(
         visibility: 'draft',
         created_by: actorId,
         source_template_document_requirement_id: tDoc.id,
-      })
-      .select('id')
-      .single()
+      },
+    })
+  }
+
+  // Cererile noi ale activității intră într-un singur insert, iar atașamentele
+  // lor în încă unul, în loc de câte două cereri per document.
+  if (pendingInserts.length > 0) {
+    const { data: insertedDocs, error } = await supabaseAdmin
+      .from('document_requirements')
+      .insert(pendingInserts.map(item => item.row))
+      .select('id, source_template_document_requirement_id')
 
     if (error) {
       if ((error as any).code === '23505') {
-        throw new Error(`Cererea de document "${tDoc.name}" nu a putut fi propagată deoarece există deja o cerere cu același mapping sau nume în proiect. Reîncarcă preview-ul de propagare și rezolvă conflictul de mapping înainte de aplicare.`)
+        const names = pendingInserts.map(item => `"${item.tDoc.name}"`).join(', ')
+        throw new Error(`Cererile de document ${names} nu au putut fi propagate deoarece există deja o cerere cu același mapping sau nume în proiect. Reîncarcă preview-ul de propagare și rezolvă conflictul de mapping înainte de aplicare.`)
       }
       throw error
-    } else {
-      if (insertedDoc?.id) rollback.documentRequirementIds.push(insertedDoc.id)
-      if (insertedDoc?.id) await syncProjectAttachments(insertedDoc.id, templateAttachments, actorId)
+    }
+
+    const insertedIdBySource = new Map(
+      (insertedDocs ?? []).map((doc: any) => [doc.source_template_document_requirement_id, doc.id])
+    )
+    const attachmentRows: any[] = []
+    for (const item of pendingInserts) {
+      const insertedId = insertedIdBySource.get(item.tDoc.id)
+      if (!insertedId) continue
+      rollback.documentRequirementIds.push(insertedId)
+      attachmentRows.push(...projectAttachmentRows(insertedId, item.attachments, actorId))
       applied += 1
+    }
+
+    if (attachmentRows.length > 0) {
+      const { error: attachmentsError } = await supabaseAdmin
+        .from('document_requirement_attachments')
+        .insert(attachmentRows)
+      if (attachmentsError) throw attachmentsError
     }
   }
 
@@ -414,7 +421,7 @@ async function rollbackCreated(rollback: RollbackTracker) {
   }
 }
 
-async function applyToProject(projectId: string, templatePhases: any[], actorId: string) {
+async function applyToProject(projectId: string, templatePhases: any[], actorId: string, ctx: PropagationContext) {
   const lineage = await loadProjectLineage(projectId)
   if (!lineage.eligible) {
     return { project_id: projectId, status: 'skipped', reason: lineage.reason }
@@ -582,7 +589,7 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
           const attachmentAvailable = templateAttachments.length === 0
             ? true
             : shouldUpdateAttachment && !tDoc.attachment_missing_at
-            ? await storagePathExists(attachmentPath)
+            ? await ctx.pathExists(attachmentPath)
             : false
 
           if (shouldUpdateAttachment && !attachmentAvailable) {
@@ -591,13 +598,7 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
               template_document_requirement_id: tDoc.id,
               name: tDoc.name,
             })
-            await supabaseAdmin
-              .from('template_document_requirements')
-              .update({
-                attachment_missing_at: tDoc.attachment_missing_at || checkedAt,
-                attachment_missing_checked_at: checkedAt,
-              })
-              .eq('id', tDoc.id)
+            await ctx.markTemplateDocMissing(tDoc, checkedAt)
 
             if (isOutgoing || (!shouldMoveToActivity && !shouldUpdateOutgoing)) {
               totals.skipped += 1
@@ -668,7 +669,7 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
         }
 
         const docsToInsert = (tActivity.document_requirements ?? []).filter((doc: any) => !docBySource.has(doc.id))
-        const docResult = await insertDocs(projectId, activityId, docsToInsert, actorId, rollback, deletedDocBySource)
+        const docResult = await insertDocs(projectId, activityId, docsToInsert, actorId, rollback, deletedDocBySource, ctx)
         totals.document_requests += docResult.applied
         totals.skipped += docResult.skipped
         warnings.push(...docResult.warnings)
@@ -733,17 +734,18 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Unele proiecte nu folosesc acest template', rejected_project_ids: rejectedIds }, { status: 400 })
     }
 
-    const templatePhases = await loadTemplate(templateId)
-    const results = []
+    const templateTree = await loadTemplateTree(supabaseAdmin, templateId, 'id')
+    const templatePhases = templateTree?.phases ?? []
+    const ctx = createPropagationContext()
 
-    for (const projectId of projectIds) {
+    const results = await mapWithConcurrency(projectIds, PROJECT_CONCURRENCY, async projectId => {
       try {
-        results.push(await applyToProject(projectId, templatePhases, auth.profile.id))
+        return await applyToProject(projectId, templatePhases, auth.profile.id, ctx)
       } catch (error: any) {
         console.error('propagation apply project error:', { projectId, error })
-        results.push({ project_id: projectId, status: 'failed', error: error.message ?? 'Server error' })
+        return { project_id: projectId, status: 'failed', error: error.message ?? 'Server error' }
       }
-    }
+    })
 
     await supabaseAdmin.from('audit_logs').insert({
       user_id: auth.profile.id,

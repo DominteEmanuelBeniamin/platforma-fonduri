@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
+import { loadTemplateTree } from '@/app/api/_utils/template-tree'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,13 +21,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const auth = await requireTemplateAccess(req, templateId, 'read')
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-    const { data: template, error } = await supabaseAdmin
-      .from('project_templates')
-      .select('*')
-      .eq('id', templateId)
-      .single()
+    const template = await loadTemplateTree(
+      supabaseAdmin,
+      templateId,
+      '*, measure:program_measures(name, program:programs(name))',
+    )
 
-    if (error || !template) {
+    if (!template) {
       return NextResponse.json({ error: 'Template negăsit' }, { status: 404 })
     }
 

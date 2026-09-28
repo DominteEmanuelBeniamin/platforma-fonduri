@@ -1008,6 +1008,24 @@ function AdminTemplatesContent() {
       let templateId: string
       const savedIds = new Map<string, string>()
 
+      // Ce n-a fost modificat nu se mai trimite. Fiecare PATCH de document
+      // rescrie și atașamentele, iar editorul trimitea câte o cerere pentru
+      // fiecare element, deci salvarea unui șablon mare dura zeci de secunde.
+      const originalPhases = new Map<string, any>()
+      const originalActivities = new Map<string, any>()
+      const originalDocs = new Map<string, any>()
+      for (const originalPhase of editingTemplate?.phases ?? []) {
+        originalPhases.set(originalPhase.id, originalPhase)
+        for (const originalActivity of originalPhase.activities ?? []) {
+          originalActivities.set(originalActivity.id, originalActivity)
+          for (const originalDoc of originalActivity.document_requirements ?? []) {
+            originalDocs.set(originalDoc.id, originalDoc)
+          }
+        }
+      }
+      const attachmentKey = (items: any[]) =>
+        JSON.stringify(items.map(item => [item.storage_path, item.original_name || null]))
+
       if (editingTemplate) {
         // PATCH template existent
         const res = await apiFetch(`/api/admin/templates/${editingTemplate.id}`, {
@@ -1052,22 +1070,28 @@ function AdminTemplatesContent() {
         let phaseId: string
 
         if (isDbId(phase.id)) {
-          // PATCH faza existentă
-          const phaseRes = await apiFetch(`/api/admin/templates/phases/${phase.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name: phase.name,
-              project_status_id: phase.project_status_id,
-              order_index: pIdx + 1,
+          // PATCH faza existentă, doar dacă s-a schimbat
+          const originalPhase = originalPhases.get(phase.id)
+          const phaseChanged = !originalPhase ||
+            originalPhase.name !== phase.name ||
+            originalPhase.project_status_id !== phase.project_status_id ||
+            originalPhase.order_index !== pIdx + 1
+          if (phaseChanged) {
+            const phaseRes = await apiFetch(`/api/admin/templates/phases/${phase.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: phase.name,
+                project_status_id: phase.project_status_id,
+                order_index: pIdx + 1,
+              })
             })
-          })
-          if (!phaseRes.ok) throw new Error(await safeParseError(phaseRes, `Eroare la actualizare faza "${phase.name}"`))
+            if (!phaseRes.ok) throw new Error(await safeParseError(phaseRes, `Eroare la actualizare faza "${phase.name}"`))
+          }
           phaseId = phase.id
 
           // Ștergem activitățile eliminate
-          const originalPhase = editingTemplate?.phases?.find(p => p.id === phase.id)
-          const existingActivityIds = new Set(originalPhase?.activities?.map(a => a.id) || [])
+          const existingActivityIds = new Set<string>(originalPhase?.activities?.map((a: { id: string }) => a.id) || [])
           const currentActivityIds = new Set(phase.activities.filter(a => isDbId(a.id)).map(a => a.id))
           for (const oldId of existingActivityIds) {
             if (!currentActivityIds.has(oldId)) {
@@ -1100,23 +1124,28 @@ function AdminTemplatesContent() {
           let activityId: string
 
           if (isDbId(activity.id)) {
-            // PATCH activitate existentă
-            const actRes = await apiFetch(`/api/admin/templates/activities/${activity.id}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                name: activity.name,
-                order_index: aIdx + 1,
-                default_consultant_id: activity.default_consultant_id || null,
+            // PATCH activitate existentă, doar dacă s-a schimbat
+            const originalActivity = originalActivities.get(activity.id)
+            const activityChanged = !originalActivity ||
+              originalActivity.name !== activity.name ||
+              originalActivity.order_index !== aIdx + 1 ||
+              (originalActivity.default_consultant_id || null) !== (activity.default_consultant_id || null)
+            if (activityChanged) {
+              const actRes = await apiFetch(`/api/admin/templates/activities/${activity.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  name: activity.name,
+                  order_index: aIdx + 1,
+                  default_consultant_id: activity.default_consultant_id || null,
+                })
               })
-            })
-            if (!actRes.ok) throw new Error(await safeParseError(actRes, `Eroare la actualizare activitate "${activity.name}"`))
+              if (!actRes.ok) throw new Error(await safeParseError(actRes, `Eroare la actualizare activitate "${activity.name}"`))
+            }
             activityId = activity.id
 
             // Ștergem documentele eliminate
-            const originalPhase = editingTemplate?.phases?.find(p => p.id === phase.id)
-            const originalActivity = originalPhase?.activities?.find(a => a.id === activity.id)
-            const existingDocIds = new Set(originalActivity?.document_requirements?.map(d => d.id) || [])
+            const existingDocIds = new Set<string>(originalActivity?.document_requirements?.map((d: { id: string }) => d.id) || [])
             const currentDocIds = new Set(activity.document_requirements.filter(d => isDbId(d.id)).map(d => d.id))
             for (const oldId of existingDocIds) {
               if (!currentDocIds.has(oldId)) {
@@ -1163,7 +1192,23 @@ function AdminTemplatesContent() {
             }))
 
             if (isDbId(doc.id)) {
-              // PATCH document existent
+              // PATCH document existent, doar dacă s-a schimbat
+              const originalDoc = originalDocs.get(doc.id)
+              const originalAttachments = originalDoc?.attachments?.length
+                ? originalDoc.attachments
+                : originalDoc?.attachment_path
+                ? [{ storage_path: originalDoc.attachment_path, original_name: originalDoc.attachment_original_name }]
+                : []
+              const docChanged = !originalDoc ||
+                originalDoc.name !== doc.name ||
+                (originalDoc.description || null) !== (doc.description || null) ||
+                (originalDoc.is_outgoing === true) !== doc.is_outgoing ||
+                normalizeRequirementType(originalDoc.requirement_type, originalDoc.is_mandatory) !==
+                  (doc.is_outgoing ? 'optional' : doc.requirement_type) ||
+                originalDoc.order_index !== dIdx + 1 ||
+                attachmentKey(attachmentPayload) !== attachmentKey(originalAttachments)
+              if (!docChanged) continue
+
               const patchBody: any = {
                 name: doc.name,
                 description: doc.description || null,
