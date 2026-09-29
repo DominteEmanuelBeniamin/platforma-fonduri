@@ -16,10 +16,10 @@ import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { useToast } from '@/app/providers/ToastProvider'
 import { buildCopyName } from '@/lib/duplicate-name'
 import { serverMessage } from '@/lib/api-error'
+import { mapWithConcurrency } from '@/lib/template-tree'
 import {
   duplicationFromSource,
   isPersistentTemplateId,
-  resolveDuplicationForSave,
 } from '@/app/api/_utils/template-duplication'
 import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
 import { Spinner } from '@/components/ui/Spinner'
@@ -1001,263 +1001,83 @@ function AdminTemplatesContent() {
     setValidationErrors(new Set())
     setSaving(true)
     try {
-      const safeParseError = async (res: Response, fallback: string) => {
-        return serverMessage(res, `${fallback} (${res.status})`)
-      }
-
-      let templateId: string
-      const savedIds = new Map<string, string>()
-
-      // Ce n-a fost modificat nu se mai trimite. Fiecare PATCH de document
-      // rescrie și atașamentele, iar editorul trimitea câte o cerere pentru
-      // fiecare element, deci salvarea unui șablon mare dura zeci de secunde.
-      const originalPhases = new Map<string, any>()
-      const originalActivities = new Map<string, any>()
-      const originalDocs = new Map<string, any>()
-      for (const originalPhase of editingTemplate?.phases ?? []) {
-        originalPhases.set(originalPhase.id, originalPhase)
-        for (const originalActivity of originalPhase.activities ?? []) {
-          originalActivities.set(originalActivity.id, originalActivity)
-          for (const originalDoc of originalActivity.document_requirements ?? []) {
-            originalDocs.set(originalDoc.id, originalDoc)
-          }
-        }
-      }
-      const attachmentKey = (items: any[]) =>
-        JSON.stringify(items.map(item => [item.storage_path, item.original_name || null]))
-
-      if (editingTemplate) {
-        // PATCH template existent. Slug-ul rămâne cel de la creare: e doar un
-        // identificator intern, iar regenerat din nume se lovea de unicitate
-        // când două șabloane ajungeau cu același nume.
-        const res = await apiFetch(`/api/admin/templates/${editingTemplate.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: templateName.trim(),
-            description: templateDescription.trim() || null,
-          })
+      // Fișierele noi urcă direct în storage, câteva în paralel, înainte de
+      // salvare. Apoi tot arborele pleacă într-o singură cerere: serverul
+      // compară cu ce are și scrie doar diferențele, grupate pe niveluri.
+      const newFiles = phases.flatMap(phase => phase.activities.flatMap(activity =>
+        activity.document_requirements.flatMap(doc => doc.templateFiles ?? [])))
+      const uploaded = new Map<File, Omit<TemplateAttachment, 'id'>>()
+      await mapWithConcurrency(newFiles, 4, async file => {
+        const storagePath = await uploadTemplateFile(file)
+        if (!storagePath) throw new Error(`Nu s-a putut încărca fișierul "${file.name}"`)
+        uploaded.set(file, {
+          storage_path: storagePath,
+          original_name: file.name,
+          mime_type: file.type || 'application/octet-stream',
+          file_size: file.size,
         })
-        if (!res.ok) throw new Error(await safeParseError(res, 'Eroare la actualizare template'))
-        templateId = editingTemplate.id
+      })
 
-        // Ștergem fazele care au fost eliminate din UI
-        const existingPhaseIds = new Set(editingTemplate.phases?.map(p => p.id) || [])
-        const currentPhaseIds = new Set(phases.filter(p => isDbId(p.id)).map(p => p.id))
-        for (const oldId of existingPhaseIds) {
-          if (!currentPhaseIds.has(oldId)) {
-            await apiFetch(`/api/admin/templates/phases/${oldId}`, { method: 'DELETE' })
-          }
-        }
-      } else {
-        // POST template nou
-        const res = await apiFetch('/api/admin/templates', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: templateName.trim(),
-            slug: generateSlug(templateName.trim()),
-            description: templateDescription.trim() || null,
-          })
-        })
-        if (!res.ok) throw new Error(await safeParseError(res, 'Eroare la creare template'))
-        const data = await res.json()
-        templateId = data.template.id
+      const tree = {
+        name: templateName.trim(),
+        description: templateDescription.trim() || null,
+        phases: phases.map(phase => ({
+          id: phase.id,
+          name: phase.name,
+          project_status_id: phase.project_status_id,
+          duplication: phase.duplication,
+          source_local_id: phase.sourceLocalId,
+          activities: phase.activities.map(activity => ({
+            id: activity.id,
+            name: activity.name,
+            default_consultant_id: activity.default_consultant_id || null,
+            duplication: activity.duplication,
+            source_local_id: activity.sourceLocalId,
+            document_requirements: activity.document_requirements.map(doc => ({
+              id: doc.id,
+              name: doc.name,
+              description: doc.description || null,
+              is_outgoing: doc.is_outgoing,
+              requirement_type: doc.is_outgoing ? 'optional' : doc.requirement_type,
+              attachments: [
+                ...(doc.templateFileRemoved ? [] : doc.templateAttachments ?? []),
+                ...(doc.templateFiles ?? []).map(file => uploaded.get(file)),
+              ],
+              duplication: doc.duplication,
+              source_local_id: doc.sourceLocalId,
+            })),
+          })),
+        })),
       }
 
-      // Salvează fazele
-      for (let pIdx = 0; pIdx < phases.length; pIdx++) {
-        const phase = phases[pIdx]
-        let phaseId: string
-
-        if (isDbId(phase.id)) {
-          // PATCH faza existentă, doar dacă s-a schimbat
-          const originalPhase = originalPhases.get(phase.id)
-          const phaseChanged = !originalPhase ||
-            originalPhase.name !== phase.name ||
-            originalPhase.project_status_id !== phase.project_status_id ||
-            originalPhase.order_index !== pIdx + 1
-          if (phaseChanged) {
-            const phaseRes = await apiFetch(`/api/admin/templates/phases/${phase.id}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                name: phase.name,
-                project_status_id: phase.project_status_id,
-                order_index: pIdx + 1,
-              })
-            })
-            if (!phaseRes.ok) throw new Error(await safeParseError(phaseRes, `Eroare la actualizare faza "${phase.name}"`))
-          }
-          phaseId = phase.id
-
-          // Ștergem activitățile eliminate
-          const existingActivityIds = new Set<string>(originalPhase?.activities?.map((a: { id: string }) => a.id) || [])
-          const currentActivityIds = new Set(phase.activities.filter(a => isDbId(a.id)).map(a => a.id))
-          for (const oldId of existingActivityIds) {
-            if (!currentActivityIds.has(oldId)) {
-              await apiFetch(`/api/admin/templates/activities/${oldId}`, { method: 'DELETE' })
-            }
-          }
-        } else {
-          // POST faza nouă
-          const phaseRes = await apiFetch('/api/admin/templates/phases', {
+      // Slug-ul șablonului se stabilește doar la creare: e un identificator
+      // intern, iar regenerat din nume se lovea de unicitate.
+      const res = editingTemplate
+        ? await apiFetch(`/api/admin/templates/${editingTemplate.id}/tree`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(tree),
+          })
+        : await apiFetch('/api/admin/templates', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              template_id: templateId,
-              project_status_id: phase.project_status_id,
-              name: phase.name,
-              slug: generateSlug(phase.name) || `faza-${pIdx + 1}`,
-              order_index: pIdx + 1,
-              duplication: resolveDuplicationForSave(phase, savedIds),
-            })
+            body: JSON.stringify({ ...tree, slug: generateSlug(tree.name) }),
           })
-          if (!phaseRes.ok) throw new Error(await safeParseError(phaseRes, `Eroare la salvare faza "${phase.name}"`))
-          const phaseData = await phaseRes.json()
-          phaseId = phaseData.phase.id
-          savedIds.set(phase.id, phaseId)
-        }
-
-        // Salvează activitățile
-        for (let aIdx = 0; aIdx < phase.activities.length; aIdx++) {
-          const activity = phase.activities[aIdx]
-          let activityId: string
-
-          if (isDbId(activity.id)) {
-            // PATCH activitate existentă, doar dacă s-a schimbat
-            const originalActivity = originalActivities.get(activity.id)
-            const activityChanged = !originalActivity ||
-              originalActivity.name !== activity.name ||
-              originalActivity.order_index !== aIdx + 1 ||
-              (originalActivity.default_consultant_id || null) !== (activity.default_consultant_id || null)
-            if (activityChanged) {
-              const actRes = await apiFetch(`/api/admin/templates/activities/${activity.id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  name: activity.name,
-                  order_index: aIdx + 1,
-                  default_consultant_id: activity.default_consultant_id || null,
-                })
-              })
-              if (!actRes.ok) throw new Error(await safeParseError(actRes, `Eroare la actualizare activitate "${activity.name}"`))
-            }
-            activityId = activity.id
-
-            // Ștergem documentele eliminate
-            const existingDocIds = new Set<string>(originalActivity?.document_requirements?.map((d: { id: string }) => d.id) || [])
-            const currentDocIds = new Set(activity.document_requirements.filter(d => isDbId(d.id)).map(d => d.id))
-            for (const oldId of existingDocIds) {
-              if (!currentDocIds.has(oldId)) {
-                await apiFetch(`/api/admin/templates/documents/${oldId}`, { method: 'DELETE' })
-              }
-            }
-          } else {
-            // POST activitate nouă
-            const actRes = await apiFetch('/api/admin/templates/activities', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                template_phase_id: phaseId,
-                name: activity.name,
-                order_index: aIdx + 1,
-                default_consultant_id: activity.default_consultant_id || null,
-                duplication: resolveDuplicationForSave(activity, savedIds),
-              })
-            })
-            if (!actRes.ok) throw new Error(await safeParseError(actRes, `Eroare la salvare activitate "${activity.name}"`))
-            const actData = await actRes.json()
-            activityId = actData.activity.id
-            savedIds.set(activity.id, activityId)
-          }
-
-          // Salvează documentele
-          for (let dIdx = 0; dIdx < activity.document_requirements.length; dIdx++) {
-            const doc = activity.document_requirements[dIdx]
-            const attachmentItems: any[] = doc.templateFileRemoved ? [] : [...(doc.templateAttachments ?? [])]
-            for (const file of doc.templateFiles ?? []) {
-              const uploaded = await uploadTemplateFile(file)
-              if (!uploaded) throw new Error(`Nu s-a putut încărca fișierul "${file.name}"`)
-              attachmentItems.push({
-                storage_path: uploaded,
-                original_name: file.name,
-                mime_type: file.type || 'application/octet-stream',
-                file_size: file.size,
-              })
-            }
-            const firstAttachment = attachmentItems[0] ?? null
-            const attachmentPayload = attachmentItems.map((attachment, index) => ({
-              ...attachment,
-              order_index: index,
-            }))
-
-            if (isDbId(doc.id)) {
-              // PATCH document existent, doar dacă s-a schimbat
-              const originalDoc = originalDocs.get(doc.id)
-              const originalAttachments = originalDoc?.attachments?.length
-                ? originalDoc.attachments
-                : originalDoc?.attachment_path
-                ? [{ storage_path: originalDoc.attachment_path, original_name: originalDoc.attachment_original_name }]
-                : []
-              const docChanged = !originalDoc ||
-                originalDoc.name !== doc.name ||
-                (originalDoc.description || null) !== (doc.description || null) ||
-                (originalDoc.is_outgoing === true) !== doc.is_outgoing ||
-                normalizeRequirementType(originalDoc.requirement_type, originalDoc.is_mandatory) !==
-                  (doc.is_outgoing ? 'optional' : doc.requirement_type) ||
-                originalDoc.order_index !== dIdx + 1 ||
-                attachmentKey(attachmentPayload) !== attachmentKey(originalAttachments)
-              if (!docChanged) continue
-
-              const patchBody: any = {
-                name: doc.name,
-                description: doc.description || null,
-                is_outgoing: doc.is_outgoing,
-                requirement_type: doc.is_outgoing ? 'optional' : doc.requirement_type,
-                order_index: dIdx + 1,
-                attachments: attachmentPayload,
-                attachment_path: firstAttachment?.storage_path || null,
-                attachment_original_name: firstAttachment?.original_name || null,
-              }
-              const docRes = await apiFetch(`/api/admin/templates/documents/${doc.id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(patchBody)
-              })
-              if (!docRes.ok) throw new Error(await safeParseError(docRes, `Eroare la actualizare document "${doc.name}"`))
-            } else {
-              // POST document nou
-              const docRes = await apiFetch('/api/admin/templates/documents', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  template_activity_id: activityId,
-                  name: doc.name,
-                  description: doc.description || null,
-                  is_outgoing: doc.is_outgoing,
-                  requirement_type: doc.is_outgoing ? 'optional' : doc.requirement_type,
-                  order_index: dIdx + 1,
-                  attachments: attachmentPayload,
-                  attachment_path: firstAttachment?.storage_path || null,
-                  attachment_original_name: firstAttachment?.original_name || null,
-                  duplication: resolveDuplicationForSave(doc, savedIds),
-                })
-              })
-              if (!docRes.ok) throw new Error(await safeParseError(docRes, `Eroare la salvare document "${doc.name}"`))
-              const docData = await docRes.json()
-              savedIds.set(doc.id, docData.document.id)
-            }
-          }
-        }
+      if (!res.ok) {
+        throw new Error(await serverMessage(res, `Nu am putut salva șablonul (${res.status})`))
       }
+      const saved: Template = (await res.json()).template
+
+      // Arborele salvat vine în răspuns, deci lista nu se mai reîncarcă.
+      setTemplates(current => editingTemplate
+        ? current.map(template => template.id === saved.id ? saved : template)
+        : [saved, ...current])
 
       if (editingTemplate && isAdmin && editingTemplate.status === 'published') {
-        await openTemplatePropagation(templateId)
+        await openTemplatePropagation(saved.id)
       }
 
       resetForm()
-      fetchData()
     } catch (error: any) {
       showToast(error?.message || 'Nu am putut salva template-ul. Reîncearcă.', 'error')
     } finally {
@@ -1310,8 +1130,11 @@ function AdminTemplatesContent() {
         const data = await res.json().catch(() => null)
         throw new Error(data?.error || 'Template-ul nu a putut fi publicat')
       }
+      // Se schimbă doar statusul; restul listei rămâne cum e.
+      const { template: published } = await res.json()
+      setTemplates(current => current.map(template =>
+        template.id === published.id ? { ...template, status: published.status } : template))
       setPublishTarget(null)
-      await fetchData()
     } catch (error: any) {
       setPublishError(error?.message || 'Template-ul nu a putut fi publicat')
     } finally {
@@ -1354,8 +1177,9 @@ function AdminTemplatesContent() {
         const data = await res.json().catch(() => null)
         throw new Error(data?.error || 'Eroare la ștergerea template-ului')
       }
+      const deletedId = deleteTarget.templateId
+      setTemplates(current => current.filter(template => template.id !== deletedId))
       setDeleteTarget(null)
-      await fetchData()
     } catch (error: any) {
       setDeleteError(error?.message || 'Eroare la ștergere')
     } finally {

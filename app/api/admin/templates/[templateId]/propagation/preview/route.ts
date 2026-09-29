@@ -169,8 +169,13 @@ async function buildProjectPreview(project: any, template: any) {
           (doc.activity_id !== activity.id ||
           Boolean(doc.is_outgoing) !== Boolean(tDoc.is_outgoing) ||
           (
-            doc.attachment_path !== tDoc.attachment_path ||
-            doc.attachment_original_name !== (tDoc.attachment_original_name || null) ||
+            // Un model marcat lipsă nu ajunge în proiect ca `attachment_path`,
+            // iar aplicarea îl sare; fără excepția asta, preview-ul l-ar arăta
+            // „de propagat” la nesfârșit.
+            (!tDoc.attachment_missing_at && (
+              doc.attachment_path !== tDoc.attachment_path ||
+              doc.attachment_original_name !== (tDoc.attachment_original_name || null)
+            )) ||
             JSON.stringify((doc.attachments ?? []).map((a: any) => [a.storage_path, a.original_name])) !==
               JSON.stringify((tDoc.attachments ?? []).map((a: any) => [a.storage_path, a.original_name]))
           )

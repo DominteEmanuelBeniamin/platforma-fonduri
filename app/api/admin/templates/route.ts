@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { canReadTemplate, requireProfile } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { loadTemplateTrees } from '@/app/api/_utils/template-tree'
+import { saveTemplateTree, TemplateSaveError } from '@/app/api/_utils/template-save'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,11 +25,7 @@ export async function GET(req: NextRequest) {
     // Arborele vine într-un număr constant de cereri. GET-ul nu mai verifică
     // atașamentele în storage și nu mai scrie nimic: starea „lipsă” se
     // actualizează la upload și la propagare.
-    const templates = await loadTemplateTrees(
-      supabaseAdmin,
-      null,
-      '*, measure:program_measures(name, program:programs(name))',
-    )
+    const templates = await loadTemplateTrees(supabaseAdmin, null, TEMPLATE_SELECT)
 
     return NextResponse.json({ templates })
   } catch (error: any) {
@@ -37,8 +34,13 @@ export async function GET(req: NextRequest) {
   }
 }
 
+const TEMPLATE_SELECT = '*, measure:program_measures(name, program:programs(name))'
+
 // POST /api/admin/templates
+// Cu `phases` în corp, șablonul se creează împreună cu tot arborele, într-o
+// singură cerere; dacă arborele nu se poate salva, șablonul gol nu rămâne.
 export async function POST(req: NextRequest) {
+  let createdTemplateId: string | null = null
   try {
     const auth = await requireProfile(req)
     if (!auth.ok) {
@@ -81,6 +83,15 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (error) throw error
+    createdTemplateId = template.id
+
+    const tree = Array.isArray(body.phases)
+      ? await saveTemplateTree(supabaseAdmin, template.id, { name, description, phases: body.phases }, {
+          actorId: auth.profile.id,
+          request: req,
+          templateSelect: TEMPLATE_SELECT,
+        })
+      : null
 
     await logAction({
       actorId: auth.profile.id,
@@ -99,8 +110,14 @@ export async function POST(req: NextRequest) {
       request: req,
     })
 
-    return NextResponse.json({ template }, { status: 201 })
+    return NextResponse.json({ template: tree ?? template }, { status: 201 })
   } catch (error: any) {
+    if (createdTemplateId) {
+      await supabaseAdmin.from('project_templates').delete().eq('id', createdTemplateId)
+    }
+    if (error instanceof TemplateSaveError) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
     console.error('POST /api/admin/templates error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
