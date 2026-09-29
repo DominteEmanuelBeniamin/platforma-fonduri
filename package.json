@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "node --experimental-strip-types --test lib/*.test.mjs",
     "smoke:supabase": "node scripts/smoke-supabase.mjs",
+    "dev:create-admin": "node scripts/create-local-admin.mjs",
     "smoke:duplicare": "node --experimental-strip-types scripts/smoke-duplicare.mjs",
     "seed:local": "node scripts/seed-local-demo.mjs",
     "test:e2e": "playwright test",
@@ -46,6 +47,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
     "postcss": "^8.5.12",
+    "supabase": "2.118.0",
     "tailwindcss": "^4.2.2",
     "typescript": "^5"
   },

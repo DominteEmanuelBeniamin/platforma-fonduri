@@ -22,8 +22,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { template_id, project_status_id, name, slug, description, order_index, estimated_days } = body
 
-    if (!template_id || !project_status_id || !name) {
-      return NextResponse.json({ error: 'Template, status și nume sunt obligatorii' }, { status: 400 })
+    if (!template_id || !name) {
+      return NextResponse.json({ error: 'Template-ul și numele sunt obligatorii' }, { status: 400 })
     }
 
     // Generează slug dacă nu e furnizat
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
       .from('template_phases')
       .insert({
         template_id,
-        project_status_id,
+        project_status_id: project_status_id || null,
         name,
         slug: finalSlug,
         description: description || null,
