@@ -59,7 +59,17 @@ export async function DELETE(
         return NextResponse.json({ error: delErr.message }, { status: 404 })
       }
       if (delErr.code === 'P0001') {
-        return NextResponse.json({ error: delErr.message }, { status: 409 })
+        // `reason` rămâne lizibil pentru interfață: apiFetch înlocuiește
+        // `error` cu un mesaj generic, ca textul bazei să nu ajungă la utilizator.
+        const message = delErr.message.toLowerCase()
+        const reason = message.includes('general consultant')
+          ? 'general_consultant'
+          : message.includes('document request')
+          ? 'assigned_request'
+          : message.includes('activity')
+          ? 'assigned_activity'
+          : 'blocked'
+        return NextResponse.json({ error: delErr.message, reason }, { status: 409 })
       }
       console.error('Remove project member RPC error:', delErr)
       return NextResponse.json({ error: delErr.message }, { status: 500 })

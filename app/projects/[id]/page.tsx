@@ -34,6 +34,7 @@ import {
   saveAutomaticReminders,
 } from '@/lib/automatic-reminders'
 import ProjectChatDrawer from '@/components/ProjectChatDrawer'
+import ProjectTeam from '@/components/ProjectTeam'
 import { ProjectBoard, type BoardRow, type BoardItem } from '@/components/ProjectBoard'
 import { bandFor } from '@/lib/signage'
 import { LocationStrip } from '@/components/ui/LocationStrip'
@@ -1032,6 +1033,14 @@ function ProjectDetailsContent() {
             <IconButton label="Caută în proiect" onClick={() => setSearchOpen(true)}>
               <Search className="h-4 w-4" />
             </IconButton>
+            {!isClient && (
+              <ProjectTeam
+                projectId={projectId}
+                members={projectMembers}
+                canManage={permissions.manage_team}
+                onChange={fetchProjectMembers}
+              />
+            )}
             <Button variant="secondary" size="sm" onClick={handleOpenChat} className="relative">
               <MessageSquare className="h-4 w-4" aria-hidden="true" />
               Chat
@@ -1135,7 +1144,6 @@ function ProjectDetailsContent() {
             onRefresh={fetchAll}
             onReorderRefresh={refreshPhases}
             onDuplicateRefresh={refreshContent}
-            onTeamChange={fetchProjectMembers}
             apiFetch={apiFetch}
             permissions={permissions}
             mobileOpen={mobileSidebarOpen}

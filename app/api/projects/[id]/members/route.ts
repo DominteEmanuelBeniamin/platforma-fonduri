@@ -41,7 +41,8 @@ export async function GET(
           id,
           email,
           full_name,
-          role
+          role,
+          consultant_level
         )
       `
       )
@@ -162,7 +163,8 @@ export async function POST(
           id,
           email,
           full_name,
-          role
+          role,
+          consultant_level
         )
       `
       )
