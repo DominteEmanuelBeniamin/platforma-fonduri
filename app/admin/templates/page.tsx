@@ -1322,7 +1322,8 @@ function AdminTemplatesContent() {
       <LocationStrip
         segments={[
           { label: 'Bonie', href: '/' },
-          { label: 'Șabloane', href: '/admin' },
+          // Panoul-director `/admin` e doar al adminului; consultanții s-ar întoarce aici.
+          { label: 'Șabloane', href: isAdmin ? '/admin' : '/admin/templates' },
           ...(showForm
             ? [{ label: editingTemplate ? (editingTemplate.name.trim() || 'Șablon fără nume') : 'Șablon nou' }]
             : [{ label: 'Gestionează' }]),

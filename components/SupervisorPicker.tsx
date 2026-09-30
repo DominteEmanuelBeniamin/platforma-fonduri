@@ -82,13 +82,14 @@ export default function SupervisorPicker({
           return (
             <li key={senior.id}>
               <label
-                className={`flex min-h-14 cursor-pointer items-center gap-3 rounded-[var(--radius-plate)] border px-3 py-2.5 transition-colors duration-[120ms] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--sg-accent)] ${
+                className={`relative flex min-h-14 cursor-pointer items-center gap-3 rounded-[var(--radius-plate)] border px-3 py-2.5 transition-colors duration-[120ms] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--sg-accent)] ${
                   checked
                     ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)]'
                     : 'border-rule bg-plate hover:border-rule-strong hover:bg-paper-sunk/60'
                 }`}
               >
-                <input type="checkbox" className="sr-only" checked={checked} onChange={() => toggle(senior.id)} />
+                {/* Inputul acoperă toată plăcuța: ținta de atingere e plăcuța, nu un pătrat de 1px. */}
+                <input type="checkbox" className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed" checked={checked} onChange={() => toggle(senior.id)} />
                 <span
                   aria-hidden="true"
                   className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-plate)] text-xs font-bold transition-colors duration-[120ms] ${

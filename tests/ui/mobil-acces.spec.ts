@@ -55,7 +55,6 @@ const SARITE: string[] = [
 const DATORIE: Record<string, string> = {
   '/': 'heading-order: plăcuța de proiect are `h3` direct sub `h1`, fără `h2` între ele',
   '/calendar': 'color-contrast: capetele de zi (`.uppercase.tracking-wide`) sub pragul AA',
-  '/projects/new': 'select-name: `<select>`-ul din formular n-are nume accesibil',
   '/admin/statuses': 'button-name: butoanele de editare și ștergere de pe rândul de status sunt doar pictograme',
   // Cheia e cu parametru: id-ul vine din `.env.e2e.local`, deci ruta reală
   // diferă de la o bază la alta.

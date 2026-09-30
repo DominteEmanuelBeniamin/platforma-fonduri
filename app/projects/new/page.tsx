@@ -118,7 +118,7 @@ function ChoicePlate({
 }) {
   return (
     <label
-      className={`flex min-h-16 items-start gap-3 rounded-[var(--radius-plate)] border px-4 py-3.5 transition-colors duration-[120ms] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--sg-accent)] ${
+      className={`relative flex min-h-16 items-start gap-3 rounded-[var(--radius-plate)] border px-4 py-3.5 transition-colors duration-[120ms] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--sg-accent)] ${
         disabled
           ? 'cursor-not-allowed border-rule bg-paper-sunk opacity-70'
           : checked
@@ -126,7 +126,7 @@ function ChoicePlate({
           : 'cursor-pointer border-rule bg-plate hover:border-rule-strong hover:bg-paper-sunk/60'
       }`}
     >
-      <input type="radio" name={name} className="sr-only" checked={checked} onChange={onSelect} disabled={disabled} />
+      <input type="radio" name={name} className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed" checked={checked} onChange={onSelect} disabled={disabled} />
       <span className={`mt-0.5 shrink-0 ${checked ? 'text-[var(--sg-accent)]' : 'text-ink-soft'}`} aria-hidden="true">{icon}</span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-semibold text-ink">{title}</span>
@@ -432,11 +432,11 @@ export default function NewProjectPage() {
                     return (
                       <li key={template.id}>
                         <label
-                          className={`flex min-h-14 cursor-pointer items-center gap-3 px-4 py-3 transition-colors duration-[120ms] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2 has-[:focus-visible]:outline-[var(--sg-accent)] ${
+                          className={`relative flex min-h-14 cursor-pointer items-center gap-3 px-4 py-3 transition-colors duration-[120ms] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2 has-[:focus-visible]:outline-[var(--sg-accent)] ${
                             checked ? 'bg-[var(--sg-accent-soft)]' : 'hover:bg-paper-sunk/60'
                           }`}
                         >
-                          <input type="radio" name="sablon" className="sr-only" checked={checked} onChange={() => chooseTemplate(template.id)} />
+                          <input type="radio" name="sablon" className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed" checked={checked} onChange={() => chooseTemplate(template.id)} />
                           <span className="min-w-0 flex-1">
                             <span className="block text-sm font-semibold text-ink">{template.name}</span>
                             {template.description && (
