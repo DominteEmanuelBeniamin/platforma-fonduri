@@ -1940,7 +1940,7 @@ function AdminTemplatesContent() {
         {publishTarget && (
           <div className="rounded-[var(--radius-plate)] border border-rule bg-paper-sunk p-4 text-sm text-ink space-y-2">
             <p className="font-semibold text-ink">{publishTarget.name}</p>
-            <p>După aprobare, consultanții nu îl mai pot edita.</p>
+            <p>După aprobare, dintre consultanți doar seniorii îl mai pot edita.</p>
             <p className="text-[var(--sg-danger)]">Template-ul nu poate reveni la ciornă.</p>
           </div>
         )}
