@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { guardToResponse, requireAdmin } from '../../../_utils/auth'
+import { guardToResponse, requireProjectManager } from '../../../_utils/auth'
 import { createSupabaseServiceClient } from '../../../_utils/supabase'
 
 export async function GET(
@@ -12,8 +12,8 @@ export async function GET(
       return NextResponse.json({ error: 'Project ID lipsește din URL' }, { status: 400 })
     }
 
-    // Admin-only
-    const ctx = await requireAdmin(request)
+    // Admin sau consultant senior membru
+    const ctx = await requireProjectManager(request, projectId)
     if (!ctx.ok) return guardToResponse(ctx)
 
     const admin = createSupabaseServiceClient()

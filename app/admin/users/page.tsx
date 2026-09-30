@@ -284,6 +284,11 @@ export default function AdminUsersPage() {
                 </button>
 
                 <div className="flex shrink-0 items-center gap-2">
+                  {user.role === 'consultant' && user.consultant_level === 'senior' && (
+                    <span className="shrink-0 rounded-[var(--radius-plate)] border border-rule bg-paper-sunk px-2 py-0.5 text-xs font-semibold text-ink-soft">
+                      Senior
+                    </span>
+                  )}
                   <label className="sr-only" htmlFor={`rol-${user.id}`}>Rolul lui {user.email}</label>
                   <select
                     id={`rol-${user.id}`}

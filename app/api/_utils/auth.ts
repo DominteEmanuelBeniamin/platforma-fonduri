@@ -1,10 +1,18 @@
 // app/api/_utils/auth.ts
 import type { User } from '@supabase/supabase-js'
 import { createSupabaseServerClient, createSupabaseServiceClient } from './supabase'
+import type { ProjectPermissions } from '@/lib/project-permissions'
 
 export type AppRole = 'admin' | 'consultant' | 'client'
 export type TemplateStatus = 'draft' | 'published'
 export type TemplatePermission = 'read' | 'edit' | 'publish'
+export type ConsultantLevel = 'junior' | 'senior'
+export type AppProfile = {
+  id: string
+  role: AppRole
+  email?: string | null
+  consultant_level: ConsultantLevel
+}
 
 type Ok<T> = { ok: true } & T
 type Err = { ok: false; status: number; error: string }
@@ -35,14 +43,17 @@ export async function requireUser(request: Request): Promise<Result<{ user: User
 
 export async function requireProfile(
   request: Request
-): Promise<Result<{ user: User; profile: { id: string; role: AppRole; email?: string | null } }>> {
+): Promise<Result<{ user: User; profile: AppProfile }>> {
   const auth = await requireUser(request)
   if (!auth.ok) return auth
 
   const supabase = createSupabaseServerClient(request)
+  // `*` și nu o listă de coloane: dacă deploy-ul ajunge înaintea migrației
+  // pentru consultant_level, nivelul lipsește (= junior) în loc să dea 500
+  // la fiecare cerere autentificată.
   const { data: profile, error } = await supabase
     .from('profiles')
-    .select('id, role, email')
+    .select('*')
     .eq('id', auth.user.id)
     .single()
 
@@ -50,12 +61,21 @@ export async function requireProfile(
     return { ok: false, status: 500, error: 'Failed to load user profile' }
   }
 
-  return { ok: true, user: auth.user, profile: { id: profile.id, role: profile.role as AppRole, email: profile.email } }
+  return {
+    ok: true,
+    user: auth.user,
+    profile: {
+      id: profile.id,
+      role: profile.role as AppRole,
+      email: profile.email,
+      consultant_level: profile.consultant_level === 'senior' ? 'senior' : 'junior',
+    },
+  }
 }
 
 export async function requireAdmin(
   request: Request
-): Promise<Result<{ user: User; profile: { id: string; role: 'admin'; email?: string | null } }>> {
+): Promise<Result<{ user: User; profile: AppProfile & { role: 'admin' } }>> {
   const ctx = await requireProfile(request)
   if (!ctx.ok) return ctx
 
@@ -66,16 +86,43 @@ export async function requireAdmin(
   return { ok: true, user: ctx.user, profile: { ...ctx.profile, role: 'admin' } }
 }
 
+/**
+ * Consultantul senior are drepturi în plus (issue #104). Nivelul se citește
+ * din profil la fiecare cerere, deci o retrogradare are efect imediat.
+ */
+export function isSeniorConsultant(profile: Pick<AppProfile, 'role' | 'consultant_level'>) {
+  return profile.role === 'consultant' && profile.consultant_level === 'senior'
+}
+
 export function canReadTemplate(role: AppRole) {
   return role === 'admin' || role === 'consultant'
 }
 
-export function canEditTemplate(role: AppRole, status: TemplateStatus | null | undefined) {
-  return role === 'admin' || (role === 'consultant' && status === 'draft')
+export function canEditTemplate(
+  profile: Pick<AppProfile, 'role' | 'consultant_level'>,
+  status: TemplateStatus | null | undefined,
+) {
+  if (profile.role === 'admin' || isSeniorConsultant(profile)) return true
+  return profile.role === 'consultant' && status === 'draft'
+}
+
+/** Ștergerea și duplicarea unui șablon: admin sau consultant senior. */
+export function canManageTemplates(profile: Pick<AppProfile, 'role' | 'consultant_level'>) {
+  return profile.role === 'admin' || isSeniorConsultant(profile)
 }
 
 export function canPublishTemplate(role: AppRole) {
   return role === 'admin'
+}
+
+/** Ștergerea și duplicarea șabloanelor: admin sau consultant senior, altfel 403. */
+export async function requireTemplateManager(request: Request) {
+  const ctx = await requireProfile(request)
+  if (!ctx.ok) return ctx
+  if (!canManageTemplates(ctx.profile)) {
+    return { ok: false as const, status: 403, error: 'Forbidden: template management denied' }
+  }
+  return ctx
 }
 
 export async function requireTemplateAccess(
@@ -104,7 +151,7 @@ export async function requireTemplateAccess(
   const allowed = permission === 'read'
     ? canReadTemplate(ctx.profile.role)
     : permission === 'edit'
-    ? canEditTemplate(ctx.profile.role, status)
+    ? canEditTemplate(ctx.profile, status)
     : canPublishTemplate(ctx.profile.role)
 
   if (!allowed) {
@@ -125,7 +172,7 @@ export async function requireTemplateAccess(
 export async function requireUserOrAdmin(
   request: Request,
   targetUserId: string
-): Promise<Result<{ user: User; profile: { id: string; role: AppRole; email?: string | null }; isAdmin: boolean }>> {
+): Promise<Result<{ user: User; profile: AppProfile; isAdmin: boolean }>> {
   const ctx = await requireProfile(request)
   if (!ctx.ok) return ctx
 
@@ -142,8 +189,31 @@ export async function requireUserOrAdmin(
 
 export type ProjectAccess =
   | { role: 'admin'; projectId: string }
-  | { role: 'consultant'; projectId: string; membershipId: string }
+  | { role: 'consultant'; projectId: string; membershipId: string; level: ConsultantLevel }
   | { role: 'client'; projectId: string }
+
+/**
+ * Singurul loc care decide cine administrează un proiect: adminul și
+ * consultantul senior membru (requireProjectAccess a verificat deja
+ * apartenența). Ștergerea proiectului și reasignarea clientului/consultantului
+ * general rămân la admin și nu trec prin acest helper.
+ */
+export function canManageProject(access: ProjectAccess) {
+  return access.role === 'admin' || (access.role === 'consultant' && access.level === 'senior')
+}
+
+/** Permisiunile trimise interfeței, ca să nu repete logica pe roluri. */
+export function projectPermissions(access: ProjectAccess): ProjectPermissions {
+  const manage = canManageProject(access)
+  return {
+    edit_project: manage,
+    reassign_project: access.role === 'admin',
+    delete_project: access.role === 'admin',
+    delete_phases: manage,
+    manage_team: manage,
+    moderate_chat: manage,
+  }
+}
 
 /**
  * Verifică accesul la proiect conform regulilor tale:
@@ -157,7 +227,7 @@ export async function requireProjectAccess(
 ): Promise<
   Result<{
     user: User
-    profile: { id: string; role: AppRole; email?: string | null }
+    profile: AppProfile
     access: ProjectAccess
   }>
 > {
@@ -185,7 +255,12 @@ export async function requireProjectAccess(
     if (error) return { ok: false, status: 500, error: 'Failed to verify consultant membership' }
     if (!membership) return { ok: false, status: 403, error: 'Forbidden: not a member of this project' }
 
-    return { ok: true, user, profile, access: { role: 'consultant', projectId, membershipId: membership.id } }
+    return {
+      ok: true,
+      user,
+      profile,
+      access: { role: 'consultant', projectId, membershipId: membership.id, level: profile.consultant_level },
+    }
   }
 
   // client
@@ -219,6 +294,18 @@ export async function requireProjectAccess(
   }
 
   return { ok: true, user, profile, access: { role: 'client', projectId } }
+}
+
+/**
+ * requireProjectAccess + canManageProject: admin sau senior membru, altfel 403.
+ */
+export async function requireProjectManager(request: Request, projectId: string) {
+  const ctx = await requireProjectAccess(request, projectId)
+  if (!ctx.ok) return ctx
+  if (!canManageProject(ctx.access)) {
+    return { ok: false as const, status: 403, error: 'Forbidden: project management denied' }
+  }
+  return ctx
 }
 
 /**

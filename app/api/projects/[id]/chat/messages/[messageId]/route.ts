@@ -1,4 +1,4 @@
-import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
+import { canManageProject, guardToResponse, requireProjectAccess, type ProjectAccess } from '@/app/api/_utils/auth'
 import { getClientIP, getUserAgent, logChatMessageAction, toMessagePreview } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { maskProjectChatBodiesForViewer } from '@/app/api/_utils/project-chat-links'
@@ -66,8 +66,8 @@ async function loadProjectTitle(
   return data?.title ?? projectId
 }
 
-function canMutateMessage(role: string, callerId: string, messageCreatedBy: string) {
-  return role === 'admin' || callerId === messageCreatedBy
+function canMutateMessage(access: ProjectAccess, callerId: string, messageCreatedBy: string) {
+  return canManageProject(access) || callerId === messageCreatedBy
 }
 
 async function cleanupUnreferencedImages(
@@ -169,7 +169,7 @@ export async function PATCH(
     if ((parsed.data.kind === 'body' ? parsed.data.body : message.body) === null && nextImages.length === 0) {
       return Response.json({ error: 'Message body or images are required' }, { status: 400 })
     }
-    if (!canMutateMessage(access.profile.role, access.user.id, message.created_by)) {
+    if (!canMutateMessage(access.access, access.user.id, message.created_by)) {
       return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -252,7 +252,7 @@ export async function DELETE(
       return Response.json({ error: 'Failed to load message' }, { status: 500 })
     }
     if (!message) return Response.json({ error: 'Message not found' }, { status: 404 })
-    if (!canMutateMessage(access.profile.role, access.user.id, message.created_by)) {
+    if (!canMutateMessage(access.access, access.user.id, message.created_by)) {
       return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
 

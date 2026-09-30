@@ -30,6 +30,8 @@ type Props = {
   onClose: () => void;
   title?: string;
   projectId: string;
+  /** Editează și șterge mesajele oricui (admin sau consultant senior membru). */
+  canModerate?: boolean;
   onUnreadCountChange?: (count: number) => void;
   searchIndex?: SearchResult[];
   onNavigate?: (result: SearchResult) => void;
@@ -112,13 +114,13 @@ export default function ProjectChatDrawer({
   onClose,
   title = "Chat proiect",
   projectId,
+  canModerate = false,
   onUnreadCountChange,
   searchIndex = [],
   onNavigate,
 }: Props) {
-  const { loading: authLoading, userId, profile, apiFetch, token } = useAuth();
+  const { loading: authLoading, userId, apiFetch, token } = useAuth();
   const { confirm } = useToast();
-  const isAdmin = profile?.role === "admin";
 
   const {
     messages,
@@ -943,7 +945,7 @@ export default function ProjectChatDrawer({
           <ChatMessageList
             messages={messages}
             userId={userId}
-            isAdmin={isAdmin}
+            canModerate={canModerate}
             firstUnreadMessageId={firstUnreadMessageId}
             projectReadReceipt={projectReadReceipt}
             renderBody={renderBody}

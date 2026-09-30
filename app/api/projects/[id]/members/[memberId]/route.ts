@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireAdmin, guardToResponse} from '../../../../_utils/auth'
+import { requireProjectManager, guardToResponse } from '../../../../_utils/auth'
 import { createSupabaseServiceClient } from '../../../../_utils/supabase'
 import { logAction } from '../../../../_utils/audit'
 
@@ -18,8 +18,8 @@ export async function DELETE(
       return NextResponse.json({ error: 'Member ID lipsește din URL' }, { status: 400 })
     }
 
-    // 1) Admin-only
-    const ctx = await requireAdmin(request)
+    // 1) Admin sau consultant senior membru
+    const ctx = await requireProjectManager(request, projectId)
     if (!ctx.ok) return guardToResponse(ctx)
 
     const admin = createSupabaseServiceClient()

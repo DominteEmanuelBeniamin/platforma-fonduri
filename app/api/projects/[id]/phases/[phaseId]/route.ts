@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { requireProjectAccess } from '@/app/api/_utils/auth'
+import { canManageProject, requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { isClientVisiblePhase } from '@/lib/client-visibility'
 
@@ -151,8 +151,8 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
-    if (auth.access.role !== 'admin') {
-      return NextResponse.json({ error: 'Doar adminii pot șterge faze' }, { status: 403 })
+    if (!canManageProject(auth.access)) {
+      return NextResponse.json({ error: 'Doar adminii și consultanții seniori pot șterge faze' }, { status: 403 })
     }
 
     const { data: before, error: beforeError } = await supabaseAdmin

@@ -8,6 +8,8 @@ import { userErrorMessage } from '@/lib/user-error'
 type Profile = {
   id: string
   role: 'admin' | 'consultant' | 'client' | string
+  /** Doar pentru consultanți; seniorul are drepturi în plus (issue #104). */
+  consultant_level?: 'junior' | 'senior' | null
   email?: string | null
   full_name?: string | null
   telefon?: string | null

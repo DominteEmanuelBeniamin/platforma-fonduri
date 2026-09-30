@@ -366,7 +366,11 @@ function AdminTemplatesContent() {
   const searchParams = useSearchParams()
   const { loading: authLoading, token, apiFetch, profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
-  const canEditTemplate = (template: Template) => isAdmin || template.status === 'draft'
+  // Seniorul editează și șablonele publicate, le șterge și le duplică; publicarea
+  // și propagarea rămân la admin. Serverul verifică oricum aceleași reguli.
+  const canManageTemplates = isAdmin || (profile?.role === 'consultant' && profile?.consultant_level === 'senior')
+  const canEditTemplate = (template: Template) => canManageTemplates || template.status === 'draft'
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
   const { showToast } = useToast()
 
   const [templates, setTemplates] = useState<Template[]>([])
@@ -1073,8 +1077,12 @@ function AdminTemplatesContent() {
         ? current.map(template => template.id === saved.id ? saved : template)
         : [saved, ...current])
 
-      if (editingTemplate && isAdmin && editingTemplate.status === 'published') {
-        await openTemplatePropagation(saved.id)
+      if (editingTemplate && editingTemplate.status === 'published') {
+        if (isAdmin) {
+          await openTemplatePropagation(saved.id)
+        } else {
+          showToast('Șablonul a fost salvat. Un administrator poate propaga modificările în proiecte.', 'success')
+        }
       }
 
       resetForm()
@@ -1101,6 +1109,26 @@ function AdminTemplatesContent() {
       activityCount,
       documentCount: countTemplateDocuments(template),
     })
+  }
+
+  const duplicateTemplate = async (template: Template) => {
+    if (!canManageTemplates || duplicatingId) return
+    try {
+      setDuplicatingId(template.id)
+      const res = await apiFetch(`/api/admin/templates/${template.id}/duplicate`, { method: 'POST' })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Nu am putut duplica șablonul.')
+      // Copia vine cu tot arborele dintr-o singură cerere; restul listei rămâne.
+      const treeRes = await apiFetch(`/api/admin/templates/${data.template.id}`)
+      const treeData = await treeRes.json().catch(() => null)
+      if (!treeRes.ok || !treeData?.template) throw new Error(treeData?.error || 'Copia a fost creată, dar nu am putut-o încărca.')
+      setTemplates(current => [treeData.template, ...current])
+      showToast(`Am creat „${treeData.template.name}”.`, 'success')
+    } catch (error: any) {
+      showToast(error?.message || 'Nu am putut duplica șablonul.', 'error')
+    } finally {
+      setDuplicatingId(null)
+    }
   }
 
   const requestPublishTemplate = (template: Template) => {
@@ -1188,7 +1216,7 @@ function AdminTemplatesContent() {
   }
 
   const handleEdit = useCallback((template: Template) => {
-    if (!(isAdmin || template.status === 'draft')) return
+    if (!(canManageTemplates || template.status === 'draft')) return
     setEditingTemplate(template)
     setTemplateName(template.name)
     setTemplateDescription(template.description || '')
@@ -1229,7 +1257,7 @@ function AdminTemplatesContent() {
     })) || []
     setPhases(editablePhases)
     setShowForm(true)
-  }, [isAdmin])
+  }, [canManageTemplates])
 
   // Legătura care lipsea: `/admin` (panoul-director) trimite aici cu
   // ?edit=<id> sau ?new=1 fiindcă lista lui e doar de citit. Fără asta un
@@ -1243,10 +1271,10 @@ function AdminTemplatesContent() {
     deepLinkAppliedRef.current = true
     if (editId) {
       const target = templates.find(t => t.id === editId)
-      if (target && (isAdmin || target.status === 'draft')) {
+      if (target && (canManageTemplates || target.status === 'draft')) {
         handleEdit(target)
       } else if (target) {
-        showToast('Acest șablon e publicat — doar un administrator îl poate edita.', 'info')
+        showToast('Acest șablon e publicat — doar un administrator sau un consultant senior îl poate edita.', 'info')
       } else {
         showToast('Șablonul căutat nu a fost găsit.', 'error')
       }
@@ -1254,7 +1282,7 @@ function AdminTemplatesContent() {
       openCreateForm()
     }
     router.replace('/admin/templates')
-  }, [loading, templates, searchParams, isAdmin, handleEdit, openCreateForm, router, showToast])
+  }, [loading, templates, searchParams, canManageTemplates, handleEdit, openCreateForm, router, showToast])
 
   const affectedPropagationProjects = (propagationPreview?.eligible ?? []).filter(hasPropagationChanges)
   const selectedPropagationProjects = affectedPropagationProjects.filter(project =>
@@ -1410,7 +1438,16 @@ function AdminTemplatesContent() {
                                       <Check className="h-4 w-4" />
                                     </IconButton>
                                   )}
-                                  {isAdmin && (
+                                  {canManageTemplates && (
+                                    <IconButton
+                                      label={`Duplică șablonul ${template.name}`}
+                                      disabled={duplicatingId !== null}
+                                      onClick={() => { void duplicateTemplate(template) }}
+                                    >
+                                      {duplicatingId === template.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+                                    </IconButton>
+                                  )}
+                                  {canManageTemplates && (
                                     <IconButton label={`Șterge șablonul ${template.name}`} tone="danger" onClick={() => requestDeleteTemplate(template)}>
                                       <Trash2 className="h-4 w-4" />
                                     </IconButton>

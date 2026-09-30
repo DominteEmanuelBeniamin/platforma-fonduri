@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { requireAdmin } from '@/app/api/_utils/auth'
+import { requireTemplateManager } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { copyStorageObject, templateAttachmentPath } from '@/app/api/_utils/attachment-storage'
 
@@ -33,7 +33,7 @@ interface RouteParams {
 // POST /api/admin/templates/[templateId]/duplicate
 export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
-    const auth = await requireAdmin(req)
+    const auth = await requireTemplateManager(req)
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
     }

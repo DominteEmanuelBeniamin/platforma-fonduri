@@ -30,6 +30,7 @@ import {
   phaseDeletionConfirm,
   phaseDeletionImpact,
 } from '@/lib/deletion-impact'
+import type { ProjectPermissions } from '@/lib/project-permissions'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -70,7 +71,7 @@ interface ProjectPhasesSidebarProps {
   activePhaseId: string | null
   expandedPhases: Set<string>
   canEdit: boolean
-  isAdmin: boolean
+  permissions: ProjectPermissions
   projectId: string
   documentRequests: DocumentRequestPreview[]
   isGeneralActive: boolean
@@ -95,7 +96,7 @@ export default function ProjectPhasesSidebar({
   activePhaseId,
   expandedPhases,
   canEdit,
-  isAdmin,
+  permissions,
   projectId,
   documentRequests,
   isGeneralActive,
@@ -547,7 +548,7 @@ export default function ProjectPhasesSidebar({
                             label: 'Șterge',
                             icon: <Trash2 className="w-3 h-3" />,
                             danger: true,
-                            hidden: !isAdmin,
+                            hidden: !permissions.delete_phases,
                             onSelect: () => { void askToDeletePhase(phase) },
                           },
                         ]}
@@ -648,7 +649,7 @@ export default function ProjectPhasesSidebar({
                                   label: 'Șterge',
                                   icon: <Trash2 className="w-3 h-3" />,
                                   danger: true,
-                                  hidden: !isAdmin,
+                                  hidden: !permissions.delete_phases,
                                   onSelect: () => { void askToDeleteActivity(phase, act) },
                                 },
                               ]}
@@ -755,9 +756,9 @@ export default function ProjectPhasesSidebar({
       </nav>
 
       {/* Team manager */}
-      {isAdmin && (
+      {permissions.manage_team && (
         <div className="flex-shrink-0 border-t border-[var(--p-border)]">
-          <TeamManager projectId={projectId} onTeamChange={onTeamChange} />
+          <TeamManager projectId={projectId} canManage onTeamChange={onTeamChange} />
         </div>
       )}
       </aside>

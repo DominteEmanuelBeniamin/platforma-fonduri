@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { requireAdmin, requireTemplateAccess } from '@/app/api/_utils/auth'
+import { requireTemplateAccess, requireTemplateManager } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
 import { loadTemplateTree } from '@/app/api/_utils/template-tree'
 
@@ -105,9 +105,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 // DELETE /api/admin/templates/[templateId]
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
-    const auth = await requireAdmin(req)
+    const auth = await requireTemplateManager(req)
     if (!auth.ok) {
-      return NextResponse.json({ error: 'Doar adminii pot șterge template-uri' }, { status: 403 })
+      const error = auth.status === 403 ? 'Doar adminii și consultanții seniori pot șterge template-uri' : auth.error
+      return NextResponse.json({ error }, { status: auth.status })
     }
 
     const { templateId } = await params

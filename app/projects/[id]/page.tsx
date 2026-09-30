@@ -75,6 +75,7 @@ import {
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { usePatchField } from '@/hooks/usePatchField'
+import { NO_PROJECT_PERMISSIONS, type ProjectPermissions } from '@/lib/project-permissions'
 import { Spinner } from '@/components/ui/Spinner'
 
 // Secțiunea distinctă „Cereri generale" (documente fără fază/activitate).
@@ -110,6 +111,7 @@ function ProjectDetailsContent() {
   const patchField = usePatchField()
 
   const [project, setProject] = useState<any>(null)
+  const [permissions, setPermissions] = useState<ProjectPermissions>(NO_PROJECT_PERMISSIONS)
   const [phases, setPhases] = useState<ProjectPhase[]>([])
   const [allDocRequests, setAllDocRequests] = useState<any[]>([])
   const [selectedDocumentRequestId, setSelectedDocumentRequestId] = useState<string | null>(null)
@@ -293,7 +295,9 @@ function ProjectDetailsContent() {
       ])
 
       if (!projRes.ok) { router.replace('/'); return }
-      setProject((await projRes.json()).project)
+      const projJson = await projRes.json()
+      setProject(projJson.project)
+      setPermissions(projJson.permissions ?? NO_PROJECT_PERMISSIONS)
 
       if (phasesRes.ok) {
         const ph: ProjectPhase[] = (await phasesRes.json()).phases || []
@@ -1017,7 +1021,7 @@ function ProjectDetailsContent() {
         segments={[{ label: 'Proiecte', href: '/' }, { label: project.title }]}
         action={
           <>
-            {isAdmin && !isEditingTitle && (
+            {permissions.edit_project && !isEditingTitle && (
               <IconButton label="Redenumește proiectul" onClick={() => { setEditTitle(project.title); setIsEditingTitle(true) }}>
                 <Pencil className="h-4 w-4" />
               </IconButton>
@@ -1049,7 +1053,7 @@ function ProjectDetailsContent() {
             {/* Pornite, reminderele sunt o iconiță ca oricare alta; oprite, se
                 fac plăcuță cu text. Starea neobișnuită e cea care merită
                 spațiu — altfel butonul ar striga pe fiecare proiect normal. */}
-            {isAdmin && (
+            {permissions.edit_project && (
               automaticRemindersEnabled(project) ? (
                 <IconButton
                   label={remindersActionLabel(true)}
@@ -1133,7 +1137,7 @@ function ProjectDetailsContent() {
             onDuplicateRefresh={refreshContent}
             onTeamChange={fetchProjectMembers}
             apiFetch={apiFetch}
-            isAdmin={isAdmin}
+            permissions={permissions}
             mobileOpen={mobileSidebarOpen}
             onMobileClose={() => setMobileSidebarOpen(false)}
           />
@@ -1322,7 +1326,7 @@ function ProjectDetailsContent() {
                               label: 'Șterge',
                               icon: <Trash2 className="w-3 h-3" />,
                               danger: true,
-                              hidden: !isAdmin,
+                              hidden: !permissions.delete_phases,
                               onSelect: () => { void askToDeletePhase(phase) },
                             },
                           ]}
@@ -1376,7 +1380,7 @@ function ProjectDetailsContent() {
                                     label: 'Șterge',
                                     icon: <Trash2 className="w-3 h-3" />,
                                     danger: true,
-                                    hidden: !isAdmin,
+                                    hidden: !permissions.delete_phases,
                                     onSelect: () => { void askToDeleteActivity(phase, activity) },
                                   },
                                 ]}
@@ -1465,7 +1469,7 @@ function ProjectDetailsContent() {
                       subtitle="Documente care nu țin de o anumită fază a proiectului."
                       icon={<FolderOpen className="h-4 w-4 shrink-0 text-[var(--sg-accent)]" aria-hidden="true" />}
                       headerRight={
-                        isAdmin ? (
+                        permissions.reassign_project ? (
                           <select
                             value={project?.general_consultant_id ?? ''}
                             onClick={e => e.stopPropagation()}
@@ -1525,6 +1529,7 @@ function ProjectDetailsContent() {
           onClose={() => setChatOpen(false)}
           title="Chat proiect"
           projectId={projectId}
+          canModerate={permissions.moderate_chat}
           onUnreadCountChange={setUnreadCount}
           searchIndex={searchIndex}
           onNavigate={handleChatNavigate}

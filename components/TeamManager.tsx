@@ -37,8 +37,17 @@ const getAvatarColor = (identifier: string) => {
   return avatarColors[Math.abs(hash) % avatarColors.length]
 }
 
-export default function TeamManager({ projectId, onTeamChange }: { projectId: string; onTeamChange?: () => void }) {
-  const { loading: authLoading, token, apiFetch, profile } = useAuth()
+export default function TeamManager({
+  projectId,
+  canManage,
+  onTeamChange,
+}: {
+  projectId: string
+  /** Vine din `permissions.manage_team` al proiectului: admin sau consultant senior membru. */
+  canManage: boolean
+  onTeamChange?: () => void
+}) {
+  const { loading: authLoading, token, apiFetch } = useAuth()
   const { showToast, confirm } = useToast()
 
   const [team, setTeam] = useState<any[]>([])
@@ -46,7 +55,7 @@ export default function TeamManager({ projectId, onTeamChange }: { projectId: st
   const [selectedId, setSelectedId] = useState('')
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
-  const canManageTeam = profile?.role === 'admin'
+  const canManageTeam = canManage
 
   const fetchData = useCallback(async () => {
     if (!projectId) return
