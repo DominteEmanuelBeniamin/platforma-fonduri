@@ -52,6 +52,15 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const auth = await requireTemplateAccess(req, templateId, status !== undefined ? 'publish' : 'edit')
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
+    // Dezactivarea și „implicit” schimbă ce văd toți la crearea unui proiect:
+    // rămân la admin, oricine altcineva ar avea drept de editare.
+    if ((is_default !== undefined || is_active !== undefined) && auth.profile.role !== 'admin') {
+      return NextResponse.json(
+        { error: 'Doar adminul poate dezactiva un șablon sau îl poate face implicit' },
+        { status: 403 }
+      )
+    }
+
     const updateData: Record<string, any> = {}
     if (name !== undefined) updateData.name = name
     if (slug !== undefined) updateData.slug = slug
@@ -59,7 +68,11 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (measure_id !== undefined) updateData.measure_id = measure_id
     if (is_default !== undefined) updateData.is_default = is_default
     if (is_active !== undefined) updateData.is_active = is_active
-    if (status !== undefined) updateData.status = status
+    if (status !== undefined) {
+      updateData.status = status
+      // Un șablon abia publicat n-are încă proiecte în care să fie aplicat.
+      updateData.unpropagated_changes_at = null
+    }
 
     const { data: before, error: beforeError } = await supabaseAdmin
       .from('project_templates')

@@ -42,11 +42,28 @@ export async function DELETE(
 
     const [{ data: projectRow }, { data: consultantProfile }] = await Promise.all([
       admin.from('projects').select('title').eq('id', projectId).maybeSingle(),
-      admin.from('profiles').select('full_name, email').eq('id', existing.consultant_id).maybeSingle(),
+      admin.from('profiles').select('full_name, email, consultant_level').eq('id', existing.consultant_id).maybeSingle(),
     ])
     const projectTitle = projectRow?.title ?? projectId
     const consultantLabel =
       consultantProfile?.email ?? consultantProfile?.full_name ?? existing.consultant_id
+
+    // Seniorul scoate doar juniori: nu alt senior și nici pe el însuși.
+    // Adminul poate scoate pe oricine; restul regulilor le aplică baza.
+    if (ctx.access.role !== 'admin') {
+      if (existing.consultant_id === ctx.user.id) {
+        return NextResponse.json(
+          { error: 'Forbidden: nu te poți scoate singur din echipă', reason: 'self' },
+          { status: 403 }
+        )
+      }
+      if (consultantProfile?.consultant_level === 'senior') {
+        return NextResponse.json(
+          { error: 'Forbidden: un consultant senior nu poate scoate alt senior', reason: 'senior' },
+          { status: 403 }
+        )
+      }
+    }
 
     // 3) Ștergere
     const { error: delErr } = await admin.rpc('remove_project_member_if_unassigned', {

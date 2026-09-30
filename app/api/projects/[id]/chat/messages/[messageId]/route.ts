@@ -66,8 +66,14 @@ async function loadProjectTitle(
   return data?.title ?? projectId
 }
 
-function canMutateMessage(access: ProjectAccess, callerId: string, messageCreatedBy: string) {
+/** Ștergerea (a mesajului sau a unei imagini din el): autorul, adminul și seniorul membru. */
+function canDeleteMessage(access: ProjectAccess, callerId: string, messageCreatedBy: string) {
   return canManageProject(access) || callerId === messageCreatedBy
+}
+
+/** Textul mesajului altcuiva îl modifică doar adminul; fiecare își modifică propriile mesaje. */
+function canEditMessageText(access: ProjectAccess, callerId: string, messageCreatedBy: string) {
+  return access.role === 'admin' || callerId === messageCreatedBy
 }
 
 async function cleanupUnreferencedImages(
@@ -169,7 +175,10 @@ export async function PATCH(
     if ((parsed.data.kind === 'body' ? parsed.data.body : message.body) === null && nextImages.length === 0) {
       return Response.json({ error: 'Message body or images are required' }, { status: 400 })
     }
-    if (!canMutateMessage(access.access, access.user.id, message.created_by)) {
+    const allowed = parsed.data.kind === 'body'
+      ? canEditMessageText(access.access, access.user.id, message.created_by)
+      : canDeleteMessage(access.access, access.user.id, message.created_by)
+    if (!allowed) {
       return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -252,7 +261,7 @@ export async function DELETE(
       return Response.json({ error: 'Failed to load message' }, { status: 500 })
     }
     if (!message) return Response.json({ error: 'Message not found' }, { status: 404 })
-    if (!canMutateMessage(access.access, access.user.id, message.created_by)) {
+    if (!canDeleteMessage(access.access, access.user.id, message.created_by)) {
       return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
 

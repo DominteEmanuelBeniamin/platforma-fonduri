@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
 import { createStoragePathChecker, loadTemplateTree } from '@/app/api/_utils/template-tree'
 import { mapWithConcurrency } from '@/lib/template-tree'
+import { clearTemplateChanged } from '@/app/api/_utils/template-changes'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -760,6 +761,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       description: `Propagare sablon "${template.name}" catre ${projectIds.length} proiect(e)`,
       ip_address: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || null,
     })
+
+    // Eticheta „Modificări neaplicate” pleacă doar când nimic n-a eșuat.
+    if (results.every((result: any) => result?.status !== 'failed')) {
+      await clearTemplateChanged(templateId)
+    }
 
     return NextResponse.json({ ok: true, results })
   } catch (error: any) {

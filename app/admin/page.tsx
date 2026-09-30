@@ -39,8 +39,8 @@ interface TemplateOverview {
 
 export default function AdminOverviewPage() {
   const router = useRouter()
-  const { loading: authLoading, token, apiFetch } = useAuth()
-  
+  const { loading: authLoading, token, apiFetch, profile } = useAuth()
+
   const [statuses, setStatuses] = useState<ProjectStatus[]>([])
   const [templates, setTemplates] = useState<TemplateOverview[]>([])
   const [loading, setLoading] = useState(true)
@@ -58,7 +58,10 @@ export default function AdminOverviewPage() {
   useEffect(() => {
     if (authLoading) return
     if (!token) { router.replace('/login'); return }
-    
+    if (!profile) return
+    // Panoul-director e al adminului; consultanții lucrează din editorul de șabloane.
+    if (profile.role !== 'admin') { router.replace('/admin/templates'); return }
+
     const fetchData = async () => {
       try {
         const [statusesRes, templatesRes] = await Promise.all([
@@ -83,7 +86,7 @@ export default function AdminOverviewPage() {
     }
     
     fetchData()
-  }, [authLoading, token, router, apiFetch])
+  }, [authLoading, token, router, apiFetch, profile])
 
   const getStatusById = (id: string) => statuses.find(s => s.id === id)
 

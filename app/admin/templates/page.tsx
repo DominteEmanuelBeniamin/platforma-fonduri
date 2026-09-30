@@ -96,6 +96,8 @@ interface Template {
   name: string
   description: string | null
   status: 'draft' | 'published'
+  /** Setat când conținutul unui șablon publicat s-a schimbat după ultima aplicare în proiecte. */
+  unpropagated_changes_at?: string | null
   phases: {
     id: string
     name: string
@@ -985,6 +987,9 @@ function AdminTemplatesContent() {
       }
 
       showToast('Modificările template-ului au fost propagate.', 'success')
+      const appliedId = propagationTemplateId
+      setTemplates(current => current.map(template =>
+        template.id === appliedId ? { ...template, unpropagated_changes_at: null } : template))
       closeTemplatePropagation()
     } catch (error: any) {
       setPropagationError(error?.message || 'Propagarea template-ului a eșuat')
@@ -1375,10 +1380,11 @@ function AdminTemplatesContent() {
                   <table className="w-full border-collapse text-sm">
                     <thead>
                       <tr className="border-b border-rule bg-paper-sunk">
-                        <th scope="col" className="w-full px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Șablon</th>
-                        <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Status</th>
-                        <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Faze</th>
-                        <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Activități</th>
+                        {/* Coloanele înguste se strâng la conținut; numele ia restul. */}
+                        <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Șablon</th>
+                        <th scope="col" className="w-px whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Status</th>
+                        <th scope="col" className="w-px whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Faze</th>
+                        <th scope="col" className="w-px whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Activități</th>
                         <th scope="col" className="w-px px-4 py-2.5"><span className="sr-only">Acțiuni</span></th>
                       </tr>
                     </thead>
@@ -1412,17 +1418,34 @@ function AdminTemplatesContent() {
                                     <span className="w-6 flex-shrink-0" aria-hidden />
                                   )}
                                   <div className="min-w-0">
-                                    <span className="font-medium text-ink">{template.name}</span>
+                                    <span className="block font-medium text-ink">{template.name}</span>
+                                    {/* Pe rândul lui și cu `line-clamp`: un `truncate` pe text inline
+                                        doar interzicea ruperea, iar o descriere lungă lărgea tabelul
+                                        până împingea acțiunile în afara lui. */}
                                     {template.description && (
-                                      <span className="ml-2 truncate text-ink-soft">{template.description}</span>
+                                      <span className="mt-0.5 block text-xs leading-5 text-ink-soft line-clamp-1">{template.description}</span>
                                     )}
                                   </div>
                                 </div>
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">
-                                <Signal tone={template.status === 'draft' ? 'draft' : 'ok'}>
-                                  {template.status === 'draft' ? 'Ciornă' : 'Publicat'}
-                                </Signal>
+                                <div className="flex flex-col items-start gap-1.5">
+                                  <Signal tone={template.status === 'draft' ? 'draft' : 'ok'}>
+                                    {template.status === 'draft' ? 'Ciornă' : 'Publicat'}
+                                  </Signal>
+                                  {/* Seniorul poate schimba un șablon publicat, dar numai adminul
+                                      aplică schimbarea în proiecte: eticheta e și intrarea spre asta. */}
+                                  {isAdmin && template.status === 'published' && template.unpropagated_changes_at && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); void openTemplatePropagation(template.id) }}
+                                      title="Deschide aplicarea modificărilor în proiectele existente"
+                                      className="rounded-[var(--radius-plate)] transition-opacity hover:opacity-80"
+                                    >
+                                      <Signal tone="warn">Modificări neaplicate în proiecte</Signal>
+                                    </button>
+                                  )}
+                                </div>
                               </td>
                               <td className="px-4 py-3 text-right tabular-nums text-ink-soft whitespace-nowrap">{phaseCount}</td>
                               <td className="px-4 py-3 text-right tabular-nums text-ink-soft whitespace-nowrap">{activityCount}</td>

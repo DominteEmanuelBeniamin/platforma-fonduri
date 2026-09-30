@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireTemplateAccess } from '@/app/api/_utils/auth'
 import { saveTemplateTree, TemplateSaveError } from '@/app/api/_utils/template-save'
+import { markTemplateChanged } from '@/app/api/_utils/template-changes'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,7 +33,12 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       request: req,
       templateSelect: '*, measure:program_measures(name, program:programs(name))',
     })
-    return NextResponse.json({ template })
+    await markTemplateChanged(templateId)
+    // Răspunsul poartă deja eticheta, ca lista din editor s-o arate fără reîncărcare.
+    const saved = template && template.status === 'published'
+      ? { ...template, unpropagated_changes_at: new Date().toISOString() }
+      : template
+    return NextResponse.json({ template: saved })
   } catch (error: any) {
     if (error instanceof TemplateSaveError) {
       return NextResponse.json({ error: error.message }, { status: error.status })

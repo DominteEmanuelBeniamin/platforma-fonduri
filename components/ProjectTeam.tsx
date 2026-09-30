@@ -28,6 +28,8 @@ function removalError(reason: string | undefined) {
   if (reason === 'assigned_activity') return 'Consultantul are activități atribuite în proiect. Atribuie-le altcuiva, apoi încearcă din nou.'
   if (reason === 'assigned_request') return 'Consultantul are cereri de documente active. Atribuie-le altcuiva, apoi încearcă din nou.'
   if (reason === 'blocked') return 'Consultantul are încă lucruri atribuite în proiect. Atribuie-le altcuiva, apoi încearcă din nou.'
+  if (reason === 'senior') return 'Un consultant senior nu poate scoate alt senior. Cere unui administrator.'
+  if (reason === 'self') return 'Nu te poți scoate singur din echipă. Cere unui administrator.'
   return 'Nu am putut scoate membrul din echipă. Reîncearcă.'
 }
 
@@ -40,12 +42,15 @@ export default function ProjectTeam({
   projectId,
   members,
   canManage,
+  canRemoveAny,
   onChange,
 }: {
   projectId: string
   /** Membrii pe care pagina îi are deja, ca butonul să apară fără încă o cerere. */
   members: Person[]
   canManage: boolean
+  /** Adminul scoate pe oricine; seniorul doar juniori, și nu pe el însuși. */
+  canRemoveAny: boolean
   onChange: () => void
 }) {
   const { apiFetch, userId } = useAuth()
@@ -216,7 +221,7 @@ export default function ProjectTeam({
                           </span>
                           {person?.full_name && <span className="block truncate text-xs text-ink-soft">{person.email}</span>}
                         </span>
-                        {canManage && !confirming && (
+                        {canManage && !confirming && (canRemoveAny || (!isSelf && person?.consultant_level !== 'senior')) && (
                           <IconButton
                             label={`Scoate pe ${name} din echipă`}
                             tone="danger"

@@ -1038,6 +1038,7 @@ function ProjectDetailsContent() {
                 projectId={projectId}
                 members={projectMembers}
                 canManage={permissions.manage_team}
+                canRemoveAny={permissions.remove_any_member}
                 onChange={fetchProjectMembers}
               />
             )}
@@ -1538,6 +1539,7 @@ function ProjectDetailsContent() {
           title="Chat proiect"
           projectId={projectId}
           canModerate={permissions.moderate_chat}
+          canEditOthers={permissions.edit_others_messages}
           onUnreadCountChange={setUnreadCount}
           searchIndex={searchIndex}
           onNavigate={handleChatNavigate}

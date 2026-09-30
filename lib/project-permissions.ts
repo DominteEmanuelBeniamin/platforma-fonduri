@@ -9,7 +9,12 @@ export type ProjectPermissions = {
   delete_project: boolean
   delete_phases: boolean
   manage_team: boolean
+  /** Scoate orice membru, inclusiv seniori. Seniorul scoate doar juniori, nu și pe el. */
+  remove_any_member: boolean
+  /** Șterge mesajele altora din chat. */
   moderate_chat: boolean
+  /** Modifică textul mesajelor altora. Doar adminul. */
+  edit_others_messages: boolean
 }
 
 export const NO_PROJECT_PERMISSIONS: ProjectPermissions = {
@@ -18,5 +23,7 @@ export const NO_PROJECT_PERMISSIONS: ProjectPermissions = {
   delete_project: false,
   delete_phases: false,
   manage_team: false,
+  remove_any_member: false,
   moderate_chat: false,
+  edit_others_messages: false,
 }

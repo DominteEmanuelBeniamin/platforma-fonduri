@@ -66,7 +66,7 @@ export default function UserFilesPage() {
   const params  = useParams()
   const userId  = params?.id as string
 
-  const { apiFetch, loading: authLoading, token } = useAuth()
+  const { apiFetch, loading: authLoading, token, profile } = useAuth()
   const { showToast, confirm } = useToast()
 
   const [user,     setUser]     = useState<any>(null)
@@ -104,9 +104,12 @@ export default function UserFilesPage() {
   useEffect(() => {
     if (authLoading) return
     if (!token) { router.replace('/login'); return }
+    if (!profile) return
+    // Conturile și nivelul consultanților le gestionează doar adminul.
+    if (profile.role !== 'admin') { router.replace('/'); return }
     loadAll()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, token, userId])
+  }, [authLoading, token, userId, profile])
 
   async function loadAll() {
     setLoading(true)

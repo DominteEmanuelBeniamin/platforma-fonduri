@@ -5,6 +5,7 @@ import { requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { parseTemplateDuplication } from '@/app/api/_utils/template-duplication'
 import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
+import { markTemplateChanged } from '@/app/api/_utils/template-changes'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -120,6 +121,7 @@ export async function POST(req: NextRequest) {
       request: req,
     })
 
+    await markTemplateChanged(template_id)
     return NextResponse.json({ phase }, { status: 201 })
   } catch (error: any) {
     console.error('POST /api/admin/templates/phases error:', error)

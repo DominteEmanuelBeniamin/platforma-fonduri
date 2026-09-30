@@ -211,7 +211,9 @@ export function projectPermissions(access: ProjectAccess): ProjectPermissions {
     delete_project: access.role === 'admin',
     delete_phases: manage,
     manage_team: manage,
+    remove_any_member: access.role === 'admin',
     moderate_chat: manage,
+    edit_others_messages: access.role === 'admin',
   }
 }
 
