@@ -15,6 +15,7 @@
     "test:e2e": "playwright test",
     "test:e2e:sabloane": "E2E_ENV_FILE=${E2E_ENV_FILE:-.env.e2e.localdb} playwright test tests/e2e/sabloane.spec.ts",
     "test:e2e:drepturi": "E2E_ENV_FILE=${E2E_ENV_FILE:-.env.e2e.localdb} playwright test tests/e2e/drepturi.spec.ts",
+    "test:e2e:drepturi-ui": "E2E_ENV_FILE=${E2E_ENV_FILE:-.env.e2e.localdb} playwright test tests/e2e/drepturi-interfata.spec.ts",
     "test:e2e:regresii": "E2E_ENV_FILE=${E2E_ENV_FILE:-.env.e2e.localdb} playwright test tests/e2e/regresii-senior.spec.ts",
     "verifica": "npm run lint && tsc --noEmit && npm test && npm run build",
     "audit:check": "node --experimental-strip-types scripts/check-audit-contract.mjs",
