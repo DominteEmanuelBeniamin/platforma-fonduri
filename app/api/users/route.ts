@@ -110,7 +110,7 @@ export async function GET(request: Request){
     if (ctx.profile.role === 'consultant') {
       const { data, error } = await admin
         .from('profiles')
-        .select('id, email, full_name, role')
+        .select('id, email, full_name, role, consultant_level')
         .eq('role', 'consultant')
         .order('full_name')
 

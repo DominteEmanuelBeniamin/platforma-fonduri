@@ -10,6 +10,7 @@ import {
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS, REQUIREMENT_BADGE } from '@/lib/requirement-type'
+import SupervisorPicker, { type SeniorConsultant } from '@/components/SupervisorPicker'
 
 interface ClientProfile {
   id: string
@@ -65,6 +66,7 @@ interface Consultant {
   id: string
   full_name: string | null
   email: string
+  consultant_level?: 'junior' | 'senior' | null
 }
 
 interface ManualPhase {
@@ -80,7 +82,7 @@ function generateId() {
 }
 
 export default function NewProjectPage() {
-  const { apiFetch, token, loading: authLoading } = useAuth()
+  const { apiFetch, token, loading: authLoading, userId, profile } = useAuth()
   const { showToast } = useToast()
   const router = useRouter()
 
@@ -101,6 +103,9 @@ export default function NewProjectPage() {
   const [statuses, setStatuses] = useState<ProjectStatus[]>([])
   const [manualPhases, setManualPhases] = useState<ManualPhase[]>([])
   const [consultants, setConsultants] = useState<Consultant[]>([])
+  const [supervisorIds, setSupervisorIds] = useState<string[]>([])
+  const [supervisorsTouched, setSupervisorsTouched] = useState(false)
+  const seniors: SeniorConsultant[] = consultants.filter(c => c.consultant_level === 'senior')
   const canCreateFromTemplate = creationMode !== 'template' || templates.some(template => template.id === selectedTemplateId)
 
   // Pentru adding document modal
@@ -146,7 +151,12 @@ export default function NewProjectPage() {
         if (statusesRes.ok) setStatuses((await statusesRes.json()).statuses || [])
         if (usersRes.ok) {
           const all = (await usersRes.json()).users || []
-          setConsultants(all.filter((u: any) => u.role === 'consultant'))
+          const list: Consultant[] = all.filter((u: any) => u.role === 'consultant')
+          setConsultants(list)
+          // Un consultant senior care deschide dosarul e propus ca supervizor.
+          if (userId && list.some(c => c.id === userId && c.consultant_level === 'senior')) {
+            setSupervisorIds(prev => (prev.length === 0 ? [userId] : prev))
+          }
         }
       } catch (error) {
         console.error('Eroare:', error)
@@ -155,7 +165,7 @@ export default function NewProjectPage() {
       }
     }
     fetchData()
-  }, [apiFetch, authLoading, token])
+  }, [apiFetch, authLoading, token, userId])
 
   // Phase functions
   const addPhase = () => {
@@ -326,6 +336,7 @@ export default function NewProjectPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!canCreateFromTemplate) return
+    if (supervisorIds.length === 0) { setSupervisorsTouched(true); return }
     setLoading(true)
 
     try {
@@ -333,7 +344,7 @@ export default function NewProjectPage() {
       const projectRes = await apiFetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, client_id: selectedClientId })
+        body: JSON.stringify({ title, client_id: selectedClientId, supervisor_ids: supervisorIds })
       })
 
       const projectData = await projectRes.json()
@@ -545,6 +556,16 @@ export default function NewProjectPage() {
             </div>
           </div>
 
+          <SupervisorPicker
+            seniors={seniors}
+            selected={supervisorIds}
+            onChange={ids => { setSupervisorIds(ids); setSupervisorsTouched(true) }}
+            loading={loadingTemplates}
+            currentUserId={userId}
+            isAdmin={profile?.role === 'admin'}
+            showError={supervisorsTouched}
+          />
+
           {/* Card: Mod creare */}
           <div className="bg-white rounded-xl border border-rule shadow-sm overflow-hidden">
             <div className="px-6 py-4 bg-paper-sunk border-b border-rule">
@@ -737,7 +758,7 @@ export default function NewProjectPage() {
             <button type="button" onClick={() => router.push('/')} className="flex-1 px-5 py-3 bg-white border border-rule text-ink rounded-lg text-sm font-semibold hover:bg-paper-sunk">
               Anulează
             </button>
-            <button type="submit" disabled={loading || !title || !selectedClientId || !canCreateFromTemplate}
+            <button type="submit" disabled={loading || !title || !selectedClientId || !canCreateFromTemplate || supervisorIds.length === 0}
               className="flex-1 px-5 py-3 bg-[var(--sg-accent)] text-white rounded-lg text-sm font-semibold hover:bg-[var(--sg-accent-ink)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
               {loading ? (
                 <>

@@ -41,6 +41,7 @@ const service = serviceClient() as SupabaseClient
 const created = { templates: new Set<string>(), projects: new Set<string>(), paths: new Set<string>() }
 let token = ''
 let clientId = ''
+let supervisorId = ''
 let statusIds: string[] = []
 
 type Json = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -123,7 +124,7 @@ async function createTemplate(tree: Json) {
 }
 
 async function createProject(title: string) {
-  const { json } = await ok('POST', '/api/projects', { title, client_id: clientId })
+  const { json } = await ok('POST', '/api/projects', { title, client_id: clientId, supervisor_ids: [supervisorId] })
   created.projects.add(json.project.id)
   return json.project.id as string
 }
@@ -150,6 +151,12 @@ test.beforeAll(async () => {
   if (!client || !statuses?.length) throw new Error('Baza E2E nu are clientul sau statusurile de proiect așteptate')
   clientId = client.id
   statusIds = statuses.map(status => status.id)
+
+  // Un proiect nou cere cel puțin un supervizor senior (npm run seed:local are unul).
+  const { data: senior } = await service.from('profiles').select('id')
+    .eq('role', 'consultant').eq('consultant_level', 'senior').limit(1).maybeSingle()
+  if (!senior) throw new Error('Baza E2E nu are niciun consultant senior; rulează npm run seed:local')
+  supervisorId = senior.id
 })
 
 test.afterAll(async () => {
