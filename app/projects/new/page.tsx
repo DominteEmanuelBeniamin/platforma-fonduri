@@ -1,16 +1,15 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
-import { useState, useEffect, useRef } from 'react'
+
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
-import {
-  FolderPlus, Building2, FileText, ArrowLeft, AlertCircle,
-  Layers, Plus, Trash2, ChevronDown, ChevronRight, Activity,
-  Check, X, Paperclip, Upload, Loader2, Pencil
-} from 'lucide-react'
+import Link from 'next/link'
+import { Check, FolderPlus, Layers, Loader2, SquareDashed } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
-import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS, REQUIREMENT_BADGE } from '@/lib/requirement-type'
+import { LocationStrip } from '@/components/ui/LocationStrip'
+import { Button, ButtonLink } from '@/components/ui/Button'
 import SupervisorPicker, { type SeniorConsultant } from '@/components/SupervisorPicker'
+import { bandFor, bandVar } from '@/lib/signage'
 
 interface ClientProfile {
   id: string
@@ -20,65 +19,128 @@ interface ClientProfile {
   cif?: string | null
 }
 
-interface ProjectStatus {
+interface TemplateActivity {
   id: string
   name: string
-  slug: string
-  color: string
+  order_index: number
+  default_consultant_id?: string | null
 }
 
 interface TemplateData {
   id: string
   name: string
   description: string | null
+  status?: string
+  is_active?: boolean
   phases: {
     id: string
     name: string
-    project_status_id: string
     order_index: number
-    activities?: {
-      id: string
-      name: string
-      order_index: number
-      document_requirements?: { id: string; name: string; is_mandatory: boolean }[]
-    }[]
+    activities?: TemplateActivity[]
   }[]
-}
-
-interface ManualDocumentRequest {
-  id: string
-  name: string
-  description: string
-  requirement_type: RequirementType
-  templateFiles: File[]
-  templateFileName: string | null
-}
-
-interface ManualActivity {
-  id: string
-  name: string
-  documentRequests: ManualDocumentRequest[]
-  expanded?: boolean
-  assigned_to?: string
 }
 
 interface Consultant {
   id: string
   full_name: string | null
   email: string
+  role?: string
   consultant_level?: 'junior' | 'senior' | null
 }
 
-interface ManualPhase {
-  id: string
-  name: string
-  project_status_id: string
-  activities: ManualActivity[]
-  expanded?: boolean
+type Structure = 'empty' | 'template'
+
+const TITLE_MAX = 120
+
+const fieldClass =
+  'block w-full min-h-11 rounded-[var(--radius-plate)] border border-rule-strong bg-plate px-3 text-sm text-ink ' +
+  'placeholder:text-ink-faint transition-colors duration-[120ms] hover:border-ink-faint ' +
+  'focus:border-[var(--sg-accent)] disabled:opacity-55 pointer-fine:min-h-10'
+
+function clientLabel(client: ClientProfile) {
+  return client.nume_firma || client.full_name || client.email || 'Client fără nume'
 }
 
-function generateId() {
-  return Math.random().toString(36).substring(2, 11)
+function activityCount(template: TemplateData) {
+  return template.phases.reduce((sum, phase) => sum + (phase.activities?.length ?? 0), 0)
+}
+
+function plural(n: number, one: string, many: string) {
+  return `${n} ${n === 1 ? one : many}`
+}
+
+/**
+ * O secțiune a formularului: titlul și explicația în stânga, câmpurile în
+ * dreapta. Pe telefon se așază una sub alta. Secțiunile se despart prin linie,
+ * nu prin carduri — formularul e o singură plăcuță lungă, nu un teanc.
+ */
+function FormSection({
+  title,
+  description,
+  aside,
+  children,
+}: {
+  title: string
+  description: ReactNode
+  aside?: ReactNode
+  children: ReactNode
+}) {
+  const id = useId()
+  return (
+    <section aria-labelledby={id} className="grid gap-5 border-t border-rule py-8 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] lg:gap-12">
+      <div>
+        <div className="flex items-baseline justify-between gap-3 lg:block">
+          <h2 id={id} className="text-lg font-bold text-ink">{title}</h2>
+          {aside ? <div className="shrink-0 lg:mt-1">{aside}</div> : null}
+        </div>
+        <p className="mt-1.5 max-w-[60ch] text-sm leading-6 text-ink-soft">{description}</p>
+      </div>
+      <div className="min-w-0 max-w-3xl">{children}</div>
+    </section>
+  )
+}
+
+/** Opțiune de tip radio desenată ca plăcuță; inputul real rămâne pentru tastatură. */
+function ChoicePlate({
+  name,
+  checked,
+  onSelect,
+  icon,
+  title,
+  detail,
+  disabled,
+}: {
+  name: string
+  checked: boolean
+  onSelect: () => void
+  icon: ReactNode
+  title: string
+  detail: string
+  disabled?: boolean
+}) {
+  return (
+    <label
+      className={`flex min-h-16 items-start gap-3 rounded-[var(--radius-plate)] border px-4 py-3.5 transition-colors duration-[120ms] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--sg-accent)] ${
+        disabled
+          ? 'cursor-not-allowed border-rule bg-paper-sunk opacity-70'
+          : checked
+          ? 'cursor-pointer border-[var(--sg-accent)] bg-[var(--sg-accent-soft)]'
+          : 'cursor-pointer border-rule bg-plate hover:border-rule-strong hover:bg-paper-sunk/60'
+      }`}
+    >
+      <input type="radio" name={name} className="sr-only" checked={checked} onChange={onSelect} disabled={disabled} />
+      <span className={`mt-0.5 shrink-0 ${checked ? 'text-[var(--sg-accent)]' : 'text-ink-soft'}`} aria-hidden="true">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold text-ink">{title}</span>
+        <span className="mt-0.5 block text-xs leading-5 text-ink-soft">{detail}</span>
+      </span>
+      <Check
+        aria-hidden="true"
+        strokeWidth={2.5}
+        className={`mt-0.5 h-5 w-5 shrink-0 text-[var(--sg-accent)] transition-opacity duration-[120ms] ${checked ? 'opacity-100' : 'opacity-0'}`}
+      />
+    </label>
+  )
 }
 
 export default function NewProjectPage() {
@@ -86,72 +148,43 @@ export default function NewProjectPage() {
   const { showToast } = useToast()
   const router = useRouter()
 
-  const [clients, setClients] = useState<ClientProfile[]>([])
   const [title, setTitle] = useState('')
-  const [selectedClientId, setSelectedClientId] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [clientId, setClientId] = useState('')
+  const [clients, setClients] = useState<ClientProfile[]>([])
   const [loadingClients, setLoadingClients] = useState(true)
 
-  const [creationMode, setCreationMode] = useState<'template' | 'manual' | null>(null)
-  
-  const [templates, setTemplates] = useState<TemplateData[]>([])
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
-  const [loadingTemplates, setLoadingTemplates] = useState(true)
-  // consultantId per templateActivityId
-  const [templateActivityConsultants, setTemplateActivityConsultants] = useState<Record<string, string>>({})
-
-  const [statuses, setStatuses] = useState<ProjectStatus[]>([])
-  const [manualPhases, setManualPhases] = useState<ManualPhase[]>([])
   const [consultants, setConsultants] = useState<Consultant[]>([])
   const [supervisorIds, setSupervisorIds] = useState<string[]>([])
   const [supervisorsTouched, setSupervisorsTouched] = useState(false)
-  const seniors: SeniorConsultant[] = consultants.filter(c => c.consultant_level === 'senior')
-  const canCreateFromTemplate = creationMode !== 'template' || templates.some(template => template.id === selectedTemplateId)
 
-  // Pentru adding document modal
-  const [addingDocToActivity, setAddingDocToActivity] = useState<{phaseId: string, activityId: string} | null>(null)
-  const [editingDocId, setEditingDocId] = useState<string | null>(null)
-  const [newDocName, setNewDocName] = useState('')
-  const [newDocDescription, setNewDocDescription] = useState('')
-  const [newDocCategory, setNewDocCategory] = useState<RequirementType>('obligatoriu')
-  const [newDocTemplates, setNewDocTemplates] = useState<File[]>([])
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [structure, setStructure] = useState<Structure>('empty')
+  const [templates, setTemplates] = useState<TemplateData[]>([])
+  const [templateId, setTemplateId] = useState<string | null>(null)
+  // Alegeri explicite per activitate din șablon; '' înseamnă „fără consultant”.
+  // O activitate care lipsește de aici păstrează consultantul implicit din șablon.
+  const [activityConsultants, setActivityConsultants] = useState<Record<string, string>>({})
+  const [loadingData, setLoadingData] = useState(true)
 
-  useEffect(() => {
-    if (authLoading || !token) return
-    const fetchClients = async () => {
-      try {
-        const res = await apiFetch('/api/clients')
-        const json = await res.json()
-        if (res.ok) setClients(json.clients || [])
-      } catch (error) {
-        console.error('Eroare clienți:', error)
-      } finally {
-        setLoadingClients(false)
-      }
-    }
-    fetchClients()
-  }, [apiFetch, authLoading, token])
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     if (authLoading || !token) return
-    const fetchData = async () => {
+    let cancelled = false
+    const load = async () => {
       try {
-        const [templatesRes, statusesRes, usersRes] = await Promise.all([
+        const [clientsRes, templatesRes, usersRes] = await Promise.all([
+          apiFetch('/api/clients'),
           apiFetch('/api/admin/templates'),
-          apiFetch('/api/admin/statuses'),
           apiFetch('/api/users'),
         ])
+        if (cancelled) return
+        if (clientsRes.ok) setClients((await clientsRes.json()).clients || [])
         if (templatesRes.ok) {
-          const data = await templatesRes.json()
-          setTemplates((data.templates || []).filter((template: TemplateData & { status?: string; is_active?: boolean }) =>
-            template.status === 'published' && template.is_active
-          ))
+          const all: TemplateData[] = (await templatesRes.json()).templates || []
+          setTemplates(all.filter(t => t.status === 'published' && t.is_active))
         }
-        if (statusesRes.ok) setStatuses((await statusesRes.json()).statuses || [])
         if (usersRes.ok) {
-          const all = (await usersRes.json()).users || []
-          const list: Consultant[] = all.filter((u: any) => u.role === 'consultant')
+          const list: Consultant[] = ((await usersRes.json()).users || []).filter((u: Consultant) => u.role === 'consultant')
           setConsultants(list)
           // Un consultant senior care deschide dosarul e propus ca supervizor.
           if (userId && list.some(c => c.id === userId && c.consultant_level === 'senior')) {
@@ -159,226 +192,83 @@ export default function NewProjectPage() {
           }
         }
       } catch (error) {
-        console.error('Eroare:', error)
+        console.error('Eroare la încărcarea formularului:', error)
       } finally {
-        setLoadingTemplates(false)
+        if (!cancelled) {
+          setLoadingClients(false)
+          setLoadingData(false)
+        }
       }
     }
-    fetchData()
+    load()
+    return () => { cancelled = true }
   }, [apiFetch, authLoading, token, userId])
 
-  // Phase functions
-  const addPhase = () => {
-    setManualPhases([...manualPhases, {
-      id: generateId(),
-      name: '',
-      project_status_id: statuses[0]?.id || '',
-      activities: [],
-      expanded: true
-    }])
+  const seniors: SeniorConsultant[] = useMemo(
+    () => consultants.filter(c => c.consultant_level === 'senior'),
+    [consultants]
+  )
+  const selectedTemplate = templates.find(t => t.id === templateId) ?? null
+  const selectedClient = clients.find(c => c.id === clientId) ?? null
+
+  const consultantFor = (activity: TemplateActivity) =>
+    activity.id in activityConsultants ? activityConsultants[activity.id] : (activity.default_consultant_id ?? '')
+
+  const missing = [
+    !title.trim() && 'numele',
+    !clientId && 'beneficiarul',
+    supervisorIds.length === 0 && 'un supervizor',
+    structure === 'template' && !selectedTemplate && 'șablonul',
+  ].filter(Boolean) as string[]
+  const ready = missing.length === 0
+
+  const chooseStructure = (next: Structure) => {
+    setStructure(next)
+    if (next === 'empty') setTemplateId(null)
+    else if (!templateId && templates.length === 1) setTemplateId(templates[0].id)
   }
 
-  const updatePhase = (phaseId: string, updates: Partial<ManualPhase>) => {
-    setManualPhases(manualPhases.map(p => p.id === phaseId ? { ...p, ...updates } : p))
+  const chooseTemplate = (id: string) => {
+    setTemplateId(id)
+    setActivityConsultants({})
   }
 
-  const removePhase = (phaseId: string) => {
-    setManualPhases(manualPhases.filter(p => p.id !== phaseId))
-  }
-
-  // Activity functions
-  const addActivity = (phaseId: string) => {
-    setManualPhases(manualPhases.map(p => 
-      p.id === phaseId 
-        ? { ...p, activities: [...p.activities, { id: generateId(), name: '', documentRequests: [], expanded: true }] }
-        : p
-    ))
-  }
-
-  const updateActivity = (phaseId: string, activityId: string, updates: Partial<ManualActivity>) => {
-    setManualPhases(manualPhases.map(p => 
-      p.id === phaseId 
-        ? { ...p, activities: p.activities.map(a => a.id === activityId ? { ...a, ...updates } : a) }
-        : p
-    ))
-  }
-
-  const removeActivity = (phaseId: string, activityId: string) => {
-    setManualPhases(manualPhases.map(p => 
-      p.id === phaseId 
-        ? { ...p, activities: p.activities.filter(a => a.id !== activityId) }
-        : p
-    ))
-  }
-
-  // Document request functions
-  const openAddDocModal = (phaseId: string, activityId: string) => {
-    setAddingDocToActivity({ phaseId, activityId })
-    setEditingDocId(null)
-    setNewDocName('')
-    setNewDocDescription('')
-    setNewDocCategory('obligatoriu')
-    setNewDocTemplates([])
-  }
-
-  const openEditDocModal = (phaseId: string, activityId: string, doc: ManualDocumentRequest) => {
-    setAddingDocToActivity({ phaseId, activityId })
-    setEditingDocId(doc.id)
-    setNewDocName(doc.name)
-    setNewDocDescription(doc.description)
-    setNewDocCategory(doc.requirement_type)
-    setNewDocTemplates(doc.templateFiles)
-  }
-
-  const closeAddDocModal = () => {
-    setAddingDocToActivity(null)
-    setEditingDocId(null)
-    setNewDocName('')
-    setNewDocDescription('')
-    setNewDocCategory('obligatoriu')
-    setNewDocTemplates([])
-  }
-
-  const confirmAddDoc = () => {
-    if (!addingDocToActivity || !newDocName.trim()) return
-
-    const { phaseId, activityId } = addingDocToActivity
-    const docData = {
-      name: newDocName.trim(),
-      description: newDocDescription.trim(),
-      requirement_type: newDocCategory,
-      templateFiles: newDocTemplates,
-      templateFileName: newDocTemplates[0]?.name || null,
-    }
-
-    setManualPhases(manualPhases.map(p =>
-      p.id === phaseId
-        ? {
-            ...p,
-            activities: p.activities.map(a =>
-              a.id === activityId
-                ? {
-                    ...a,
-                    documentRequests: editingDocId
-                      ? a.documentRequests.map(d =>
-                          d.id === editingDocId ? { ...d, ...docData } : d
-                        )
-                      : [...a.documentRequests, { id: generateId(), ...docData }],
-                  }
-                : a
-            )
-          }
-        : p
-    ))
-    closeAddDocModal()
-  }
-
-  const removeDocRequest = (phaseId: string, activityId: string, docId: string) => {
-    setManualPhases(manualPhases.map(p => 
-      p.id === phaseId 
-        ? { 
-            ...p, 
-            activities: p.activities.map(a => 
-              a.id === activityId 
-                ? { ...a, documentRequests: a.documentRequests.filter(d => d.id !== docId) }
-                : a
-            ) 
-          }
-        : p
-    ))
-  }
-
-  const getStatusColor = (statusId: string) => statuses.find(s => s.id === statusId)?.color || '#6B7280'
-
-  // Upload template helper - folosește API-ul existent
-  const uploadTemplate = async (projectId: string, file: File): Promise<string | null> => {
-    try {
-      // 1. Init upload
-      const initRes = await apiFetch(`/api/projects/${projectId}/document-requests/attachment/init`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: file.name,
-          type: file.type
-        })
-      })
-      
-      if (!initRes.ok) {
-        console.error('Init upload failed')
-        return null
-      }
-      
-      const initData = await initRes.json()
-      
-      // 2. Upload to storage cu signed URL
-      const uploadRes = await fetch(initData.signedUploadUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': file.type,
-          'Authorization': `Bearer ${initData.token}`
-        },
-        body: file
-      })
-      
-      if (!uploadRes.ok) {
-        console.error('Upload to storage failed')
-        return null
-      }
-      
-      return initData.storagePath
-    } catch (error) {
-      console.error('Upload template error:', error)
-      return null
-    }
-  }
-
-  // Create project
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!canCreateFromTemplate) return
-    if (supervisorIds.length === 0) { setSupervisorsTouched(true); return }
-    setLoading(true)
+    if (!ready) {
+      setSupervisorsTouched(true)
+      return
+    }
+    setSubmitting(true)
 
+    let projectId: string | null = null
     try {
-      // 1. Creează proiectul
       const projectRes = await apiFetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, client_id: selectedClientId, supervisor_ids: supervisorIds })
+        body: JSON.stringify({ title: title.trim(), client_id: clientId, supervisor_ids: supervisorIds }),
       })
+      const projectData = await projectRes.json().catch(() => null)
+      if (!projectRes.ok || !projectData?.project?.id) throw new Error(projectData?.error || 'create')
+      projectId = projectData.project.id as string
 
-      const projectData = await projectRes.json()
-      if (!projectRes.ok) throw new Error(projectData?.error || 'Eroare la creare proiect')
-
-      const projectId = projectData.project?.id
-      if (!projectId) throw new Error('Proiectul a fost creat, dar răspunsul nu conține ID-ul proiectului.')
-
-      // 2. Import template
-      if (creationMode === 'template' && selectedTemplateId) {
+      if (structure === 'template' && selectedTemplate) {
         const importRes = await apiFetch(`/api/projects/${projectId}/import-template`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ template_id: selectedTemplateId })
+          body: JSON.stringify({ template_id: selectedTemplate.id }),
         })
-        const importData = await importRes.json().catch(() => ({}))
-        if (!importRes.ok) {
-          throw new Error(importData?.error || 'Proiectul a fost creat, dar importul template-ului a eșuat.')
-        }
+        if (!importRes.ok) throw new Error('import')
 
-        // Asignează consultanți per activitate (manual override sau default din template)
+        // Consultantul fiecărei activități: alegerea din formular sau cel implicit din șablon.
         const phasesRes = await apiFetch(`/api/projects/${projectId}/phases`)
         if (phasesRes.ok) {
           const { phases } = await phasesRes.json()
-          const selectedTemplate = templates.find(t => t.id === selectedTemplateId)
-          for (const phase of (phases || [])) {
-            for (const act of (phase.activities || [])) {
-              const templateAct = selectedTemplate?.phases
-                .flatMap((p: any) => p.activities || [])
-                .find((a: any) => a.name === act.name)
-              // manual override → fallback la default_consultant_id din template
-              const consultantId = templateAct
-                ? (templateActivityConsultants[templateAct.id] || templateAct.default_consultant_id)
-                : undefined
+          const templateActivities = selectedTemplate.phases.flatMap(p => p.activities || [])
+          for (const phase of phases || []) {
+            for (const act of phase.activities || []) {
+              const templateAct = templateActivities.find(a => a.name === act.name)
+              const consultantId = templateAct ? consultantFor(templateAct) : ''
               if (consultantId) {
                 await apiFetch(`/api/projects/${projectId}/phases/${phase.id}/activities/${act.id}`, {
                   method: 'PATCH',
@@ -390,458 +280,266 @@ export default function NewProjectPage() {
           }
         }
       }
-      
-      // 3. Creare manuală cu document requests
-      if (creationMode === 'manual' && manualPhases.length > 0) {
-        for (let pIdx = 0; pIdx < manualPhases.length; pIdx++) {
-          const phase = manualPhases[pIdx]
-          if (!phase.name.trim()) continue
-
-          // Crează faza
-          const phaseRes = await apiFetch(`/api/projects/${projectId}/phases`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name: phase.name,
-              project_status_id: phase.project_status_id,
-              order_index: pIdx + 1,
-              status: pIdx === 0 ? 'in_progress' : 'pending'
-            })
-          })
-
-          if (!phaseRes.ok) continue
-          const phaseData = await phaseRes.json()
-          const newPhaseId = phaseData.phase?.id
-
-          // Crează activitățile
-          for (let aIdx = 0; aIdx < phase.activities.length; aIdx++) {
-            const activity = phase.activities[aIdx]
-            if (!activity.name.trim()) continue
-
-            const actRes = await apiFetch(`/api/projects/${projectId}/phases/${newPhaseId}/activities`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                name: activity.name,
-                order_index: aIdx + 1,
-                status: 'pending',
-                ...(activity.assigned_to ? { assigned_to: activity.assigned_to } : {}),
-              })
-            })
-
-            if (!actRes.ok) continue
-            const actData = await actRes.json()
-            const newActivityId = actData.activity?.id
-
-            // Crează document requests pentru fiecare document
-            for (const docReq of activity.documentRequests) {
-              // Uploadează template dacă există
-              const attachments = []
-              for (const file of docReq.templateFiles) {
-                const attachmentPath = await uploadTemplate(projectId, file)
-                if (!attachmentPath) throw new Error(`Nu s-a putut încărca fișierul "${file.name}"`)
-                attachments.push({ storage_path: attachmentPath, original_name: file.name, mime_type: file.type || 'application/octet-stream', file_size: file.size })
-              }
-
-              // Creează cererea de document folosind API-ul existent
-              await apiFetch(`/api/projects/${projectId}/document-requests`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  name: docReq.name,
-                  description: docReq.description || null,
-                  requirement_type: docReq.requirement_type,
-                  activity_id: newActivityId,
-                  attachments,
-                  attachment_path: attachments[0]?.storage_path || null,
-                  attachment_original_name: attachments[0]?.original_name || null,
-                })
-              })
-            }
-          }
-        }
-
-        // Setează statusul proiectului
-        if (manualPhases[0]?.project_status_id) {
-          await apiFetch(`/api/projects/${projectId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ current_status_id: manualPhases[0].project_status_id })
-          })
-        }
-      }
 
       router.push(`/projects/${projectId}`)
     } catch {
-      showToast('Nu am putut crea proiectul. Verifică datele și reîncearcă.', 'error')
-    } finally {
-      setLoading(false)
+      if (projectId) {
+        // Dosarul există deja; un al doilea click ar crea un duplicat. Mergem în
+        // el și spunem ce a rămas de făcut.
+        showToast('Dosarul a fost deschis, dar șablonul nu s-a importat complet. Verifică fazele din proiect.', 'error')
+        router.push(`/projects/${projectId}`)
+        return
+      }
+      showToast('Nu am putut deschide dosarul. Verifică datele și reîncearcă.', 'error')
+      setSubmitting(false)
     }
   }
 
+  const summary = [
+    selectedClient ? `pentru ${clientLabel(selectedClient)}` : null,
+    supervisorIds.length > 0 ? plural(supervisorIds.length, 'supervizor', 'supervizori') : null,
+    structure === 'template'
+      ? selectedTemplate ? `din „${selectedTemplate.name}”` : null
+      : 'fără faze',
+  ].filter(Boolean).join(' · ')
+
   return (
-    <div className="min-h-screen bg-paper-sunk">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-3">
-          <button onClick={() => router.push('/')} className="flex min-h-11 items-center gap-2 text-sm text-ink-soft transition-colors duration-[120ms] hover:text-ink sm:min-h-9 group">
-            <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-            <span className="font-medium">Proiecte</span>
-          </button>
-          <span className="text-ink-faint">/</span>
-          <span className="text-sm font-medium text-ink">Dosar Nou</span>
-        </div>
+    <div>
+      <LocationStrip segments={[{ label: 'Proiecte', href: '/' }, { label: 'Dosar nou' }]} />
 
-        {/* Header */}
-        <div className="text-center space-y-3">
-          <h1 className="text-3xl sm:text-4xl font-bold text-ink tracking-tight">Deschide Dosar Nou</h1>
-          <p className="text-ink-soft text-sm sm:text-base max-w-md mx-auto">Completează informațiile pentru a crea un nou proiect</p>
-        </div>
+      <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Dosar nou</h1>
+      <p className="mt-2 max-w-[62ch] text-sm leading-6 text-ink-soft">
+        Un dosar are un nume, un beneficiar și cel puțin un supervizor. Fazele și activitățile le poți importa dintr-un șablon
+        sau le adaugi mai târziu, din proiect.
+      </p>
 
-        <form onSubmit={handleCreate} className="space-y-6">
-          {/* Card: Informații de bază */}
-          <div className="bg-white rounded-xl border border-rule shadow-sm overflow-hidden">
-            <div className="px-6 py-4 bg-paper-sunk border-b border-rule">
-              <h2 className="font-semibold text-ink">Informații proiect</h2>
+      <form onSubmit={handleCreate} noValidate className="mt-8">
+        <FormSection title="Dosarul" description="Numele după care îl găsesc colegii și firma pentru care se depune.">
+          <div className="space-y-5">
+            <div>
+              <div className="flex items-baseline justify-between gap-3">
+                <label htmlFor="dosar-nume" className="text-sm font-semibold text-ink">Numele proiectului</label>
+                <span className={`text-xs tabular-nums ${title.length > TITLE_MAX - 10 ? 'text-ink-soft' : 'text-ink-faint'}`} aria-hidden="true">
+                  {title.length}/{TITLE_MAX}
+                </span>
+              </div>
+              <input
+                id="dosar-nume"
+                name="title"
+                type="text"
+                value={title}
+                maxLength={TITLE_MAX}
+                autoComplete="off"
+                required
+                placeholder="De exemplu: Agro Verde — dotare fermă legumicolă"
+                onChange={e => setTitle(e.target.value)}
+                className={`${fieldClass} mt-1.5`}
+              />
             </div>
-            <div className="p-6 space-y-4">
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm font-medium text-ink">
-                  <FileText className="w-4 h-4 text-ink-soft" />
-                  Nume Proiect *
-                </label>
-                <input 
-                  type="text" 
-                  placeholder="Ex: Digitalizare IMM - Firma X"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  required
-                  className="w-full px-4 py-3 bg-paper-sunk border border-rule rounded-lg text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-[var(--sg-accent)] focus:border-transparent"
-                />
-              </div>
 
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm font-medium text-ink">
-                  <Building2 className="w-4 h-4 text-ink-soft" />
-                  Beneficiar (Client) *
-                </label>
-                {loadingClients ? (
-                  <div className="w-full px-4 py-3 bg-paper-sunk border border-rule rounded-lg flex items-center gap-2 text-ink-faint">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span className="text-sm">Se încarcă...</span>
-                  </div>
-                ) : (
-                  <select 
-                    value={selectedClientId} 
-                    onChange={(e) => setSelectedClientId(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 bg-paper-sunk border border-rule rounded-lg text-ink focus:outline-none focus:ring-2 focus:ring-[var(--sg-accent)]"
-                  >
-                    <option value="">Alege beneficiarul</option>
-                    {clients.map(client => (
-                      <option key={client.id} value={client.id}>
-                        {client.nume_firma || client.full_name || client.email} {client.cif ? `(CIF: ${client.cif})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {clients.length === 0 && !loadingClients && (
-                  <div className="flex items-start gap-2 p-3 bg-[var(--sg-warn-soft)] border border-[var(--sg-warn)] rounded-lg">
-                    <AlertCircle className="w-5 h-5 text-[var(--sg-warn)] flex-shrink-0" />
-                    <p className="text-sm text-[var(--sg-warn)]">Nu există clienți.</p>
-                  </div>
-                )}
-              </div>
+            <div>
+              <label htmlFor="dosar-beneficiar" className="text-sm font-semibold text-ink">Beneficiar</label>
+              {loadingClients ? (
+                <p className="mt-1.5 flex min-h-11 items-center gap-2 text-sm text-ink-soft" role="status">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Se încarcă clienții…
+                </p>
+              ) : clients.length === 0 ? (
+                <p className="mt-1.5 rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-4 py-3 text-sm text-ink-soft">
+                  Nu există încă niciun client. {profile?.role === 'admin'
+                    ? <><Link href="/admin/users" className="font-semibold text-[var(--sg-accent)] underline underline-offset-2">Creează contul clientului</Link>, apoi revino aici.</>
+                    : 'Cere unui administrator să creeze contul clientului.'}
+                </p>
+              ) : (
+                <select
+                  id="dosar-beneficiar"
+                  name="client_id"
+                  value={clientId}
+                  required
+                  onChange={e => setClientId(e.target.value)}
+                  className={`${fieldClass} mt-1.5 ${clientId ? '' : 'text-ink-soft'}`}
+                >
+                  <option value="">Alege firma beneficiară</option>
+                  {clients.map(client => (
+                    <option key={client.id} value={client.id}>
+                      {clientLabel(client)}{client.cif ? ` · CIF ${client.cif}` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
+        </FormSection>
 
+        <FormSection
+          title="Supervizori"
+          description="Consultanții seniori care răspund de dosar. Intră în echipa proiectului și îl pot administra: echipa, fazele și activitățile, chatul."
+          aside={
+            <span className={`text-xs font-semibold tabular-nums ${supervisorIds.length ? 'text-[var(--sg-accent)]' : 'text-ink-soft'}`} aria-live="polite">
+              {supervisorIds.length ? `${supervisorIds.length} ${supervisorIds.length === 1 ? 'ales' : 'aleși'}` : 'Minim unul'}
+            </span>
+          }
+        >
           <SupervisorPicker
             seniors={seniors}
             selected={supervisorIds}
             onChange={ids => { setSupervisorIds(ids); setSupervisorsTouched(true) }}
-            loading={loadingTemplates}
+            loading={loadingData}
             currentUserId={userId}
             isAdmin={profile?.role === 'admin'}
             showError={supervisorsTouched}
           />
+        </FormSection>
 
-          {/* Card: Mod creare */}
-          <div className="bg-white rounded-xl border border-rule shadow-sm overflow-hidden">
-            <div className="px-6 py-4 bg-paper-sunk border-b border-rule">
-              <h2 className="font-semibold text-ink">Structură proiect</h2>
+        <FormSection
+          title="Structura"
+          description="Pornește gol sau importă fazele și activitățile unui șablon publicat. Oricum ar porni, structura se poate schimba din proiect."
+        >
+          <fieldset>
+            <legend className="sr-only">Cum pornește dosarul</legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <ChoicePlate
+                name="structura"
+                checked={structure === 'empty'}
+                onSelect={() => chooseStructure('empty')}
+                icon={<SquareDashed className="h-5 w-5" />}
+                title="Dosar gol"
+                detail="Fără faze. Le adaugi din proiect."
+              />
+              <ChoicePlate
+                name="structura"
+                checked={structure === 'template'}
+                onSelect={() => chooseStructure('template')}
+                icon={<Layers className="h-5 w-5" />}
+                title="Din șablon"
+                detail={loadingData
+                  ? 'Se încarcă șabloanele…'
+                  : templates.length === 0
+                  ? 'Nu există șabloane publicate.'
+                  : `${plural(templates.length, 'șablon publicat', 'șabloane publicate')}.`}
+                disabled={!loadingData && templates.length === 0}
+              />
             </div>
-            <div className="p-6">
-              {/* Selectare mod */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                <button type="button" onClick={() => { setCreationMode(null); setSelectedTemplateId(null); setManualPhases([]) }}
-                  className={`p-4 rounded-xl border-2 text-left transition-all ${creationMode === null ? 'border-rule-strong bg-paper-sunk' : 'border-rule hover:border-rule-strong'}`}>
-                  <div className="w-10 h-10 bg-paper-sunk rounded-lg flex items-center justify-center mb-3">
-                    <FolderPlus className="w-5 h-5 text-ink-soft" />
-                  </div>
-                  <p className="font-medium text-ink">Proiect gol</p>
-                  <p className="text-xs text-ink-soft mt-1">Fără faze predefinite</p>
-                </button>
+          </fieldset>
 
-                <button type="button" onClick={() => { setCreationMode('template'); setManualPhases([]) }}
-                  className={`p-4 rounded-xl border-2 text-left transition-all ${creationMode === 'template' ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)]' : 'border-rule hover:border-rule-strong'}`}>
-                  <div className="w-10 h-10 bg-[var(--sg-accent-soft)] rounded-lg flex items-center justify-center mb-3">
-                    <Layers className="w-5 h-5 text-[var(--sg-accent)]" />
-                  </div>
-                  <p className="font-medium text-ink">Din template</p>
-                  <p className="text-xs text-ink-soft mt-1">Importă faze predefinite</p>
-                </button>
-
-                {/* „Creare manuală" ascunsă la cerere — fazele se definesc din template sau ulterior, din sidebar-ul proiectului */}
-              </div>
-
-              {/* Template selection */}
-              {creationMode === 'template' && (
-                <div className="space-y-3">
-                  {loadingTemplates ? (
-                    <div className="text-center py-8 text-ink-soft">Se încarcă template-urile...</div>
-                  ) : templates.length === 0 ? (
-                    <div className="text-center py-8">
-                      <Layers className="w-10 h-10 text-ink-faint mx-auto mb-2" />
-                      <p className="text-ink-soft">Nu există template-uri.</p>
-                    </div>
-                  ) : (
-                    templates.map(template => (
-                      <div key={template.id}>
-                        <button type="button" onClick={() => { setSelectedTemplateId(template.id); setTemplateActivityConsultants({}) }}
-                          className={`w-full p-4 rounded-xl border-2 text-left transition-all ${selectedTemplateId === template.id ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)]' : 'border-rule hover:border-rule-strong'}`}>
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="font-medium text-ink">{template.name}</p>
-                              {template.description && <p className="text-xs text-ink-soft">{template.description}</p>}
-                            </div>
-                            <span className="text-xs text-ink-soft">{template.phases?.length || 0} faze</span>
-                          </div>
-                        </button>
-
-                        {/* Activități cu consultant — vizibile când template-ul e selectat */}
-                        {selectedTemplateId === template.id && (
-                          <div className="mt-2 ml-2 space-y-2 border-l-2 border-[var(--sg-accent)] pl-4">
-                            {template.phases?.flatMap(phase =>
-                              (phase.activities || []).map(act => (
-                                <div key={act.id} className="flex items-center gap-3 py-1">
-                                  <span className="text-sm text-ink-soft flex-1 truncate">{act.name}</span>
-                                  <select
-                                    value={templateActivityConsultants[act.id] ?? ''}
-                                    onChange={e => setTemplateActivityConsultants(prev => ({ ...prev, [act.id]: e.target.value }))}
-                                    className="text-xs border border-rule rounded-lg px-2 py-1.5 text-ink bg-white focus:border-[var(--sg-accent)] outline-none min-w-[160px]"
-                                  >
-                                    <option value="">Fără consultant</option>
-                                    {consultants.map(c => (
-                                      <option key={c.id} value={c.id}>{c.full_name || c.email}</option>
-                                    ))}
-                                  </select>
-                                </div>
-                              ))
+          {structure === 'template' && templates.length > 0 && (
+            <div className="mt-6">
+              <fieldset>
+                <legend className="text-sm font-semibold text-ink">Șablonul</legend>
+                <ul className="mt-2 divide-y divide-rule rounded-[var(--radius-plate)] border border-rule bg-plate">
+                  {templates.map(template => {
+                    const checked = template.id === templateId
+                    return (
+                      <li key={template.id}>
+                        <label
+                          className={`flex min-h-14 cursor-pointer items-center gap-3 px-4 py-3 transition-colors duration-[120ms] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2 has-[:focus-visible]:outline-[var(--sg-accent)] ${
+                            checked ? 'bg-[var(--sg-accent-soft)]' : 'hover:bg-paper-sunk/60'
+                          }`}
+                        >
+                          <input type="radio" name="sablon" className="sr-only" checked={checked} onChange={() => chooseTemplate(template.id)} />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-semibold text-ink">{template.name}</span>
+                            {template.description && (
+                              <span className="mt-0.5 block text-xs leading-5 text-ink-soft line-clamp-2">{template.description}</span>
                             )}
+                          </span>
+                          <span className="shrink-0 text-right text-xs tabular-nums text-ink-soft">
+                            {plural(template.phases.length, 'fază', 'faze')}
+                            <span className="hidden sm:inline"> · {plural(activityCount(template), 'activitate', 'activități')}</span>
+                          </span>
+                          <Check
+                            aria-hidden="true"
+                            strokeWidth={2.5}
+                            className={`h-5 w-5 shrink-0 text-[var(--sg-accent)] ${checked ? 'opacity-100' : 'opacity-0'}`}
+                          />
+                        </label>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </fieldset>
+
+              {selectedTemplate && (
+                <div className="mt-6">
+                  <h3 className="text-sm font-semibold text-ink">Cine lucrează fiecare activitate</h3>
+                  <p className="mt-1 max-w-[62ch] text-xs leading-5 text-ink-soft">
+                    Pornește de la consultantul propus în șablon. Poți schimba oricând din proiect.
+                  </p>
+                  {selectedTemplate.phases.length === 0 ? (
+                    <p className="mt-3 text-sm text-ink-soft">Șablonul nu are faze.</p>
+                  ) : (
+                    <ol className="mt-3 space-y-3">
+                      {selectedTemplate.phases.map((phase, index) => (
+                        <li key={phase.id} className="relative overflow-hidden rounded-[var(--radius-plate)] border border-rule bg-plate">
+                          <span aria-hidden="true" className="absolute inset-x-0 top-0 h-[var(--sg-rail)]" style={{ background: bandVar(bandFor(index)) }} />
+                          <div className="flex items-baseline gap-2 px-4 pb-2 pt-4">
+                            <span className="text-xs font-bold tabular-nums text-ink-faint">{index + 1}</span>
+                            <span className="min-w-0 flex-1 text-sm font-bold text-ink">{phase.name}</span>
+                            <span className="shrink-0 text-xs text-ink-soft">{plural(phase.activities?.length ?? 0, 'activitate', 'activități')}</span>
                           </div>
-                        )}
-                      </div>
-                    ))
+                          {(phase.activities?.length ?? 0) > 0 && (
+                            <ul className="divide-y divide-rule border-t border-rule">
+                              {phase.activities!.map(activity => {
+                                const selectId = `consultant-${activity.id}`
+                                return (
+                                  <li key={activity.id} className="flex flex-col gap-2 px-4 py-2.5 sm:flex-row sm:items-center sm:gap-4">
+                                    <label htmlFor={selectId} className="min-w-0 flex-1 text-sm text-ink">{activity.name}</label>
+                                    <select
+                                      id={selectId}
+                                      value={consultantFor(activity)}
+                                      onChange={e => setActivityConsultants(prev => ({ ...prev, [activity.id]: e.target.value }))}
+                                      className={`${fieldClass} sm:w-56 sm:shrink-0 ${consultantFor(activity) ? '' : 'text-ink-soft'}`}
+                                    >
+                                      <option value="">Fără consultant</option>
+                                      {consultants.map(c => (
+                                        <option key={c.id} value={c.id}>{c.full_name || c.email}</option>
+                                      ))}
+                                    </select>
+                                  </li>
+                                )
+                              })}
+                            </ul>
+                          )}
+                        </li>
+                      ))}
+                    </ol>
                   )}
                 </div>
               )}
-
-              {/* Manual creation */}
-              {creationMode === 'manual' && (
-                <div className="space-y-4">
-                  {manualPhases.map((phase, phaseIdx) => (
-                    <div key={phase.id} className="border border-rule rounded-xl overflow-hidden">
-                      {/* Phase header */}
-                      <div className="px-4 py-3 bg-paper-sunk flex items-center gap-3">
-                        <button type="button" onClick={() => updatePhase(phase.id, { expanded: !phase.expanded })} className="text-ink-faint">
-                          {phase.expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                        </button>
-                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: getStatusColor(phase.project_status_id) }}>
-                          {phaseIdx + 1}
-                        </div>
-                        <input type="text" value={phase.name} onChange={(e) => updatePhase(phase.id, { name: e.target.value })}
-                          placeholder="Nume fază..." className="flex-1 px-3 py-1.5 border border-rule rounded-lg text-sm" />
-                        <select value={phase.project_status_id} onChange={(e) => updatePhase(phase.id, { project_status_id: e.target.value })}
-                          className="px-3 py-1.5 border border-rule rounded-lg text-sm">
-                          {statuses.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        </select>
-                        <button type="button" onClick={() => removePhase(phase.id)} className="p-1.5 text-ink-faint hover:text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)] rounded-lg">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-
-                      {/* Phase content */}
-                      {phase.expanded && (
-                        <div className="p-4 space-y-3">
-                          {phase.activities.map((activity) => (
-                            <div key={activity.id} className="pl-4 border-l-2 border-rule">
-                              <div className="flex items-center gap-2 mb-2">
-                                <Activity className="w-4 h-4 text-ink-faint" />
-                                <input type="text" value={activity.name} onChange={(e) => updateActivity(phase.id, activity.id, { name: e.target.value })}
-                                  placeholder="Nume activitate..." className="flex-1 px-3 py-1.5 border border-rule rounded-lg text-sm" />
-                                <select
-                                  value={activity.assigned_to ?? ''}
-                                  onChange={e => updateActivity(phase.id, activity.id, { assigned_to: e.target.value || undefined })}
-                                  className="text-xs border border-rule rounded-lg px-2 py-1.5 text-ink bg-white focus:border-[var(--sg-accent)] outline-none min-w-[140px]"
-                                >
-                                  <option value="">Consultant...</option>
-                                  {consultants.map(c => (
-                                    <option key={c.id} value={c.id}>{c.full_name || c.email}</option>
-                                  ))}
-                                </select>
-                                <button type="button" onClick={() => updateActivity(phase.id, activity.id, { expanded: !activity.expanded })} className="p-1 text-ink-faint">
-                                  {activity.expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                                </button>
-                                <button type="button" onClick={() => removeActivity(phase.id, activity.id)} className="p-1 text-ink-faint hover:text-[var(--sg-danger)]">
-                                  <X className="w-4 h-4" />
-                                </button>
-                              </div>
-
-                              {/* Document Requests */}
-                              {activity.expanded && (
-                                <div className="ml-6 space-y-2">
-                                  {activity.documentRequests.map(doc => (
-                                    <div key={doc.id} className="flex items-start gap-2 p-3 bg-paper-sunk rounded-lg border border-rule">
-                                      <FileText className="w-4 h-4 text-ink-faint mt-0.5" />
-                                      <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <span className="font-medium text-sm text-ink">{doc.name}</span>
-                                          {REQUIREMENT_BADGE[doc.requirement_type] && (
-                                            <span className={`text-xs px-1.5 py-0.5 rounded ${REQUIREMENT_BADGE[doc.requirement_type]!.bg} ${REQUIREMENT_BADGE[doc.requirement_type]!.text}`}>
-                                              {REQUIREMENT_LABELS[doc.requirement_type]}
-                                            </span>
-                                          )}
-                                        </div>
-                                        {doc.description && <p className="text-xs text-ink-soft mt-0.5">{doc.description}</p>}
-                                        {doc.templateFiles.length > 0 && (
-                                          <div className="flex items-center gap-1 mt-1 text-xs text-[var(--sg-accent)]">
-                                            <Paperclip className="w-3 h-3" />
-                                            <span>{doc.templateFiles.map(file => file.name).join(', ')}</span>
-                                          </div>
-                                        )}
-                                      </div>
-                                      <button type="button" onClick={() => openEditDocModal(phase.id, activity.id, doc)} className="p-1 text-ink-faint hover:text-[var(--sg-accent)]" title="Modifică cererea">
-                                        <Pencil className="w-4 h-4" />
-                                      </button>
-                                      <button type="button" onClick={() => removeDocRequest(phase.id, activity.id, doc.id)} className="p-1 text-ink-faint hover:text-[var(--sg-danger)]" title="Șterge cererea">
-                                        <X className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  ))}
-                                  <button type="button" onClick={() => openAddDocModal(phase.id, activity.id)}
-                                    className="flex items-center gap-1 py-2 px-3 text-xs text-[var(--sg-accent)] hover:text-[var(--sg-accent-ink)] hover:bg-[var(--sg-accent-soft)] rounded-lg">
-                                    <Plus className="w-3 h-3" /> Adaugă cerere document
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                          <button type="button" onClick={() => addActivity(phase.id)} className="text-sm text-[var(--sg-accent)] hover:text-[var(--sg-accent-ink)] flex items-center gap-1 ml-4">
-                            <Plus className="w-4 h-4" /> Adaugă activitate
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-
-                  <button type="button" onClick={addPhase} className="w-full py-3 border-2 border-dashed border-rule-strong rounded-xl text-ink-soft hover:border-[var(--sg-accent)] hover:text-[var(--sg-accent)] flex items-center justify-center gap-2">
-                    <Plus className="w-5 h-5" /> Adaugă fază nouă
-                  </button>
-                </div>
-              )}
             </div>
-          </div>
+          )}
+        </FormSection>
 
-          {/* Buttons */}
-          <div className="flex flex-col-reverse sm:flex-row gap-3">
-            <button type="button" onClick={() => router.push('/')} className="flex-1 px-5 py-3 bg-white border border-rule text-ink rounded-lg text-sm font-semibold hover:bg-paper-sunk">
-              Anulează
-            </button>
-            <button type="submit" disabled={loading || !title || !selectedClientId || !canCreateFromTemplate || supervisorIds.length === 0}
-              className="flex-1 px-5 py-3 bg-[var(--sg-accent)] text-white rounded-lg text-sm font-semibold hover:bg-[var(--sg-accent-ink)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-              {loading ? (
+        {/* Bara de acțiuni rămâne la vedere cât derulezi prin șablon și spune
+            ce mai lipsește, ca butonul dezactivat să nu fie o ghicitoare. */}
+        <div className="sticky bottom-0 z-10 -mx-4 border-t border-rule bg-paper px-4 py-3 sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="min-w-0 text-sm leading-5" aria-live="polite">
+              {ready ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Se creează...
+                  <span className="flex items-center gap-1.5 font-semibold text-ink">
+                    <Check className="h-4 w-4 shrink-0 text-[var(--sg-accent)]" aria-hidden="true" />
+                    <span className="truncate">„{title.trim()}”</span>
+                  </span>
+                  <span className="mt-0.5 block truncate text-xs text-ink-soft">{summary}</span>
                 </>
               ) : (
-                <>
-                  <FolderPlus className="w-4 h-4" />
-                  Creează Proiect
-                </>
+                <span className="text-ink-soft">
+                  Mai lipsește {missing.length > 1 ? `${missing.slice(0, -1).join(', ')} și ${missing[missing.length - 1]}` : missing[0]}.
+                </span>
               )}
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* Modal pentru adăugare cerere document */}
-      {addingDocToActivity && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="px-6 py-4 border-b border-rule flex items-center justify-between">
-              <h3 className="font-semibold text-ink">{editingDocId ? 'Modifică cererea de document' : 'Adaugă cerere document'}</h3>
-              <button onClick={closeAddDocModal} className="p-1 text-ink-faint hover:text-ink-soft">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-ink mb-1">Nume document *</label>
-                <input type="text" value={newDocName} onChange={(e) => setNewDocName(e.target.value)}
-                  placeholder="Ex: Certificat constatator" className="w-full px-3 py-2 border border-rule rounded-lg text-sm focus:ring-2 focus:ring-[var(--sg-accent)] focus:border-transparent" />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-ink mb-1">Descriere</label>
-                <textarea value={newDocDescription} onChange={(e) => setNewDocDescription(e.target.value)}
-                  placeholder="Instrucțiuni pentru client..." rows={3} className="w-full px-3 py-2 border border-rule rounded-lg text-sm focus:ring-2 focus:ring-[var(--sg-accent)] focus:border-transparent resize-none" />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-ink mb-2">Model / Template (opțional)</label>
-                {newDocTemplates.length > 0 ? (
-                  <div className="p-3 bg-[var(--sg-accent-soft)] border border-[var(--sg-accent)] rounded-lg space-y-1">
-                    {newDocTemplates.map(file => <p key={`${file.name}-${file.size}`} className="text-sm font-medium text-[var(--sg-accent)] truncate">{file.name}</p>)}
-                    <button type="button" onClick={() => setNewDocTemplates([])} className="text-xs text-[var(--sg-accent)]">Elimină selecția</button>
-                  </div>
-                ) : (
-                  <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-rule rounded-xl cursor-pointer hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] transition-colors">
-                    <Upload className="w-8 h-8 text-ink-faint" />
-                    <span className="text-sm text-ink-soft font-medium">Click pentru a încărca</span>
-                    <span className="text-xs text-ink-faint">PDF, DOC, DOCX, XLS, XLSX, CSV, imagini</span>
-                    <input ref={fileInputRef} type="file" multiple onChange={(e) => setNewDocTemplates(Array.from(e.target.files ?? []))} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp" />
-                  </label>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-ink mb-2">Tip cerință</label>
-                <div className="space-y-2">
-                  {REQUIREMENT_TYPES.map(rt => (
-                    <label key={rt} className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" name="newDocCategory" value={rt} checked={newDocCategory === rt} onChange={() => setNewDocCategory(rt)} className="w-4 h-4 border-rule-strong text-[var(--sg-accent)] focus:ring-[var(--sg-accent)]" />
-                      <span className="text-sm text-ink">{REQUIREMENT_LABELS[rt]}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="px-6 py-4 bg-paper-sunk border-t border-rule flex gap-3">
-              <button type="button" onClick={closeAddDocModal} className="flex-1 px-4 py-2.5 border border-rule rounded-lg text-sm font-medium text-ink hover:bg-white">
-                Anulează
-              </button>
-              <button type="button" onClick={confirmAddDoc} disabled={!newDocName.trim()}
-                className="flex-1 px-4 py-2.5 bg-[var(--sg-accent)] text-white rounded-lg text-sm font-medium hover:bg-[var(--sg-accent-ink)] disabled:opacity-50 flex items-center justify-center gap-2">
-                <Check className="w-4 h-4" /> {editingDocId ? 'Salvează' : 'Adaugă'}
-              </button>
+            </p>
+            <div className="flex shrink-0 gap-2">
+              <ButtonLink href="/" variant="quiet" className="flex-1 sm:flex-none">Anulează</ButtonLink>
+              <Button type="submit" variant="primary" disabled={!ready || submitting} className="flex-1 sm:flex-none">
+                {submitting
+                  ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  : <FolderPlus className="h-4 w-4" aria-hidden="true" />}
+                {submitting ? 'Se deschide…' : 'Deschide dosarul'}
+              </Button>
             </div>
           </div>
         </div>
-      )}
+      </form>
     </div>
   )
 }
