@@ -70,9 +70,9 @@ function plural(n: number, one: string, many: string) {
 }
 
 /**
- * O secțiune a formularului: titlul și explicația în stânga, câmpurile în
- * dreapta. Pe telefon se așază una sub alta. Secțiunile se despart prin linie,
- * nu prin carduri — formularul e o singură plăcuță lungă, nu un teanc.
+ * O secțiune a foii: titlul, o frază despre ce se cere și câmpurile dedesubt.
+ * Secțiunile se despart prin linie, pe aceeași foaie — un dosar, nu un teanc
+ * de carduri.
  */
 function FormSection({
   title,
@@ -87,15 +87,13 @@ function FormSection({
 }) {
   const id = useId()
   return (
-    <section aria-labelledby={id} className="grid gap-5 border-t border-rule py-8 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] lg:gap-12">
-      <div>
-        <div className="flex items-baseline justify-between gap-3 lg:block">
-          <h2 id={id} className="text-lg font-bold text-ink">{title}</h2>
-          {aside ? <div className="shrink-0 lg:mt-1">{aside}</div> : null}
-        </div>
-        <p className="mt-1.5 max-w-[60ch] text-sm leading-6 text-ink-soft">{description}</p>
+    <section aria-labelledby={id} className="border-t border-rule px-5 py-7 first:border-t-0 sm:px-8 sm:py-8">
+      <div className="flex items-baseline justify-between gap-4">
+        <h2 id={id} className="text-lg font-bold text-ink">{title}</h2>
+        {aside ? <div className="shrink-0">{aside}</div> : null}
       </div>
-      <div className="min-w-0 max-w-3xl">{children}</div>
+      <p className="mt-1 max-w-[62ch] text-sm leading-6 text-ink-soft">{description}</p>
+      <div className="mt-5">{children}</div>
     </section>
   )
 }
@@ -307,13 +305,16 @@ export default function NewProjectPage() {
     <div>
       <LocationStrip segments={[{ label: 'Proiecte', href: '/' }, { label: 'Dosar nou' }]} />
 
+      <div className="mx-auto max-w-3xl">
       <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Dosar nou</h1>
       <p className="mt-2 max-w-[62ch] text-sm leading-6 text-ink-soft">
         Un dosar are un nume, un beneficiar și cel puțin un supervizor. Fazele și activitățile le poți importa dintr-un șablon
         sau le adaugi mai târziu, din proiect.
       </p>
+      </div>
 
       <form onSubmit={handleCreate} noValidate className="mt-8">
+        <div className="mx-auto max-w-3xl rounded-[var(--radius-plate)] border border-rule bg-plate">
         <FormSection title="Dosarul" description="Numele după care îl găsesc colegii și firma pentru care se depune.">
           <div className="space-y-5">
             <div>
@@ -509,10 +510,12 @@ export default function NewProjectPage() {
           )}
         </FormSection>
 
+        </div>
+
         {/* Bara de acțiuni rămâne la vedere cât derulezi prin șablon și spune
             ce mai lipsește, ca butonul dezactivat să nu fie o ghicitoare. */}
-        <div className="sticky bottom-0 z-10 -mx-4 border-t border-rule bg-paper px-4 py-3 sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="sticky bottom-0 z-10 -mx-4 mt-8 border-t border-rule bg-paper px-4 py-3 sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10">
+          <div className="mx-auto flex max-w-3xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="min-w-0 text-sm leading-5" aria-live="polite">
               {ready ? (
                 <>
