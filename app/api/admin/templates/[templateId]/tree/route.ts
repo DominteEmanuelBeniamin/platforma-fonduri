@@ -33,7 +33,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       request: req,
       templateSelect: '*, measure:program_measures(name, program:programs(name))',
     })
-    await markTemplateChanged(templateId)
+    await markTemplateChanged(auth.template)
     // Răspunsul poartă deja eticheta, ca lista din editor s-o arate fără reîncărcare.
     const saved = template && template.status === 'published'
       ? { ...template, unpropagated_changes_at: new Date().toISOString() }

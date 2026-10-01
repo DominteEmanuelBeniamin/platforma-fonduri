@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
       request: req,
     })
 
-    await markTemplateChanged(template_id)
+    await markTemplateChanged(templateAccess.template)
     return NextResponse.json({ phase }, { status: 201 })
   } catch (error: any) {
     console.error('POST /api/admin/templates/phases error:', error)

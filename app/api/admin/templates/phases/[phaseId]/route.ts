@@ -126,7 +126,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       })
     }
 
-    await markTemplateChanged(phaseAccessRow.template_id)
+    await markTemplateChanged(templateAccess.template)
     return NextResponse.json({ phase })
   } catch (error: any) {
     console.error('PATCH /api/admin/templates/phases/[phaseId] error:', error)
@@ -178,7 +178,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       request: req,
     })
 
-    await markTemplateChanged(phaseAccessRow.template_id)
+    await markTemplateChanged(templateAccess.template)
     return NextResponse.json({ success: true })
   } catch (error: any) {
     console.error('DELETE /api/admin/templates/phases/[phaseId] error:', error)

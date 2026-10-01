@@ -1,9 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { canReadTemplate, requireProfile } from '@/app/api/_utils/auth'
-import { logAction } from '@/app/api/_utils/audit'
+import { requireProjectManager } from '@/app/api/_utils/auth'
+import { logActions, type LogActionParams } from '@/app/api/_utils/audit'
+import { sendActivityAssignedEmails } from '@/app/api/_utils/activity-assignment-email'
 import { createStoragePathChecker, loadTemplateTree } from '@/app/api/_utils/template-tree'
+import { buildAssignmentEmailIdempotencyKey } from '@/lib/notification-utils'
 import { mapWithConcurrency } from '@/lib/template-tree'
 
 const supabaseAdmin = createClient(
@@ -15,52 +17,78 @@ interface RouteParams {
   params: Promise<{ id: string }>
 }
 
+/**
+ * `assignments`: consultantul ales în formularul „Dosar nou” pentru fiecare
+ * activitate din șablon, `{ id activitate din șablon: id consultant }`.
+ * Lipsa lui înseamnă import fără atribuiri; `null` la o formă greșită.
+ */
+function parseAssignments(value: unknown): Map<string, string> | null {
+  if (value === undefined || value === null) return new Map()
+  if (typeof value !== 'object' || Array.isArray(value)) return null
+  const assignments = new Map<string, string>()
+  for (const [templateActivityId, consultantId] of Object.entries(value)) {
+    if (typeof consultantId !== 'string' || !consultantId.trim()) return null
+    assignments.set(templateActivityId, consultantId.trim())
+  }
+  return assignments
+}
+
 // POST /api/projects/[id]/import-template
 export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
-    const auth = await requireProfile(req)
+    const { id: projectId } = await params
+    // Importul face parte din deschiderea dosarului și poate aduce consultanți
+    // în echipă: doar adminul și seniorul membru, ca la gestionarea echipei.
+    // Juniorul nu deschide dosare, iar clientul nu are acces la șabloane.
+    const auth = await requireProjectManager(req, projectId)
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
-    if (!canReadTemplate(auth.profile.role)) {
-      return NextResponse.json({ error: 'Forbidden: template access denied' }, { status: 403 })
-    }
 
-    const { id: projectId } = await params
     const body = await req.json()
     const { template_id } = body
 
     if (!template_id) {
       return NextResponse.json({ error: 'template_id este obligatoriu' }, { status: 400 })
     }
+    const assignments = parseAssignments(body.assignments)
+    if (!assignments) {
+      return NextResponse.json({ error: 'assignments trebuie să fie { id activitate din șablon: id consultant }' }, { status: 400 })
+    }
 
-    const { data: project, error: projectError } = await supabaseAdmin
-      .from('projects')
-      .select('id, title')
-      .eq('id', projectId)
-      .single()
+    // Cele trei verificări nu depind una de alta: pleacă împreună, iar
+    // răspunsurile se judecă în aceeași ordine ca înainte.
+    const [
+      { data: project, error: projectError },
+      { data: existingPhases },
+      { data: template, error: templateError },
+    ] = await Promise.all([
+      supabaseAdmin
+        .from('projects')
+        .select('id, title')
+        .eq('id', projectId)
+        .single(),
+      supabaseAdmin
+        .from('project_phases')
+        .select('id')
+        .eq('project_id', projectId)
+        .limit(1),
+      supabaseAdmin
+        .from('project_templates')
+        .select('id, name, status, is_active')
+        .eq('id', template_id)
+        .single(),
+    ])
 
     if (projectError || !project) {
       return NextResponse.json({ error: 'Proiect negăsit' }, { status: 404 })
     }
-
-    const { data: existingPhases } = await supabaseAdmin
-      .from('project_phases')
-      .select('id')
-      .eq('project_id', projectId)
-      .limit(1)
 
     if (existingPhases && existingPhases.length > 0) {
       return NextResponse.json({ 
         error: 'Proiectul are deja faze.' 
       }, { status: 400 })
     }
-
-    const { data: template, error: templateError } = await supabaseAdmin
-      .from('project_templates')
-      .select('id, name, status, is_active')
-      .eq('id', template_id)
-      .single()
 
     if (templateError || !template) {
       return NextResponse.json({ error: 'Template negăsit' }, { status: 404 })
@@ -90,9 +118,34 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const uniquePaths = [...new Set(allDocs.flatMap(doc => attachmentsOf(doc).map((attachment: any) => attachment.storage_path)))]
     const pathExists = createStoragePathChecker(supabaseAdmin)
     const available = new Set<string>()
-    await mapWithConcurrency(uniquePaths, 8, async path => {
-      if (await pathExists(path)) available.add(path)
-    })
+
+    // Atribuirile pentru activități care nu mai sunt în șablon (formular vechi)
+    // nu au unde să se aplice și se ignoră. Consultanții se verifică odată cu
+    // fișierele, înainte de orice scriere.
+    const templateActivityIds = new Set(templatePhases.flatMap(phase => phase.activities.map((activity: any) => activity.id as string)))
+    const assigneeIds = [...new Set([...assignments]
+      .filter(([templateActivityId]) => templateActivityIds.has(templateActivityId))
+      .map(([, consultantId]) => consultantId))]
+    const loadAssignees = async () => assigneeIds.length === 0
+      ? { data: [] as any[], error: null }
+      : await supabaseAdmin.from('profiles').select('id, role, is_active, email, full_name').in('id', assigneeIds)
+
+    const [{ data: assigneeRows, error: assigneesError }] = await Promise.all([
+      loadAssignees(),
+      mapWithConcurrency(uniquePaths, 8, async path => {
+        if (await pathExists(path)) available.add(path)
+      }),
+    ])
+    if (assigneesError) throw assigneesError
+    const assigneeById = new Map((assigneeRows ?? []).map((row: any) => [row.id as string, row]))
+    // Aceleași condiții ca triggerul de notificare, care ar refuza atribuirea
+    // după ce proiectul a fost deja scris.
+    if (assigneeIds.some(id => {
+      const assignee = assigneeById.get(id)
+      return assignee?.role !== 'consultant' || assignee.is_active === false
+    })) {
+      return NextResponse.json({ error: 'Activitățile se pot atribui doar consultanților activi.' }, { status: 400 })
+    }
 
     const warnings: Array<{ type: string; template_document_requirement_id: string; name: string; attachment_path: string | null }> = []
     const missingMarks: PromiseLike<unknown>[] = []
@@ -101,6 +154,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const activityRows: any[] = []
     const docRows: any[] = []
     const attachmentRows: any[] = []
+    // Activitățile noi cu consultant ales, legate de șablon prin id, nu prin nume.
+    const assignedActivities: Array<{ id: string; consultantId: string; name: string; phaseName: string }> = []
 
     templatePhases.forEach((tPhase, phaseIndex) => {
       const phaseId = crypto.randomUUID()
@@ -131,6 +186,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           visibility: 'draft',
           source_template_activity_id: tActivity.id,
         })
+        const consultantId = assignments.get(tActivity.id)
+        if (consultantId) {
+          assignedActivities.push({ id: activityId, consultantId, name: tActivity.name, phaseName: tPhase.name })
+        }
 
         for (const tDoc of tActivity.document_requirements) {
           const templateAttachments = attachmentsOf(tDoc)
@@ -232,6 +291,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       }
     })
 
+    let addedMembers: Array<{ id: string; consultant_id: string }> = []
+    const assignedAt = new Map<string, string>()
     try {
       const { error: phaseError } = await supabaseAdmin.from('project_phases').insert(phaseRows)
       if (phaseError) {
@@ -256,6 +317,38 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         const { error: attachmentInsertError } = await supabaseAdmin.from('document_requirement_attachments').insert(attachmentRows)
         if (attachmentInsertError) throw attachmentInsertError
       }
+
+      if (assignedActivities.length > 0) {
+        // Consultantul ales pe o activitate intră în echipă, altfel n-ar vedea
+        // proiectul. Supervizorii și cine a creat dosarul sunt deja membri;
+        // `ignoreDuplicates` întoarce doar rândurile adăugate acum.
+        const { data: added, error: membersError } = await supabaseAdmin
+          .from('project_members')
+          .upsert(
+            assigneeIds.map(consultant_id => ({ project_id: projectId, consultant_id, role_in_project: 'member' })),
+            { onConflict: 'project_id,consultant_id', ignoreDuplicates: true },
+          )
+          .select('id, consultant_id')
+        if (membersError) throw membersError
+        addedMembers = added ?? []
+
+        // Atribuirea trece printr-un UPDATE, câte unul per consultant, nu prin
+        // insert: triggerul de notificări pornește doar la UPDATE, deci fiecare
+        // consultant e anunțat ca la o atribuire făcută din proiect.
+        const activityIdsByConsultant = new Map<string, string[]>()
+        for (const activity of assignedActivities) {
+          activityIdsByConsultant.set(activity.consultantId, [...(activityIdsByConsultant.get(activity.consultantId) ?? []), activity.id])
+        }
+        const updates = await Promise.all([...activityIdsByConsultant].map(([consultantId, activityIds]) => supabaseAdmin
+          .from('project_activities')
+          .update({ assigned_to: consultantId, assigned_by: auth.user.id })
+          .in('id', activityIds)
+          .select('id, updated_at')))
+        for (const { data, error: assignError } of updates) {
+          if (assignError) throw assignError
+          for (const row of data ?? []) assignedAt.set(row.id, row.updated_at)
+        }
+      }
     } catch (error) {
       // Nimic parțial: cererile nu cad odată cu activitatea (SET NULL), deci
       // se șterg explicit; fazele iau activitățile cu ele.
@@ -263,9 +356,60 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         await supabaseAdmin.from('document_requirements').delete().in('id', docRows.map(row => row.id))
       }
       await supabaseAdmin.from('project_phases').delete().in('id', phaseRows.map(row => row.id))
+      if (addedMembers.length > 0) {
+        await supabaseAdmin.from('project_members').delete().in('id', addedMembers.map(member => member.id))
+      }
       throw error
     }
 
+    const memberLabel = (consultantId: string) => {
+      const profile = assigneeById.get(consultantId)
+      return profile?.email ?? profile?.full_name ?? consultantId
+    }
+    const auditEntries: LogActionParams[] = [
+      {
+        actorId: auth.profile.id,
+        actionType: 'create',
+        entityType: 'project',
+        entityId: projectId,
+        entityName: project.title,
+        newValues: {
+          template_id,
+          template_name: template.name,
+          phases_created: templatePhases.length,
+          warnings_count: warnings.length,
+          assignments: assignedActivities.map(activity => ({ activity: activity.name, consultant: memberLabel(activity.consultantId) })),
+          members_added: addedMembers.map(member => memberLabel(member.consultant_id)),
+        },
+        description: `Import template "${template.name}" in proiectul ${project.title} (${templatePhases.length} faze)`,
+        request: req,
+      },
+      // Ca la adăugarea din panoul echipei, fiecare membru nou are intrarea lui.
+      ...addedMembers.map(member => {
+        const profile = assigneeById.get(member.consultant_id)
+        return {
+          actorId: auth.profile.id,
+          actionType: 'create',
+          entityType: 'project_member',
+          entityId: member.id,
+          entityName: memberLabel(member.consultant_id),
+          newValues: {
+            project_id: projectId,
+            project_title: project.title,
+            consultant_id: member.consultant_id,
+            consultant_name: profile?.full_name ?? null,
+            consultant_email: profile?.email ?? null,
+            role_in_project: 'member',
+            source: 'import-template',
+          },
+          description: `Adaugare membru ${memberLabel(member.consultant_id)} in proiectul "${project.title}" (consultant pe activitati din sablon)`,
+          request: req,
+        }
+      }),
+    ]
+
+    // Emailurile de atribuire pleacă într-un singur lot, iar auditul într-un
+    // singur insert, în paralel cu ultimele actualizări ale proiectului.
     await Promise.all([
       ...missingMarks,
       supabaseAdmin
@@ -275,28 +419,30 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           current_status_id: phaseRows[0].project_status_id
         })
         .eq('id', projectId),
+      sendActivityAssignedEmails(assignedActivities.map(activity => ({
+        consultantId: activity.consultantId,
+        activityName: activity.name,
+        phaseName: activity.phaseName,
+        projectId,
+        projectTitle: project.title,
+        deadlineAt: null,
+        idempotencyKey: buildAssignmentEmailIdempotencyKey({
+          projectId,
+          entityType: 'activity',
+          entityId: activity.id,
+          recipientId: activity.consultantId,
+          version: assignedAt.get(activity.id) ?? now,
+        }),
+      }))),
+      logActions(auditEntries),
     ])
-
-    await logAction({
-      actorId: auth.profile.id,
-      actionType: 'create',
-      entityType: 'project',
-      entityId: projectId,
-      entityName: project.title,
-      newValues: {
-        template_id,
-        template_name: template.name,
-        phases_created: templatePhases.length,
-        warnings_count: warnings.length,
-      },
-      description: `Import template "${template.name}" in proiectul ${project.title} (${templatePhases.length} faze)`,
-      request: req,
-    })
 
     return NextResponse.json({
       success: true,
       message: `Template "${template.name}" importat cu succes`,
       phases_created: templatePhases.length,
+      assignments: assignedActivities.length,
+      members_added: addedMembers.length,
       warnings,
     })
   } catch (error: any) {

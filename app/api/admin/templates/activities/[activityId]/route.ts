@@ -89,7 +89,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       })
     }
 
-    await markTemplateChanged(templateId)
+    await markTemplateChanged(templateAccess.template)
     return NextResponse.json({ activity })
   } catch (error: any) {
     console.error('PATCH /api/admin/templates/activities/[activityId] error:', error)
@@ -142,7 +142,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       request: req,
     })
 
-    await markTemplateChanged(templateId)
+    await markTemplateChanged(templateAccess.template)
     return NextResponse.json({ success: true })
   } catch (error: any) {
     console.error('DELETE /api/admin/templates/activities/[activityId] error:', error)

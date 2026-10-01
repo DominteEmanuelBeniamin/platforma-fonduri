@@ -207,7 +207,7 @@ export async function POST(req: NextRequest) {
       request: req,
     })
 
-    await markTemplateChanged(templateId)
+    await markTemplateChanged(templateAccess.template)
     return NextResponse.json({ document: doc }, { status: 201 })
   } catch (error: any) {
     console.error('POST /api/admin/templates/documents error:', error)

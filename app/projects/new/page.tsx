@@ -9,6 +9,7 @@ import { useToast } from '@/app/providers/ToastProvider'
 import { LocationStrip } from '@/components/ui/LocationStrip'
 import { Button, ButtonLink } from '@/components/ui/Button'
 import SupervisorPicker, { type SeniorConsultant } from '@/components/SupervisorPicker'
+import { canCreateProjects } from '@/lib/project-permissions'
 import { bandFor, bandVar } from '@/lib/signage'
 
 interface ClientProfile {
@@ -165,8 +166,16 @@ export default function NewProjectPage() {
 
   const [submitting, setSubmitting] = useState(false)
 
+  // Dosare deschid doar adminul și consultantul senior; juniorul și clientul
+  // se întorc pe prima pagină. Datele formularului nu așteaptă profilul (s-ar
+  // încărca una după alta), dar nu se mai cer după un refuz.
+  const refused = !!profile && !canCreateProjects(profile)
   useEffect(() => {
-    if (authLoading || !token) return
+    if (refused) router.replace('/')
+  }, [refused, router])
+
+  useEffect(() => {
+    if (authLoading || !token || refused) return
     let cancelled = false
     const load = async () => {
       try {
@@ -200,7 +209,7 @@ export default function NewProjectPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [apiFetch, authLoading, token, userId])
+  }, [apiFetch, authLoading, token, userId, refused])
 
   const seniors: SeniorConsultant[] = useMemo(
     () => consultants.filter(c => c.consultant_level === 'senior'),
@@ -251,32 +260,21 @@ export default function NewProjectPage() {
       projectId = projectData.project.id as string
 
       if (structure === 'template' && selectedTemplate) {
+        // Consultantul fiecărei activități (alegerea din formular sau cel implicit
+        // din șablon) pleacă odată cu importul: serverul îl pune în echipă și îi
+        // atribuie activitatea în aceeași cerere.
+        const assignments = Object.fromEntries(
+          selectedTemplate.phases
+            .flatMap(p => p.activities || [])
+            .map(activity => [activity.id, consultantFor(activity)])
+            .filter(([, consultantId]) => consultantId)
+        )
         const importRes = await apiFetch(`/api/projects/${projectId}/import-template`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ template_id: selectedTemplate.id }),
+          body: JSON.stringify({ template_id: selectedTemplate.id, assignments }),
         })
         if (!importRes.ok) throw new Error('import')
-
-        // Consultantul fiecărei activități: alegerea din formular sau cel implicit din șablon.
-        const phasesRes = await apiFetch(`/api/projects/${projectId}/phases`)
-        if (phasesRes.ok) {
-          const { phases } = await phasesRes.json()
-          const templateActivities = selectedTemplate.phases.flatMap(p => p.activities || [])
-          for (const phase of phases || []) {
-            for (const act of phase.activities || []) {
-              const templateAct = templateActivities.find(a => a.name === act.name)
-              const consultantId = templateAct ? consultantFor(templateAct) : ''
-              if (consultantId) {
-                await apiFetch(`/api/projects/${projectId}/phases/${phase.id}/activities/${act.id}`, {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ assigned_to: consultantId }),
-                })
-              }
-            }
-          }
-        }
       }
 
       router.push(`/projects/${projectId}`)
@@ -300,6 +298,8 @@ export default function NewProjectPage() {
       ? selectedTemplate ? `din „${selectedTemplate.name}”` : null
       : 'fără faze',
   ].filter(Boolean).join(' · ')
+
+  if (refused) return null
 
   return (
     <div>

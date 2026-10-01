@@ -1,6 +1,7 @@
 // app/api/projects/route.ts
 import { NextResponse } from 'next/server'
 import { requireProfile, guardToResponse } from '../_utils/auth'
+import { canCreateProjects } from '@/lib/project-permissions'
 import { createSupabaseServiceClient } from '../_utils/supabase'
 import { logProjectAction, getClientIP, getUserAgent } from '../_utils/audit'
 
@@ -83,10 +84,10 @@ export async function POST(request: Request) {
 
     const { user, profile } = ctx
 
-    const allowed = new Set(['admin', 'consultant'])
-    if (!allowed.has(profile.role)) {
+    // Dosare noi deschid doar adminul și consultantul senior; juniorul nu.
+    if (!canCreateProjects(profile)) {
       return NextResponse.json(
-        { error: 'Forbidden: only admin or consultant can create projects' },
+        { error: 'Forbidden: doar adminul și consultanții seniori deschid dosare' },
         { status: 403 }
       )
     }
@@ -122,10 +123,21 @@ export async function POST(request: Request) {
 
     const admin = createSupabaseServiceClient()
 
-    const { data: supervisors, error: supervisorsError } = await admin
-      .from('profiles')
-      .select('id, email, full_name, role, consultant_level')
-      .in('id', supervisorIds)
+    // Supervizorii și clientul se verifică în paralel: nu depind unul de altul.
+    const [
+      { data: supervisors, error: supervisorsError },
+      { data: clientProfile, error: clientError },
+    ] = await Promise.all([
+      admin
+        .from('profiles')
+        .select('id, email, full_name, role, consultant_level')
+        .in('id', supervisorIds),
+      admin
+        .from('profiles')
+        .select('id, role, email, full_name, cif')
+        .eq('id', client_id)
+        .maybeSingle(),
+    ])
 
     if (supervisorsError) {
       console.error('supervisors lookup error:', supervisorsError)
@@ -137,12 +149,6 @@ export async function POST(request: Request) {
     }
 
     // Validăm că clientul există
-    const { data: clientProfile, error: clientError } = await admin
-      .from('profiles')
-      .select('id, role, email, full_name, cif')
-      .eq('id', client_id)
-      .maybeSingle()
-
     if (clientError) {
       console.error('client lookup error:', clientError)
       return NextResponse.json({ error: 'Failed to validate client_id' }, { status: 500 })

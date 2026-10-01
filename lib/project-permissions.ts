@@ -17,6 +17,17 @@ export type ProjectPermissions = {
   edit_others_messages: boolean
 }
 
+/**
+ * Cine deschide dosare (proiecte noi): adminul și consultantul senior.
+ * Juniorul lucrează doar în proiectele în care e adăugat. Același test pe
+ * server (POST /api/projects) și în interfață (butonul „Proiect nou”).
+ */
+export function canCreateProjects(
+  profile: { role?: string | null; consultant_level?: string | null } | null | undefined,
+) {
+  return profile?.role === 'admin' || (profile?.role === 'consultant' && profile.consultant_level === 'senior')
+}
+
 export const NO_PROJECT_PERMISSIONS: ProjectPermissions = {
   edit_project: false,
   reassign_project: false,

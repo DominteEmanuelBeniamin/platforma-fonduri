@@ -26,6 +26,7 @@ import { Button, ButtonLink, buttonClass } from '@/components/ui/Button'
 import { LocationStrip } from '@/components/ui/LocationStrip'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { TONE, type SignalTone } from '@/lib/signage'
+import { canCreateProjects } from '@/lib/project-permissions'
 import { ToneIcon } from '@/components/ui/ToneIcon'
 import { Spinner } from '@/components/ui/Spinner'
 import {
@@ -531,7 +532,7 @@ export default function Dashboard() {
   const [legendOpen, setLegendOpen] = useState(false)
 
   const isAdmin = currentUser?.role === 'admin'
-  const canCreateProject = isAdmin || currentUser?.role === 'consultant'
+  const canCreateProject = canCreateProjects(currentUser)
   const isClient = currentUser?.role === 'client'
 
   const unreadChatByProjectId = useMemo(
@@ -864,7 +865,9 @@ export default function Dashboard() {
         >
           {canCreateProject
             ? 'Un proiect pornește de la un șablon de faze și activități, sau de la zero.'
-            : 'Când consultantul îți deschide un proiect, apare aici.'}
+            : isClient
+            ? 'Când consultantul îți deschide un proiect, apare aici.'
+            : 'Când un consultant senior sau un administrator te adaugă într-un proiect, apare aici.'}
         </EmptyState>
       ) : (
         <>

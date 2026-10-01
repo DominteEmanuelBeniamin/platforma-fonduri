@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
       request: req,
     })
 
-    await markTemplateChanged(phaseAccessRow.template_id)
+    await markTemplateChanged(templateAccess.template)
     return NextResponse.json({ activity }, { status: 201 })
   } catch (error: any) {
     console.error('POST /api/admin/templates/activities error:', error)
