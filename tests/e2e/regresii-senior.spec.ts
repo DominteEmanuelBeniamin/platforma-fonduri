@@ -111,8 +111,9 @@ test.beforeAll(async () => {
   JA = await fixedConsultant('ja', 'junior')
   JB = await fixedConsultant('jb', 'junior')
 
-  // Șablon publicat cu trei activități: una cu SA implicit (de anulat în formular),
-  // una fără nimeni (de dat juniorului), una cu SA implicit (păstrat).
+  // Șablon publicat cu patru activități: una cu SA implicit (de anulat în formular),
+  // una fără nimeni (de dat juniorului), una cu SA implicit (păstrat) și una
+  // pentru un coleg care nu e în echipă (JB).
   TPL_NAME = `Regresii ${STAMP} — șablon`
   const tree = {
     name: TPL_NAME, slug: `regresii-${STAMP}`, description: 'Șablon pentru regresii',
@@ -122,6 +123,7 @@ test.beforeAll(async () => {
         { id: 'a0', name: 'Activitate cu implicit anulat', default_consultant_id: SA.id, document_requirements: [] },
         { id: 'a1', name: 'Activitate fără implicit', default_consultant_id: null, document_requirements: [] },
         { id: 'a2', name: 'Activitate cu implicit păstrat', default_consultant_id: SA.id, document_requirements: [] },
+        { id: 'a3', name: 'Activitate pentru un coleg', default_consultant_id: null, document_requirements: [] },
       ],
     }],
   }
@@ -140,18 +142,18 @@ test.afterAll(async () => {
 
 // ─── Dosar nou ───────────────────────────────────────────────────────────────
 
-test('Dosar nou din interfață, ca junior: supervizor, șablon și consultanții pe activități', async ({ browser }) => {
-  const title = `Regresii ${STAMP} — dosar de junior`
-  const { context, page, errors } = await login(browser, JA.email, PASSWORD)
+test('Dosar nou din interfață, ca senior: supervizor, șablon și consultanții pe activități', async ({ browser }) => {
+  const title = `Regresii ${STAMP} — dosar de senior`
+  const { context, page, errors } = await login(browser, SA.email, PASSWORD)
   try {
     await page.goto('/projects/new')
     await page.getByText(SA.name).first().waitFor({ timeout: 30_000 })
     await expect(page.getByRole('button', { name: 'Deschide dosarul' })).toBeDisabled()
-    await expect(page.getByText(/Mai lipsește numele, beneficiarul și un supervizor/)).toBeVisible()
+    await expect(page.getByRole('checkbox', { name: exact(SA.name) }), 'seniorul care deschide dosarul e propus ca supervizor').toBeChecked()
+    await expect(page.getByText(/Mai lipsește numele și beneficiarul/)).toBeVisible()
 
     await page.fill('#dosar-nume', title)
     await page.selectOption('#dosar-beneficiar', clientId)
-    await page.getByRole('checkbox', { name: exact(SA.name) }).check()
     await page.getByRole('radio', { name: /Din șablon/ }).check()
     await page.getByRole('radio', { name: exact(TPL_NAME) }).check()
 
@@ -161,24 +163,42 @@ test('Dosar nou din interfață, ca junior: supervizor, șablon și consultanți
     await expect(keepDefault).toHaveValue(SA.id)
     await cancelDefault.selectOption('')
     await page.getByLabel('Activitate fără implicit').selectOption(JA.id)
+    await page.getByLabel('Activitate pentru un coleg').selectOption(JB.id)
     await expect(page.getByText(`„${title}”`)).toBeVisible()
-    await page.screenshot({ path: path.join(SHOTS, 'dosar-nou-junior.png') })
+    await page.screenshot({ path: path.join(SHOTS, 'dosar-nou-senior.png') })
 
+    // Atribuirile pleacă odată cu importul, nu câte o cerere per activitate.
+    const calls: string[] = []
+    page.on('request', request => {
+      const url = new URL(request.url())
+      if (url.pathname.startsWith('/api/projects/')) calls.push(`${request.method()} ${url.pathname}`)
+    })
     await page.getByRole('button', { name: 'Deschide dosarul' }).click()
     await page.waitForURL(/\/projects\/[0-9a-f-]{36}$/, { timeout: 60_000 })
     const projectId = new URL(page.url()).pathname.split('/').pop()!
     created.projects.add(projectId)
+    expect(calls.filter(call => call.startsWith('POST') && call.endsWith('/import-template')), 'un singur import').toHaveLength(1)
+    expect(calls.filter(call => call.startsWith('PATCH') && call.includes('/activities/')), 'nicio atribuire separată').toEqual([])
 
     const members = await memberIds(projectId)
-    expect(members, 'juniorul care creează devine membru').toContain(JA.id)
-    expect(members, 'supervizorul ales devine membru').toContain(SA.id)
+    expect(members, 'seniorul care creează, și supervizor, devine membru').toContain(SA.id)
+    expect(members, 'juniorii aleși pe activități intră în echipă').toEqual(expect.arrayContaining([JA.id, JB.id]))
+    expect(members).toHaveLength(3)
 
     const { data: phases } = await service.from('project_phases').select('id').eq('project_id', projectId)
-    const { data: activities } = await service.from('project_activities').select('name, assigned_to').in('phase_id', (phases ?? []).map(p => p.id))
+    const { data: activities } = await service.from('project_activities').select('id, name, assigned_to').in('phase_id', (phases ?? []).map(p => p.id))
     const assigned = Object.fromEntries((activities ?? []).map(a => [a.name, a.assigned_to]))
     expect(assigned['Activitate cu implicit anulat'], '„Fără consultant” ales în formular nu e înlocuit de implicit').toBeNull()
     expect(assigned['Activitate fără implicit']).toBe(JA.id)
     expect(assigned['Activitate cu implicit păstrat']).toBe(SA.id)
+    expect(assigned['Activitate pentru un coleg'], 'colegul din afara echipei primește activitatea').toBe(JB.id)
+
+    for (const [person, activityName] of [[JA, 'Activitate fără implicit'], [JB, 'Activitate pentru un coleg']] as const) {
+      const activity = (activities ?? []).find(a => a.name === activityName)!
+      const { data: notified } = await service.from('notifications').select('id')
+        .eq('user_id', person.id).eq('entity_type', 'activity').eq('entity_id', activity.id)
+      expect(notified, `${person.name} e anunțat în aplicație, ca la o atribuire din proiect`).toHaveLength(1)
+    }
     expect(errors).toEqual([])
   } finally {
     await context.close()
@@ -206,6 +226,28 @@ test('Dosar nou gol, ca admin: fără faze, cu supervizorul în echipă', async 
   } finally {
     await context.close()
   }
+})
+
+test('Importul unui șablon: doar adminul și seniorul din echipă; activitățile se dau doar consultanților', async () => {
+  const projectId = await newProject(`Regresii ${STAMP} — import`)
+  await must(admin, 'POST', `/api/projects/${projectId}/members`, { consultant_id: JA.id })
+  const { data: templateActivities } = await service.from('template_activities')
+    .select('id, name, scope:template_phases!inner(template_id)')
+    .eq('scope.template_id', TPL)
+  const colleague = (templateActivities ?? []).find(a => a.name === 'Activitate pentru un coleg')!.id
+
+  const junior = await call(JA, 'POST', `/api/projects/${projectId}/import-template`, { template_id: TPL, assignments: { [colleague]: JB.id } })
+  expect(junior.status, 'juniorul din echipă nu deschide dosarul și nu aduce colegi').toBe(403)
+
+  const outsider = await call(JB, 'POST', `/api/projects/${projectId}/import-template`, { template_id: TPL, assignments: { [colleague]: JB.id } })
+  expect(outsider.status, 'un consultant din afara echipei nu importă și nu se adaugă singur').toBe(403)
+
+  const toClient = await call(admin, 'POST', `/api/projects/${projectId}/import-template`, { template_id: TPL, assignments: { [colleague]: clientId } })
+  expect(toClient.status, 'o activitate nu se dă unui client').toBe(400)
+
+  const { count } = await service.from('project_phases').select('id', { count: 'exact', head: true }).eq('project_id', projectId)
+  expect(count, 'încercările refuzate nu lasă faze în urmă').toBe(0)
+  expect((await memberIds(projectId)).sort(), 'nici membri noi').toEqual([SA.id, JA.id].sort())
 })
 
 // ─── Editorul de șabloane ────────────────────────────────────────────────────
@@ -353,6 +395,23 @@ test('Proiect, ca client: fără echipă și fără redenumire, pagina se încar
 })
 
 // ─── Efecte laterale pe API ──────────────────────────────────────────────────
+
+test('Profilurile: din clientul Supabase din browser fiecare își citește doar propriul rând', async () => {
+  const people = [
+    { label: 'admin', email: ADMIN_LOGIN.email, password: ADMIN_LOGIN.password },
+    { label: 'senior', email: SA.email, password: PASSWORD },
+    { label: 'junior', email: JA.email, password: PASSWORD },
+    { label: 'client', email: CONFIG.clientEmail, password: CONFIG.clientPassword },
+  ]
+  for (const person of people) {
+    const direct = createClient(CONFIG.supabaseUrl, CONFIG.anonKey, { auth: { persistSession: false, autoRefreshToken: false } })
+    const { data: login, error: loginError } = await direct.auth.signInWithPassword({ email: person.email, password: person.password })
+    expect(loginError, `${person.label}: autentificare`).toBeNull()
+    const { data, error } = await direct.from('profiles').select('id, email, telefon, cif')
+    expect(error, `${person.label}: citire`).toBeNull()
+    expect((data ?? []).map(row => row.id), `${person.label} vede doar propriul profil, nu emailurile, telefoanele și CIF-urile altora`).toEqual([login.user!.id])
+  }
+})
 
 test('Un senior care nu mai e consultant pierde nivelul; la revenire pornește junior', async () => {
   await must(admin, 'PATCH', `/api/users/${JB.id}`, { consultant_level: 'senior' })

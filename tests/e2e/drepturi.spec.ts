@@ -365,8 +365,14 @@ test('Vede proiectul — admin toate; senior și junior doar proiectele lor', as
   }
 })
 
-test('Creează un proiect nou — toți; cine îl creează devine membru', async () => {
-  for (const person of [admin, SA, JA]) {
+test('Creează un proiect nou — admin și senior; juniorul nu; cine îl creează devine membru', async () => {
+  const juniorTitle = `Drepturi ${STAMP} — creat de junior`
+  verify('p-creeaza', JA, 'creează un proiect', await call(JA, 'POST', '/api/projects', { title: juniorTitle, client_id: clientId, supervisor_ids: [SA.id] }), 'refuzat')
+  const { data: leftover } = await service.from('projects').select('id').eq('title', juniorTitle)
+  fact('p-creeaza', 'junior', 'încercarea refuzată nu lasă un proiect în urmă', (leftover ?? []).length === 0, `${(leftover ?? []).length} proiecte`, 'Bază de date', '0 proiecte')
+  verify('p-creeaza', JA, 'importă un șablon în proiectul în care e membru', await call(JA, 'POST', `/api/projects/${OWN}/import-template`, { template_id: TPL }), 'refuzat')
+
+  for (const person of [admin, SA]) {
     const res = await call(person, 'POST', '/api/projects', { title: `Drepturi ${STAMP} — creat de ${whoOf(person)}`, client_id: clientId, supervisor_ids: [SA.id] })
     verify('p-creeaza', person, 'creează un proiect', res, 'permis')
     const id = res.json?.project?.id
@@ -799,7 +805,8 @@ test('Totul rămâne în audit: nivelul și acțiunile seniorului sub numele lui
 })
 
 test('Regula adăugată: un proiect nou cere cel puțin un supervizor senior', async () => {
-  for (const person of [admin, SA, JA]) {
+  // Juniorul nu deschide dosare deloc (p-creeaza), deci regula se verifică la cine poate.
+  for (const person of [admin, SA]) {
     verify('x-supervizor', person, 'creează fără supervizor', await call(person, 'POST', '/api/projects', { title: 'Fără supervizor', client_id: clientId }), 'refuzat', 400)
     verify('x-supervizor', person, 'pune un junior ca supervizor', await call(person, 'POST', '/api/projects', { title: 'Supervizor junior', client_id: clientId, supervisor_ids: [JB.id] }), 'refuzat', 400)
   }

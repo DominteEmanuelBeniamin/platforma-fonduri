@@ -67,7 +67,8 @@ export const RUTE_APLICATIE = [
   ['calendar', '/calendar', 'staff'],
   ['chat', '/chat', 'staff'],
   ['notificări', '/notificari', 'staff'],
-  ['proiect nou', '/projects/new', 'staff'],
+  // Dosare deschid doar adminul și seniorul; contul `staff` local e junior.
+  ['proiect nou', '/projects/new', 'admin'],
   ['șabloane', '/admin', 'admin'],
   ['tablou de bord', '/admin/proiecte', 'admin'],
   ['utilizatori', '/admin/users', 'admin'],

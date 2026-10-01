@@ -31,6 +31,8 @@ const ADMIN_LOGIN = {
 const STAMP = Date.now().toString(36)
 const PASSWORD = `Interfata-${STAMP}-2026!`
 const REPORT_DIR = path.join('playwright-report', 'drepturi-interfata')
+/** `E2E_CAPTURI=toate`: o captură la fiecare verificare din interfață, nu doar la abateri. */
+const ALL_SCREENSHOTS = process.env.E2E_CAPTURI === 'toate'
 
 // Serial: scenariile se sprijină pe starea lăsată de cele dinainte. Nicio
 // verificare nu aruncă; un selector care nu se găsește devine o abatere și
@@ -107,6 +109,10 @@ async function check(
   if (!outcome.ok && options.page && !options.page.isClosed()) {
     screenshot = `abatere-${checks.length + 1}.png`
     await options.page.screenshot({ path: path.join(REPORT_DIR, screenshot) }).catch(() => { screenshot = undefined })
+  } else if (ALL_SCREENSHOTS && options.page && !options.page.isClosed()) {
+    // Pentru raportul complet: o captură la fiecare verificare, nu doar la abateri.
+    screenshot = `verificare-${String(checks.length + 1).padStart(3, '0')}.jpg`
+    await options.page.screenshot({ path: path.join(REPORT_DIR, screenshot), type: 'jpeg', quality: 72 }).catch(() => { screenshot = undefined })
   }
   checks.push({ row, who, label, expected, actual: outcome.actual, ok: outcome.ok, layer: options.layer ?? 'Interfață', screenshot })
   return outcome.ok
@@ -515,8 +521,21 @@ test('Vede proiectul — adminul toate; seniorul și juniorul doar proiectele lo
   }
 })
 
-test('Creează un proiect nou — din „Dosar nou”, pentru toți; cine îl creează devine membru', async ({ browser }) => {
-  for (const person of [admin, SA, JA]) {
+test('Creează un proiect nou — din „Dosar nou”, admin și senior; juniorul nu are buton și e trimis înapoi', async ({ browser }) => {
+  await session(browser, JA, 'p-creeaza', async page => {
+    await page.goto('/')
+    await page.getByRole('heading', { level: 1, name: /^Salut/ }).waitFor({ timeout: 30_000 })
+    await shows('p-creeaza', JA.who, 'butonul „Proiect nou” pe prima pagină', page.getByRole('link', { name: /Proiect nou/ }), false, page)
+    await page.goto('/projects/new')
+    await check('p-creeaza', JA.who, 'deschide „Dosar nou” direct și e trimis înapoi', 'trimis pe prima pagină', async () => {
+      await page.waitForURL(url => url.pathname === '/', { timeout: 30_000 }).catch(() => {})
+      const pathname = new URL(page.url()).pathname
+      const form = await page.getByRole('button', { name: 'Deschide dosarul' }).count() > 0
+      return { ok: pathname === '/' && !form, actual: form ? 'formularul apare' : `pe ${pathname}` }
+    }, { page })
+  })
+
+  for (const person of [admin, SA]) {
     const title = `Interfață ${STAMP} — dosar creat de ${person.who}`
     await session(browser, person, 'p-creeaza', async page => {
       await page.goto('/projects/new')

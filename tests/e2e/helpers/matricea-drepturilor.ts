@@ -18,7 +18,8 @@ export type Row = {
 
 export const ROWS: Row[] = [
   { id: 'p-vede', section: 'Proiecte', title: 'Vede proiectul', admin: 'Toate', senior: 'Da*', junior: 'Da*' },
-  { id: 'p-creeaza', section: 'Proiecte', title: 'Creează un proiect nou', note: 'Cine îl creează devine automat membru', admin: 'Da', senior: 'Da', junior: 'Da' },
+  // Juniorul nu deschide dosare: decizie din discuție (1 octombrie 2026), după PDF, unde avea „Da”.
+  { id: 'p-creeaza', section: 'Proiecte', title: 'Creează un proiect nou', note: 'Cine îl creează devine automat membru. Juniorul nu deschide dosare', admin: 'Da', senior: 'Da', junior: 'Nu' },
   { id: 'p-continut', section: 'Proiecte', title: 'Adaugă și modifică faze, activități și cereri de documente', admin: 'Da', senior: 'Da*', junior: 'Da*' },
   { id: 'p-aproba', section: 'Proiecte', title: 'Aprobă sau respinge documentele trimise de client', admin: 'Da', senior: 'Da*', junior: 'Da*' },
   { id: 'p-editeaza', section: 'Proiecte', title: 'Schimbă titlul, statusul și reminderele automate', admin: 'Da', senior: 'Da*', junior: 'Nu', isNew: true },
