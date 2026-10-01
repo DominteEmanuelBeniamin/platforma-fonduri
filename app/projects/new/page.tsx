@@ -47,6 +47,7 @@ interface Consultant {
   email: string
   role?: string
   consultant_level?: 'junior' | 'senior' | null
+  is_active?: boolean | null
 }
 
 type Structure = 'empty' | 'template'
@@ -191,7 +192,10 @@ export default function NewProjectPage() {
           setTemplates(all.filter(t => t.status === 'published' && t.is_active))
         }
         if (usersRes.ok) {
-          const list: Consultant[] = ((await usersRes.json()).users || []).filter((u: Consultant) => u.role === 'consultant')
+          // Doar consultanții activi: unui cont dezactivat serverul nu-i dă nici
+          // activități, nici rolul de supervizor.
+          const list: Consultant[] = ((await usersRes.json()).users || [])
+            .filter((u: Consultant) => u.role === 'consultant' && u.is_active !== false)
           setConsultants(list)
           // Un consultant senior care deschide dosarul e propus ca supervizor.
           if (userId && list.some(c => c.id === userId && c.consultant_level === 'senior')) {
@@ -218,8 +222,15 @@ export default function NewProjectPage() {
   const selectedTemplate = templates.find(t => t.id === templateId) ?? null
   const selectedClient = clients.find(c => c.id === clientId) ?? null
 
-  const consultantFor = (activity: TemplateActivity) =>
-    activity.id in activityConsultants ? activityConsultants[activity.id] : (activity.default_consultant_id ?? '')
+  // Consultantul implicit din șablon se propune doar dacă e în lista de mai sus.
+  // Unul dezactivat între timp ar face serverul să refuze tot importul, iar
+  // dosarul ar rămâne fără faze; activitatea pornește atunci „Fără consultant”.
+  const activeConsultantIds = useMemo(() => new Set(consultants.map(c => c.id)), [consultants])
+  const consultantFor = (activity: TemplateActivity) => {
+    if (activity.id in activityConsultants) return activityConsultants[activity.id]
+    const fallback = activity.default_consultant_id ?? ''
+    return activeConsultantIds.has(fallback) ? fallback : ''
+  }
 
   const missing = [
     !title.trim() && 'numele',

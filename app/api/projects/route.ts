@@ -130,7 +130,7 @@ export async function POST(request: Request) {
     ] = await Promise.all([
       admin
         .from('profiles')
-        .select('id, email, full_name, role, consultant_level')
+        .select('id, email, full_name, role, consultant_level, is_active')
         .in('id', supervisorIds),
       admin
         .from('profiles')
@@ -143,9 +143,11 @@ export async function POST(request: Request) {
       console.error('supervisors lookup error:', supervisorsError)
       return NextResponse.json({ error: 'Failed to validate supervisor_ids' }, { status: 500 })
     }
-    const validSupervisors = (supervisors ?? []).filter(s => s.role === 'consultant' && s.consultant_level === 'senior')
+    // Un senior dezactivat n-ar mai putea gestiona dosarul: nu poate fi supervizor.
+    const validSupervisors = (supervisors ?? []).filter(s =>
+      s.role === 'consultant' && s.consultant_level === 'senior' && s.is_active !== false)
     if (validSupervisors.length !== supervisorIds.length) {
-      return NextResponse.json({ error: 'Supervizorii trebuie să fie consultanți seniori.' }, { status: 400 })
+      return NextResponse.json({ error: 'Supervizorii trebuie să fie consultanți seniori activi.' }, { status: 400 })
     }
 
     // Validăm că clientul există

@@ -44,8 +44,12 @@ async function signIn(email: string, password: string) {
 }
 
 async function fixedConsultant(tag: 'sa' | 'ja' | 'jb', level: 'junior' | 'senior'): Promise<Person> {
-  const email = `drepturi.${tag}@test.local`
   const name = `Test drepturi — ${{ sa: 'Senior A', ja: 'Junior A', jb: 'Junior B' }[tag]}`
+  return consultantAccount(`drepturi.${tag}@test.local`, name, level)
+}
+
+/** Un cont de consultant fix, refolosit de la o rulare la alta, activ și cu parola rulării. */
+async function consultantAccount(email: string, name: string, level: 'junior' | 'senior'): Promise<Person> {
   const { data } = await service.auth.admin.createUser({ email, password: PASSWORD, email_confirm: true })
   let id = data?.user?.id
   if (!id) {
@@ -225,6 +229,80 @@ test('Dosar nou gol, ca admin: fără faze, cu supervizorul în echipă', async 
     expect(errors).toEqual([])
   } finally {
     await context.close()
+  }
+})
+
+test('Dosar nou cu un implicit care nu mai e consultant activ: șablonul intră întreg, activitatea rămâne liberă', async ({ browser }) => {
+  // Doi consultanți puși impliciți pe activități, apoi scoși din rol: unul
+  // devine admin din pagina utilizatorilor, celălalt e dezactivat în bază.
+  // Pagina trimitea implicitul oricum, serverul refuza tot importul (400) și
+  // dosarul rămânea fără faze.
+  const promoted = await consultantAccount('regresii.implicit-admin@test.local', 'Test regresii — Implicit devenit admin', 'junior')
+  const inactive = await consultantAccount('regresii.implicit-inactiv@test.local', 'Test regresii — Senior dezactivat', 'senior')
+  const tplName = `Regresii ${STAMP} — implicit scos din rol`
+  const tree = {
+    name: tplName, slug: `regresii-implicit-${STAMP}`, description: 'Impliciți care nu mai sunt consultanți activi',
+    phases: [{
+      id: 'p0', name: 'Pregătire', project_status_id: statusId,
+      activities: [
+        { id: 'a0', name: 'Activitate cu implicit devenit admin', default_consultant_id: promoted.id, document_requirements: [] },
+        { id: 'a1', name: 'Activitate cu implicit dezactivat', default_consultant_id: inactive.id, document_requirements: [] },
+        { id: 'a2', name: 'Activitate cu implicit valabil', default_consultant_id: SA.id, document_requirements: [] },
+      ],
+    }],
+  }
+  const template = (await must(admin, 'POST', '/api/admin/templates', tree)).template
+  created.templates.add(template.id)
+  await must(admin, 'PATCH', `/api/admin/templates/${template.id}`, { status: 'published' })
+  await must(admin, 'PATCH', `/api/users/${promoted.id}`, { role: 'admin' })
+  await service.from('profiles').update({ is_active: false }).eq('id', inactive.id)
+
+  const title = `Regresii ${STAMP} — dosar cu impliciți scoși din rol`
+  const { context, page, errors } = await login(browser, SA.email, PASSWORD)
+  try {
+    const refused = await call(admin, 'POST', '/api/projects', { title, client_id: clientId, supervisor_ids: [inactive.id] })
+    if (refused.json.project?.id) created.projects.add(refused.json.project.id)
+    expect(refused.status, 'un senior dezactivat nu poate fi supervizor').toBe(400)
+
+    await page.goto('/projects/new')
+    await page.getByText(SA.name).first().waitFor({ timeout: 30_000 })
+    await expect(page.getByRole('checkbox', { name: exact(inactive.name) }), 'seniorul dezactivat nu e propus ca supervizor').toHaveCount(0)
+    await page.fill('#dosar-nume', title)
+    await page.selectOption('#dosar-beneficiar', clientId)
+    await page.getByRole('radio', { name: /Din șablon/ }).check()
+    await page.getByRole('radio', { name: exact(tplName) }).check()
+
+    for (const [label, person] of [['Activitate cu implicit devenit admin', promoted], ['Activitate cu implicit dezactivat', inactive]] as const) {
+      const select = page.getByLabel(label)
+      await expect(select, `${label}: implicitul nu mai e propus`).toHaveValue('')
+      await expect(select.locator('option', { hasText: person.name }), `${label}: nici nu se poate alege`).toHaveCount(0)
+    }
+    await expect(page.getByLabel('Activitate cu implicit valabil'), 'implicitul activ rămâne propus').toHaveValue(SA.id)
+    await page.screenshot({ path: path.join(SHOTS, 'dosar-nou-impliciti-scosi-din-rol.png') })
+
+    const imported = page.waitForResponse(response =>
+      response.request().method() === 'POST' && response.url().endsWith('/import-template'))
+    await page.getByRole('button', { name: 'Deschide dosarul' }).click()
+    expect((await imported).status(), 'importul nu mai e refuzat').toBe(200)
+    await page.waitForURL(/\/projects\/[0-9a-f-]{36}$/, { timeout: 60_000 })
+    const projectId = new URL(page.url()).pathname.split('/').pop()!
+    created.projects.add(projectId)
+
+    const { data: phases } = await service.from('project_phases').select('id').eq('project_id', projectId)
+    expect(phases, 'faza șablonului a intrat în dosar').toHaveLength(1)
+    const { data: activities } = await service.from('project_activities').select('name, assigned_to').in('phase_id', (phases ?? []).map(p => p.id))
+    const assigned = Object.fromEntries((activities ?? []).map(a => [a.name, a.assigned_to]))
+    expect(assigned['Activitate cu implicit devenit admin'], 'rămâne neatribuită').toBeNull()
+    expect(assigned['Activitate cu implicit dezactivat'], 'rămâne neatribuită').toBeNull()
+    expect(assigned['Activitate cu implicit valabil']).toBe(SA.id)
+    const members = await memberIds(projectId)
+    expect(members, 'adminul nou nu intră în echipă ca membru adus de import').not.toContain(promoted.id)
+    expect(members, 'contul dezactivat nu intră în echipă').not.toContain(inactive.id)
+    expect(errors).toEqual([])
+  } finally {
+    await context.close()
+    // Adminul temporar redevine consultant; afterAll îl dezactivează, ca pe celelalte conturi de test.
+    await service.from('profiles').update({ role: 'consultant' }).eq('id', promoted.id)
   }
 })
 
