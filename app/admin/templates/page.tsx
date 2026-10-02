@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, Fragment, Suspense }
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createPortal } from 'react-dom'
 import {
-  Layers, Activity, FileText, Plus, Trash2,
+  Layers, Activity, FileText, Plus, Trash2, FolderOpen,
   ChevronDown, ChevronRight, ChevronUp, Check, X, Paperclip, Upload,
   Loader2, Edit2, AlertCircle, GripVertical, Copy,
 } from 'lucide-react'
@@ -24,7 +24,7 @@ import {
 import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
 import { Spinner } from '@/components/ui/Spinner'
 import { LocationStrip } from '@/components/ui/LocationStrip'
-import { Button } from '@/components/ui/Button'
+import { Button, ButtonLink } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -1308,6 +1308,9 @@ function AdminTemplatesContent() {
     )
   }, [templates, templateSearch])
 
+  const totalFaze = templates.reduce((sum, template) => sum + template.phases.length, 0)
+  const totalActivitati = templates.reduce((sum, template) => sum + template.phases.reduce((count, phase) => count + (phase.activities?.length ?? 0), 0), 0)
+
   if (authLoading || loading) {
     return (
       <div className="flex h-[60vh] items-center justify-center" role="status" aria-live="polite">
@@ -1322,18 +1325,25 @@ function AdminTemplatesContent() {
       <LocationStrip
         segments={[
           { label: 'Bonie', href: '/' },
-          // Panoul-director `/admin` e doar al adminului; consultanții s-ar întoarce aici.
-          { label: 'Șabloane', href: isAdmin ? '/admin' : '/admin/templates' },
+          { label: 'Șabloane', href: '/admin/templates' },
           ...(showForm
             ? [{ label: editingTemplate ? (editingTemplate.name.trim() || 'Șablon fără nume') : 'Șablon nou' }]
             : [{ label: 'Gestionează' }]),
         ]}
         action={
           !showForm ? (
-            <Button variant="primary" onClick={openCreateForm} aria-label="Șablon nou">
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              <span className="hidden sm:inline">Șablon nou</span>
-            </Button>
+            <>
+              {isAdmin && (
+                <ButtonLink href="/projects/new" variant="secondary" label="Proiect nou">
+                  <FolderOpen className="h-4 w-4" aria-hidden="true" />
+                  <span className="hidden sm:inline">Proiect nou</span>
+                </ButtonLink>
+              )}
+              <Button variant="primary" onClick={openCreateForm} aria-label="Șablon nou">
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                <span className="hidden sm:inline">Șablon nou</span>
+              </Button>
+            </>
           ) : (
             <Button variant="quiet" onClick={resetForm}>
               <X className="h-4 w-4" aria-hidden="true" />
@@ -1347,7 +1357,7 @@ function AdminTemplatesContent() {
         <>
           <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Șabloane</h1>
           <p className="mt-2 text-sm text-ink-soft">
-            {templates.length} {templates.length === 1 ? 'șablon' : 'șabloane'} — creează, editează, publică sau șterge.
+            {templates.length} {templates.length === 1 ? 'șablon' : 'șabloane'} · {totalFaze} {totalFaze === 1 ? 'fază' : 'faze'} · {totalActivitati} {totalActivitati === 1 ? 'activitate' : 'activități'}
           </p>
 
           {templates.length > 0 && (
@@ -1377,19 +1387,19 @@ function AdminTemplatesContent() {
               </EmptyState>
             ) : (
               <div className="overflow-hidden rounded-[var(--radius-plate)] border border-rule bg-plate">
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-sm">
-                    <thead>
+                <table className="block w-full table-fixed border-collapse text-sm lg:table">
+                    <thead className="hidden lg:table-header-group">
                       <tr className="border-b border-rule bg-paper-sunk">
-                        {/* Coloanele înguste se strâng la conținut; numele ia restul. */}
+                        {/* Acțiunile au loc rezervat; numele se rupe în lățimea rămasă. */}
                         <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Șablon</th>
-                        <th scope="col" className="w-px whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Status</th>
-                        <th scope="col" className="w-px whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Faze</th>
-                        <th scope="col" className="w-px whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Activități</th>
-                        <th scope="col" className="w-px px-4 py-2.5"><span className="sr-only">Acțiuni</span></th>
+                        <th scope="col" className="w-40 px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Status</th>
+                        <th scope="col" className="w-16 px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Faze</th>
+                        <th scope="col" className="w-24 px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Activități</th>
+                        <th scope="col" className="w-24 px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Documente</th>
+                        <th scope="col" className="w-48 px-4 py-2.5"><span className="sr-only">Acțiuni</span></th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="block lg:table-row-group">
                       {filteredTemplates.map((template) => {
                         const phaseCount = template.phases?.length || 0
                         const activityCount = template.phases?.reduce((sum, p) => sum + (p.activities?.length || 0), 0) || 0
@@ -1400,9 +1410,9 @@ function AdminTemplatesContent() {
                           <Fragment key={template.id}>
                             <tr
                               onClick={() => phaseCount > 0 && toggleTemplateExpanded(template.id)}
-                              className={`border-b border-rule last:border-b-0 transition-colors ${phaseCount > 0 ? 'cursor-pointer hover:bg-paper-sunk' : ''} ${expanded ? 'bg-paper-sunk' : ''}`}
+                              className={`flex flex-wrap items-center border-b border-rule last:border-b-0 transition-colors lg:table-row ${phaseCount > 0 ? 'cursor-pointer hover:bg-paper-sunk' : ''} ${expanded ? 'bg-paper-sunk' : ''}`}
                             >
-                              <td className="px-4 py-3">
+                              <td className="w-full px-4 py-3 lg:w-auto">
                                 <div className="flex items-center gap-1.5">
                                   {phaseCount > 0 ? (
                                     <button
@@ -1418,18 +1428,15 @@ function AdminTemplatesContent() {
                                   ) : (
                                     <span className="w-6 flex-shrink-0" aria-hidden />
                                   )}
-                                  <div className="min-w-0">
+                                  <div className="min-w-0 break-words">
                                     <span className="block font-medium text-ink">{template.name}</span>
-                                    {/* Pe rândul lui și cu `line-clamp`: un `truncate` pe text inline
-                                        doar interzicea ruperea, iar o descriere lungă lărgea tabelul
-                                        până împingea acțiunile în afara lui. */}
                                     {template.description && (
                                       <span className="mt-0.5 block text-xs leading-5 text-ink-soft line-clamp-1">{template.description}</span>
                                     )}
                                   </div>
                                 </div>
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap">
+                              <td className="max-w-full px-4 pb-3 lg:py-3">
                                 <div className="flex flex-col items-start gap-1.5">
                                   <Signal tone={template.status === 'draft' ? 'draft' : 'ok'}>
                                     {template.status === 'draft' ? 'Ciornă' : 'Publicat'}
@@ -1441,17 +1448,18 @@ function AdminTemplatesContent() {
                                       type="button"
                                       onClick={(e) => { e.stopPropagation(); void openTemplatePropagation(template.id) }}
                                       title="Deschide aplicarea modificărilor în proiectele existente"
-                                      className="rounded-[var(--radius-plate)] transition-opacity hover:opacity-80"
+                                      className="max-w-full rounded-[var(--radius-plate)] text-left transition-opacity hover:opacity-80"
                                     >
                                       <Signal tone="warn">Modificări neaplicate în proiecte</Signal>
                                     </button>
                                   )}
                                 </div>
                               </td>
-                              <td className="px-4 py-3 text-right tabular-nums text-ink-soft whitespace-nowrap">{phaseCount}</td>
-                              <td className="px-4 py-3 text-right tabular-nums text-ink-soft whitespace-nowrap">{activityCount}</td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                              <td className="px-4 pb-3 tabular-nums text-ink-soft lg:py-3 lg:text-right"><span className="lg:hidden">Faze: </span>{phaseCount}</td>
+                              <td className="px-4 pb-3 tabular-nums text-ink-soft lg:py-3 lg:text-right"><span className="lg:hidden">Activități: </span>{activityCount}</td>
+                              <td className="px-4 pb-3 tabular-nums text-ink-soft lg:py-3 lg:text-right"><span className="lg:hidden">Documente: </span>{countTemplateDocuments(template)}</td>
+                              <td className="w-full px-4 pb-3 lg:w-auto lg:py-3">
+                                <div className="flex flex-wrap items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                                   {editable && (
                                     <IconButton label={`Editează șablonul ${template.name}`} onClick={() => handleEdit(template)}>
                                       <Edit2 className="h-4 w-4" />
@@ -1480,8 +1488,8 @@ function AdminTemplatesContent() {
                               </td>
                             </tr>
                             {expanded && phaseCount > 0 && (
-                              <tr id={detailsId} className="border-b border-rule bg-paper-sunk last:border-b-0">
-                                <td colSpan={5} className="px-4 py-3 pl-11">
+                              <tr id={detailsId} className="block border-b border-rule bg-paper-sunk last:border-b-0 lg:table-row">
+                                <td colSpan={6} className="block break-words px-4 py-3 pl-11 lg:table-cell">
                                   <ol className="flex flex-col gap-2">
                                     {template.phases.map((phase, index) => {
                                       const status = statuses.find(s => s.id === phase.project_status_id)
@@ -1512,8 +1520,7 @@ function AdminTemplatesContent() {
                         )
                       })}
                     </tbody>
-                  </table>
-                </div>
+                </table>
               </div>
             )}
           </div>

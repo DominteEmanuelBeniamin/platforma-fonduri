@@ -8,6 +8,7 @@ import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { LocationStrip } from '@/components/ui/LocationStrip'
 import { Button, ButtonLink } from '@/components/ui/Button'
+import { Spinner } from '@/components/ui/Spinner'
 import SupervisorPicker, { type SeniorConsultant } from '@/components/SupervisorPicker'
 import { canCreateProjects } from '@/lib/project-permissions'
 import { bandFor, bandVar } from '@/lib/signage'
@@ -167,16 +168,15 @@ export default function NewProjectPage() {
 
   const [submitting, setSubmitting] = useState(false)
 
-  // Dosare deschid doar adminul și consultantul senior; juniorul și clientul
-  // se întorc pe prima pagină. Datele formularului nu așteaptă profilul (s-ar
-  // încărca una după alta), dar nu se mai cer după un refuz.
+  // Formularul și datele lui așteaptă profilul, ca juniorul și clientul
+  // să nu-l vadă înainte de redirect. Adminul și seniorul pot deschide dosare.
   const refused = !!profile && !canCreateProjects(profile)
   useEffect(() => {
     if (refused) router.replace('/')
   }, [refused, router])
 
   useEffect(() => {
-    if (authLoading || !token || refused) return
+    if (authLoading || !token || !profile || refused) return
     let cancelled = false
     const load = async () => {
       try {
@@ -213,7 +213,7 @@ export default function NewProjectPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [apiFetch, authLoading, token, userId, refused])
+  }, [apiFetch, authLoading, token, userId, profile, refused])
 
   const seniors: SeniorConsultant[] = useMemo(
     () => consultants.filter(c => c.consultant_level === 'senior'),
@@ -310,6 +310,14 @@ export default function NewProjectPage() {
       : 'fără faze',
   ].filter(Boolean).join(' · ')
 
+  if (authLoading || !profile) {
+    return (
+      <div className="flex h-[60vh] items-center justify-center" role="status" aria-live="polite">
+        <Spinner size="md" />
+        <span className="sr-only">Se verifică accesul la dosarul nou…</span>
+      </div>
+    )
+  }
   if (refused) return null
 
   return (

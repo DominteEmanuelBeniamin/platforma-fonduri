@@ -45,10 +45,7 @@ export async function GET(request: Request) {
     // Construim query-ul
     let query = admin
       .from('audit_logs')
-      .select(`
-        *,
-        user:profiles!audit_logs_user_id_fkey(email, full_name)
-      `, { count: 'exact' })
+      .select('*', { count: 'exact' })
       .order('created_at', { ascending: false })
 
     // Aplicăm filtrele
@@ -94,11 +91,21 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Failed to fetch audit logs' }, { status: 500 })
     }
 
+    const userIds = [...new Set((logs || []).map(log => log.user_id).filter((id): id is string => Boolean(id)))]
+    const { data: profiles, error: profilesError } = userIds.length
+      ? await admin.from('profiles').select('id, email, full_name').in('id', userIds)
+      : { data: [], error: null }
+    if (profilesError) {
+      console.error('Audit users fetch error:', profilesError)
+      return NextResponse.json({ error: 'Failed to fetch audit users' }, { status: 500 })
+    }
+    const usersById = new Map((profiles || []).map(profile => [profile.id, profile]))
+
     // Calculăm informațiile de paginare
     const totalPages = Math.ceil((count || 0) / limit)
 
     return NextResponse.json({
-      logs: logs || [],
+      logs: (logs || []).map(log => ({ ...log, user: usersById.get(log.user_id ?? '') ?? null })),
       pagination: {
         page,
         limit,

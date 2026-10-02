@@ -110,9 +110,9 @@ export default function Navbar() {
               )}
               {isTeamMember && (
                 <Link
-                  href={profile?.role === 'admin' ? '/admin' : '/admin/templates'}
-                  data-active={pathname === (profile?.role === 'admin' ? '/admin' : '/admin/templates') ? 'true' : undefined}
-                  className={linkClass(profile?.role === 'admin' ? '/admin' : '/admin/templates')}
+                  href="/admin/templates"
+                  data-active={pathname === '/admin/templates' ? 'true' : undefined}
+                  className={linkClass('/admin/templates')}
                 >
                   Șabloane
                 </Link>
