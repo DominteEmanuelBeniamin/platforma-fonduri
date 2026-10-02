@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { UserPlus, Trash2, X, Loader2, ChevronRight } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
+import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { useToast } from '@/app/providers/ToastProvider'
 import { LocationStrip } from '@/components/ui/LocationStrip'
 import { Button } from '@/components/ui/Button'
@@ -64,8 +65,9 @@ export default function AdminUsersPage() {
   const [panouDeschis, setPanouDeschis] = useState(false)
   const [newRole, setNewRole] = useState<Rol>('client')
   const [newEmail, setNewEmail] = useState('')
-  const [newPassword, setNewPassword] = useState('')
   const [newName, setNewName] = useState('')
+  const [fallbackCredentials, setFallbackCredentials] = useState<{ email: string; password: string } | null>(null)
+  const [partialCreationUserId, setPartialCreationUserId] = useState<string | null>(null)
   const [telefon, setTelefon] = useState('')
   const [cif, setCif] = useState('')
   const [numeFirma, setNumeFirma] = useState('')
@@ -79,15 +81,34 @@ export default function AdminUsersPage() {
   const [userToDelete, setUserToDelete] = useState<{ id: string; email: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
 
-  const fetchUsers = useCallback(async () => {
+  const clearCreateForm = () => {
+    setNewEmail(''); setNewName(''); setTelefon('')
+    setCif(''); setNumeFirma(''); setAdresaFirma(''); setPersoanaContact('')
+    setSpecializare(''); setDepartament('')
+  }
+
+  const closeCreatePanel = useCallback(() => {
+    if (isCreating) return
+    setFallbackCredentials(null)
+    setPartialCreationUserId(null)
+    setPanouDeschis(false)
+  }, [isCreating])
+
+  const openCreatePanel = useCallback(() => {
+    setFallbackCredentials(null)
+    setPartialCreationUserId(null)
+    setPanouDeschis(true)
+  }, [])
+
+  const fetchUsers = useCallback(async (showLoader = true) => {
     try {
-      setLoading(true)
+      if (showLoader) setLoading(true)
       const res = await apiFetch('/api/users')
       if (!res.ok) { showToast('Nu am putut încărca utilizatorii. Reîncearcă.', 'error'); return }
       const { users: data } = await res.json()
       setUsers(data)
     } finally {
-      setLoading(false)
+      if (showLoader) setLoading(false)
     }
   }, [apiFetch, showToast])
 
@@ -106,31 +127,47 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     if (!panouDeschis) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPanouDeschis(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeCreatePanel() }
     document.addEventListener('keydown', onKey)
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev }
-  }, [panouDeschis])
+  }, [panouDeschis, closeCreatePanel])
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault()
+    setFallbackCredentials(null)
+    setPartialCreationUserId(null)
     setIsCreating(true)
     try {
-      const payload: any = { email: newEmail, password: newPassword, role: newRole, fullName: newName, telefon: telefon || null }
+      const payload: any = { email: newEmail, role: newRole, fullName: newName, telefon: telefon || null }
       if (newRole === 'client') { payload.cif = cif || null; payload.numeFirma = numeFirma || null; payload.adresaFirma = adresaFirma || null; payload.persoanaContact = persoanaContact || null }
       else if (newRole === 'consultant') { payload.specializare = specializare || null; payload.departament = departament || null }
       else if (newRole === 'admin') { payload.departament = departament || null }
 
       const res = await apiFetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-      if (!res.ok) throw new Error()
+      if (!res.ok) {
+        const error = await res.json().catch(() => null) as { code?: string; userId?: string } | null
+        if (error?.code === 'profile_update_failed' && typeof error.userId === 'string') {
+          clearCreateForm()
+          setPartialCreationUserId(error.userId)
+          return
+        }
+        throw new Error()
+      }
 
-      showToast('Utilizatorul a fost creat.', 'success')
-      setNewEmail(''); setNewPassword(''); setNewName(''); setTelefon('')
-      setCif(''); setNumeFirma(''); setAdresaFirma(''); setPersoanaContact('')
-      setSpecializare(''); setDepartament('')
-      setPanouDeschis(false)
-      fetchUsers()
+      const result: { userId: string; emailSent: true } | { userId: string; emailSent: false; temporaryPassword: string } = await res.json()
+      clearCreateForm()
+      if (result.emailSent) {
+        showToast('Utilizatorul a fost creat.', 'success')
+        setFallbackCredentials(null)
+        setPartialCreationUserId(null)
+        setPanouDeschis(false)
+        fetchUsers()
+      } else {
+        setFallbackCredentials({ email: newEmail.trim(), password: result.temporaryPassword })
+        fetchUsers(false)
+      }
     } catch {
       showToast('Nu am putut crea utilizatorul. Verifică datele și reîncearcă.', 'error')
     } finally {
@@ -217,7 +254,7 @@ export default function AdminUsersPage() {
       <LocationStrip
         segments={[{ label: 'Bonie', href: '/' }, { label: 'Utilizatori' }]}
         action={
-          <Button variant="primary" aria-label="Adaugă utilizator" onClick={() => setPanouDeschis(true)}>
+          <Button variant="primary" aria-label="Adaugă utilizator" onClick={openCreatePanel}>
             <UserPlus className="h-4 w-4" aria-hidden="true" />
             <span className="hidden sm:inline">Adaugă utilizator</span>
           </Button>
@@ -257,7 +294,7 @@ export default function AdminUsersPage() {
           <EmptyState
             title={users.length === 0 ? 'Niciun utilizator' : 'Niciun utilizator nu se potrivește'}
             action={users.length === 0
-              ? <Button variant="primary" onClick={() => setPanouDeschis(true)}><UserPlus className="h-4 w-4" aria-hidden="true" /> Adaugă utilizator</Button>
+              ? <Button variant="primary" onClick={openCreatePanel}><UserPlus className="h-4 w-4" aria-hidden="true" /> Adaugă utilizator</Button>
               : <Button variant="secondary" onClick={() => { setCauta(''); setFiltruRol('toate') }}>Șterge filtrele</Button>}
           >
             {users.length === 0
@@ -313,7 +350,7 @@ export default function AdminUsersPage() {
 
       {panouDeschis && (
         <div className="fixed inset-0 z-[100] flex justify-end">
-          <Scrim onClick={() => setPanouDeschis(false)} />
+          <Scrim onClick={closeCreatePanel} />
           <FloatingSurface
             role="dialog"
             ariaModal
@@ -322,9 +359,55 @@ export default function AdminUsersPage() {
           >
             <div className="flex items-center justify-between border-b border-rule px-5 py-4">
               <h2 className="text-base font-bold text-ink">Adaugă utilizator</h2>
-              <IconButton label="Închide panoul" onClick={() => setPanouDeschis(false)}><X className="h-4 w-4" /></IconButton>
+              <IconButton
+                label="Închide panoul"
+                onClick={closeCreatePanel}
+                disabled={isCreating}
+                className="disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                <X className="h-4 w-4" />
+              </IconButton>
             </div>
 
+            {fallbackCredentials ? (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
+                  <FeedbackMessage variant="warning">
+                    Contul a fost creat, dar emailul nu a putut fi trimis. Comunică manual parola de mai jos.
+                  </FeedbackMessage>
+                  <dl className="space-y-4 text-sm">
+                    <div>
+                      <dt className="mb-1 font-semibold text-ink">Emailul contului creat</dt>
+                      <dd className="break-all text-ink-soft">{fallbackCredentials.email}</dd>
+                    </div>
+                    <div>
+                      <dt className="mb-1 font-semibold text-ink">
+                        <label htmlFor="fallback-password">Parola temporară generată</label>
+                      </dt>
+                      <dd>
+                        <input
+                          id="fallback-password"
+                          type="text"
+                          value={fallbackCredentials.password}
+                          readOnly
+                          autoComplete="off"
+                          onFocus={e => e.currentTarget.select()}
+                          className={inputClass}
+                        />
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+            ) : partialCreationUserId ? (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="flex-1 px-5 py-5">
+                  <FeedbackMessage variant="error">
+                    Contul de autentificare a fost creat, dar profilul nu a putut fi actualizat. Este necesară remedierea manuală. ID utilizator: {partialCreationUserId}
+                  </FeedbackMessage>
+                </div>
+              </div>
+            ) : (
             <form onSubmit={handleCreateUser} className="flex min-h-0 flex-1 flex-col">
               <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
                 <fieldset>
@@ -358,9 +441,7 @@ export default function AdminUsersPage() {
                   <Camp label="Nume complet" required>
                     <input type="text" required placeholder="Ion Popescu" value={newName} onChange={e => setNewName(e.target.value)} className={inputClass} />
                   </Camp>
-                  <Camp label="Parolă temporară" required hint="O comunici tu utilizatorului; el o schimbă la prima autentificare.">
-                    <input type="text" required placeholder="parola123" value={newPassword} onChange={e => setNewPassword(e.target.value)} className={inputClass} />
-                  </Camp>
+
                   <Camp label="Telefon">
                     <input type="tel" placeholder="0740123456" value={telefon} onChange={e => setTelefon(e.target.value)} className={inputClass} />
                   </Camp>
@@ -421,6 +502,7 @@ export default function AdminUsersPage() {
                 </Button>
               </div>
             </form>
+            )}
           </FloatingSurface>
         </div>
       )}

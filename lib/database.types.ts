@@ -276,6 +276,7 @@ export interface Profile {
   departament: string | null;
   specializare: string | null;
   is_active: boolean;
+  must_change_password: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -295,6 +296,7 @@ export interface ProfileUpdate extends Partial<ProfileCreate> {
   departament?: string;
   specializare?: string;
   is_active?: boolean;
+  must_change_password?: boolean;
 }
 
 // PROGRAM (neschimbat)
