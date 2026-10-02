@@ -548,10 +548,11 @@ test('Fâșia de locație: pe desktop acțiunile stau pe un rând și nu ies din
 test('Paginile de administrare rămân deschise pentru admin', async ({ browser }) => {
   const { context, page, errors } = await login(browser, ADMIN_LOGIN.email, ADMIN_LOGIN.password)
   try {
-    for (const url of ['/admin', '/admin/statuses', `/admin/users/${JA.id}`, '/admin/users', '/admin/audit', '/admin/proiecte']) {
+    // `/admin` a rămas doar o adresă veche: trimite la lista de șabloane.
+    for (const [url, destinatie] of [['/admin', '/admin/templates'], ['/admin/statuses'], [`/admin/users/${JA.id}`], ['/admin/users'], ['/admin/audit'], ['/admin/proiecte']]) {
       await page.goto(url)
       await page.waitForTimeout(2_000)
-      expect(new URL(page.url()).pathname, `${url} nu redirecționează adminul`).toBe(url)
+      expect(new URL(page.url()).pathname, `${url} nu redirecționează adminul`).toBe(destinatie ?? url)
     }
     expect(errors).toEqual([])
   } finally {
