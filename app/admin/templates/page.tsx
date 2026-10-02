@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, Fragment, Suspense }
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createPortal } from 'react-dom'
 import {
-  Layers, Activity, FileText, Plus, Trash2,
+  Layers, Activity, FileText, Plus, Trash2, FolderOpen,
   ChevronDown, ChevronRight, ChevronUp, Check, X, Paperclip, Upload,
   Loader2, Edit2, AlertCircle, GripVertical, Copy,
 } from 'lucide-react'
@@ -16,15 +16,15 @@ import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { useToast } from '@/app/providers/ToastProvider'
 import { buildCopyName } from '@/lib/duplicate-name'
 import { serverMessage } from '@/lib/api-error'
+import { mapWithConcurrency } from '@/lib/template-tree'
 import {
   duplicationFromSource,
   isPersistentTemplateId,
-  resolveDuplicationForSave,
 } from '@/app/api/_utils/template-duplication'
 import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
 import { Spinner } from '@/components/ui/Spinner'
 import { LocationStrip } from '@/components/ui/LocationStrip'
-import { Button } from '@/components/ui/Button'
+import { Button, ButtonLink } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -84,7 +84,7 @@ interface TemplateActivity {
 interface TemplatePhase {
   id: string
   name: string
-  project_status_id: string | null
+  project_status_id: string
   activities: TemplateActivity[]
   expanded: boolean
   duplication?: TemplateDuplication
@@ -96,10 +96,12 @@ interface Template {
   name: string
   description: string | null
   status: 'draft' | 'published'
+  /** Setat când conținutul unui șablon publicat s-a schimbat după ultima aplicare în proiecte. */
+  unpropagated_changes_at?: string | null
   phases: {
     id: string
     name: string
-    project_status_id: string | null
+    project_status_id: string
     order_index: number
     activities?: {
       id: string
@@ -366,7 +368,11 @@ function AdminTemplatesContent() {
   const searchParams = useSearchParams()
   const { loading: authLoading, token, apiFetch, profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
-  const canEditTemplate = (template: Template) => isAdmin || template.status === 'draft'
+  // Seniorul editează și șablonele publicate, le șterge și le duplică; publicarea
+  // și propagarea rămân la admin. Serverul verifică oricum aceleași reguli.
+  const canManageTemplates = isAdmin || (profile?.role === 'consultant' && profile?.consultant_level === 'senior')
+  const canEditTemplate = (template: Template) => canManageTemplates || template.status === 'draft'
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
   const { showToast } = useToast()
 
   const [templates, setTemplates] = useState<Template[]>([])
@@ -518,7 +524,7 @@ function AdminTemplatesContent() {
     setPhases([...phases, {
       id: generateId(),
       name: '',
-      project_status_id: null,
+      project_status_id: statuses[0]?.id || '',
       activities: [],
       expanded: true
     }])
@@ -768,7 +774,7 @@ function AdminTemplatesContent() {
     ))
   }
 
-  const getStatusColor = (statusId: string | null) => statuses.find(s => s.id === statusId)?.color || 'var(--sg-rule-strong)'
+  const getStatusColor = (statusId: string) => statuses.find(s => s.id === statusId)?.color || 'var(--sg-rule-strong)'
 
   const clearValidationError = (key: string) => {
     setValidationErrors(prev => {
@@ -799,6 +805,11 @@ function AdminTemplatesContent() {
         messages.push(`Faza ${phaseIdx + 1} nu are nume.`)
       }
 
+      if (!phase.project_status_id) {
+        errors.add(`phase:${phase.id}:project_status_id`)
+        messages.push(`Faza "${phaseLabel}" nu are status asociat.`)
+      }
+
       phase.activities.forEach((activity, activityIdx) => {
         const activityLabel = activity.name.trim() || `Activitatea ${activityIdx + 1}`
 
@@ -825,6 +836,7 @@ function AdminTemplatesContent() {
         current.map(phase => {
           const phaseHasErrors =
             errors.has(`phase:${phase.id}:name`) ||
+            errors.has(`phase:${phase.id}:project_status_id`) ||
             phase.activities.some(activity =>
               errors.has(`activity:${phase.id}:${activity.id}:name`) ||
               activity.document_requirements.some(doc =>
@@ -975,6 +987,9 @@ function AdminTemplatesContent() {
       }
 
       showToast('Modificările template-ului au fost propagate.', 'success')
+      const appliedId = propagationTemplateId
+      setTemplates(current => current.map(template =>
+        template.id === appliedId ? { ...template, unpropagated_changes_at: null } : template))
       closeTemplatePropagation()
     } catch (error: any) {
       setPropagationError(error?.message || 'Propagarea template-ului a eșuat')
@@ -995,217 +1010,87 @@ function AdminTemplatesContent() {
     setValidationErrors(new Set())
     setSaving(true)
     try {
-      const safeParseError = async (res: Response, fallback: string) => {
-        return serverMessage(res, `${fallback} (${res.status})`)
+      // Fișierele noi urcă direct în storage, câteva în paralel, înainte de
+      // salvare. Apoi tot arborele pleacă într-o singură cerere: serverul
+      // compară cu ce are și scrie doar diferențele, grupate pe niveluri.
+      const newFiles = phases.flatMap(phase => phase.activities.flatMap(activity =>
+        activity.document_requirements.flatMap(doc => doc.templateFiles ?? [])))
+      const uploaded = new Map<File, Omit<TemplateAttachment, 'id'>>()
+      await mapWithConcurrency(newFiles, 4, async file => {
+        const storagePath = await uploadTemplateFile(file)
+        if (!storagePath) throw new Error(`Nu s-a putut încărca fișierul "${file.name}"`)
+        uploaded.set(file, {
+          storage_path: storagePath,
+          original_name: file.name,
+          mime_type: file.type || 'application/octet-stream',
+          file_size: file.size,
+        })
+      })
+
+      const tree = {
+        name: templateName.trim(),
+        description: templateDescription.trim() || null,
+        phases: phases.map(phase => ({
+          id: phase.id,
+          name: phase.name,
+          project_status_id: phase.project_status_id,
+          duplication: phase.duplication,
+          source_local_id: phase.sourceLocalId,
+          activities: phase.activities.map(activity => ({
+            id: activity.id,
+            name: activity.name,
+            default_consultant_id: activity.default_consultant_id || null,
+            duplication: activity.duplication,
+            source_local_id: activity.sourceLocalId,
+            document_requirements: activity.document_requirements.map(doc => ({
+              id: doc.id,
+              name: doc.name,
+              description: doc.description || null,
+              is_outgoing: doc.is_outgoing,
+              requirement_type: doc.is_outgoing ? 'optional' : doc.requirement_type,
+              attachments: [
+                ...(doc.templateFileRemoved ? [] : doc.templateAttachments ?? []),
+                ...(doc.templateFiles ?? []).map(file => uploaded.get(file)),
+              ],
+              duplication: doc.duplication,
+              source_local_id: doc.sourceLocalId,
+            })),
+          })),
+        })),
       }
 
-      let templateId: string
-      const savedIds = new Map<string, string>()
-
-      if (editingTemplate) {
-        // PATCH template existent
-        const res = await apiFetch(`/api/admin/templates/${editingTemplate.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: templateName.trim(),
-            slug: generateSlug(templateName.trim()),
-            description: templateDescription.trim() || null,
-          })
-        })
-        if (!res.ok) throw new Error(await safeParseError(res, 'Eroare la actualizare template'))
-        templateId = editingTemplate.id
-
-        // Ștergem fazele care au fost eliminate din UI
-        const existingPhaseIds = new Set(editingTemplate.phases?.map(p => p.id) || [])
-        const currentPhaseIds = new Set(phases.filter(p => isDbId(p.id)).map(p => p.id))
-        for (const oldId of existingPhaseIds) {
-          if (!currentPhaseIds.has(oldId)) {
-            await apiFetch(`/api/admin/templates/phases/${oldId}`, { method: 'DELETE' })
-          }
-        }
-      } else {
-        // POST template nou
-        const res = await apiFetch('/api/admin/templates', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: templateName.trim(),
-            slug: generateSlug(templateName.trim()),
-            description: templateDescription.trim() || null,
-          })
-        })
-        if (!res.ok) throw new Error(await safeParseError(res, 'Eroare la creare template'))
-        const data = await res.json()
-        templateId = data.template.id
-      }
-
-      // Salvează fazele
-      for (let pIdx = 0; pIdx < phases.length; pIdx++) {
-        const phase = phases[pIdx]
-        let phaseId: string
-
-        if (isDbId(phase.id)) {
-          // PATCH faza existentă
-          const phaseRes = await apiFetch(`/api/admin/templates/phases/${phase.id}`, {
-            method: 'PATCH',
+      // Slug-ul șablonului se stabilește doar la creare: e un identificator
+      // intern, iar regenerat din nume se lovea de unicitate.
+      const res = editingTemplate
+        ? await apiFetch(`/api/admin/templates/${editingTemplate.id}/tree`, {
+            method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name: phase.name,
-              project_status_id: phase.project_status_id,
-              order_index: pIdx + 1,
-            })
+            body: JSON.stringify(tree),
           })
-          if (!phaseRes.ok) throw new Error(await safeParseError(phaseRes, `Eroare la actualizare faza "${phase.name}"`))
-          phaseId = phase.id
-
-          // Ștergem activitățile eliminate
-          const originalPhase = editingTemplate?.phases?.find(p => p.id === phase.id)
-          const existingActivityIds = new Set(originalPhase?.activities?.map(a => a.id) || [])
-          const currentActivityIds = new Set(phase.activities.filter(a => isDbId(a.id)).map(a => a.id))
-          for (const oldId of existingActivityIds) {
-            if (!currentActivityIds.has(oldId)) {
-              await apiFetch(`/api/admin/templates/activities/${oldId}`, { method: 'DELETE' })
-            }
-          }
-        } else {
-          // POST faza nouă
-          const phaseRes = await apiFetch('/api/admin/templates/phases', {
+        : await apiFetch('/api/admin/templates', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              template_id: templateId,
-              project_status_id: phase.project_status_id,
-              name: phase.name,
-              slug: generateSlug(phase.name) || `faza-${pIdx + 1}`,
-              order_index: pIdx + 1,
-              duplication: resolveDuplicationForSave(phase, savedIds),
-            })
+            body: JSON.stringify({ ...tree, slug: generateSlug(tree.name) }),
           })
-          if (!phaseRes.ok) throw new Error(await safeParseError(phaseRes, `Eroare la salvare faza "${phase.name}"`))
-          const phaseData = await phaseRes.json()
-          phaseId = phaseData.phase.id
-          savedIds.set(phase.id, phaseId)
-        }
-
-        // Salvează activitățile
-        for (let aIdx = 0; aIdx < phase.activities.length; aIdx++) {
-          const activity = phase.activities[aIdx]
-          let activityId: string
-
-          if (isDbId(activity.id)) {
-            // PATCH activitate existentă
-            const actRes = await apiFetch(`/api/admin/templates/activities/${activity.id}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                name: activity.name,
-                order_index: aIdx + 1,
-                default_consultant_id: activity.default_consultant_id || null,
-              })
-            })
-            if (!actRes.ok) throw new Error(await safeParseError(actRes, `Eroare la actualizare activitate "${activity.name}"`))
-            activityId = activity.id
-
-            // Ștergem documentele eliminate
-            const originalPhase = editingTemplate?.phases?.find(p => p.id === phase.id)
-            const originalActivity = originalPhase?.activities?.find(a => a.id === activity.id)
-            const existingDocIds = new Set(originalActivity?.document_requirements?.map(d => d.id) || [])
-            const currentDocIds = new Set(activity.document_requirements.filter(d => isDbId(d.id)).map(d => d.id))
-            for (const oldId of existingDocIds) {
-              if (!currentDocIds.has(oldId)) {
-                await apiFetch(`/api/admin/templates/documents/${oldId}`, { method: 'DELETE' })
-              }
-            }
-          } else {
-            // POST activitate nouă
-            const actRes = await apiFetch('/api/admin/templates/activities', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                template_phase_id: phaseId,
-                name: activity.name,
-                order_index: aIdx + 1,
-                default_consultant_id: activity.default_consultant_id || null,
-                duplication: resolveDuplicationForSave(activity, savedIds),
-              })
-            })
-            if (!actRes.ok) throw new Error(await safeParseError(actRes, `Eroare la salvare activitate "${activity.name}"`))
-            const actData = await actRes.json()
-            activityId = actData.activity.id
-            savedIds.set(activity.id, activityId)
-          }
-
-          // Salvează documentele
-          for (let dIdx = 0; dIdx < activity.document_requirements.length; dIdx++) {
-            const doc = activity.document_requirements[dIdx]
-            const attachmentItems: any[] = doc.templateFileRemoved ? [] : [...(doc.templateAttachments ?? [])]
-            for (const file of doc.templateFiles ?? []) {
-              const uploaded = await uploadTemplateFile(file)
-              if (!uploaded) throw new Error(`Nu s-a putut încărca fișierul "${file.name}"`)
-              attachmentItems.push({
-                storage_path: uploaded,
-                original_name: file.name,
-                mime_type: file.type || 'application/octet-stream',
-                file_size: file.size,
-              })
-            }
-            const firstAttachment = attachmentItems[0] ?? null
-            const attachmentPayload = attachmentItems.map((attachment, index) => ({
-              ...attachment,
-              order_index: index,
-            }))
-
-            if (isDbId(doc.id)) {
-              // PATCH document existent
-              const patchBody: any = {
-                name: doc.name,
-                description: doc.description || null,
-                is_outgoing: doc.is_outgoing,
-                requirement_type: doc.is_outgoing ? 'optional' : doc.requirement_type,
-                order_index: dIdx + 1,
-                attachments: attachmentPayload,
-                attachment_path: firstAttachment?.storage_path || null,
-                attachment_original_name: firstAttachment?.original_name || null,
-              }
-              const docRes = await apiFetch(`/api/admin/templates/documents/${doc.id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(patchBody)
-              })
-              if (!docRes.ok) throw new Error(await safeParseError(docRes, `Eroare la actualizare document "${doc.name}"`))
-            } else {
-              // POST document nou
-              const docRes = await apiFetch('/api/admin/templates/documents', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  template_activity_id: activityId,
-                  name: doc.name,
-                  description: doc.description || null,
-                  is_outgoing: doc.is_outgoing,
-                  requirement_type: doc.is_outgoing ? 'optional' : doc.requirement_type,
-                  order_index: dIdx + 1,
-                  attachments: attachmentPayload,
-                  attachment_path: firstAttachment?.storage_path || null,
-                  attachment_original_name: firstAttachment?.original_name || null,
-                  duplication: resolveDuplicationForSave(doc, savedIds),
-                })
-              })
-              if (!docRes.ok) throw new Error(await safeParseError(docRes, `Eroare la salvare document "${doc.name}"`))
-              const docData = await docRes.json()
-              savedIds.set(doc.id, docData.document.id)
-            }
-          }
-        }
+      if (!res.ok) {
+        throw new Error(await serverMessage(res, `Nu am putut salva șablonul (${res.status})`))
       }
+      const saved: Template = (await res.json()).template
 
-      if (editingTemplate && isAdmin && editingTemplate.status === 'published') {
-        await openTemplatePropagation(templateId)
+      // Arborele salvat vine în răspuns, deci lista nu se mai reîncarcă.
+      setTemplates(current => editingTemplate
+        ? current.map(template => template.id === saved.id ? saved : template)
+        : [saved, ...current])
+
+      if (editingTemplate && editingTemplate.status === 'published') {
+        if (isAdmin) {
+          await openTemplatePropagation(saved.id)
+        } else {
+          showToast('Șablonul a fost salvat. Un administrator poate propaga modificările în proiecte.', 'success')
+        }
       }
 
       resetForm()
-      fetchData()
     } catch (error: any) {
       showToast(error?.message || 'Nu am putut salva template-ul. Reîncearcă.', 'error')
     } finally {
@@ -1229,6 +1114,26 @@ function AdminTemplatesContent() {
       activityCount,
       documentCount: countTemplateDocuments(template),
     })
+  }
+
+  const duplicateTemplate = async (template: Template) => {
+    if (!canManageTemplates || duplicatingId) return
+    try {
+      setDuplicatingId(template.id)
+      const res = await apiFetch(`/api/admin/templates/${template.id}/duplicate`, { method: 'POST' })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Nu am putut duplica șablonul.')
+      // Copia vine cu tot arborele dintr-o singură cerere; restul listei rămâne.
+      const treeRes = await apiFetch(`/api/admin/templates/${data.template.id}`)
+      const treeData = await treeRes.json().catch(() => null)
+      if (!treeRes.ok || !treeData?.template) throw new Error(treeData?.error || 'Copia a fost creată, dar nu am putut-o încărca.')
+      setTemplates(current => [treeData.template, ...current])
+      showToast(`Am creat „${treeData.template.name}”.`, 'success')
+    } catch (error: any) {
+      showToast(error?.message || 'Nu am putut duplica șablonul.', 'error')
+    } finally {
+      setDuplicatingId(null)
+    }
   }
 
   const requestPublishTemplate = (template: Template) => {
@@ -1258,8 +1163,11 @@ function AdminTemplatesContent() {
         const data = await res.json().catch(() => null)
         throw new Error(data?.error || 'Template-ul nu a putut fi publicat')
       }
+      // Se schimbă doar statusul; restul listei rămâne cum e.
+      const { template: published } = await res.json()
+      setTemplates(current => current.map(template =>
+        template.id === published.id ? { ...template, status: published.status } : template))
       setPublishTarget(null)
-      await fetchData()
     } catch (error: any) {
       setPublishError(error?.message || 'Template-ul nu a putut fi publicat')
     } finally {
@@ -1302,8 +1210,9 @@ function AdminTemplatesContent() {
         const data = await res.json().catch(() => null)
         throw new Error(data?.error || 'Eroare la ștergerea template-ului')
       }
+      const deletedId = deleteTarget.templateId
+      setTemplates(current => current.filter(template => template.id !== deletedId))
       setDeleteTarget(null)
-      await fetchData()
     } catch (error: any) {
       setDeleteError(error?.message || 'Eroare la ștergere')
     } finally {
@@ -1312,7 +1221,7 @@ function AdminTemplatesContent() {
   }
 
   const handleEdit = useCallback((template: Template) => {
-    if (!(isAdmin || template.status === 'draft')) return
+    if (!(canManageTemplates || template.status === 'draft')) return
     setEditingTemplate(template)
     setTemplateName(template.name)
     setTemplateDescription(template.description || '')
@@ -1353,7 +1262,7 @@ function AdminTemplatesContent() {
     })) || []
     setPhases(editablePhases)
     setShowForm(true)
-  }, [isAdmin])
+  }, [canManageTemplates])
 
   // Legătura care lipsea: `/admin` (panoul-director) trimite aici cu
   // ?edit=<id> sau ?new=1 fiindcă lista lui e doar de citit. Fără asta un
@@ -1367,10 +1276,10 @@ function AdminTemplatesContent() {
     deepLinkAppliedRef.current = true
     if (editId) {
       const target = templates.find(t => t.id === editId)
-      if (target && (isAdmin || target.status === 'draft')) {
+      if (target && (canManageTemplates || target.status === 'draft')) {
         handleEdit(target)
       } else if (target) {
-        showToast('Acest șablon e publicat — doar un administrator îl poate edita.', 'info')
+        showToast('Acest șablon e publicat — doar un administrator sau un consultant senior îl poate edita.', 'info')
       } else {
         showToast('Șablonul căutat nu a fost găsit.', 'error')
       }
@@ -1378,7 +1287,7 @@ function AdminTemplatesContent() {
       openCreateForm()
     }
     router.replace('/admin/templates')
-  }, [loading, templates, searchParams, isAdmin, handleEdit, openCreateForm, router, showToast])
+  }, [loading, templates, searchParams, canManageTemplates, handleEdit, openCreateForm, router, showToast])
 
   const affectedPropagationProjects = (propagationPreview?.eligible ?? []).filter(hasPropagationChanges)
   const selectedPropagationProjects = affectedPropagationProjects.filter(project =>
@@ -1399,6 +1308,9 @@ function AdminTemplatesContent() {
     )
   }, [templates, templateSearch])
 
+  const totalFaze = templates.reduce((sum, template) => sum + template.phases.length, 0)
+  const totalActivitati = templates.reduce((sum, template) => sum + template.phases.reduce((count, phase) => count + (phase.activities?.length ?? 0), 0), 0)
+
   if (authLoading || loading) {
     return (
       <div className="flex h-[60vh] items-center justify-center" role="status" aria-live="polite">
@@ -1413,17 +1325,25 @@ function AdminTemplatesContent() {
       <LocationStrip
         segments={[
           { label: 'Bonie', href: '/' },
-          { label: 'Șabloane', href: '/admin' },
+          { label: 'Șabloane', href: '/admin/templates' },
           ...(showForm
             ? [{ label: editingTemplate ? (editingTemplate.name.trim() || 'Șablon fără nume') : 'Șablon nou' }]
             : [{ label: 'Gestionează' }]),
         ]}
         action={
           !showForm ? (
-            <Button variant="primary" onClick={openCreateForm} aria-label="Șablon nou">
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              <span className="hidden sm:inline">Șablon nou</span>
-            </Button>
+            <>
+              {isAdmin && (
+                <ButtonLink href="/projects/new" variant="secondary" label="Proiect nou">
+                  <FolderOpen className="h-4 w-4" aria-hidden="true" />
+                  <span className="hidden sm:inline">Proiect nou</span>
+                </ButtonLink>
+              )}
+              <Button variant="primary" onClick={openCreateForm} aria-label="Șablon nou">
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                <span className="hidden sm:inline">Șablon nou</span>
+              </Button>
+            </>
           ) : (
             <Button variant="quiet" onClick={resetForm}>
               <X className="h-4 w-4" aria-hidden="true" />
@@ -1437,7 +1357,7 @@ function AdminTemplatesContent() {
         <>
           <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Șabloane</h1>
           <p className="mt-2 text-sm text-ink-soft">
-            {templates.length} {templates.length === 1 ? 'șablon' : 'șabloane'} — creează, editează, publică sau șterge.
+            {templates.length} {templates.length === 1 ? 'șablon' : 'șabloane'} · {totalFaze} {totalFaze === 1 ? 'fază' : 'faze'} · {totalActivitati} {totalActivitati === 1 ? 'activitate' : 'activități'}
           </p>
 
           {templates.length > 0 && (
@@ -1467,18 +1387,19 @@ function AdminTemplatesContent() {
               </EmptyState>
             ) : (
               <div className="overflow-hidden rounded-[var(--radius-plate)] border border-rule bg-plate">
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-sm">
-                    <thead>
+                <table className="block w-full table-fixed border-collapse text-sm lg:table">
+                    <thead className="hidden lg:table-header-group">
                       <tr className="border-b border-rule bg-paper-sunk">
-                        <th scope="col" className="w-full px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Șablon</th>
-                        <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Status</th>
-                        <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Faze</th>
-                        <th scope="col" className="whitespace-nowrap px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Activități</th>
-                        <th scope="col" className="w-px px-4 py-2.5"><span className="sr-only">Acțiuni</span></th>
+                        {/* Acțiunile au loc rezervat; numele se rupe în lățimea rămasă. */}
+                        <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Șablon</th>
+                        <th scope="col" className="w-40 px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Status</th>
+                        <th scope="col" className="w-16 px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Faze</th>
+                        <th scope="col" className="w-24 px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Activități</th>
+                        <th scope="col" className="w-24 px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Documente</th>
+                        <th scope="col" className="w-48 px-4 py-2.5"><span className="sr-only">Acțiuni</span></th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="block lg:table-row-group">
                       {filteredTemplates.map((template) => {
                         const phaseCount = template.phases?.length || 0
                         const activityCount = template.phases?.reduce((sum, p) => sum + (p.activities?.length || 0), 0) || 0
@@ -1489,9 +1410,9 @@ function AdminTemplatesContent() {
                           <Fragment key={template.id}>
                             <tr
                               onClick={() => phaseCount > 0 && toggleTemplateExpanded(template.id)}
-                              className={`border-b border-rule last:border-b-0 transition-colors ${phaseCount > 0 ? 'cursor-pointer hover:bg-paper-sunk' : ''} ${expanded ? 'bg-paper-sunk' : ''}`}
+                              className={`flex flex-wrap items-center border-b border-rule last:border-b-0 transition-colors lg:table-row ${phaseCount > 0 ? 'cursor-pointer hover:bg-paper-sunk' : ''} ${expanded ? 'bg-paper-sunk' : ''}`}
                             >
-                              <td className="px-4 py-3">
+                              <td className="w-full px-4 py-3 lg:w-auto">
                                 <div className="flex items-center gap-1.5">
                                   {phaseCount > 0 ? (
                                     <button
@@ -1507,23 +1428,38 @@ function AdminTemplatesContent() {
                                   ) : (
                                     <span className="w-6 flex-shrink-0" aria-hidden />
                                   )}
-                                  <div className="min-w-0">
-                                    <span className="font-medium text-ink">{template.name}</span>
+                                  <div className="min-w-0 break-words">
+                                    <span className="block font-medium text-ink">{template.name}</span>
                                     {template.description && (
-                                      <span className="ml-2 truncate text-ink-soft">{template.description}</span>
+                                      <span className="mt-0.5 block text-xs leading-5 text-ink-soft line-clamp-1">{template.description}</span>
                                     )}
                                   </div>
                                 </div>
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap">
-                                <Signal tone={template.status === 'draft' ? 'draft' : 'ok'}>
-                                  {template.status === 'draft' ? 'Ciornă' : 'Publicat'}
-                                </Signal>
+                              <td className="max-w-full px-4 pb-3 lg:py-3">
+                                <div className="flex flex-col items-start gap-1.5">
+                                  <Signal tone={template.status === 'draft' ? 'draft' : 'ok'}>
+                                    {template.status === 'draft' ? 'Ciornă' : 'Publicat'}
+                                  </Signal>
+                                  {/* Seniorul poate schimba un șablon publicat, dar numai adminul
+                                      aplică schimbarea în proiecte: eticheta e și intrarea spre asta. */}
+                                  {isAdmin && template.status === 'published' && template.unpropagated_changes_at && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); void openTemplatePropagation(template.id) }}
+                                      title="Deschide aplicarea modificărilor în proiectele existente"
+                                      className="max-w-full rounded-[var(--radius-plate)] text-left transition-opacity hover:opacity-80"
+                                    >
+                                      <Signal tone="warn">Modificări neaplicate în proiecte</Signal>
+                                    </button>
+                                  )}
+                                </div>
                               </td>
-                              <td className="px-4 py-3 text-right tabular-nums text-ink-soft whitespace-nowrap">{phaseCount}</td>
-                              <td className="px-4 py-3 text-right tabular-nums text-ink-soft whitespace-nowrap">{activityCount}</td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                              <td className="px-4 pb-3 tabular-nums text-ink-soft lg:py-3 lg:text-right"><span className="lg:hidden">Faze: </span>{phaseCount}</td>
+                              <td className="px-4 pb-3 tabular-nums text-ink-soft lg:py-3 lg:text-right"><span className="lg:hidden">Activități: </span>{activityCount}</td>
+                              <td className="px-4 pb-3 tabular-nums text-ink-soft lg:py-3 lg:text-right"><span className="lg:hidden">Documente: </span>{countTemplateDocuments(template)}</td>
+                              <td className="w-full px-4 pb-3 lg:w-auto lg:py-3">
+                                <div className="flex flex-wrap items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                                   {editable && (
                                     <IconButton label={`Editează șablonul ${template.name}`} onClick={() => handleEdit(template)}>
                                       <Edit2 className="h-4 w-4" />
@@ -1534,7 +1470,16 @@ function AdminTemplatesContent() {
                                       <Check className="h-4 w-4" />
                                     </IconButton>
                                   )}
-                                  {isAdmin && (
+                                  {canManageTemplates && (
+                                    <IconButton
+                                      label={`Duplică șablonul ${template.name}`}
+                                      disabled={duplicatingId !== null}
+                                      onClick={() => { void duplicateTemplate(template) }}
+                                    >
+                                      {duplicatingId === template.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+                                    </IconButton>
+                                  )}
+                                  {canManageTemplates && (
                                     <IconButton label={`Șterge șablonul ${template.name}`} tone="danger" onClick={() => requestDeleteTemplate(template)}>
                                       <Trash2 className="h-4 w-4" />
                                     </IconButton>
@@ -1543,8 +1488,8 @@ function AdminTemplatesContent() {
                               </td>
                             </tr>
                             {expanded && phaseCount > 0 && (
-                              <tr id={detailsId} className="border-b border-rule bg-paper-sunk last:border-b-0">
-                                <td colSpan={5} className="px-4 py-3 pl-11">
+                              <tr id={detailsId} className="block border-b border-rule bg-paper-sunk last:border-b-0 lg:table-row">
+                                <td colSpan={6} className="block break-words px-4 py-3 pl-11 lg:table-cell">
                                   <ol className="flex flex-col gap-2">
                                     {template.phases.map((phase, index) => {
                                       const status = statuses.find(s => s.id === phase.project_status_id)
@@ -1575,8 +1520,7 @@ function AdminTemplatesContent() {
                         )
                       })}
                     </tbody>
-                  </table>
-                </div>
+                </table>
               </div>
             )}
           </div>
@@ -1686,6 +1630,21 @@ function AdminTemplatesContent() {
                             hasValidationError(`phase:${phase.id}:name`) ? 'border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]' : 'border-rule'
                           }`}
                         />
+                        <select
+                          value={phase.project_status_id}
+                          onChange={(e) => {
+                            updatePhase(phase.id, { project_status_id: e.target.value })
+                            clearValidationError(`phase:${phase.id}:project_status_id`)
+                          }}
+                          aria-label={`Status de proiect pentru faza ${phaseIdx + 1}`}
+                          className={`h-10 rounded-[var(--radius-plate)] border bg-plate px-2 text-sm text-ink transition-colors duration-[120ms] focus:border-[var(--sg-accent)] ${
+                            hasValidationError(`phase:${phase.id}:project_status_id`) ? 'border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]' : 'border-rule'
+                          }`}
+                        >
+                          {statuses.map(s => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
                         <IconButton label={`Duplică faza ${phase.name || phaseIdx + 1}`} onClick={() => duplicatePhase(phase.id)}>
                           <Copy className="h-4 w-4" />
                         </IconButton>
@@ -1696,9 +1655,9 @@ function AdminTemplatesContent() {
 
                       {phase.expanded && (
                         <div className="space-y-3 p-4">
-                          {hasValidationError(`phase:${phase.id}:name`) && (
+                          {(hasValidationError(`phase:${phase.id}:name`) || hasValidationError(`phase:${phase.id}:project_status_id`)) && (
                             <p className="text-xs text-[var(--sg-danger)]">
-                              Completează numele fazei înainte de salvare.
+                              Completează numele fazei și statusul înainte de salvare.
                             </p>
                           )}
 
@@ -1988,7 +1947,7 @@ function AdminTemplatesContent() {
         {publishTarget && (
           <div className="rounded-[var(--radius-plate)] border border-rule bg-paper-sunk p-4 text-sm text-ink space-y-2">
             <p className="font-semibold text-ink">{publishTarget.name}</p>
-            <p>După aprobare, consultanții nu îl mai pot edita.</p>
+            <p>După aprobare, dintre consultanți doar seniorii îl mai pot edita.</p>
             <p className="text-[var(--sg-danger)]">Template-ul nu poate reveni la ciornă.</p>
           </div>
         )}

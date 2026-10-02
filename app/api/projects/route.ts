@@ -1,6 +1,7 @@
 // app/api/projects/route.ts
 import { NextResponse } from 'next/server'
 import { requireProfile, guardToResponse } from '../_utils/auth'
+import { canCreateProjects } from '@/lib/project-permissions'
 import { createSupabaseServiceClient } from '../_utils/supabase'
 import { logProjectAction, getClientIP, getUserAgent } from '../_utils/audit'
 
@@ -83,10 +84,10 @@ export async function POST(request: Request) {
 
     const { user, profile } = ctx
 
-    const allowed = new Set(['admin', 'consultant'])
-    if (!allowed.has(profile.role)) {
+    // Dosare noi deschid doar adminul și consultantul senior; juniorul nu.
+    if (!canCreateProjects(profile)) {
       return NextResponse.json(
-        { error: 'Forbidden: only admin or consultant can create projects' },
+        { error: 'Forbidden: doar adminul și consultanții seniori deschid dosare' },
         { status: 403 }
       )
     }
@@ -96,7 +97,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    const { title, client_id } = body as { title?: unknown; client_id?: unknown }
+    const { title, client_id, supervisor_ids } = body as { title?: unknown; client_id?: unknown; supervisor_ids?: unknown }
 
     if (!isNonEmptyString(title)) {
       return NextResponse.json({ error: 'title must be a non-empty string' }, { status: 400 })
@@ -110,15 +111,46 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'title is too long (max 120 chars)' }, { status: 400 })
     }
 
+    // Supervizorii: cel puțin un consultant senior, care devine membru al
+    // proiectului și îl administrează de la început (issue #104).
+    if (!Array.isArray(supervisor_ids) || !supervisor_ids.every(isNonEmptyString)) {
+      return NextResponse.json({ error: 'supervisor_ids must be an array of consultant ids' }, { status: 400 })
+    }
+    const supervisorIds = [...new Set(supervisor_ids.map(id => id.trim()))]
+    if (supervisorIds.length === 0) {
+      return NextResponse.json({ error: 'Alege cel puțin un supervizor (consultant senior).' }, { status: 400 })
+    }
+
     const admin = createSupabaseServiceClient()
 
-    // Validăm că clientul există
-    const { data: clientProfile, error: clientError } = await admin
-      .from('profiles')
-      .select('id, role, email, full_name, cif')
-      .eq('id', client_id)
-      .maybeSingle()
+    // Supervizorii și clientul se verifică în paralel: nu depind unul de altul.
+    const [
+      { data: supervisors, error: supervisorsError },
+      { data: clientProfile, error: clientError },
+    ] = await Promise.all([
+      admin
+        .from('profiles')
+        .select('id, email, full_name, role, consultant_level, is_active')
+        .in('id', supervisorIds),
+      admin
+        .from('profiles')
+        .select('id, role, email, full_name, cif')
+        .eq('id', client_id)
+        .maybeSingle(),
+    ])
 
+    if (supervisorsError) {
+      console.error('supervisors lookup error:', supervisorsError)
+      return NextResponse.json({ error: 'Failed to validate supervisor_ids' }, { status: 500 })
+    }
+    // Un senior dezactivat n-ar mai putea gestiona dosarul: nu poate fi supervizor.
+    const validSupervisors = (supervisors ?? []).filter(s =>
+      s.role === 'consultant' && s.consultant_level === 'senior' && s.is_active !== false)
+    if (validSupervisors.length !== supervisorIds.length) {
+      return NextResponse.json({ error: 'Supervizorii trebuie să fie consultanți seniori activi.' }, { status: 400 })
+    }
+
+    // Validăm că clientul există
     if (clientError) {
       console.error('client lookup error:', clientError)
       return NextResponse.json({ error: 'Failed to validate client_id' }, { status: 500 })
@@ -148,15 +180,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: insertError.message }, { status: 400 })
     }
 
-    if (profile.role === 'consultant') {
-      const { error: memberError } = await admin
-        .from('project_members')
-        .insert({ project_id: project.id, consultant_id: user.id, role_in_project: 'member' })
+    // Supervizorii și, dacă e consultant, cel care creează proiectul devin
+    // membri dintr-un singur insert. Fără ei proiectul n-ar avea cine să-l
+    // administreze, deci la eșec proiectul abia creat se șterge.
+    const memberIds = new Set(supervisorIds)
+    if (profile.role === 'consultant') memberIds.add(user.id)
+    const { error: memberError } = await admin
+      .from('project_members')
+      .insert([...memberIds].map(consultant_id => ({ project_id: project.id, consultant_id, role_in_project: 'member' })))
 
-      if (memberError) {
-        console.error('project creator membership error:', memberError)
-        return NextResponse.json({ error: 'Project created, but consultant access could not be granted' }, { status: 500 })
-      }
+    if (memberError) {
+      console.error('project members insert error:', memberError)
+      await admin.from('projects').delete().eq('id', project.id)
+      return NextResponse.json({ error: 'Nu am putut adăuga supervizorii în proiect.' }, { status: 500 })
     }
 
     // ✅ AUDIT LOG - Creare proiect
@@ -173,7 +209,8 @@ export async function POST(request: Request) {
         client_name: clientProfile.full_name,
         client_cif: clientProfile.cif,
         status: project.status,
-        cod_intern: project.cod_intern
+        cod_intern: project.cod_intern,
+        supervisors: validSupervisors.map(s => s.email ?? s.full_name ?? s.id),
       },
       description: `${profile.email || 'User'} a creat proiectul "${project.title}" pentru clientul ${clientProfile.email || clientProfile.full_name || client_id}`,
       ipAddress: getClientIP(request),

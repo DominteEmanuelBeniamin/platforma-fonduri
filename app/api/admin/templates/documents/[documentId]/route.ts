@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { guardToResponse, requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
 import { normalizeRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
+import { markTemplateChanged } from '@/app/api/_utils/template-changes'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -169,6 +170,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       })
     }
 
+    await markTemplateChanged(templateAccess.template)
     return NextResponse.json({ document: doc })
   } catch (error: any) {
     console.error('PATCH /api/admin/templates/documents/[documentId] error:', error)
@@ -220,6 +222,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       request: req,
     })
 
+    await markTemplateChanged(templateAccess.template)
     return NextResponse.json({ success: true })
   } catch (error: any) {
     console.error('DELETE /api/admin/templates/documents/[documentId] error:', error)

@@ -38,7 +38,7 @@ function highlightMatch(text: string, query: string) {
   return (
     <>
       {text.slice(0, idx)}
-      <mark className="bg-[var(--sg-warn)] text-[var(--sg-warn)] font-semibold rounded-sm px-0.5">
+      <mark className="bg-[var(--sg-warn-soft)] text-[var(--sg-warn)] font-semibold rounded-sm px-0.5">
         {text.slice(idx, idx + q.length)}
       </mark>
       {text.slice(idx + q.length)}

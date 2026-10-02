@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
+import { markTemplateChanged } from '@/app/api/_utils/template-changes'
 
 async function loadActivityChain(templatePhaseId: string | null | undefined) {
   if (!templatePhaseId) return { phaseName: '', templateName: '' }
@@ -88,6 +89,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       })
     }
 
+    await markTemplateChanged(templateAccess.template)
     return NextResponse.json({ activity })
   } catch (error: any) {
     console.error('PATCH /api/admin/templates/activities/[activityId] error:', error)
@@ -140,6 +142,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       request: req,
     })
 
+    await markTemplateChanged(templateAccess.template)
     return NextResponse.json({ success: true })
   } catch (error: any) {
     console.error('DELETE /api/admin/templates/activities/[activityId] error:', error)

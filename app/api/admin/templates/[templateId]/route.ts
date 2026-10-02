@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { requireAdmin, requireTemplateAccess } from '@/app/api/_utils/auth'
+import { requireTemplateAccess, requireTemplateManager } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
+import { loadTemplateTree } from '@/app/api/_utils/template-tree'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,13 +21,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const auth = await requireTemplateAccess(req, templateId, 'read')
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-    const { data: template, error } = await supabaseAdmin
-      .from('project_templates')
-      .select('*')
-      .eq('id', templateId)
-      .single()
+    const template = await loadTemplateTree(
+      supabaseAdmin,
+      templateId,
+      '*, measure:program_measures(name, program:programs(name))',
+    )
 
-    if (error || !template) {
+    if (!template) {
       return NextResponse.json({ error: 'Template negăsit' }, { status: 404 })
     }
 
@@ -51,6 +52,15 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const auth = await requireTemplateAccess(req, templateId, status !== undefined ? 'publish' : 'edit')
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
+    // Dezactivarea și „implicit” schimbă ce văd toți la crearea unui proiect:
+    // rămân la admin, oricine altcineva ar avea drept de editare.
+    if ((is_default !== undefined || is_active !== undefined) && auth.profile.role !== 'admin') {
+      return NextResponse.json(
+        { error: 'Doar adminul poate dezactiva un șablon sau îl poate face implicit' },
+        { status: 403 }
+      )
+    }
+
     const updateData: Record<string, any> = {}
     if (name !== undefined) updateData.name = name
     if (slug !== undefined) updateData.slug = slug
@@ -58,7 +68,11 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (measure_id !== undefined) updateData.measure_id = measure_id
     if (is_default !== undefined) updateData.is_default = is_default
     if (is_active !== undefined) updateData.is_active = is_active
-    if (status !== undefined) updateData.status = status
+    if (status !== undefined) {
+      updateData.status = status
+      // Un șablon abia publicat n-are încă proiecte în care să fie aplicat.
+      updateData.unpropagated_changes_at = null
+    }
 
     const { data: before, error: beforeError } = await supabaseAdmin
       .from('project_templates')
@@ -104,9 +118,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 // DELETE /api/admin/templates/[templateId]
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
-    const auth = await requireAdmin(req)
+    const auth = await requireTemplateManager(req)
     if (!auth.ok) {
-      return NextResponse.json({ error: 'Doar adminii pot șterge template-uri' }, { status: 403 })
+      const error = auth.status === 403 ? 'Doar adminii și consultanții seniori pot șterge template-uri' : auth.error
+      return NextResponse.json({ error }, { status: auth.status })
     }
 
     const { templateId } = await params

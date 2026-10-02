@@ -70,8 +70,8 @@ test.describe('Ecranele de administrare', () => {
     await page.goto('/admin', { waitUntil: 'networkidle' })
     await expect(page.getByRole('heading', { name: 'Șabloane', level: 1 })).toBeVisible()
     await expect(page.getByText(/\d+ (șablon|șabloane) · \d+ (fază|faze) · \d+/)).toBeVisible()
-    // Acțiunile au urcat în fâșia de locație.
-    await expect(page.getByRole('link', { name: /Șablon nou/ })).toBeVisible()
+    // Acțiunile au urcat în fâșia de locație; „Șablon nou” deschide formularul pe loc.
+    await expect(page.getByRole('button', { name: /Șablon nou/ })).toBeVisible()
     await expect(page.getByRole('link', { name: /Proiect nou/ })).toBeVisible()
   })
 

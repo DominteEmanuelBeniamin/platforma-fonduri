@@ -97,7 +97,9 @@ export function LocationStrip({
         </p>
       </nav>
 
-      {action ? <div className="flex shrink-0 items-center gap-2">{action}</div> : null}
+      {/* `flex-wrap`: pe telefon acțiunile unui proiect nu încap pe un rând, iar
+          `overflow-x-hidden` de pe body le-ar tăia în tăcere pe ultimele. */}
+      {action ? <div className="flex min-w-0 flex-wrap items-center gap-2">{action}</div> : null}
     </div>
   )
 }

@@ -11,6 +11,7 @@ type PatchBody = Partial<{
   telefon: unknown
   cif: unknown
   email: unknown
+  consultant_level: unknown
 }>
 
 function isStringOrNullOrUndef(x: unknown) {
@@ -43,7 +44,7 @@ export async function PATCH(
     // Obținem profilul curent ÎNAINTE de update (pentru audit)
     const { data: oldProfile } = await admin
       .from('profiles')
-      .select('id, email, full_name, role, telefon, cif, nume_firma, adresa_firma, departament, specializare')
+      .select('id, email, full_name, role, consultant_level, telefon, cif, nume_firma, adresa_firma, departament, specializare')
       .eq('id', targetUserId)
       .single()
 
@@ -108,9 +109,28 @@ export async function PATCH(
       update.role = role
     }
 
+    // consultant_level (DOAR admin, doar pentru consultanți)
+    if (body.consultant_level !== undefined) {
+      if (!ctx.isAdmin) {
+        return NextResponse.json({ error: 'Forbidden: only admin can update consultant_level' }, { status: 403 })
+      }
+      if (body.consultant_level !== 'junior' && body.consultant_level !== 'senior') {
+        return NextResponse.json({ error: 'consultant_level must be "junior" or "senior"' }, { status: 400 })
+      }
+      if ((update.role ?? oldProfile?.role) !== 'consultant') {
+        return NextResponse.json({ error: 'consultant_level se poate seta doar pentru consultanți' }, { status: 400 })
+      }
+      update.consultant_level = body.consultant_level
+    }
+
+    // Cine nu mai e consultant pierde nivelul, ca să nu redevină senior fără o decizie.
+    if (update.role !== undefined && update.role !== 'consultant' && oldProfile?.consultant_level === 'senior') {
+      update.consultant_level = 'junior'
+    }
+
     if (Object.keys(update).length === 0) {
       return NextResponse.json(
-        { error: 'Nothing to update. Allowed fields: full_name, telefon, cif, role (admin only).' },
+        { error: 'Nothing to update. Allowed fields: full_name, telefon, cif, role and consultant_level (admin only).' },
         { status: 400 }
       )
     }
@@ -119,7 +139,7 @@ export async function PATCH(
       .from('profiles')
       .update(update)
       .eq('id', targetUserId)
-      .select('id, email, full_name, role, telefon, cif')
+      .select('id, email, full_name, role, consultant_level, telefon, cif')
       .single()
 
     if (error) {
@@ -142,6 +162,8 @@ export async function PATCH(
     let description = `${ctx.profile.email} a modificat utilizatorul ${data.email}`
     if (update.role && oldProfile?.role !== update.role) {
       description = `${ctx.profile.email} a schimbat rolul utilizatorului ${data.email} din "${oldProfile?.role}" în "${update.role}"`
+    } else if (update.consultant_level && oldProfile?.consultant_level !== update.consultant_level) {
+      description = `${ctx.profile.email} a schimbat nivelul consultantului ${data.email} din "${oldProfile?.consultant_level}" în "${update.consultant_level}"`
     }
 
     await logUserAction({

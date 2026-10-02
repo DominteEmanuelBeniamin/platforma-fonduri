@@ -11,6 +11,7 @@ import {
 } from '@/app/api/_utils/attachment-storage'
 import { parseTemplateDuplication } from '@/app/api/_utils/template-duplication'
 import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
+import { markTemplateChanged } from '@/app/api/_utils/template-changes'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -206,6 +207,7 @@ export async function POST(req: NextRequest) {
       request: req,
     })
 
+    await markTemplateChanged(templateAccess.template)
     return NextResponse.json({ document: doc }, { status: 201 })
   } catch (error: any) {
     console.error('POST /api/admin/templates/documents error:', error)

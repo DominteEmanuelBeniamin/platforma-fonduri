@@ -17,7 +17,8 @@ import { toMs, isSameDay, formatDayLabel, formatTime } from './date-helpers'
 export default function ChatMessageList({
   messages,
   userId,
-  isAdmin,
+  canModerate,
+  canEditOthers,
   firstUnreadMessageId,
   projectReadReceipt,
   renderBody,
@@ -40,7 +41,10 @@ export default function ChatMessageList({
 }: {
   messages: any[]
   userId: string | null | undefined
-  isAdmin: boolean
+  /** Șterge mesajele altora: adminul și seniorul membru. */
+  canModerate: boolean
+  /** Modifică textul mesajelor altora: doar adminul. */
+  canEditOthers: boolean
   firstUnreadMessageId: string | null
   projectReadReceipt: { messageId: string; label: string } | null
   renderBody: (body: string | null, masked?: boolean, isOwn?: boolean) => React.ReactNode
@@ -263,7 +267,7 @@ export default function ChatMessageList({
                               </p>
                             )}
                           </div>
-                          {!m.deleted_at && (isAdmin || isMe) && (
+                          {!m.deleted_at && (canModerate || isMe) && (
                             <div className={`absolute top-1 transition-opacity ${isMe ? "-left-9" : "-right-9"} ${openMenuId === `message:${m.id}` ? "opacity-100" : "opacity-0 group-hover/message:opacity-100"}`}>
                               <button
                                 type="button"
@@ -278,7 +282,7 @@ export default function ChatMessageList({
                               </button>
                               {openMenuId === `message:${m.id}` && (
                                 <div className={`absolute top-full mt-1 z-50 min-w-[140px] rounded-xl border border-rule bg-white p-1.5 shadow-xl ${isMe ? "left-0" : "right-0"}`} onClick={(e) => e.stopPropagation()}>
-                                  {!m.body_masked && (
+                                  {!m.body_masked && (canEditOthers || isMe) && (
                                     <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-ink hover:bg-paper-sunk" onClick={() => { setOpenMenuId(null); startEdit(m.id, m.body ?? ""); }}>
                                       <Pencil className="h-4 w-4 text-ink-faint" /> Editează
                                     </button>
@@ -322,7 +326,7 @@ export default function ChatMessageList({
                                   onError={() => { void requestImageRefresh(m.id, image); }}
                                 />
                               </button>
-                              {!m.deleted_at && (isAdmin || isMe) && (
+                              {!m.deleted_at && (canModerate || isMe) && (
                                 <div className={`absolute top-1/2 -translate-y-1/2 transition-opacity ${isMe ? "-left-9" : "-right-9"} ${openMenuId === `image:${m.id}:${image.path}` ? "opacity-100" : "opacity-0 group-hover/image:opacity-100"}`}>
                                   <button
                                     type="button"

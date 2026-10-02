@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
+import { markTemplateChanged } from '@/app/api/_utils/template-changes'
 
 async function loadTemplateName(templateId: string | null | undefined): Promise<string> {
   if (!templateId) return ''
@@ -48,7 +49,12 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const updateData: Record<string, any> = {}
     if (name !== undefined) updateData.name = name
     if (description !== undefined) updateData.description = description
-    if (project_status_id !== undefined) updateData.project_status_id = project_status_id || null
+    if (project_status_id !== undefined) {
+      if (!project_status_id) {
+        return NextResponse.json({ error: 'Faza trebuie să aibă un status' }, { status: 400 })
+      }
+      updateData.project_status_id = project_status_id
+    }
     if (order_index !== undefined) updateData.order_index = order_index
     if (estimated_days !== undefined) updateData.estimated_days = estimated_days
     if (is_active !== undefined) updateData.is_active = is_active
@@ -120,6 +126,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       })
     }
 
+    await markTemplateChanged(templateAccess.template)
     return NextResponse.json({ phase })
   } catch (error: any) {
     console.error('PATCH /api/admin/templates/phases/[phaseId] error:', error)
@@ -171,6 +178,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       request: req,
     })
 
+    await markTemplateChanged(templateAccess.template)
     return NextResponse.json({ success: true })
   } catch (error: any) {
     console.error('DELETE /api/admin/templates/phases/[phaseId] error:', error)

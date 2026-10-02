@@ -5,6 +5,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { Building2, Briefcase, Shield } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { useToast } from '@/app/providers/ToastProvider'
 import { LocationStrip } from '@/components/ui/LocationStrip'
 import DriveFilesView, { DriveRow } from '@/components/DriveFilesView'
 import { Spinner } from '@/components/ui/Spinner'
@@ -24,6 +25,40 @@ function RoleBadge({ role }: { role: string }) {
   )
 }
 
+/**
+ * Nivelul consultantului. Seniorul administrează proiectele în care e membru
+ * și are drepturi în plus pe șabloane; juniorul lucrează ca până acum.
+ */
+function LevelSwitch({
+  level,
+  saving,
+  onChange,
+}: {
+  level: 'junior' | 'senior'
+  saving: boolean
+  onChange: (level: 'junior' | 'senior') => void
+}) {
+  return (
+    <div role="radiogroup" aria-label="Nivelul consultantului" className="inline-flex shrink-0 rounded-[var(--radius-plate)] border border-rule bg-plate p-0.5">
+      {(['junior', 'senior'] as const).map(option => (
+        <button
+          key={option}
+          type="button"
+          role="radio"
+          aria-checked={level === option}
+          disabled={saving}
+          onClick={() => { if (level !== option) onChange(option) }}
+          className={`h-11 rounded-[calc(var(--radius-plate)-2px)] px-3 text-xs font-semibold transition-colors duration-[120ms] disabled:opacity-55 sm:h-8 ${
+            level === option ? 'bg-paper-sunk text-ink' : 'text-ink-soft hover:text-ink'
+          }`}
+        >
+          {option === 'junior' ? 'Junior' : 'Senior'}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function UserFilesPage() {
@@ -31,18 +66,50 @@ export default function UserFilesPage() {
   const params  = useParams()
   const userId  = params?.id as string
 
-  const { apiFetch, loading: authLoading, token } = useAuth()
+  const { apiFetch, loading: authLoading, token, profile } = useAuth()
+  const { showToast, confirm } = useToast()
 
   const [user,     setUser]     = useState<any>(null)
   const [allFiles, setAllFiles] = useState<any[]>([])
   const [loading,  setLoading]  = useState(true)
+  const [savingLevel, setSavingLevel] = useState(false)
+
+  async function changeLevel(level: 'junior' | 'senior') {
+    const name = user?.full_name || user?.email
+    if (!await confirm({
+      title: level === 'senior' ? 'Promovezi consultantul la senior?' : 'Retrogradezi consultantul la junior?',
+      description: level === 'senior'
+        ? `${name} va putea edita proiectele în care e membru, șterge faze și activități, gestiona echipa și modera chatul, plus edita, șterge și duplica șabloane.`
+        : `${name} pierde drepturile de senior de la următoarea acțiune, fără să fie nevoie să se reconecteze.`,
+      confirmText: level === 'senior' ? 'Promovează' : 'Retrogradează',
+    })) return
+    setSavingLevel(true)
+    try {
+      const res = await apiFetch(`/api/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ consultant_level: level }),
+      })
+      if (!res.ok) throw new Error()
+      const { profile } = await res.json()
+      setUser((prev: any) => ({ ...prev, consultant_level: profile?.consultant_level ?? level }))
+      showToast(level === 'senior' ? 'Consultantul e acum senior.' : 'Consultantul e acum junior.', 'success')
+    } catch {
+      showToast('Nu am putut schimba nivelul. Reîncearcă.', 'error')
+    } finally {
+      setSavingLevel(false)
+    }
+  }
 
   useEffect(() => {
     if (authLoading) return
     if (!token) { router.replace('/login'); return }
+    if (!profile) return
+    // Conturile și nivelul consultanților le gestionează doar adminul.
+    if (profile.role !== 'admin') { router.replace('/'); return }
     loadAll()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, token, userId])
+  }, [authLoading, token, userId, profile])
 
   async function loadAll() {
     setLoading(true)
@@ -135,6 +202,13 @@ export default function UserFilesPage() {
         action={
           <>
             <RoleBadge role={user.role} />
+            {user.role === 'consultant' && (
+              <LevelSwitch
+                level={user.consultant_level === 'senior' ? 'senior' : 'junior'}
+                saving={savingLevel}
+                onChange={level => { void changeLevel(level) }}
+              />
+            )}
             {user.cif && (
               <span className="hidden shrink-0 rounded-[var(--radius-plate)] bg-paper-sunk px-2.5 py-1 text-xs text-ink-soft sm:block">
                 CIF {user.cif}

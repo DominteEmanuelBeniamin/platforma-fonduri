@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // app/api/projects/[id]/route.ts
 import { NextResponse } from 'next/server'
-import { guardToResponse, requireAdmin, requireProjectAccess } from '../../_utils/auth'
+import { guardToResponse, projectPermissions, requireAdmin, requireProjectAccess, requireProjectManager } from '../../_utils/auth'
 import { createSupabaseServiceClient } from '../../_utils/supabase'
 import { logProjectAction, getClientIP, getUserAgent } from '../../_utils/audit'
 
@@ -35,7 +35,7 @@ export async function GET(
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     }
 
-    return NextResponse.json({ project })
+    return NextResponse.json({ project, permissions: projectPermissions(ctx.access) })
   } catch (e: unknown) {
     const err = e as Error
     console.error('GET /api/projects/[id] error:', err)
@@ -53,8 +53,9 @@ export async function PATCH(
       return NextResponse.json({ error: 'Project ID lipsește din URL' }, { status: 400 })
     }
 
-    // Doar admin poate edita proiecte
-    const ctx = await requireAdmin(request)
+    // Adminul și consultantul senior membru pot edita proiectul; reasignarea
+    // clientului/consultantului general rămâne la admin (verificat mai jos).
+    const ctx = await requireProjectManager(request, projectId)
     if (!ctx.ok) return guardToResponse(ctx)
 
     const admin = createSupabaseServiceClient()
@@ -86,6 +87,13 @@ export async function PATCH(
       client_id?: unknown
       general_consultant_id?: unknown
       automatic_reminders_enabled?: unknown
+    }
+
+    if (ctx.access.role !== 'admin' && (client_id !== undefined || general_consultant_id !== undefined)) {
+      return NextResponse.json(
+        { error: 'Forbidden: doar adminul poate schimba clientul sau consultantul general' },
+        { status: 403 }
+      )
     }
 
     const update: Record<string, any> = {}
@@ -189,7 +197,7 @@ export async function PATCH(
     }
 
     // Descriere detaliată
-    const adminEmail = (ctx.profile as { email?: string | null }).email || 'Admin'
+    const adminEmail = ctx.profile.email || (ctx.access.role === 'admin' ? 'Admin' : 'Consultant')
     let description = `${adminEmail} a modificat proiectul "${oldProject.title}"`
     if (update.status && oldProject.status !== update.status) {
       description = `${adminEmail} a schimbat statusul proiectului "${oldProject.title}" din "${oldProject.status}" în "${update.status}"`

@@ -62,7 +62,7 @@ function generateSlug(text: string): string {
 
 export default function AdminStatusesPage() {
   const router = useRouter()
-  const { loading: authLoading, token, apiFetch } = useAuth()
+  const { loading: authLoading, token, apiFetch, profile } = useAuth()
   const { showToast } = useToast()
   
   const [statuses, setStatuses] = useState<ProjectStatus[]>([])
@@ -97,8 +97,11 @@ export default function AdminStatusesPage() {
   useEffect(() => {
     if (authLoading) return
     if (!token) { router.replace('/login'); return }
+    if (!profile) return
+    // Statusurile de proiect le gestionează doar adminul.
+    if (profile.role !== 'admin') { router.replace('/'); return }
     fetchStatuses()
-  }, [authLoading, token, router, fetchStatuses])
+  }, [authLoading, token, router, fetchStatuses, profile])
 
   useEffect(() => {
     if (newStatus.name && !editingId) {

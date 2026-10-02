@@ -5,6 +5,7 @@ import { requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { parseTemplateDuplication } from '@/app/api/_utils/template-duplication'
 import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
+import { markTemplateChanged } from '@/app/api/_utils/template-changes'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,8 +23,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { template_id, project_status_id, name, slug, description, order_index, estimated_days } = body
 
-    if (!template_id || !name) {
-      return NextResponse.json({ error: 'Template-ul și numele sunt obligatorii' }, { status: 400 })
+    if (!template_id || !project_status_id || !name) {
+      return NextResponse.json({ error: 'Template, status și nume sunt obligatorii' }, { status: 400 })
     }
 
     // Generează slug dacă nu e furnizat
@@ -87,7 +88,7 @@ export async function POST(req: NextRequest) {
       .from('template_phases')
       .insert({
         template_id,
-        project_status_id: project_status_id || null,
+        project_status_id,
         name,
         slug: finalSlug,
         description: description || null,
@@ -120,6 +121,7 @@ export async function POST(req: NextRequest) {
       request: req,
     })
 
+    await markTemplateChanged(templateAccess.template)
     return NextResponse.json({ phase }, { status: 201 })
   } catch (error: any) {
     console.error('POST /api/admin/templates/phases error:', error)

@@ -60,7 +60,7 @@ interface AuditLog {
   ip_address: string | null
   user_agent: string | null
   created_at: string
-  user?: { email: string; full_name: string | null }
+  user?: { email: string; full_name: string | null } | null
 }
 
 interface Pagination {
@@ -826,7 +826,7 @@ function LogRow({
               {(isSystem ? 'S' : (log.user?.full_name?.[0] || log.user?.email?.[0] || '?')).toUpperCase()}
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-ink">{isSystem ? 'Sistem' : log.user?.full_name || 'Necunoscut'}</p>
+              <p className="truncate text-sm font-medium text-ink">{isSystem ? 'Sistem' : log.user?.full_name || log.user?.email || 'Cont șters'}</p>
               {!isSystem && log.user?.email && <p className="truncate text-xs text-ink-faint">{log.user.email}</p>}
             </div>
             {onFilterUser && (

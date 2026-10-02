@@ -17,7 +17,6 @@ import {
   Pencil,
 } from 'lucide-react'
 
-import TeamManager from '@/components/TeamManager'
 import InlineDateEditor from '@/components/InlineDateEditor'
 import InlineInput from '@/components/InlineInput'
 import RowActionsMenu from '@/components/RowActionsMenu'
@@ -30,6 +29,7 @@ import {
   phaseDeletionConfirm,
   phaseDeletionImpact,
 } from '@/lib/deletion-impact'
+import type { ProjectPermissions } from '@/lib/project-permissions'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -70,7 +70,7 @@ interface ProjectPhasesSidebarProps {
   activePhaseId: string | null
   expandedPhases: Set<string>
   canEdit: boolean
-  isAdmin: boolean
+  permissions: ProjectPermissions
   projectId: string
   documentRequests: DocumentRequestPreview[]
   isGeneralActive: boolean
@@ -81,7 +81,6 @@ interface ProjectPhasesSidebarProps {
   onReorderRefresh?: () => Promise<void> | void
   /** Faze + cereri, fără spinner — după duplicare, unde apar și cereri noi. */
   onDuplicateRefresh?: () => Promise<void> | void
-  onTeamChange?: () => void
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>
   /** Pe mobil, sidebar-ul devine un drawer — controlat din pagina părinte. */
   mobileOpen: boolean
@@ -95,7 +94,7 @@ export default function ProjectPhasesSidebar({
   activePhaseId,
   expandedPhases,
   canEdit,
-  isAdmin,
+  permissions,
   projectId,
   documentRequests,
   isGeneralActive,
@@ -105,7 +104,6 @@ export default function ProjectPhasesSidebar({
   onRefresh,
   onReorderRefresh,
   onDuplicateRefresh,
-  onTeamChange,
   apiFetch,
   mobileOpen,
   onMobileClose,
@@ -547,7 +545,7 @@ export default function ProjectPhasesSidebar({
                             label: 'Șterge',
                             icon: <Trash2 className="w-3 h-3" />,
                             danger: true,
-                            hidden: !isAdmin,
+                            hidden: !permissions.delete_phases,
                             onSelect: () => { void askToDeletePhase(phase) },
                           },
                         ]}
@@ -648,7 +646,7 @@ export default function ProjectPhasesSidebar({
                                   label: 'Șterge',
                                   icon: <Trash2 className="w-3 h-3" />,
                                   danger: true,
-                                  hidden: !isAdmin,
+                                  hidden: !permissions.delete_phases,
                                   onSelect: () => { void askToDeleteActivity(phase, act) },
                                 },
                               ]}
@@ -754,12 +752,6 @@ export default function ProjectPhasesSidebar({
         </div>
       </nav>
 
-      {/* Team manager */}
-      {isAdmin && (
-        <div className="flex-shrink-0 border-t border-[var(--p-border)]">
-          <TeamManager projectId={projectId} onTeamChange={onTeamChange} />
-        </div>
-      )}
       </aside>
     </>
   )

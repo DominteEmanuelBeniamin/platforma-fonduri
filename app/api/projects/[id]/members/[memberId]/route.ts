@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireAdmin, guardToResponse} from '../../../../_utils/auth'
+import { requireProjectManager, guardToResponse } from '../../../../_utils/auth'
 import { createSupabaseServiceClient } from '../../../../_utils/supabase'
 import { logAction } from '../../../../_utils/audit'
 
@@ -18,8 +18,8 @@ export async function DELETE(
       return NextResponse.json({ error: 'Member ID lipsește din URL' }, { status: 400 })
     }
 
-    // 1) Admin-only
-    const ctx = await requireAdmin(request)
+    // 1) Admin sau consultant senior membru
+    const ctx = await requireProjectManager(request, projectId)
     if (!ctx.ok) return guardToResponse(ctx)
 
     const admin = createSupabaseServiceClient()
@@ -42,11 +42,28 @@ export async function DELETE(
 
     const [{ data: projectRow }, { data: consultantProfile }] = await Promise.all([
       admin.from('projects').select('title').eq('id', projectId).maybeSingle(),
-      admin.from('profiles').select('full_name, email').eq('id', existing.consultant_id).maybeSingle(),
+      admin.from('profiles').select('full_name, email, consultant_level').eq('id', existing.consultant_id).maybeSingle(),
     ])
     const projectTitle = projectRow?.title ?? projectId
     const consultantLabel =
       consultantProfile?.email ?? consultantProfile?.full_name ?? existing.consultant_id
+
+    // Seniorul scoate doar juniori: nu alt senior și nici pe el însuși.
+    // Adminul poate scoate pe oricine; restul regulilor le aplică baza.
+    if (ctx.access.role !== 'admin') {
+      if (existing.consultant_id === ctx.user.id) {
+        return NextResponse.json(
+          { error: 'Forbidden: nu te poți scoate singur din echipă', reason: 'self' },
+          { status: 403 }
+        )
+      }
+      if (consultantProfile?.consultant_level === 'senior') {
+        return NextResponse.json(
+          { error: 'Forbidden: un consultant senior nu poate scoate alt senior', reason: 'senior' },
+          { status: 403 }
+        )
+      }
+    }
 
     // 3) Ștergere
     const { error: delErr } = await admin.rpc('remove_project_member_if_unassigned', {
@@ -59,7 +76,17 @@ export async function DELETE(
         return NextResponse.json({ error: delErr.message }, { status: 404 })
       }
       if (delErr.code === 'P0001') {
-        return NextResponse.json({ error: delErr.message }, { status: 409 })
+        // `reason` rămâne lizibil pentru interfață: apiFetch înlocuiește
+        // `error` cu un mesaj generic, ca textul bazei să nu ajungă la utilizator.
+        const message = delErr.message.toLowerCase()
+        const reason = message.includes('general consultant')
+          ? 'general_consultant'
+          : message.includes('document request')
+          ? 'assigned_request'
+          : message.includes('activity')
+          ? 'assigned_activity'
+          : 'blocked'
+        return NextResponse.json({ error: delErr.message, reason }, { status: 409 })
       }
       console.error('Remove project member RPC error:', delErr)
       return NextResponse.json({ error: delErr.message }, { status: 500 })
