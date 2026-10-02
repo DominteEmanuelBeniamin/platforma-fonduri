@@ -1,103 +1,177 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // app/api/users/route.ts
 import { NextResponse } from 'next/server'
+import { Resend } from 'resend'
 import { requireAdmin, requireProfile, guardToResponse } from '../_utils/auth'
 import { createSupabaseServiceClient } from '../_utils/supabase'
 import { logUserAction, getClientIP, getUserAgent } from '../_utils/audit'
+import { escapeHtml, isValidReminderEmail, resendFromAddress, resolveReminderDelivery, sanitizeHeaderText } from '../_utils/email'
+import { generateTemporaryPassword } from '@/lib/temporary-password'
+
+function optionalText(value: unknown) {
+  return typeof value === 'string' ? value.trim() || null : null
+}
+
+function appLoginUrl() {
+  try {
+    const configured = process.env.NEXT_PUBLIC_APP_URL?.trim()
+    if (!configured) return null
+    const base = new URL(configured)
+    if (!['http:', 'https:'].includes(base.protocol) || !base.hostname || base.username || base.password) return null
+    return new URL('/login', base.origin).toString()
+  } catch {
+    return null
+  }
+}
+
+function partialProfileFailure(userId: string) {
+  return NextResponse.json({
+    code: 'profile_update_failed',
+    error: 'Contul de autentificare a fost creat, dar profilul nu a putut fi actualizat. Este necesară remedierea manuală.',
+    userId,
+  }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
+}
 
 export async function POST(request: Request) {
   try {
     const ctx = await requireAdmin(request)
     if (!ctx.ok) return guardToResponse(ctx)
 
-    const body = await request.json()
-    const { 
-      email, 
-      password, 
-      role, 
-      fullName, 
-      telefon, 
-      cif, 
-      numeFirma, 
-      adresaFirma, 
-      persoanaContact, 
-      specializare, 
-      departament 
-    } = body
+    let body: unknown
+    try {
+      body = await request.json()
+    } catch {
+      return NextResponse.json({ error: 'Datele trimise nu sunt valide.' }, { status: 400 })
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return NextResponse.json({ error: 'Datele trimise nu sunt valide.' }, { status: 400 })
+    }
 
+    const input = body as Record<string, unknown>
+    const email = typeof input.email === 'string' ? input.email.trim() : ''
+    const role = input.role
+    const fullName = typeof input.fullName === 'string' ? input.fullName.trim() : ''
+    if (!isValidReminderEmail(email) || !fullName || (role !== 'client' && role !== 'consultant' && role !== 'admin')) {
+      return NextResponse.json({ error: 'Emailul, numele și rolul trebuie completate corect.' }, { status: 400 })
+    }
+
+    const generatedPassword = generateTemporaryPassword()
     const admin = createSupabaseServiceClient()
-    
     const { data: authData, error: authError } = await admin.auth.admin.createUser({
-      email: email,
-      password: password,
-      email_confirm: true
+      email,
+      password: generatedPassword,
+      email_confirm: true,
     })
+    if (authError || !authData.user) {
+      return NextResponse.json({ error: 'Nu s-a putut crea contul. Verifică datele și dacă emailul există deja.' }, { status: 400 })
+    }
 
-    if (authError) throw authError
+    const userId = authData.user.id
+    const profileUpdate: any = {
+      role,
+      full_name: fullName,
+      telefon: optionalText(input.telefon),
+      must_change_password: true,
+    }
+    if (role === 'client') {
+      profileUpdate.cif = optionalText(input.cif)
+      profileUpdate.nume_firma = optionalText(input.numeFirma)
+      profileUpdate.adresa_firma = optionalText(input.adresaFirma)
+      profileUpdate.persoana_contact = optionalText(input.persoanaContact)
+    } else if (role === 'consultant') {
+      profileUpdate.specializare = optionalText(input.specializare)
+      profileUpdate.departament = optionalText(input.departament)
+    } else if (role === 'admin') {
+      profileUpdate.departament = optionalText(input.departament)
+    }
 
-    if (authData.user) {
-      const profileUpdate: any = {
-        role: role,
-        full_name: fullName,
-        telefon: telefon || null
-      }
-
-      if (role === 'client') {
-        profileUpdate.cif = cif || null
-        profileUpdate.nume_firma = numeFirma || null
-        profileUpdate.adresa_firma = adresaFirma || null
-        profileUpdate.persoana_contact = persoanaContact || null
-      } else if (role === 'consultant') {
-        profileUpdate.specializare = specializare || null
-        profileUpdate.departament = departament || null
-      } else if (role === 'admin') {
-        profileUpdate.departament = departament || null
-      }
-
-      const { error: profileError } = await admin
+    try {
+      const { data: updatedProfiles, error: profileError } = await admin
         .from('profiles')
         .update(profileUpdate)
-        .eq('id', authData.user.id)
+        .eq('id', userId)
+        .select('id')
+      if (profileError || updatedProfiles?.[0]?.id !== userId) return partialProfileFailure(userId)
+    } catch {
+      return partialProfileFailure(userId)
+    }
 
-      if (profileError) throw profileError
-
-      // ✅ AUDIT LOG - Creare utilizator
-      const auditData: Record<string, any> = {
-        email,
-        role,
-        full_name: fullName,
-        telefon: telefon || null
+    let emailSent = false
+    const delivery = resolveReminderDelivery(email)
+    const appUrl = appLoginUrl()
+    const resendApiKey = process.env.RESEND_API_KEY?.trim()
+    if (delivery.ok && appUrl && resendApiKey) {
+      const safeEmail = escapeHtml(email)
+      const safePassword = escapeHtml(generatedPassword)
+      const safeLoginUrl = escapeHtml(appUrl)
+      const companyName = role === 'client' ? optionalText(input.numeFirma) : null
+      const introduction = 'Ai acum acces la Bonie' + (companyName ? ' pentru ' + companyName : '') +
+        '. Folosește datele de mai jos pentru a te autentifica:'
+      try {
+        const result = await new Resend(resendApiKey).emails.send({
+          from: resendFromAddress(role === 'client' ? 'client' : 'internal'),
+          to: delivery.data.deliveryEmail,
+          subject: sanitizeHeaderText('Bun venit în Bonie'),
+          html: '<p>Bună, ' + escapeHtml(fullName) + ',</p>' +
+            '<p>' + escapeHtml(introduction) + '</p>' +
+            '<p>Adresa de email: <strong>' + safeEmail + '</strong></p>' +
+            '<p>Parola temporară: <code>' + safePassword + '</code></p>' +
+            '<p>Intră în cont: <a href="' + safeLoginUrl + '">' + safeLoginUrl + '</a></p>' +
+            '<p>După autentificare, te rugăm să schimbi parola temporară.</p>',
+          text: 'Bună, ' + fullName + ',\n\n' + introduction + '\n\n' +
+            'Adresa de email: ' + email + '\n' +
+            'Parola temporară: ' + generatedPassword + '\n' +
+            'Intră în cont: ' + appUrl + '\n\n' +
+            'După autentificare, te rugăm să schimbi parola temporară.',
+        }, { idempotencyKey: 'welcome-user/' + userId })
+        emailSent = !result.error && Boolean(result.data?.id)
+      } catch {
+        emailSent = false
       }
+    }
 
-      if (role === 'client') {
-        auditData.cif = cif || null
-        auditData.nume_firma = numeFirma || null
-        auditData.adresa_firma = adresaFirma || null
-        auditData.persoana_contact = persoanaContact || null
-      } else if (role === 'consultant') {
-        auditData.specializare = specializare || null
-        auditData.departament = departament || null
-      } else if (role === 'admin') {
-        auditData.departament = departament || null
-      }
+    const auditData: Record<string, any> = {
+      email,
+      role,
+      full_name: fullName,
+      telefon: profileUpdate.telefon,
+      welcome_email_sent: emailSent,
+    }
+    if (role === 'client') {
+      auditData.cif = profileUpdate.cif
+      auditData.nume_firma = profileUpdate.nume_firma
+      auditData.adresa_firma = profileUpdate.adresa_firma
+      auditData.persoana_contact = profileUpdate.persoana_contact
+    } else if (role === 'consultant') {
+      auditData.specializare = profileUpdate.specializare
+      auditData.departament = profileUpdate.departament
+    } else if (role === 'admin') {
+      auditData.departament = profileUpdate.departament
+    }
 
+    try {
       await logUserAction({
         adminId: ctx.user.id,
         actionType: 'create',
-        userId: authData.user.id,
+        userId,
         userEmail: email,
         oldValues: null,
         newValues: auditData,
-        description: `${ctx.profile.email || 'Admin'} a creat utilizatorul ${email} cu rolul ${role}`,
+        description: (ctx.profile.email || 'Admin') + ' a creat utilizatorul ' + email + ' cu rolul ' + role,
         ipAddress: getClientIP(request),
-        userAgent: getUserAgent(request)
+        userAgent: getUserAgent(request),
       })
+    } catch {
+      // Auditul nu blochează crearea contului.
     }
 
-    return NextResponse.json({ message: 'User creat cu succes!' })
-
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 400 })
+    return NextResponse.json({
+      userId,
+      emailSent,
+      ...(emailSent ? {} : { temporaryPassword: generatedPassword }),
+    }, { status: 201, headers: { 'Cache-Control': 'no-store' } })
+  } catch {
+    return NextResponse.json({ error: 'Nu s-a putut crea utilizatorul.' }, { status: 500 })
   }
 }
 
