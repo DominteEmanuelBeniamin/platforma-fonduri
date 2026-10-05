@@ -445,6 +445,82 @@ test('Schimbă titlul, statusul și reminderele — admin; senior în proiectele
   fact('p-editeaza', 'junior', 'serverul îi ascunde edit_project', pj?.edit_project === false, String(pj?.edit_project), 'API', 'false')
 })
 
+test('Încheie și redeschide proiectul — admin; senior în proiectele lui; junior nu (#109)', async () => {
+  // Proiect separat: încheierea nu trebuie să atingă proiectul pe care rulează restul matricei.
+  const project = await createProject(admin, `Drepturi ${STAMP} — de încheiat`, [SA.id])
+  await ensureMember(project, JA)
+  for (const person of [admin, SA]) {
+    verify('p-incheie', person, 'încheie proiectul', await call(person, 'POST', `/api/projects/${project}/close`), 'permis')
+    verify('p-incheie', person, 'redeschide proiectul', await call(person, 'POST', `/api/projects/${project}/reopen`), 'permis')
+  }
+  verify('p-incheie', JA, 'încheie proiectul', await call(JA, 'POST', `/api/projects/${project}/close`), 'refuzat')
+  await must(admin, 'POST', `/api/projects/${project}/close`)
+  verify('p-incheie', JA, 'redeschide proiectul', await call(JA, 'POST', `/api/projects/${project}/reopen`), 'refuzat')
+  verify('p-incheie', JA, 'repune proiectul activ prin PATCH', await call(JA, 'PATCH', `/api/projects/${project}`, { lifecycle_status: 'active' }), 'refuzat')
+  verify('p-incheie', admin, 'repune proiectul activ prin PATCH, ocolind ruta', await call(admin, 'PATCH', `/api/projects/${project}`, { lifecycle_status: 'active' }), 'refuzat', 400)
+  await must(admin, 'POST', `/api/projects/${project}/reopen`)
+  verify('p-incheie', SA, 'încheie un proiect străin', await call(SA, 'POST', `/api/projects/${OTHER}/close`), 'refuzat')
+
+  const permissions = (person: Person) => call(person, 'GET', `/api/projects/${project}`).then(r => r.json.permissions as Json)
+  const [pa, ps, pj] = await Promise.all([permissions(admin), permissions(SA), permissions(JA)])
+  fact('p-incheie', 'admin', 'serverul îi arată interfeței close_project', pa?.close_project === true, String(pa?.close_project), 'API', 'true')
+  fact('p-incheie', 'senior', 'serverul îi arată interfeței close_project', ps?.close_project === true, String(ps?.close_project), 'API', 'true')
+  fact('p-incheie', 'junior', 'serverul îi ascunde close_project', pj?.close_project === false, String(pj?.close_project), 'API', 'false')
+})
+
+test('Marchează faze, activități și cereri ca finalizate și le redeschide — admin; senior; junior nu, dar aprobă în continuare (#109)', async () => {
+  const phaseId = await addPhase(admin, OWN, `Fază de finalizat ${STAMP}`)
+  const activityId = await addActivity(admin, OWN, phaseId, `Activitate de finalizat ${STAMP}`)
+  const requestId = await addRequest(admin, OWN, activityId, `Cerere de închis ${STAMP}`)
+  const phase = `/api/projects/${OWN}/phases/${phaseId}`
+  const activity = `${phase}/activities/${activityId}`
+  const request = `/api/document-requests/${requestId}`
+
+  for (const person of [admin, SA]) {
+    verify('p-finalizeaza', person, 'marchează faza ca finalizată', await call(person, 'POST', `${phase}/complete`), 'permis')
+    verify('p-finalizeaza', person, 'readuce faza în lucru', await call(person, 'POST', `${phase}/reopen`), 'permis')
+    verify('p-finalizeaza', person, 'marchează activitatea ca finalizată', await call(person, 'POST', `${activity}/complete`), 'permis')
+    verify('p-finalizeaza', person, 'readuce activitatea în lucru', await call(person, 'POST', `${activity}/reopen`), 'permis')
+    verify('p-finalizeaza', person, 'închide cererea', await call(person, 'POST', `${request}/close`), 'permis')
+    verify('p-finalizeaza', person, 'redeschide cererea', await call(person, 'POST', `${request}/reopen`), 'permis')
+  }
+  for (const [label, url] of [
+    ['marchează faza ca finalizată', `${phase}/complete`],
+    ['marchează activitatea ca finalizată', `${activity}/complete`],
+    ['închide cererea', `${request}/close`],
+  ] as const) {
+    verify('p-finalizeaza', JA, label, await call(JA, 'POST', url), 'refuzat')
+  }
+  // Nici prin PATCH-ul de conținut, pe care juniorul îl are (rândul p-continut).
+  verify('p-finalizeaza', JA, 'marchează activitatea prin PATCH', await call(JA, 'PATCH', activity, { status: 'completed' }), 'refuzat', 400)
+  await must(admin, 'POST', `${request}/close`)
+  verify('p-finalizeaza', JA, 'redeschide cererea', await call(JA, 'POST', `${request}/reopen`), 'refuzat')
+  await must(admin, 'POST', `${request}/reopen`)
+  verify('p-finalizeaza', SA, 'marchează o fază din proiectul străin', await call(SA, 'POST', `/api/projects/${OTHER}/phases/${OTHER_PHASE}/complete`), 'refuzat')
+
+  // Aprobarea nu e „marcare”: juniorul aprobă în continuare (rândul p-aproba).
+  const review = await requestInReview(OWN, activityId, `Document de aprobat de junior ${STAMP}`)
+  verify('p-finalizeaza', JA, 'aprobă un document (aprobarea rămâne la orice membru)', await call(JA, 'POST', `/api/document-requests/${review}/review`, { action: 'approved' }), 'permis')
+
+  const permissions = (person: Person) => call(person, 'GET', `/api/projects/${OWN}`).then(r => r.json.permissions as Json)
+  const [pa, ps, pj] = await Promise.all([permissions(admin), permissions(SA), permissions(JA)])
+  fact('p-finalizeaza', 'admin', 'serverul îi arată interfeței complete_items', pa?.complete_items === true, String(pa?.complete_items), 'API', 'true')
+  fact('p-finalizeaza', 'senior', 'serverul îi arată interfeței complete_items', ps?.complete_items === true, String(ps?.complete_items), 'API', 'true')
+  fact('p-finalizeaza', 'junior', 'serverul îi ascunde complete_items', pj?.complete_items === false, String(pj?.complete_items), 'API', 'false')
+
+  // Direct prin PostgREST, cu tokenul juniorului: drumul ocolit închis de migrare (D16).
+  const asJunior = createClient(CONFIG.supabaseUrl, CONFIG.anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${JA.token}` } },
+  })
+  const direct = await asJunior.from('project_activities')
+    .update({ status: 'completed', completed_at: new Date().toISOString(), completed_by: JA.id })
+    .eq('id', activityId).select('id')
+  const { data: after } = await service.from('project_activities').select('status').eq('id', activityId).single()
+  fact('p-finalizeaza', 'junior', 'scrierea directă în bază (PostgREST) e refuzată', !!direct.error && after?.status !== 'completed',
+    direct.error ? `refuzată (${direct.error.code ?? direct.error.message})` : `acceptată (${after?.status})`, 'Bază de date', 'refuzată')
+})
+
 test('Șterge faze și activități — admin și senior în proiectele lui; cererile nu se pierd', async () => {
   for (const person of [admin, SA]) {
     const who = whoOf(person)

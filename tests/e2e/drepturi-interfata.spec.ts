@@ -690,6 +690,69 @@ test('Schimbă titlul, statusul și reminderele — adminul și seniorul din bar
   observe('p-editeaza', 'Statusul proiectului nu are control în interfață, pentru niciun rol (nici admin)', 'se schimbă doar prin API; drepturi.spec.ts verifică acolo admin/senior da, junior nu')
 })
 
+test('Încheie proiectul și finalizează faze și cereri — adminul și seniorul din meniuri și din fișă; juniorul nu le are (#109)', async ({ browser }) => {
+  // Proiect separat: încheierea nu trebuie să atingă proiectul pe care rulează restul matricei.
+  const project = await createProject(`Interfață ${STAMP} — de încheiat`, [SA.id])
+  await ensureMember(project, JA)
+  const phaseName = `Fază de finalizat ${STAMP}`
+  const phaseId = await addPhase(project, phaseName)
+  const activityId = await addActivity(project, phaseId, `Activitate de finalizat ${STAMP}`)
+  const requestName = `Cerere de închis ${STAMP}`
+  await addRequest(project, activityId, requestName)
+  const lifecycle = async () => {
+    const { data } = await service.from('projects').select('lifecycle_status').eq('id', project).single()
+    return data?.lifecycle_status as string
+  }
+  const phaseStatus = async () => {
+    const { data } = await service.from('project_phases').select('status').eq('id', phaseId).single()
+    return data?.status as string
+  }
+
+  for (const person of [admin, SA]) {
+    await session(browser, person, 'p-incheie', async page => {
+      await openProject(page, project)
+      const menu = page.getByRole('button', { name: 'Mai multe acțiuni' })
+      await shows('p-incheie', person.who, 'are meniul „Mai multe acțiuni”', menu, true, page)
+      await menu.click()
+      await page.getByRole('menuitem', { name: 'Încheie proiectul' }).click()
+      await page.getByRole('dialog', { name: /Închei proiectul/ }).getByRole('button', { name: 'Încheie proiectul' }).click()
+      await stored('p-incheie', person.who, 'încheie proiectul din meniu', 'completed', lifecycle, v => v === 'completed', v => String(v))
+      await menu.click()
+      await page.getByRole('menuitem', { name: 'Redeschide proiectul' }).click()
+      await page.getByRole('dialog', { name: /Redeschizi proiectul/ }).getByRole('button', { name: 'Redeschide proiectul' }).click()
+      await stored('p-incheie', person.who, 'îl redeschide din meniu', 'active', lifecycle, v => v === 'active', v => String(v))
+    })
+
+    await session(browser, person, 'p-finalizeaza', async page => {
+      await openProject(page, project, deepLink(phaseId, activityId))
+      const phaseMenu = page.locator(`#phase-${phaseId}`).getByRole('button', { name: `Acțiuni pentru faza ${phaseName}` })
+      await phaseMenu.click()
+      await shows('p-finalizeaza', person.who, 'meniul fazei are „Marchează faza ca finalizată”', page.getByRole('menuitem', { name: 'Marchează faza ca finalizată' }), true, page)
+      await page.getByRole('menuitem', { name: 'Marchează faza ca finalizată' }).click()
+      await page.getByRole('dialog', { name: /Marchezi faza/ }).getByRole('button', { name: 'Marchează ca finalizată' }).click()
+      await stored('p-finalizeaza', person.who, 'marchează faza din meniu', 'completed', phaseStatus, v => v === 'completed', v => String(v))
+      await phaseMenu.click()
+      await page.getByRole('menuitem', { name: 'Readu faza în lucru' }).click()
+      await stored('p-finalizeaza', person.who, 'o readuce în lucru', 'in_progress', phaseStatus, v => v === 'in_progress', v => String(v))
+      await page.getByText(requestName, { exact: true }).first().click()
+      await shows('p-finalizeaza', person.who, 'fișa cererii are „Închide cererea”', page.getByRole('button', { name: 'Închide cererea' }), true, page)
+    })
+  }
+
+  await session(browser, JA, 'p-incheie', async page => {
+    await openProject(page, project)
+    await shows('p-incheie', 'junior', 'nu are meniul „Mai multe acțiuni”', page.getByRole('button', { name: 'Mai multe acțiuni' }), false, page)
+  })
+  await session(browser, JA, 'p-finalizeaza', async page => {
+    await openProject(page, project, deepLink(phaseId, activityId))
+    await page.locator(`#phase-${phaseId}`).getByRole('button', { name: `Acțiuni pentru faza ${phaseName}` }).click()
+    await shows('p-finalizeaza', 'junior', 'meniul fazei nu are „Marchează faza ca finalizată”', page.getByRole('menuitem', { name: /Marchează faza|Readu faza/ }), false, page)
+    await page.keyboard.press('Escape')
+    await page.getByText(requestName, { exact: true }).first().click()
+    await shows('p-finalizeaza', 'junior', 'fișa cererii nu are „Închide cererea”', page.getByRole('button', { name: 'Închide cererea' }), false, page)
+  })
+})
+
 test('Șterge faze și activități — „Șterge” apare la admin și senior, nu la junior; activitatea ștearsă își păstrează cererile', async ({ browser }) => {
   const phaseName = `Fază cu ștergeri ${STAMP}`
   const doomedName = `Activitate de șters ${STAMP}`
