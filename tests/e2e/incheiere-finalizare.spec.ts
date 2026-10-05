@@ -763,6 +763,9 @@ test('Interfața: faze, activități și cereri se finalizează din meniu și di
     await expect.soft(sheet.getByRole('button', { name: 'Redeschide cererea' })).toBeVisible()
     await expect.soft(sheet.getByRole('button', { name: 'Atribuie' }), 'fișa închisă nu se modifică').toHaveCount(0)
     await page.keyboard.press('Escape')
+    // Închisă, cererea e finalizată și se ascunde implicit (etapa 7); rândul ei se vede cu comutatorul.
+    await expect.soft(page.locator(`#activity-${activityId}`).getByText('Singura cerere e finalizată.')).toBeVisible()
+    await page.getByLabel('Arată și ce e finalizat').check()
     const requestRow = page.locator('[id^="request-"]').filter({ hasText: requestName })
     await expect.soft(requestRow.getByRole('button', { name: 'Modifică cererea' }), 'iconița „Modifică" dispare').toHaveCount(0)
     await expect.soft(requestRow.getByRole('button', { name: 'Șterge din proiect' }), 'ștergerea rămâne').toHaveCount(1)
@@ -781,6 +784,7 @@ test('Interfața: faze, activități și cereri se finalizează din meniu și di
     await expect.soft(asJunior.page.getByRole('menuitem', { name: 'Redenumește' })).toBeVisible()
     await expect.soft(asJunior.page.getByRole('menuitem', { name: /Readu faza în lucru|Marchează faza/ }), 'juniorul nu finalizează').toHaveCount(0)
     await asJunior.page.keyboard.press('Escape')
+    await asJunior.page.getByLabel('Arată și ce e finalizat').check()
     await asJunior.page.getByText(requestName, { exact: true }).first().click()
     const sheet = asJunior.page.getByRole('dialog').filter({ hasText: requestName }).first()
     await expect(sheet).toBeVisible()
@@ -793,6 +797,8 @@ test('Interfața: faze, activități și cereri se finalizează din meniu și di
   const asClient = await login(browser, CONFIG.clientEmail, CONFIG.clientPassword)
   try {
     await asClient.page.goto(deepLink)
+    // Și la client, ce e finalizat se ascunde implicit (D9).
+    await asClient.page.getByLabel('Arată și ce e finalizat').check({ timeout: 30_000 })
     await expect(asClient.page.getByText('Consultantul a închis cererea; nu mai e nevoie să încarci nimic aici.').first()).toBeVisible({ timeout: 30_000 })
     const clientRow = asClient.page.locator('[id^="request-"]').filter({ hasText: requestName })
     await expect.soft(clientRow.getByText('Închisă', { exact: true })).toBeVisible()
