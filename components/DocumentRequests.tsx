@@ -24,6 +24,7 @@ import {
   File,
   Trash2,
   Pencil,
+  Archive,
 } from 'lucide-react'
 import DocumentModal from './DocumentModal'
 import ConfirmDeleteModal from './ConfirmDeleteModal'
@@ -48,13 +49,21 @@ import {
 } from '@/lib/client-upload'
 import { RequirementType } from '@/lib/requirement-type'
 import { Spinner } from '@/components/ui/Spinner'
+import { Signal } from '@/components/ui/Signal'
+import { TONE } from '@/lib/signage'
+import { isRequestFinal } from '@/lib/completion'
+import { CLOSED_REQUEST_CLIENT_NOTE, requestStatusInfo, type RequestStatus } from '@/lib/request-status'
 
 interface DocumentRequest {
   id: string
   name: string
   description: string | null
   requirement_type?: RequirementType
-  status: 'pending' | 'review' | 'approved' | 'rejected'
+  status: RequestStatus
+  /** Starea la care revine o cerere închisă (#109). */
+  status_before_close?: 'pending' | 'rejected' | null
+  closed_at?: string | null
+  closer?: { id: string; full_name: string | null } | null
   visibility?: 'draft' | 'published'
   is_outgoing?: boolean
   activity_id?: string | null
@@ -178,6 +187,8 @@ interface DocumentRequestsProps {
   projectTitle?: string
   /** Id-ul unei cereri de deschis automat din panoul „Ce ai de făcut”. */
   autoOpenRequestId?: string | null
+  /** Închide și redeschide cereri: adminul și seniorul membru (#109, D1). */
+  canCloseRequests?: boolean
 }
 
 export default function DocumentRequests({
@@ -196,6 +207,7 @@ export default function DocumentRequests({
   clientName,
   projectTitle,
   autoOpenRequestId,
+  canCloseRequests = false,
 }: DocumentRequestsProps) {
   const { loading: authLoading, token, profile, apiFetch } = useAuth()
   const { showToast, confirm } = useToast()
@@ -252,11 +264,12 @@ export default function DocumentRequests({
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [missingAttachments, setMissingAttachments] = useState<Set<string>>(() => new Set())
 
-  // Pliere per-cerere — set de „închise" (implicit deschis), ca cererile nou create
-  // să nu aibă nevoie de sincronizare specială.
-  const [closedRequestIds, setClosedRequestIds] = useState<Set<string>>(() => new Set())
+  // Pliere per-cerere — set de cereri pliate (implicit desfăcute), ca cererile
+  // nou create să nu aibă nevoie de sincronizare specială. „Pliată" e altceva
+  // decât o cerere închisă (#109): aceea are starea `closed` în bază.
+  const [foldedRequestIds, setFoldedRequestIds] = useState<Set<string>>(() => new Set())
   const toggleRequestFold = (id: string) => {
-    setClosedRequestIds(prev => {
+    setFoldedRequestIds(prev => {
       const s = new Set(prev)
       if (s.has(id)) s.delete(id)
       else s.add(id)
@@ -393,7 +406,7 @@ export default function DocumentRequests({
     const request = requests.find(r => r.id === autoOpenRequestId)
     if (request) {
       setSelectedRequest(request)
-      setClosedRequestIds(prev => {
+      setFoldedRequestIds(prev => {
         if (!prev.has(request.id)) return prev
         const next = new Set(prev)
         next.delete(request.id)
@@ -987,11 +1000,11 @@ export default function DocumentRequests({
   }, [requests])
 
 
-  const statusConfig: Record<string, { label: string; dot: string; icon: string }> = {
-    pending: { label: isClient ? 'De încărcat' : 'Așteaptă răspuns', dot: 'bg-[var(--sg-warn)]', icon: 'bg-[var(--sg-warn-soft)] text-[var(--sg-warn)]' },
-    review: { label: 'În verificare', dot: 'bg-[var(--sg-accent)]', icon: 'bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]' },
-    approved: { label: 'Aprobat', dot: 'bg-[var(--sg-ok)]', icon: 'bg-[var(--sg-ok-soft)] text-[var(--sg-ok)]' },
-    rejected: { label: 'Respins', dot: 'bg-[var(--sg-danger)]', icon: 'bg-[var(--sg-danger-soft)] text-[var(--sg-danger)]' },
+  // Starea vine din dicționarul comun (#109): o valoare necunoscută nu mai cade
+  // pe „De încărcat", iar o cerere închisă are cuvântul și semnul ei.
+  const statusLabel = (status: string) => {
+    const info = requestStatusInfo(status)
+    return isClient ? info.clientLabel : info.label
   }
   const isEmbedded = activityId !== undefined
 
@@ -1128,9 +1141,12 @@ export default function DocumentRequests({
             </div>
           ) : (
             displayRequests.map((req) => {
-              const status = statusConfig[req.status] || statusConfig.pending
-              const isOverdue = req.deadline_at && new Date(req.deadline_at) < new Date()
-              const isFolded = closedRequestIds.has(req.id)
+              const statusInfo = requestStatusInfo(req.status)
+              const statusTone = TONE[statusInfo.tone]
+              const isClosed = req.status === 'closed'
+              // O cerere aprobată sau închisă nu mai are un termen care să ardă.
+              const isOverdue = !isRequestFinal(req) && req.deadline_at && new Date(req.deadline_at) < new Date()
+              const isFolded = foldedRequestIds.has(req.id)
 
               return (
                 <div
@@ -1155,8 +1171,11 @@ export default function DocumentRequests({
                         <GripVertical className="w-4 h-4" />
                       </span>
                     )}
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${status.icon}`}>
-                      <FileText className="w-4 h-4" />
+                    <div
+                      className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                      style={{ background: statusTone.bg, color: statusTone.fg }}
+                    >
+                      {isClosed ? <Archive className="w-4 h-4" aria-hidden="true" /> : <FileText className="w-4 h-4" aria-hidden="true" />}
                     </div>
 
                     <div className="flex-1 min-w-0">
@@ -1165,15 +1184,19 @@ export default function DocumentRequests({
                         <div className="flex items-center gap-0.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
                           {!isFolded && isAdminOrConsultant && (
                             <>
-                              <button
-                                type="button"
-                                onClick={() => openEditForm(req)}
-                                className="p-1.5 rounded-lg text-ink-faint hover:text-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] transition-colors"
-                                title="Modifică cererea"
-                                aria-label="Modifică cererea"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
+                              {/* O cerere închisă nu se modifică până la redeschidere (D13);
+                                  ștergerea rămâne. */}
+                              {!isClosed && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditForm(req)}
+                                  className="p-1.5 rounded-lg text-ink-faint hover:text-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] transition-colors"
+                                  title="Modifică cererea"
+                                  aria-label="Modifică cererea"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => setRequestToDelete(req)}
@@ -1198,18 +1221,15 @@ export default function DocumentRequests({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 mt-2">
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-paper-sunk px-2 py-1 text-xs text-ink-soft">
-                          <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
-                          {status.label}
-                        </span>
+                        <Signal tone={statusInfo.tone}>{statusLabel(req.status)}</Signal>
                         {!isFolded && (
                           <PublishStatusControl
                             status={req.visibility ?? 'draft'}
-                            canPublish={isAdminOrConsultant}
+                            canPublish={isAdminOrConsultant && !isClosed}
                             showPublishedStatus={isAdminOrConsultant}
                             onPublish={() => publishRequest(req.id)}
                             blockers={requestBlockers(req)}
-                            onSetDeadline={date => saveRequestDeadline(req.id, date)}
+                            onSetDeadline={isClosed ? undefined : date => saveRequestDeadline(req.id, date)}
                             size="sm"
                           />
                         )}
@@ -1530,6 +1550,15 @@ export default function DocumentRequests({
                     </div>
                   )}
 
+                  {isClient && isClosed && (
+                    <div className="mt-4 pt-4 border-t border-rule">
+                      <div className="flex items-center gap-2 bg-paper-sunk px-4 py-2.5 rounded-xl text-ink-soft">
+                        <Archive className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+                        <span className="text-sm">{CLOSED_REQUEST_CLIENT_NOTE}</span>
+                      </div>
+                    </div>
+                  )}
+
                   {isClient && req.status === 'approved' && (
                     <div className="mt-4 pt-4 border-t border-rule">
                       <div className="flex items-center gap-2 text-[var(--sg-ok)] bg-[var(--sg-ok-soft)] px-4 py-2.5 rounded-xl">
@@ -1594,6 +1623,7 @@ export default function DocumentRequests({
           reminderState={reminderStates[selectedRequest.id]}
           reminderStateLoading={reminderStatesLoading}
           projectMembers={projectMembers}
+          canCloseRequest={canCloseRequests}
         />
       )}
 
@@ -1727,7 +1757,7 @@ export default function DocumentRequests({
                     : `Se vor șterge automat și ${responseCount} răspunsuri încărcate. `
                   : ''
 
-                return `Status curent: ${statusConfig[requestToDelete.status]?.label || requestToDelete.status}. ` +
+                return `Status curent: ${statusLabel(requestToDelete.status)}. ` +
                   responseWarning +
                   'Template-ul nu va fi modificat. Istoricul cererii rămâne păstrat.'
               })()

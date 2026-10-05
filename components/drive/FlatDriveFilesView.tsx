@@ -124,6 +124,7 @@ export default function FlatDriveFilesView({
     pending:  rows.filter(r => r.docStatus === 'pending').length,
     sent:     rows.filter(r => r.docStatus === 'sent').length,
     rejected: rows.filter(r => r.docStatus === 'rejected').length,
+    closed:   rows.filter(r => r.docStatus === 'closed').length,
   }), [rows])
 
   // ── Layout classes depend on mode ─────────────────────────────────────────
@@ -170,6 +171,7 @@ export default function FlatDriveFilesView({
               <option value="review">În verificare</option>
               <option value="approved">Aprobate</option>
               <option value="rejected">Respinse</option>
+              <option value="closed">Închise</option>
             </select>
             <ChevronDown className={`pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 ${filterStatus !== 'all' ? 'text-[var(--sg-accent)]' : 'text-ink-faint'}`} />
           </div>
@@ -437,6 +439,7 @@ export default function FlatDriveFilesView({
               { label: 'În verificare',      val: stats.review,   text: 'text-[var(--sg-accent)]',  dot: 'bg-[var(--sg-accent)]' },
               { label: 'În așteptare',       val: stats.pending,  text: 'text-[var(--sg-warn)]',   dot: 'bg-[var(--sg-warn)]' },
               { label: 'Respinse',           val: stats.rejected, text: 'text-[var(--sg-danger)]',     dot: 'bg-[var(--sg-danger)]' },
+              { label: 'Închise',            val: stats.closed,   text: 'text-ink-soft',               dot: 'bg-[var(--sg-ink-soft)]' },
             ].filter(s => s.val > 0).map(s => (
               <span key={s.label} className={`flex items-center gap-1.5 text-xs ${s.text}`}>
                 <span className={`h-2 w-2 rounded-full ${s.dot}`} />

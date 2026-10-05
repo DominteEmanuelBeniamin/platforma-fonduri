@@ -6,6 +6,8 @@ import type { ReactNode } from 'react'
 import type { ProjectActivity } from '@/components/ProjectPhasesSidebar'
 import PublishStatusControl from '@/components/PublishStatusControl'
 import InlineInput from '@/components/InlineInput'
+import { Signal } from '@/components/ui/Signal'
+import { progressLabel, type Progress } from '@/lib/completion'
 
 interface Member {
   id: string
@@ -15,7 +17,10 @@ interface Member {
 
 interface ActivityFoldProps {
   activity: ProjectActivity
-  requestCount: number
+  /** Cererile activității, fără documentele trimise clientului: câte sunt gata din câte. */
+  requestProgress: Progress
+  /** Activitate finalizată (#109): semnul „Finalizată" și termenul fără roșu. */
+  completed?: boolean
   open: boolean
   onOpenChange: () => void
   /** Cine poate publica poate și atribui — regula #70 cere un responsabil */
@@ -46,7 +51,8 @@ function initials(name: string | null | undefined, email: string | undefined) {
 
 export default function ActivityFold({
   activity,
-  requestCount,
+  requestProgress,
+  completed = false,
   open,
   onOpenChange,
   canAssign,
@@ -68,7 +74,8 @@ export default function ActivityFold({
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   deadline?.setHours(0, 0, 0, 0)
-  const isOverdue = !!deadline && deadline < today
+  // Un termen trecut pe o activitate finalizată nu mai arde.
+  const isOverdue = !completed && !!deadline && deadline < today
   const deadlineLabel = deadline
     ? deadline.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })
     : null
@@ -101,19 +108,22 @@ export default function ActivityFold({
           ) : (
             <span className="basis-full sm:basis-auto text-sm font-semibold text-[var(--p-ink)] break-words">{activity.name}</span>
           )}
+          {completed && <Signal tone="ok" className="flex-shrink-0">Finalizată</Signal>}
           {deadlineLabel && (
             <span
               className={`hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold px-1.5 py-0.5 rounded-md flex-shrink-0 ${
-                isOverdue ? 'bg-[var(--p-danger-soft)] text-[var(--p-danger)]' : 'bg-[var(--p-warning-soft)] text-[var(--p-warning)]'
+                completed
+                  ? 'bg-paper-sunk text-ink-soft'
+                  : isOverdue ? 'bg-[var(--p-danger-soft)] text-[var(--p-danger)]' : 'bg-[var(--p-warning-soft)] text-[var(--p-warning)]'
               }`}
             >
               <Clock className="w-2.5 h-2.5" />
               {deadlineLabel}
             </span>
           )}
-          {requestCount > 0 && (
+          {requestProgress.total > 0 && (
             <span className="hidden sm:inline text-[11px] font-medium text-[var(--p-ink-faint)] flex-shrink-0">
-              {requestCount} cerer{requestCount === 1 ? 'e' : 'i'}
+              {progressLabel(requestProgress, 'cerere', 'cereri')}
             </span>
           )}
         </div>

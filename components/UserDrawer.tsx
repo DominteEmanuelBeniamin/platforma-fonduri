@@ -4,8 +4,8 @@
 import { useCallback, useEffect, useState, useMemo, useRef } from 'react'
 import {
   X, FolderOpen, FileText, FileSpreadsheet,
-  Image as ImageIcon, File, CheckCircle2, XCircle,
-  Clock, Eye, Download, Layers, Building2, Briefcase,
+  Image as ImageIcon, File,
+  Eye, Download, Layers, Building2, Briefcase,
   Shield, Search, ChevronDown, Loader2, AlertCircle,
   ExternalLink, ArrowLeft,
 } from 'lucide-react'
@@ -14,6 +14,8 @@ import { useToast } from '@/app/providers/ToastProvider'
 import { useRouter } from 'next/navigation'
 import { isPreviewableFile, buildPreviewPageUrl, openInNewTab, downloadUrl } from '@/lib/file-preview'
 import { formatDate } from '@/lib/signage'
+import { Signal } from '@/components/ui/Signal'
+import { requestStatusInfo } from '@/lib/request-status'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -86,21 +88,10 @@ function TypeBadge({ path }: { path: string }) {
   )
 }
 
+/** Starea cererii, din dicționarul comun (#109): nimic nu mai cade pe „Așteptare". */
 function StatusPill({ status }: { status: string }) {
-  const map: Record<string, { Icon: any; label: string; bg: string; text: string; dot: string }> = {
-    approved: { Icon: CheckCircle2, label: 'Aprobat',    bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' },
-    rejected: { Icon: XCircle,      label: 'Respins',    bg: '#fef2f2', text: '#dc2626', dot: '#ef4444' },
-    review:   { Icon: Eye,          label: 'Verificare', bg: '#eff6ff', text: '#2563eb', dot: '#3b82f6' },
-    pending:  { Icon: Clock,        label: 'Așteptare',  bg: '#fffbeb', text: '#d97706', dot: '#f59e0b' },
-  }
-  const c = map[status] ?? map.pending
-  return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full whitespace-nowrap"
-      style={{ backgroundColor: c.bg, color: c.text }}>
-      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: c.dot }} />
-      {c.label}
-    </span>
-  )
+  const info = requestStatusInfo(status)
+  return <Signal tone={info.tone} className="whitespace-nowrap">{info.label}</Signal>
 }
 
 function RoleBadge({ role }: { role: string }) {
@@ -256,6 +247,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
     review:   allDocs.filter(d => d.status === 'review').length,
     pending:  allDocs.filter(d => d.status === 'pending').length,
     rejected: allDocs.filter(d => d.status === 'rejected').length,
+    closed:   allDocs.filter(d => d.status === 'closed').length,
   }), [allDocs])
 
   if (!user) return null
@@ -314,6 +306,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                 stats.review   > 0 && { label: `${stats.review} în verificare`, dot: '#3b82f6' },
                 stats.pending  > 0 && { label: `${stats.pending} în așteptare`, dot: '#f59e0b' },
                 stats.rejected > 0 && { label: `${stats.rejected} respinse`, dot: '#ef4444' },
+                stats.closed   > 0 && { label: `${stats.closed} închise`, dot: 'var(--sg-ink-soft)' },
               ].filter(Boolean).map((s: any) => (
                 <span key={s.label} className="inline-flex items-center gap-1.5 text-xs text-ink-soft">
                   <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: s.dot }} />
@@ -359,6 +352,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                 <option value="review">Verificare</option>
                 <option value="approved">Aprobate</option>
                 <option value="rejected">Respinse</option>
+                <option value="closed">Închise</option>
               </select>
               <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
                 style={{ color: filterStatus !== 'all' ? '#1a73e8' : '#5f6368' }} />

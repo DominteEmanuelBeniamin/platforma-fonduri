@@ -265,6 +265,7 @@ export default function LogicalDriveFilesView({
           <option value="review">În verificare</option>
           <option value="approved">Aprobate</option>
           <option value="rejected">Respinse</option>
+          <option value="closed">Închise</option>
           <option value="sent">Trimise clientului</option>
         </select>
         <select

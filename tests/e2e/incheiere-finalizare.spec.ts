@@ -712,3 +712,92 @@ test('Interfața: meniul „⋯” încheie și redeschide proiectul; badge, rem
     await asClient.context.close()
   }
 })
+
+test('Interfața: faze, activități și cereri se finalizează din meniu și din fișă (D1, D2, D13, D14)', async ({ browser }) => {
+  const projectId = await createProject('interfață faze')
+  const phaseName = `Faza ${STAMP}`
+  const activityName = `Activitatea ${STAMP}`
+  const requestName = `Cererea ${STAMP}`
+  const phaseId = await addPhase(projectId, phaseName)
+  const activityId = await addActivity(projectId, phaseId, activityName)
+  await addRequest(projectId, activityId, requestName)
+  await publishEverything(projectId)
+  const deepLink = `/projects/${projectId}?phase=${phaseId}&activity=${activityId}`
+
+  const asAdmin = await login(browser, ADMIN_LOGIN.email, ADMIN_LOGIN.password)
+  const page = asAdmin.page
+  try {
+    await page.goto(deepLink)
+    // Panoul lateral are și el meniuri cu aceleași nume: căutăm în secțiunea fazei.
+    const phaseSection = page.locator(`#phase-${phaseId}`)
+    const phaseMenu = phaseSection.getByRole('button', { name: `Acțiuni pentru faza ${phaseName}` })
+    await expect(phaseMenu).toBeVisible({ timeout: 30_000 })
+    await expect.soft(phaseSection.getByText('0 din 1 activitate finalizată')).toBeVisible()
+
+    // Faza: confirmarea spune că cererea rămâne deschisă (D2).
+    await phaseMenu.click()
+    await page.getByRole('menuitem', { name: 'Marchează faza ca finalizată' }).click()
+    const confirmPhase = page.getByRole('dialog', { name: /Marchezi faza/ })
+    await expect.soft(confirmPhase).toContainText('O activitate din ea nu e finalizată')
+    await expect.soft(confirmPhase).toContainText('O cerere de documente e încă deschisă')
+    await confirmPhase.getByRole('button', { name: 'Marchează ca finalizată' }).click()
+    await expect(page.getByText('Faza a fost marcată ca finalizată.')).toBeVisible()
+    await expect.soft(phaseSection.getByText('Finalizată', { exact: true }).first(), 'semnul pe faza finalizată').toBeVisible()
+    await expect.soft(page.getByText(`${phaseName} (finalizată)`), 'panoul lateral marchează faza').toHaveCount(1)
+
+    // Activitatea: semnul și contorul de cereri.
+    await page.locator(`#activity-${activityId}`).getByRole('button', { name: `Acțiuni pentru activitatea ${activityName}` }).click()
+    await page.getByRole('menuitem', { name: 'Marchează activitatea ca finalizată' }).click()
+    await page.getByRole('dialog', { name: /Marchezi activitatea/ }).getByRole('button', { name: 'Marchează ca finalizată' }).click()
+    await expect(page.getByText('Activitatea a fost marcată ca finalizată.')).toBeVisible()
+    await expect.soft(page.locator(`#activity-${activityId}`).getByText('Finalizată', { exact: true })).toBeVisible()
+    await expect.soft(page.locator(`#activity-${activityId}`).getByText('0 din 1 cerere finalizată')).toBeVisible()
+
+    // Cererea: „Închide cererea" din fișă (D14), apoi fișa devine doar de citit (D13).
+    await page.getByText(requestName, { exact: true }).first().click()
+    const sheet = page.getByRole('dialog').filter({ hasText: requestName }).first()
+    await sheet.getByRole('button', { name: 'Închide cererea' }).click()
+    await page.getByRole('dialog', { name: /Închizi cererea/ }).getByRole('button', { name: 'Închide cererea' }).click()
+    await expect(page.getByText('Cererea a fost închisă.')).toBeVisible()
+    await expect.soft(sheet.getByText('Închisă', { exact: true })).toBeVisible()
+    await expect.soft(sheet.getByRole('button', { name: 'Redeschide cererea' })).toBeVisible()
+    await expect.soft(sheet.getByRole('button', { name: 'Atribuie' }), 'fișa închisă nu se modifică').toHaveCount(0)
+    await page.keyboard.press('Escape')
+    const requestRow = page.locator('[id^="request-"]').filter({ hasText: requestName })
+    await expect.soft(requestRow.getByRole('button', { name: 'Modifică cererea' }), 'iconița „Modifică" dispare').toHaveCount(0)
+    await expect.soft(requestRow.getByRole('button', { name: 'Șterge din proiect' }), 'ștergerea rămâne').toHaveCount(1)
+    await expect.soft(page.locator(`#activity-${activityId}`).getByText('1 din 1 cerere finalizată')).toBeVisible()
+  } finally {
+    await asAdmin.context.close()
+  }
+
+  // Juniorul vede meniul fazei, dar fără finalizare (D1).
+  const asJunior = await login(browser, junior.email, PASSWORD)
+  try {
+    await asJunior.page.goto(deepLink)
+    const juniorMenu = asJunior.page.locator(`#phase-${phaseId}`).getByRole('button', { name: `Acțiuni pentru faza ${phaseName}` })
+    await expect(juniorMenu).toBeVisible({ timeout: 30_000 })
+    await juniorMenu.click()
+    await expect.soft(asJunior.page.getByRole('menuitem', { name: 'Redenumește' })).toBeVisible()
+    await expect.soft(asJunior.page.getByRole('menuitem', { name: /Readu faza în lucru|Marchează faza/ }), 'juniorul nu finalizează').toHaveCount(0)
+    await asJunior.page.keyboard.press('Escape')
+    await asJunior.page.getByText(requestName, { exact: true }).first().click()
+    const sheet = asJunior.page.getByRole('dialog').filter({ hasText: requestName }).first()
+    await expect(sheet).toBeVisible()
+    await expect.soft(sheet.getByRole('button', { name: 'Redeschide cererea' }), 'juniorul nu redeschide').toHaveCount(0)
+  } finally {
+    await asJunior.context.close()
+  }
+
+  // Clientul: eticheta „Închisă" și explicația, fără zona de încărcare.
+  const asClient = await login(browser, CONFIG.clientEmail, CONFIG.clientPassword)
+  try {
+    await asClient.page.goto(deepLink)
+    await expect(asClient.page.getByText('Consultantul a închis cererea; nu mai e nevoie să încarci nimic aici.').first()).toBeVisible({ timeout: 30_000 })
+    const clientRow = asClient.page.locator('[id^="request-"]').filter({ hasText: requestName })
+    await expect.soft(clientRow.getByText('Închisă', { exact: true })).toBeVisible()
+    await expect.soft(clientRow.getByText('Încarcă fișiere'), 'fără zonă de încărcare').toHaveCount(0)
+  } finally {
+    await asClient.context.close()
+  }
+})

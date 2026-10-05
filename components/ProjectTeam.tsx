@@ -25,9 +25,11 @@ function initials(name: string | null | undefined, email: string | null | undefi
 /** Motivul pentru care baza a refuzat scoaterea, spus pe românește. */
 function removalError(reason: string | undefined) {
   if (reason === 'general_consultant') return 'Consultantul răspunde de cererile generale. Alege altă persoană pentru ele, apoi încearcă din nou.'
-  if (reason === 'assigned_activity') return 'Consultantul are activități atribuite în proiect. Atribuie-le altcuiva, apoi încearcă din nou.'
-  if (reason === 'assigned_request') return 'Consultantul are cereri de documente active. Atribuie-le altcuiva, apoi încearcă din nou.'
-  if (reason === 'blocked') return 'Consultantul are încă lucruri atribuite în proiect. Atribuie-le altcuiva, apoi încearcă din nou.'
+  // Atribuirile pe elemente finalizate blochează și ele (issue separat, D15), iar
+  // acelea pot fi ascunse în pagină: mesajul spune unde să le cauți (#109).
+  if (reason === 'assigned_activity') return 'Consultantul are activități atribuite în proiect, poate și finalizate (ascunse implicit). Atribuie-le altcuiva, apoi încearcă din nou.'
+  if (reason === 'assigned_request') return 'Consultantul are cereri de documente atribuite, poate și închise sau aprobate (ascunse implicit). Atribuie-le altcuiva, apoi încearcă din nou.'
+  if (reason === 'blocked') return 'Consultantul are încă lucruri atribuite în proiect, poate și finalizate (ascunse implicit). Atribuie-le altcuiva, apoi încearcă din nou.'
   if (reason === 'senior') return 'Un consultant senior nu poate scoate alt senior. Cere unui administrator.'
   if (reason === 'self') return 'Nu te poți scoate singur din echipă. Cere unui administrator.'
   return 'Nu am putut scoate membrul din echipă. Reîncearcă.'

@@ -1,7 +1,9 @@
 // Grupează cererile de documente ale unui proiect în „documente logice"
 // (cerere + atașamente + versiuni de fișiere) și în dosare per fază.
+import type { RequestStatus } from './request-status.ts'
 
-export type DriveDocStatus = 'pending' | 'review' | 'approved' | 'rejected' | 'sent' | null
+/** Starea cererii, plus `sent` pentru documentele trimise clientului. */
+export type DriveDocStatus = RequestStatus | 'sent' | null
 
 type Visibility = 'draft' | 'published' | null | undefined
 
@@ -26,7 +28,7 @@ export interface DriveSourceFile {
 export interface DriveSourceRequest {
   id: string
   name: string
-  status: 'pending' | 'review' | 'approved' | 'rejected'
+  status: RequestStatus
   visibility?: Visibility
   is_outgoing?: boolean
   created_at: string

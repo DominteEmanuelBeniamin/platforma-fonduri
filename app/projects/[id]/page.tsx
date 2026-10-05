@@ -25,6 +25,7 @@ import {
   Trash2,
   Archive,
   RotateCcw,
+  CheckCircle2,
 } from 'lucide-react'
 
 import {
@@ -81,6 +82,15 @@ import { usePatchField } from '@/hooks/usePatchField'
 import { NO_PROJECT_PERMISSIONS, type ProjectPermissions } from '@/lib/project-permissions'
 import { Spinner } from '@/components/ui/Spinner'
 import { Signal } from '@/components/ui/Signal'
+import {
+  activityCompletionConfirm,
+  activityProgress,
+  isActivityFinal,
+  isPhaseFinal,
+  phaseCompletionConfirm,
+  phaseProgress,
+  progressLabel,
+} from '@/lib/completion'
 import {
   PROJECT_CLOSED_REMINDERS_HINT,
   countOverdueOpenItems,
@@ -724,6 +734,52 @@ function ProjectDetailsContent() {
       showToast(fallback, 'error')
     } finally {
       setChangingLifecycle(false)
+    }
+  }
+
+  // ─── Finalizarea fazelor și activităților (#109) ────────────────────────────
+
+  const [completingId, setCompletingId] = useState<string | null>(null)
+
+  /**
+   * Doar adminul și seniorul membru (D1) văd acțiunile. Confirmarea cere doar
+   * finalizarea: spune câte cereri rămân deschise (D2). Readucerea în lucru nu
+   * strică nimic, deci nu întreabă.
+   */
+  const handleItemCompletion = async (
+    action: 'complete' | 'reopen',
+    phase: ProjectPhase,
+    activity?: ProjectActivity,
+  ) => {
+    const itemId = activity?.id ?? phase.id
+    if (completingId) return
+    if (action === 'complete') {
+      const dialog = activity
+        ? activityCompletionConfirm(activity, allDocRequests)
+        : phaseCompletionConfirm(phase, allDocRequests)
+      if (!(await confirm(dialog))) return
+    }
+    const base = activity
+      ? `/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`
+      : `/api/projects/${projectId}/phases/${phase.id}`
+    const noun = activity ? 'Activitatea' : 'Faza'
+    const fallback = action === 'complete'
+      ? `Nu am putut marca ${activity ? 'activitatea' : 'faza'} ca finalizată. Reîncearcă.`
+      : `Nu am putut readuce ${activity ? 'activitatea' : 'faza'} în lucru. Reîncearcă.`
+    setCompletingId(itemId)
+    try {
+      const res = await apiFetch(`${base}/${action}`, { method: 'POST' })
+      if (!res.ok) {
+        showToast(await serverMessage(res, fallback), 'error')
+        await refreshPhases()
+        return
+      }
+      await refreshPhases()
+      showToast(action === 'complete' ? `${noun} a fost marcată ca finalizată.` : `${noun} a fost readusă în lucru.`, 'success')
+    } catch {
+      showToast(fallback, 'error')
+    } finally {
+      setCompletingId(null)
     }
   }
 
@@ -1398,7 +1454,8 @@ function ProjectDetailsContent() {
                       key={phase.id}
                       id={phase.id}
                       title={phase.name}
-                      subtitle={`${phase.activities?.length ?? 0} activit${phase.activities?.length === 1 ? 'ate' : 'ăți'}`}
+                      subtitle={progressLabel(phaseProgress(phase), 'activitate', 'activități')}
+                      badge={isPhaseFinal(phase) ? <Signal tone="ok">Finalizată</Signal> : undefined}
                       band={bandFor(phases.findIndex(p => p.id === phase.id))}
                       draft={canEdit && phase.visibility !== 'published'}
                       headerRight={
@@ -1415,8 +1472,20 @@ function ProjectDetailsContent() {
                       actions={canEdit ? (
                         <RowActionsMenu
                           label={`Acțiuni pentru faza ${phase.name}`}
-                          busy={duplicatingId === phase.id || deletingId === phase.id}
+                          busy={duplicatingId === phase.id || deletingId === phase.id || completingId === phase.id}
                           actions={[
+                            {
+                              label: 'Marchează faza ca finalizată',
+                              icon: <CheckCircle2 className="w-3 h-3" />,
+                              hidden: !permissions.complete_items || isPhaseFinal(phase),
+                              onSelect: () => { void handleItemCompletion('complete', phase) },
+                            },
+                            {
+                              label: 'Readu faza în lucru',
+                              icon: <RotateCcw className="w-3 h-3" />,
+                              hidden: !permissions.complete_items || !isPhaseFinal(phase),
+                              onSelect: () => { void handleItemCompletion('reopen', phase) },
+                            },
                             {
                               label: 'Redenumește',
                               icon: <Pencil className="w-3 h-3" />,
@@ -1452,7 +1521,8 @@ function ProjectDetailsContent() {
                           <ActivityFold
                             key={activity.id}
                             activity={activity}
-                            requestCount={allDocRequests.filter((r: any) => !r.is_outgoing && r.activity_id === activity.id).length}
+                            requestProgress={activityProgress(activity.id, allDocRequests)}
+                            completed={isActivityFinal(activity)}
                             open={expandedActivityIds.has(activity.id)}
                             onOpenChange={() => handleToggleActivity(activity.id)}
                             canAssign={canEdit}
@@ -1469,8 +1539,20 @@ function ProjectDetailsContent() {
                             actions={canEdit ? (
                               <RowActionsMenu
                                 label={`Acțiuni pentru activitatea ${activity.name}`}
-                                busy={duplicatingId === activity.id || deletingId === activity.id}
+                                busy={duplicatingId === activity.id || deletingId === activity.id || completingId === activity.id}
                                 actions={[
+                                  {
+                                    label: 'Marchează activitatea ca finalizată',
+                                    icon: <CheckCircle2 className="w-3 h-3" />,
+                                    hidden: !permissions.complete_items || isActivityFinal(activity),
+                                    onSelect: () => { void handleItemCompletion('complete', phase, activity) },
+                                  },
+                                  {
+                                    label: 'Readu activitatea în lucru',
+                                    icon: <RotateCcw className="w-3 h-3" />,
+                                    hidden: !permissions.complete_items || !isActivityFinal(activity),
+                                    onSelect: () => { void handleItemCompletion('reopen', phase, activity) },
+                                  },
                                   {
                                     label: 'Redenumește',
                                     icon: <Pencil className="w-3 h-3" />,
@@ -1517,6 +1599,7 @@ function ProjectDetailsContent() {
                               clientName={project?.profiles?.full_name ?? null}
                               projectTitle={project?.title}
                               autoOpenRequestId={autoOpenRequestId}
+                              canCloseRequests={permissions.complete_items}
                             />
                           </ActivityFold>
                         ))}
@@ -1617,6 +1700,7 @@ function ProjectDetailsContent() {
                       clientName={project?.profiles?.full_name ?? null}
                       projectTitle={project?.title}
                       autoOpenRequestId={autoOpenRequestId}
+                      canCloseRequests={permissions.complete_items}
                     />
                   </div>
                 </PhaseAccordionSection>
@@ -1665,6 +1749,7 @@ function ProjectDetailsContent() {
           projectTitle={project?.title}
           clientVisible={isClientVisibleDocument(selectedDocumentRequest)}
           projectMembers={projectMembers}
+          canCloseRequest={permissions.complete_items}
         />
       )}
 
