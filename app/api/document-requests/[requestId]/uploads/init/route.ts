@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { isClientVisibleDocument } from '@/lib/client-visibility'
+import { describeDocumentActionFailure } from '@/lib/document-action-idempotency'
 
 const BUCKET = 'project-files'
 const MAX_FILES = 50
@@ -66,7 +67,7 @@ export async function POST(
     const admin = createSupabaseServiceClient()
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('id, project_id, activity_id, visibility, is_outgoing, deleted_at, activity:activity_id(visibility, phase:phase_id(visibility))')
+      .select('id, project_id, activity_id, visibility, status, is_outgoing, deleted_at, activity:activity_id(visibility, phase:phase_id(visibility))')
       .eq('id', requestId)
       .is('deleted_at', null)
       .single()
@@ -82,6 +83,12 @@ export async function POST(
     }
     if (reqRow.is_outgoing) {
       return NextResponse.json({ error: 'Documentele trimise clientului nu acceptă răspunsuri încărcate.' }, { status: 400 })
+    }
+    // Într-o cerere închisă nu se mai încarcă nimic (#109), deci nici nu se
+    // rezervă locuri în storage. Triggerul din bază oprește și finalizarea.
+    if (reqRow.status === 'closed') {
+      const failure = describeDocumentActionFailure('Document request is closed', 'P0001')
+      return NextResponse.json({ error: 'Document request is closed', message: failure.message }, { status: failure.status })
     }
 
     const batchId = crypto.randomUUID()

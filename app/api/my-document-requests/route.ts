@@ -3,10 +3,15 @@ import { NextResponse } from 'next/server'
 import { requireProfile, guardToResponse } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { isClientVisibleDocument } from '@/lib/client-visibility'
+import { isProjectActive } from '@/lib/project-lifecycle'
 
 // GET /api/my-document-requests
 // Returnează cererile de documente generale (fără activitate) în așteptare
-// din proiectele consultantului — folosit pe dashboard-ul principal
+// din proiectele consultantului — folosit pe dashboard-ul principal.
+//
+// Doar din proiectele active (#109, D5): un proiect încheiat nu mai trimite
+// remindere, deci nici nu mai are ce cere pe Home, în „Ce ai de făcut" sau în
+// /my-requests. Filtrul stă aici, ca toate trei să-l primească odată.
 export async function GET(request: Request) {
   try {
     const ctx = await requireProfile(request)
@@ -18,9 +23,11 @@ export async function GET(request: Request) {
     if (ctx.profile.role === 'client') {
       const { data: clientProjects } = await admin
         .from('projects')
-        .select('id')
+        .select('id, lifecycle_status')
         .eq('client_id', ctx.profile.id)
       const clientProjectIds = (clientProjects ?? []).map((p: any) => p.id)
+      // Documentele primite rămân din toate proiectele; de făcut, doar din cele active.
+      const activeProjectIds = (clientProjects ?? []).filter(isProjectActive).map((p: any) => p.id)
 
       if (clientProjectIds.length === 0) {
         return NextResponse.json({ requests: [], informativeDocs: [] })
@@ -33,7 +40,7 @@ export async function GET(request: Request) {
           project:project_id(id, title),
           activity:activity_id(id, name, visibility, phase:phase_id(id, name, visibility))
         `)
-        .in('project_id', clientProjectIds)
+        .in('project_id', activeProjectIds)
         .in('status', ['pending', 'rejected'])
         .eq('is_outgoing', false)
         .is('deleted_at', null)
@@ -89,15 +96,17 @@ export async function GET(request: Request) {
     let projectIds: string[] = []
 
     if (ctx.profile.role === 'admin') {
-      const { data: projects } = await admin.from('projects').select('id')
+      const { data: projects } = await admin.from('projects').select('id').eq('lifecycle_status', 'active')
       projectIds = (projects ?? []).map((p: any) => p.id)
     } else {
-      // Consultant: doar proiectele unde este member
+      // Consultant: doar proiectele unde este member, și doar cele active
       const { data: memberships } = await admin
         .from('project_members')
-        .select('project_id')
+        .select('project_id, project:project_id(lifecycle_status)')
         .eq('consultant_id', ctx.profile.id)
-      projectIds = (memberships ?? []).map((m: any) => m.project_id)
+      projectIds = (memberships ?? [])
+        .filter((m: any) => isProjectActive(Array.isArray(m.project) ? m.project[0] ?? {} : m.project ?? {}))
+        .map((m: any) => m.project_id)
     }
 
     if (projectIds.length === 0) {

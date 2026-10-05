@@ -30,7 +30,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ projects: data ?? [] })
     }
 
-    // Client: doar proiectele lui
+    // Client: doar proiectele lui. Vede că un proiect e încheiat (`closed_at`,
+    // pentru badge), dar nu și cine l-a încheiat (#109).
     if (profile.role === 'client') {
       const { data, error } = await admin
         .from('projects')
@@ -39,7 +40,12 @@ export async function GET(request: Request) {
         .order('created_at', { ascending: false })
 
       if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-      return NextResponse.json({ projects: data ?? [] })
+      const projects = (data ?? []).map(project => {
+        const visible = { ...project }
+        delete visible.closed_by
+        return visible
+      })
+      return NextResponse.json({ projects })
     }
 
     // Consultant: doar proiectele unde e membru

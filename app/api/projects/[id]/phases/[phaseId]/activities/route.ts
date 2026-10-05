@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { isClientVisibleActivity, isClientVisiblePhase } from '@/lib/client-visibility'
+import { STATUS_PATCH_MESSAGE } from '@/lib/completion'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -82,6 +83,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Numele este obligatoriu' }, { status: 400 })
     }
 
+    // O activitate nouă pornește mereu „pending": finalizarea trece doar prin
+    // /complete, cu gardă de manager (D1) și audit (#109).
+    if (status !== undefined) {
+      return NextResponse.json({ error: 'status is not accepted on create', message: STATUS_PATCH_MESSAGE }, { status: 400 })
+    }
+
     let finalOrderIndex = order_index
     if (!finalOrderIndex) {
       const { data: maxOrder } = await supabaseAdmin
@@ -102,7 +109,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         name,
         description: description || null,
         order_index: finalOrderIndex,
-        status: status || 'pending',
+        status: 'pending',
         visibility: 'draft',
       })
       .select()

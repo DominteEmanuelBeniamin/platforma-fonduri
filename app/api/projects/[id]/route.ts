@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { guardToResponse, projectPermissions, requireAdmin, requireProjectAccess, requireProjectManager } from '../../_utils/auth'
 import { createSupabaseServiceClient } from '../../_utils/supabase'
 import { logProjectAction, getClientIP, getUserAgent } from '../../_utils/audit'
+import { PROJECT_LIFECYCLE_PATCH_MESSAGE } from '@/lib/project-lifecycle'
 
 export async function GET(
   request: Request,
@@ -20,9 +21,12 @@ export async function GET(
 
     const admin = createSupabaseServiceClient()
 
+    // `closer`: numele celui care a încheiat proiectul, pentru badge. Îl aduce
+    // ruta, fiindcă RLS pe `profiles` nu lasă browserul să citească profilul
+    // altcuiva.
     const { data: project, error } = await admin
       .from('projects')
-      .select('*, profiles!projects_client_id_fkey(*), general_consultant:general_consultant_id(id, full_name, email)')
+      .select('*, profiles!projects_client_id_fkey(*), general_consultant:general_consultant_id(id, full_name, email), closer:closed_by(id, full_name)')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -33,6 +37,12 @@ export async function GET(
 
     if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+    }
+
+    // Clientul vede că proiectul e încheiat și când, dar nu și cine l-a încheiat.
+    if (ctx.access.role === 'client') {
+      delete project.closed_by
+      delete project.closer
     }
 
     return NextResponse.json({ project, permissions: projectPermissions(ctx.access) })
@@ -79,6 +89,15 @@ export async function PATCH(
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    }
+
+    // Încheierea are rute proprii (/close, /reopen), cu gardă, update
+    // condiționat și audit; PATCH-ul nu e un al doilea drum spre ea.
+    if (['lifecycle_status', 'closed_at', 'closed_by'].some(key => key in body)) {
+      return NextResponse.json(
+        { error: 'lifecycle_status is changed only via /close and /reopen', message: PROJECT_LIFECYCLE_PATCH_MESSAGE },
+        { status: 400 }
+      )
     }
 
     const { title, status, client_id, general_consultant_id, automatic_reminders_enabled } = body as {

@@ -6,6 +6,7 @@ import { logAction } from '@/app/api/_utils/audit'
 import { sendActivityAssignedEmail } from '@/app/api/_utils/activity-assignment-email'
 import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
 import { buildAssignmentEmailIdempotencyKey, isRealAssignmentChange } from '@/lib/notification-utils'
+import { STATUS_PATCH_MESSAGE } from '@/lib/completion'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -48,6 +49,13 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Invalid visibility transition' }, { status: 400 })
     }
 
+    // Finalizarea are rute proprii (/complete, /reopen), cu gardă de manager
+    // (D1), update condiționat și audit (#109). PATCH-ul nu mai e un al doilea
+    // drum spre ea.
+    if (status !== undefined) {
+      return NextResponse.json({ error: 'status is changed only via /complete and /reopen', message: STATUS_PATCH_MESSAGE }, { status: 400 })
+    }
+
     // assigned_to trebuie să fie string (UUID), null sau omis — ca la document-requests.
     // Altfel un tip greșit ajunge până în .eq() și iese ca 500 în loc de 400.
     if (assigned_to !== undefined && assigned_to !== null && typeof assigned_to !== 'string') {
@@ -66,7 +74,6 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (name !== undefined) updateData.name = name
     if (description !== undefined) updateData.description = description
     if (order_index !== undefined) updateData.order_index = order_index
-    if (status !== undefined) updateData.status = status
     if (assigned_to !== undefined) updateData.assigned_to = assigned_to
     if (deadline_at !== undefined) updateData.deadline_at = deadline_at || null
 

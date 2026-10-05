@@ -5,6 +5,7 @@ import { requireAdmin } from '@/app/api/_utils/auth'
 import { createStoragePathChecker, loadTemplateTree } from '@/app/api/_utils/template-tree'
 import { mapWithConcurrency } from '@/lib/template-tree'
 import { clearTemplateChanged } from '@/app/api/_utils/template-changes'
+import { isProjectActive } from '@/lib/project-lifecycle'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -53,6 +54,11 @@ type RollbackTracker = {
     deleted_at: string | null
     deleted_by: string | null
     delete_reason: string | null
+    // O cerere ștearsă cât era închisă își ține câmpurile de închidere; la
+    // rollback se pun la loc toate odată, altfel CHECK-ul din #109 refuză.
+    closed_at: string | null
+    closed_by: string | null
+    status_before_close: string | null
   }>
 }
 
@@ -111,6 +117,25 @@ async function syncProjectAttachments(documentId: string, attachments: any[], ac
 }
 
 async function loadProjectLineage(projectId: string) {
+  // Un proiect încheiat nu primește nimic din șablon (D8), chiar dacă cineva
+  // îl trimite explicit în `project_ids`.
+  const { data: project, error: projectError } = await supabaseAdmin
+    .from('projects')
+    .select('lifecycle_status')
+    .eq('id', projectId)
+    .maybeSingle()
+  if (projectError) throw projectError
+  if (!project || !isProjectActive(project)) {
+    return {
+      eligible: false,
+      reason: 'Proiectul e încheiat; nu primește modificări din șablon.' as string | null,
+      phaseBySource: new Map(),
+      activityBySource: new Map(),
+      docBySource: new Map(),
+      deletedDocBySource: new Map(),
+    }
+  }
+
   const { data: phases, error: phasesError } = await supabaseAdmin
     .from('project_phases')
     .select('id, source_template_phase_id, name, project_status_id')
@@ -148,6 +173,9 @@ async function loadProjectLineage(projectId: string) {
       deleted_at,
       deleted_by,
       delete_reason,
+      closed_at,
+      closed_by,
+      status_before_close,
       attachments:document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at, source_template_attachment_id)
     `)
     .eq('project_id', projectId)
@@ -254,6 +282,9 @@ async function insertDocs(
         deleted_at: deletedDoc.deleted_at ?? null,
         deleted_by: deletedDoc.deleted_by ?? null,
         delete_reason: deletedDoc.delete_reason ?? null,
+        closed_at: deletedDoc.closed_at ?? null,
+        closed_by: deletedDoc.closed_by ?? null,
+        status_before_close: deletedDoc.status_before_close ?? null,
       })
 
       const { error } = await supabaseAdmin
@@ -271,6 +302,11 @@ async function insertDocs(
           attachment_missing_at: attachmentPath && !attachmentAvailable ? attachmentCheckedAt : null,
           attachment_missing_checked_at: attachmentCheckedAt,
           status: 'pending',
+          // Restaurată = cerere nouă, deschisă: dacă fusese închisă înainte de
+          // ștergere, câmpurile de închidere pleacă odată cu starea (#109).
+          closed_at: null,
+          closed_by: null,
+          status_before_close: null,
           deleted_at: null,
           deleted_by: null,
           delete_reason: null,
@@ -366,6 +402,9 @@ async function rollbackCreated(rollback: RollbackTracker) {
         deleted_at: doc.deleted_at,
         deleted_by: doc.deleted_by,
         delete_reason: doc.delete_reason,
+        closed_at: doc.closed_at,
+        closed_by: doc.closed_by,
+        status_before_close: doc.status_before_close,
       })
       .eq('id', doc.id)
   }
@@ -573,6 +612,19 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
           )
 
           if (!docRow || (!shouldMoveToActivity && !shouldUpdateAttachment && !shouldUpdateOutgoing)) {
+            continue
+          }
+
+          // O cerere închisă nu se modifică până la redeschidere (D13). Mutată
+          // într-un document trimis clientului, ar fi picat și pe CHECK-ul din
+          // bază și ar fi anulat propagarea pe tot proiectul.
+          if (docRow.status === 'closed') {
+            warnings.push({
+              type: 'closed_request',
+              template_document_requirement_id: tDoc.id,
+              name: tDoc.name,
+            })
+            totals.skipped += 1
             continue
           }
 

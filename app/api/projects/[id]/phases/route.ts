@@ -5,6 +5,7 @@ import { requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { slugify } from '@/lib/slug'
 import { isClientVisibleActivity, isClientVisiblePhase } from '@/lib/client-visibility'
+import { STATUS_PATCH_MESSAGE } from '@/lib/completion'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -55,10 +56,21 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       })
     )
 
+    if (auth.access.role !== 'client') {
+      return NextResponse.json({ phases: phasesWithActivities })
+    }
+
+    // Clientul vede ce e finalizat, dar nu și cine a marcat (#109).
+    const withoutAuthor = (row: any) => {
+      const visible = { ...row }
+      delete visible.completed_by
+      return visible
+    }
     return NextResponse.json({
-      phases: auth.access.role === 'client'
-        ? phasesWithActivities.filter(isClientVisiblePhase)
-        : phasesWithActivities,
+      phases: phasesWithActivities.filter(isClientVisiblePhase).map(phase => ({
+        ...withoutAuthor(phase),
+        activities: phase.activities.map(withoutAuthor),
+      })),
     })
   } catch (error: any) {
     console.error('GET /api/projects/[id]/phases error:', error)
@@ -88,6 +100,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Numele este obligatoriu' }, { status: 400 })
     }
 
+    // O fază nouă pornește mereu „pending": finalizarea trece doar prin
+    // /complete, cu gardă de manager (D1) și audit (#109).
+    if (status !== undefined) {
+      return NextResponse.json({ error: 'status is not accepted on create', message: STATUS_PATCH_MESSAGE }, { status: 400 })
+    }
+
     const slug = slugify(name)
 
     // Calculate order_index if not provided
@@ -113,7 +131,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         description: description || null,
         project_status_id: project_status_id || null,
         order_index: finalOrderIndex,
-        status: status || 'pending',
+        status: 'pending',
         visibility: 'draft',
       })
       .select()
