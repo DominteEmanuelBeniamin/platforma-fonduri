@@ -383,10 +383,14 @@ async function runCron(
   }
 
   const now = new Date()
+  // Doar proiectele în lucru (#109). Filtrul vechi era pe `status`
+  // (contractare/implementare/monitorizare), al cărui CHECK permitea exact
+  // aceste trei valori, deci nu excludea nimic. `selectDeadlineReminderCandidates`
+  // reface verificarea cu `isProjectActive`, ca regula să nu stea doar aici.
   const { data: projectRows, error: projectError } = await admin
     .from('projects')
-    .select('id,title,status,client_id,general_consultant_id,automatic_reminders_enabled,client:profiles!projects_client_id_fkey(id,full_name,email)')
-    .in('status', ['contractare', 'implementare', 'monitorizare'])
+    .select('id,title,lifecycle_status,client_id,general_consultant_id,automatic_reminders_enabled,client:profiles!projects_client_id_fkey(id,full_name,email)')
+    .eq('lifecycle_status', 'active')
   if (projectError) {
     logFailure(runId, 'project_query_failed')
     report.ok = false
