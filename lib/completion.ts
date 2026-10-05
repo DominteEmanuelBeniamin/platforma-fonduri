@@ -233,6 +233,30 @@ export function countHiddenRoots(
   return count
 }
 
+/**
+ * Rândul care ține locul celor ascunse dintr-o listă (D9: și la client). Toate
+ * cuvintele sunt de genul feminin — fază, activitate, cerere — deci acordul e
+ * mereu „finalizată / finalizate".
+ */
+export function hiddenFinalSummary(
+  hiddenCount: number,
+  total: number,
+  singular: string,
+  plural: string,
+): { text: string; action: string } {
+  if (hiddenCount >= total) {
+    return total === 1
+      ? { text: `Singura ${singular} e finalizată.`, action: 'Arat-o' }
+      : { text: `Toate cele ${countLabel(total, singular, plural)} sunt finalizate.`, action: 'Arată-le' }
+  }
+  // Cu numele lucrului în text: rândul fazelor stă chiar deasupra „Cererilor
+  // generale", iar un „1 finalizată ascunsă" singur s-ar fi citit ca al lor.
+  return {
+    text: countLabel(hiddenCount, `${singular} finalizată ascunsă`, `${plural} finalizate ascunse`),
+    action: 'Arată',
+  }
+}
+
 // ─── Contoare ─────────────────────────────────────────────────────────────────
 
 export type Progress = { done: number; total: number }
@@ -339,7 +363,7 @@ export function requestCloseConfirm(requestName: string) {
     title: `Închizi cererea „${requestName}”?`,
     description:
       'Cererea nu mai așteaptă nimic de la client: nu mai primește remindere și nu se mai pot încărca fișiere în ea. ' +
-      'Nu se mai poate modifica până o redeschizi.',
+      'Nu se mai poate modifica până o redeschizi. Cât timp elementele finalizate sunt ascunse, nu mai apare în listă.',
     confirmText: 'Închide cererea',
   }
 }

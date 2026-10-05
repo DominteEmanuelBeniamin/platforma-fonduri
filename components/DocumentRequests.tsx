@@ -51,7 +51,8 @@ import { RequirementType } from '@/lib/requirement-type'
 import { Spinner } from '@/components/ui/Spinner'
 import { Signal } from '@/components/ui/Signal'
 import { TONE } from '@/lib/signage'
-import { isRequestFinal } from '@/lib/completion'
+import { isRequestFinal, mergeVisibleOrder } from '@/lib/completion'
+import HiddenFinalRow from './HiddenFinalRow'
 import { CLOSED_REQUEST_CLIENT_NOTE, requestStatusInfo, type RequestStatus } from '@/lib/request-status'
 
 interface DocumentRequest {
@@ -189,6 +190,13 @@ interface DocumentRequestsProps {
   autoOpenRequestId?: string | null
   /** Închide și redeschide cereri: adminul și seniorul membru (#109, D1). */
   canCloseRequests?: boolean
+  /**
+   * Cererile finalizate ascunse acum (#109, A9). Ascunderea e doar la randare:
+   * lista completă rămâne pentru reordonare, contoare și fișa deschisă.
+   */
+  hiddenRequestIds?: ReadonlySet<string>
+  /** Arată cererile ascunse din lista asta. */
+  onRevealRequests?: (ids: string[]) => void
 }
 
 export default function DocumentRequests({
@@ -208,6 +216,8 @@ export default function DocumentRequests({
   projectTitle,
   autoOpenRequestId,
   canCloseRequests = false,
+  hiddenRequestIds,
+  onRevealRequests,
 }: DocumentRequestsProps) {
   const { loading: authLoading, token, profile, apiFetch } = useAuth()
   const { showToast, confirm } = useToast()
@@ -418,19 +428,28 @@ export default function DocumentRequests({
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
   const isClient = profile?.role === 'client'
 
+  // Cererile de afișat: fără cele finalizate ascunse (#109). `requests` rămâne
+  // lista completă — din ea se trimite ordinea, ca cele ascunse să-și păstreze
+  // locul (`mergeVisibleOrder`).
+  const visibleRequests = useMemo(
+    () => (hiddenRequestIds ? requests.filter(r => !hiddenRequestIds.has(r.id)) : requests),
+    [requests, hiddenRequestIds],
+  )
+  const hiddenHere = requests.length - visibleRequests.length
+
   // Drag & drop reorder — override temporar peste ordinea din API până la refresh
   const [draggedReqId, setDraggedReqId] = useState<string | null>(null)
   const [reqOrder, setReqOrder] = useState<string[] | null>(null)
 
   const displayRequests = reqOrder
     ? reqOrder
-        .map(id => requests.find((r: any) => r.id === id))
+        .map(id => visibleRequests.find((r: any) => r.id === id))
         .filter((r): r is DocumentRequest => !!r)
-    : requests
+    : visibleRequests
 
   const handleReqDragStart = (e: React.DragEvent, reqId: string) => {
     setDraggedReqId(reqId)
-    setReqOrder(requests.map((r: any) => r.id))
+    setReqOrder(visibleRequests.map((r: any) => r.id))
     e.dataTransfer.effectAllowed = 'move'
   }
 
@@ -451,14 +470,17 @@ export default function DocumentRequests({
     const order = reqOrder
     setDraggedReqId(null)
     if (!order) return
-    const original = requests.map((r: any) => r.id)
+    const original = visibleRequests.map((r: any) => r.id)
     const unchanged = order.length === original.length && original.every((id, i) => id === order[i])
     if (unchanged) { setReqOrder(null); return }
+    // Ruta scrie exact `1..n` primit; cu cereri ascunse, lista afișată nu e
+    // toată lista, deci se trimite ordinea completă, cu cele ascunse pe loc.
+    const fullOrder = mergeVisibleOrder(requests.map((r: any) => r.id), order)
     try {
       const res = await apiFetch(`/api/projects/${projectId}/document-requests/reorder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orders: order.map((id, i) => ({ id, order_index: i + 1 })) }),
+        body: JSON.stringify({ orders: fullOrder.map((id, i) => ({ id, order_index: i + 1 })) }),
       })
       if (res.ok) await Promise.resolve(onRefresh ? onRefresh() : fetchRequests())
       else { showToast('Nu am putut salva ordinea. Reîncearcă.', 'error') }
@@ -1591,6 +1613,16 @@ export default function DocumentRequests({
                 </div>
               )
             })
+          )}
+          {hiddenHere > 0 && onRevealRequests && (
+            <HiddenFinalRow
+              className="px-4 py-2 sm:px-5"
+              hiddenCount={hiddenHere}
+              total={requests.length}
+              singular="cerere"
+              plural="cereri"
+              onReveal={() => onRevealRequests(requests.filter(r => hiddenRequestIds?.has(r.id)).map(r => r.id))}
+            />
           )}
           {isEmbedded && isAdminOrConsultant && (
             <button

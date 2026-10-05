@@ -801,3 +801,89 @@ test('Interfața: faze, activități și cereri se finalizează din meniu și di
     await asClient.context.close()
   }
 })
+
+test('Interfața: ce e finalizat se ascunde, se arată la cerere și nu strică ordinea (A9, D9, D11)', async ({ browser }) => {
+  const projectId = await createProject('ascundere')
+  const phaseId = await addPhase(projectId, `Faza A ${STAMP}`)
+  const doneActivity = `Activitate gata ${STAMP}`
+  const openActivity = `Activitate în lucru ${STAMP}`
+  const a1 = await addActivity(projectId, phaseId, doneActivity)
+  const a2 = await addActivity(projectId, phaseId, openActivity)
+  const r1 = await addRequest(projectId, a1, `Aprobată ${STAMP}`)
+  const r2 = await addRequest(projectId, a2, `Deschisă 1 ${STAMP}`)
+  const r3 = await addRequest(projectId, a2, `Închisă ${STAMP}`)
+  const r4 = await addRequest(projectId, a2, `Aprobată 2 ${STAMP}`)
+  const r5 = await addRequest(projectId, a2, `Deschisă 2 ${STAMP}`)
+  for (const [i, id] of [r2, r3, r4, r5].entries()) {
+    await service.from('document_requirements').update({ order_index: i + 1 }).eq('id', id)
+  }
+  await service.from('document_requirements').update({ status: 'approved' }).in('id', [r1, r4])
+  await must(admin, 'POST', `/api/document-requests/${r3}/close`)
+  await must(admin, 'POST', `/api/projects/${projectId}/phases/${phaseId}/activities/${a1}/complete`)
+  await publishEverything(projectId)
+  const browse = `/projects/${projectId}?phase=${phaseId}&activity=${a2}`
+
+  const asAdmin = await login(browser, ADMIN_LOGIN.email, ADMIN_LOGIN.password)
+  const page = asAdmin.page
+  try {
+    await page.goto(browse)
+    const phase = page.locator(`#phase-${phaseId}`)
+    const toggle = page.getByLabel('Arată și ce e finalizat')
+    await expect(toggle).toBeVisible({ timeout: 30_000 })
+    await expect.soft(toggle, 'implicit oprit').not.toBeChecked()
+    // a1 (finalizată, cu cererea aprobată) se ascunde întreagă; din a2, cererile închisă și aprobată.
+    await expect.soft(phase.getByText(doneActivity, { exact: true }), 'activitatea finalizată e ascunsă').toHaveCount(0)
+    await expect.soft(phase.getByText('1 activitate finalizată ascunsă')).toBeVisible()
+    await expect.soft(page.locator(`#activity-${a2}`).getByText('2 cereri finalizate ascunse')).toBeVisible()
+    await expect.soft(page.locator(`#request-${r3}`)).toHaveCount(0)
+
+    // Reordonarea printre cele vizibile: r5 trece înaintea lui r2, cele ascunse rămân pe loc.
+    const reorder = page.waitForResponse(res => res.url().endsWith('/document-requests/reorder') && res.request().method() === 'POST')
+    await page.locator(`#request-${r5}`).hover()
+    await page.locator(`#request-${r5} [title="Trage pentru a reordona"]`).dragTo(page.locator(`#request-${r2}`))
+    expect((await reorder).status()).toBe(200)
+    const { data: ordered } = await service.from('document_requirements')
+      .select('id, order_index').in('id', [r2, r3, r4, r5]).order('order_index')
+    expect.soft((ordered ?? []).map(row => row.id), 'ordinea completă, cu cele ascunse pe loc').toEqual([r5, r3, r4, r2])
+
+    // Comutatorul arată tot și își ține minte alegerea, pentru toate proiectele (D11).
+    await toggle.check()
+    await expect.soft(phase.getByText(doneActivity, { exact: true })).toBeVisible()
+    await expect.soft(page.locator(`#request-${r3}`)).toBeVisible()
+    await page.reload()
+    await expect.soft(page.getByLabel('Arată și ce e finalizat'), 'alegerea rămâne după reîncărcare').toBeChecked({ timeout: 30_000 })
+    await page.getByLabel('Arată și ce e finalizat').uncheck()
+
+    // Deep-link spre o cerere aprobată, ascunsă: ținta și părinții ei se dezvăluie.
+    await page.goto(`/projects/${projectId}?phase=${phaseId}&activity=${a1}&document=${r1}`)
+    await expect(page.getByRole('dialog').filter({ hasText: `Aprobată ${STAMP}` }).first()).toBeVisible({ timeout: 30_000 })
+    await page.keyboard.press('Escape')
+    await expect.soft(page.locator(`#request-${r1}`), 'deep-link: cererea apare').toBeVisible()
+    await expect.soft(page.locator(`#activity-${a1}`), 'deep-link: activitatea ei apare').toBeVisible()
+
+    // Căutarea spre activitatea finalizată o dezvăluie și o arată ca finalizată.
+    await page.goto(browse)
+    await expect(page.locator(`#activity-${a2}`)).toBeVisible({ timeout: 30_000 })
+    await expect.soft(page.locator(`#activity-${a1}`)).toHaveCount(0)
+    await page.getByRole('button', { name: 'Caută în proiect' }).click()
+    await page.getByPlaceholder('Caută faze, activități, cereri de documente...').fill(doneActivity)
+    const result = page.getByRole('button', { name: new RegExp(doneActivity) }).first()
+    await expect.soft(result).toContainText('Finalizată')
+    await result.click()
+    await expect.soft(page.locator(`#activity-${a1}`), 'căutarea dezvăluie activitatea').toBeVisible()
+  } finally {
+    await asAdmin.context.close()
+  }
+
+  // Clientul vede aceeași regulă, cu rândul celor ascunse (D9).
+  const asClient = await login(browser, CONFIG.clientEmail, CONFIG.clientPassword)
+  try {
+    await asClient.page.goto(browse)
+    await expect(asClient.page.locator(`#activity-${a2}`).getByText('2 cereri finalizate ascunse')).toBeVisible({ timeout: 30_000 })
+    await asClient.page.locator(`#activity-${a2}`).getByRole('button', { name: /^Arată: 2 cereri finalizate ascunse/ }).click()
+    await expect.soft(asClient.page.locator(`#request-${r3}`)).toBeVisible()
+    await expect.soft(asClient.page.locator(`#request-${r3}`).getByText('Închisă', { exact: true })).toBeVisible()
+  } finally {
+    await asClient.context.close()
+  }
+})

@@ -82,9 +82,13 @@ import { usePatchField } from '@/hooks/usePatchField'
 import { NO_PROJECT_PERMISSIONS, type ProjectPermissions } from '@/lib/project-permissions'
 import { Spinner } from '@/components/ui/Spinner'
 import { Signal } from '@/components/ui/Signal'
+import HiddenFinalRow from '@/components/HiddenFinalRow'
 import {
   activityCompletionConfirm,
   activityProgress,
+  countHiddenRoots,
+  hiddenFinalItems,
+  type HiddenItems,
   isActivityFinal,
   isPhaseFinal,
   phaseCompletionConfirm,
@@ -107,6 +111,13 @@ const GENERAL_ID = GENERAL_PHASE_ID
 // Tabul curent. Se reflectă în `?view=`, ca vederea să poată fi trimisă mai
 // departe ca link; „phases" e implicitul, deci nu ajunge în URL.
 type ProjectView = 'phases' | 'documents' | 'calendar'
+
+/**
+ * Comutatorul „Arată și ce e finalizat" (#109): o preferință a browserului,
+ * aceeași pentru toate proiectele (D11). Nu se salvează pe server.
+ */
+const SHOW_FINAL_KEY = 'bonie:arata-finalizate'
+const NOTHING_HIDDEN: HiddenItems = { phases: new Set(), activities: new Set(), requests: new Set() }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -826,6 +837,8 @@ function ProjectDetailsContent() {
   }
 
   const handleSelectPhase = (phaseId: string) => {
+    // Panoul lateral arată și fazele finalizate (D10): alese de acolo, apar.
+    reveal(phaseId)
     selectView('phases')
     setLandingView('browse')
     setActivePhaseId(phaseId)
@@ -843,9 +856,46 @@ function ProjectDetailsContent() {
     scrollToPhaseSection(GENERAL_ID)
   }
 
+  // ─── Ascunderea celor finalizate (#109, A9) ─────────────────────────────────
+  //
+  // Doar la randare: fazele, activitățile și cererile vin întregi din API, deci
+  // căutarea, contoarele, panoul lateral și „Panoul cu chei" văd tot (D10).
+  // Implicit oprit și citit în efect, ca randarea de pe server și prima randare
+  // din browser să fie aceleași.
+  const [showFinal, setShowFinal] = useState(false)
+  useEffect(() => {
+    try { setShowFinal(window.localStorage.getItem(SHOW_FINAL_KEY) === '1') } catch { /* stocare indisponibilă */ }
+  }, [])
+  // Ținte dezvăluite: deep-link, căutare, salt din panou, chat, panoul lateral.
+  // Rămân vizibile, cu tot cu părinții lor, până la următoarea comutare.
+  const [revealedIds, setRevealedIds] = useState<Set<string>>(() => new Set())
+  const reveal = useCallback((...ids: (string | null | undefined)[]) => {
+    const fresh = ids.filter((id): id is string => !!id && id !== GENERAL_ID)
+    if (fresh.length === 0) return
+    setRevealedIds(prev => (fresh.every(id => prev.has(id)) ? prev : new Set([...prev, ...fresh])))
+  }, [])
+  const toggleShowFinal = (next: boolean) => {
+    setShowFinal(next)
+    setRevealedIds(new Set())
+    try { window.localStorage.setItem(SHOW_FINAL_KEY, next ? '1' : '0') } catch { /* rămâne doar pentru sesiunea asta */ }
+  }
+
+  const hidden = useMemo(
+    () => (showFinal ? NOTHING_HIDDEN : hiddenFinalItems(phases, allDocRequests, revealedIds)),
+    [showFinal, phases, allDocRequests, revealedIds],
+  )
+  /** Câte rânduri ar ascunde comutatorul: cifra de lângă el. */
+  const finalCount = useMemo(
+    () => countHiddenRoots(hiddenFinalItems(phases, allDocRequests), phases, allDocRequests),
+    [phases, allDocRequests],
+  )
+  const visiblePhases = useMemo(() => phases.filter(p => !hidden.phases.has(p.id)), [phases, hidden])
+
+  // „Extinde toate fazele" lucrează pe cele vizibile: o fază finalizată ascunsă
+  // nu se deschide pe ascuns.
   const allPhasesExpanded =
-    phases.length > 0 &&
-    phases.every(p => expandedPhases.has(p.id)) &&
+    visiblePhases.length > 0 &&
+    visiblePhases.every(p => expandedPhases.has(p.id)) &&
     expandedPhases.has(GENERAL_ID)
 
   const handleToggleAllPhases = () => {
@@ -854,7 +904,7 @@ function ProjectDetailsContent() {
       setActivePhaseId(null)
       if (hasDeepLink) selectView('phases')
     } else {
-      setExpandedPhases(new Set([...phases.map(p => p.id), GENERAL_ID]))
+      setExpandedPhases(new Set([...visiblePhases.map(p => p.id), GENERAL_ID]))
     }
   }
 
@@ -903,11 +953,14 @@ function ProjectDetailsContent() {
     const known = targetPhaseId === GENERAL_ID || phases.some(phase => phase.id === targetPhaseId)
     if (!known) return
     appliedDeepLink.current = deepLinkKey
+    // O notificare, un email de reminder sau calendarul pot trimite spre ceva
+    // finalizat: ținta se dezvăluie, altfel pagina ar derula spre nimic.
+    reveal(targetPhaseId, targetActivityId, targetDocumentId)
     setActiveView('phases')
     setLandingView('browse')
     setActivePhaseId(targetPhaseId)
     setExpandedPhases(prev => (prev.has(targetPhaseId) ? prev : new Set(prev).add(targetPhaseId)))
-  }, [targetPhaseId, targetActivityId, targetDocumentId, phases])
+  }, [targetPhaseId, targetActivityId, targetDocumentId, phases, reveal])
 
   // ─── Deep-link: scroll + highlight zona țintă din URL ───────────────────────
   useEffect(() => {
@@ -934,6 +987,7 @@ function ProjectDetailsContent() {
   // Cu requestId, deschide direct fișa cererii — zero click-uri suplimentare
   // pentru client între "ce am de făcut" și zona de încărcare.
   const jumpToActivity = (phaseId: string | null, activityId: string | null, requestId?: string) => {
+    reveal(phaseId, activityId, requestId)
     selectView('phases')
     setLandingView('browse')
     if (activityId && phaseId) {
@@ -1058,6 +1112,7 @@ function ProjectDetailsContent() {
 
   const handleSearchSelect = (result: SearchResult) => {
     if (result.type === 'phase') {
+      reveal(result.id)
       selectView('phases')
       setLandingView('browse')
       setExpandedPhases(new Set([result.id]))
@@ -1078,6 +1133,7 @@ function ProjectDetailsContent() {
     const deepLinkKey = `${phaseId}:${result.activityId}:${result.type === 'document_request' ? result.id : null}`
     appliedDeepLink.current = deepLinkKey
     handledDeepLink.current = deepLinkKey
+    reveal(phaseId, result.activityId, result.type === 'document_request' ? result.id : null)
     setActiveView('phases')
     setLandingView('browse')
     setActivePhaseId(phaseId)
@@ -1435,7 +1491,23 @@ function ProjectDetailsContent() {
                 )
               ) : landingView === 'browse' ? (
                 <div className="mx-auto max-w-5xl p-4 sm:p-8">
-                  <div className="mb-5 flex items-center justify-end">
+                  <div className="mb-5 flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
+                    {/* Apare numai când chiar ascunde ceva, ca în tabloul de bord:
+                        altfel ar fi un control care nu face nimic vizibil. */}
+                    {(finalCount > 0 || showFinal) && (
+                      <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-soft sm:min-h-9">
+                        <input
+                          type="checkbox"
+                          checked={showFinal}
+                          onChange={event => toggleShowFinal(event.target.checked)}
+                          className="h-4 w-4 rounded-[1px] border-rule-strong text-[var(--sg-accent)]"
+                        />
+                        Arată și ce e finalizat
+                        {!showFinal && finalCount > 0 && (
+                          <span className="text-ink-faint">({finalCount})</span>
+                        )}
+                      </label>
+                    )}
                     <Button variant="quiet" size="sm" onClick={handleToggleAllPhases}>
                       {allPhasesExpanded ? 'Restrânge toate fazele' : 'Extinde toate fazele'}
                     </Button>
@@ -1449,7 +1521,10 @@ function ProjectDetailsContent() {
                     </div>
                   ) : (
                     <div className="space-y-5">
-                  {phases.filter(phase => expandedPhases.has(phase.id)).map(phase => (
+                  {visiblePhases.filter(phase => expandedPhases.has(phase.id)).map(phase => {
+                    const shownActivities = (phase.activities ?? []).filter(activity => !hidden.activities.has(activity.id))
+                    const hiddenActivities = (phase.activities ?? []).filter(activity => hidden.activities.has(activity.id))
+                    return (
                     <PhaseAccordionSection
                       key={phase.id}
                       id={phase.id}
@@ -1517,7 +1592,7 @@ function ProjectDetailsContent() {
                         <p className="text-sm text-[var(--p-ink-faint)]">Nicio activitate în această fază.</p>
                       ) : (
                         <>
-                        {phase.activities?.map(activity => (
+                        {shownActivities.map(activity => (
                           <ActivityFold
                             key={activity.id}
                             activity={activity}
@@ -1600,9 +1675,18 @@ function ProjectDetailsContent() {
                               projectTitle={project?.title}
                               autoOpenRequestId={autoOpenRequestId}
                               canCloseRequests={permissions.complete_items}
+                              hiddenRequestIds={hidden.requests}
+                              onRevealRequests={ids => reveal(...ids)}
                             />
                           </ActivityFold>
                         ))}
+                        <HiddenFinalRow
+                          hiddenCount={hiddenActivities.length}
+                          total={phase.activities?.length ?? 0}
+                          singular="activitate"
+                          plural="activități"
+                          onReveal={() => reveal(...hiddenActivities.map(activity => activity.id))}
+                        />
                         {canEdit && (
                           showAddActivity[phase.id] ? (
                             <div className="flex items-center gap-1.5">
@@ -1645,7 +1729,22 @@ function ProjectDetailsContent() {
                         </>
                       )}
                     </PhaseAccordionSection>
-                  ))}
+                    )
+                  })}
+                  {/* Cu toate fazele deschise, cele finalizate ascunse își spun numărul. */}
+                  {allPhasesExpanded && (
+                    <HiddenFinalRow
+                      hiddenCount={phases.length - visiblePhases.length}
+                      total={phases.length}
+                      singular="fază"
+                      plural="faze"
+                      onReveal={() => {
+                        const ids = phases.filter(p => hidden.phases.has(p.id)).map(p => p.id)
+                        reveal(...ids)
+                        setExpandedPhases(prev => new Set([...prev, ...ids]))
+                      }}
+                    />
+                  )}
                     </div>
                   )}
 
@@ -1701,6 +1800,8 @@ function ProjectDetailsContent() {
                       projectTitle={project?.title}
                       autoOpenRequestId={autoOpenRequestId}
                       canCloseRequests={permissions.complete_items}
+                      hiddenRequestIds={hidden.requests}
+                      onRevealRequests={ids => reveal(...ids)}
                     />
                   </div>
                 </PhaseAccordionSection>
