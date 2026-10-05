@@ -8,6 +8,7 @@ import {
   addMonths,
   deadlineKey,
   defaultFilters,
+  endedProjectIds,
   eventProgress,
   filterEvents,
   formatMonthTitle,
@@ -151,9 +152,16 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
       .sort((a, b) => a.name.localeCompare(b.name, 'ro'))
   }, [payload])
 
+  // Doar calendarul general ascunde proiectele încheiate (#109, D5); cel al
+  // unui proiect îi arată termenele chiar dacă e încheiat.
+  const endedIds = useMemo(
+    () => (payload && scope === 'global' ? endedProjectIds(payload.projects) : new Set<string>()),
+    [payload, scope]
+  )
+
   const visible: CalendarEvent[] = useMemo(
-    () => (ready ? filterEvents(ready.payload.events, ready.filters) : []),
-    [ready]
+    () => (ready ? filterEvents(ready.payload.events, ready.filters, endedIds) : []),
+    [ready, endedIds]
   )
 
   const overdueCount = useMemo(
@@ -285,6 +293,7 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
         scope={scope}
         phases={calendar.phases}
         projects={calendar.projects}
+        endedProjectIds={endedIds}
         owners={owners}
       />
 

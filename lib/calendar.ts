@@ -325,6 +325,12 @@ export interface CalendarFilterState {
   visibility: CalendarVisibility[] | null
   /** Id-uri de responsabil, plus `UNASSIGNED_OWNER_ID`. */
   owners: string[] | null
+  /**
+   * Și proiectele încheiate (#109, D5). Implicit oprit: termenele unui proiect
+   * încheiat nu mai trimit remindere, deci nici nu mai stau în vederea de lucru.
+   * Contează doar în calendarul general — cel al unui proiect îl arată mereu.
+   */
+  includeEnded: boolean
 }
 
 /**
@@ -339,6 +345,7 @@ export function defaultFilters(role: CalendarPayload['role'], userId: string): C
     progress: null,
     visibility: null,
     owners: role === 'consultant' ? [userId] : null,
+    includeEnded: false,
   }
 }
 
@@ -347,8 +354,23 @@ function matchesSelection(value: string | null, selection: string[] | null, null
   return selection.includes(value ?? nullToken)
 }
 
-export function filterEvents(events: CalendarEvent[], filters: CalendarFilterState): CalendarEvent[] {
+/** Proiectele care nu mai sunt în lucru, pentru filtrul „Și proiectele încheiate". */
+export function endedProjectIds(projects: readonly Pick<CalendarProjectOption, 'id' | 'lifecycle_status'>[]): Set<string> {
+  return new Set(projects.filter(project => !isProjectActive(project)).map(project => project.id))
+}
+
+/**
+ * `endedIds` vine doar din calendarul general: acolo un proiect încheiat se
+ * ascunde cât timp „Și proiectele încheiate" e oprit. Calendarul unui proiect
+ * nu-l trimite, deci își arată termenele chiar dacă proiectul e încheiat.
+ */
+export function filterEvents(
+  events: CalendarEvent[],
+  filters: CalendarFilterState,
+  endedIds?: ReadonlySet<string>,
+): CalendarEvent[] {
   return events.filter(event => {
+    if (endedIds && !filters.includeEnded && endedIds.has(event.project_id)) return false
     if (!filters.kinds.includes(event.kind)) return false
     if (!matchesSelection(event.phase_id, filters.phaseIds, GENERAL_PHASE_ID)) return false
     if (filters.projectIds !== null && !filters.projectIds.includes(event.project_id)) return false
@@ -368,7 +390,8 @@ export function activeFilterCount(filters: CalendarFilterState, defaults: Calend
     [filters.progress, defaults.progress],
     [filters.visibility, defaults.visibility],
     [filters.owners, defaults.owners],
-  ].filter(([value, fallback]) => !sameSelection(value, fallback)).length
+  ].filter(([value, fallback]) => !sameSelection(value, fallback)).length +
+    (filters.includeEnded !== defaults.includeEnded ? 1 : 0)
 }
 
 // ─── Filtre în URL ────────────────────────────────────────────────────────────
@@ -385,6 +408,7 @@ const PARAM = {
   progress: 'cs',
   visibility: 'cb',
   owners: 'co',
+  ended: 'ce',
 } as const
 
 export type CalendarViewMode = 'month' | 'list'
@@ -458,6 +482,7 @@ export function readFiltersFromParams(
       fallback.visibility,
     ),
     owners: rawOwners === undefined ? fallback.owners : rawOwners,
+    includeEnded: params.has(PARAM.ended) ? params.get(PARAM.ended) === '1' : fallback.includeEnded,
   }
 }
 
@@ -482,6 +507,9 @@ export function writeFiltersToParams(
   put(PARAM.progress, filters.progress, defaults.progress)
   put(PARAM.visibility, filters.visibility, defaults.visibility)
   put(PARAM.owners, filters.owners, defaults.owners)
+  const includeEnded = filters.includeEnded === true
+  if (includeEnded === (defaults.includeEnded === true)) params.delete(PARAM.ended)
+  else params.set(PARAM.ended, includeEnded ? '1' : '0')
 }
 
 /**
@@ -1132,12 +1160,15 @@ export function filterConsultantRows(rows: ConsultantDashboardRow[], query: stri
  */
 export function projectCalendarHref(
   projectId: string,
-  options: { overdueOnly?: boolean } = {},
+  options: { overdueOnly?: boolean; ended?: boolean } = {},
 ): string {
   const params = new URLSearchParams()
   writeViewMode(params, 'list')
   params.set(PARAM.projects, projectId)
   if (options.overdueOnly) params.set(PARAM.progress, 'overdue')
+  // Calendarul general ascunde implicit proiectele încheiate (#109): fără
+  // comutator, linkul către unul dintre ele ar fi deschis o vedere goală.
+  if (options.ended) params.set(PARAM.ended, '1')
   return `/calendar?${params.toString()}`
 }
 

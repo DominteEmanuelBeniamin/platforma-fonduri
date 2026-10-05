@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { test, expect } from '@playwright/test'
+import { test, expect, type Browser } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { e2eEnv, requireE2EConfig, serviceClient } from './helpers/project-state'
 
@@ -204,6 +204,18 @@ function editorTree(template: Json, extraPhase: string) {
   }))
   phases.push({ id: `nou-${randomUUID()}`, name: extraPhase, project_status_id: statusId, activities: [] })
   return { name: template.name, description: template.description, phases }
+}
+
+/** Un context nou per rol: Supabase rotește tokenul de refresh, deci nu se refolosește. */
+async function login(browser: Browser, email: string, password: string) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  const page = await context.newPage()
+  await page.goto('/login')
+  await page.fill('input[type=email]', email)
+  await page.fill('input[type=password]', password)
+  await page.click('button[type=submit]')
+  await page.waitForURL(url => !url.pathname.startsWith('/login'), { timeout: 30_000 })
+  return { context, page }
 }
 
 // ─── Pregătire și curățenie ──────────────────────────────────────────────────
@@ -589,4 +601,114 @@ test('Propagarea sare proiectele încheiate (D8) și cererile închise (D13), ia
   const restored = await requestRow(submitDoc.id)
   expect.soft([restored.status, restored.deleted_at, restored.closed_at, restored.closed_by, restored.status_before_close])
     .toEqual(['pending', null, null, null, null])
+})
+
+// ═══ INTERFAȚA ═══════════════════════════════════════════════════════════════
+
+test('Interfața: meniul „⋯” încheie și redeschide proiectul; badge, remindere, calendar, Home, tablou', async ({ browser }) => {
+  const projectId = await createProject('interfață')
+  const title = `Încheiere ${STAMP} — interfață`
+  const phaseId = await addPhase(projectId, 'Pregătire')
+  const activityId = await addActivity(projectId, phaseId, 'Documente de bază')
+  const requestName = `Certificat ${STAMP}`
+  const requestId = await addRequest(projectId, activityId, requestName)
+  await publishEverything(projectId)
+  // Un termen deja trecut: redeschiderea trebuie să-l anunțe.
+  await service.from('document_requirements').update({ deadline_at: new Date(Date.now() - 3 * 86_400_000).toISOString() }).eq('id', requestId)
+
+  const asAdmin = await login(browser, ADMIN_LOGIN.email, ADMIN_LOGIN.password)
+  const page = asAdmin.page
+  try {
+    await page.goto(`/projects/${projectId}`)
+    const menu = page.getByRole('button', { name: 'Mai multe acțiuni' })
+    await expect(menu).toBeVisible({ timeout: 30_000 })
+    const calendarTab = page.getByRole('button', { name: /^Calendar/ })
+    await expect.soft(calendarTab, 'insigna tabului numără termenul depășit').toContainText('termene depășite')
+
+    // Încheierea, cu confirmare.
+    await menu.click()
+    await page.getByRole('menuitem', { name: 'Încheie proiectul' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toContainText('Închei proiectul')
+    await expect.soft(dialog).toContainText('Reminderele automate se opresc')
+    await dialog.getByRole('button', { name: 'Încheie proiectul' }).click()
+    await expect(page.getByText('Proiectul a fost încheiat.')).toBeVisible()
+
+    const badge = page.getByText(/^Încheiat pe \d{1,2} \S+ \d{4} · de .+/)
+    await expect.soft(badge, 'badge-ul cu data și autorul, pentru echipă').toBeVisible()
+    const bell = page.getByRole('button', { name: 'Oprește reminderele automate' })
+    await expect.soft(bell, 'comutatorul de remindere e oprit').toBeDisabled()
+    await expect.soft(bell).toHaveAttribute('title', 'Proiectul e încheiat; reminderele automate sunt oprite.')
+    await expect.soft(calendarTab, 'insigna tabului e 0 pe proiect încheiat').not.toContainText('termene depășite')
+
+    // Redeschiderea spune câte termene sunt deja depășite.
+    await menu.click()
+    await expect.soft(page.getByRole('menuitem', { name: 'Încheie proiectul' })).toHaveCount(0)
+    await page.getByRole('menuitem', { name: 'Redeschide proiectul' }).click()
+    await expect.soft(dialog).toContainText('Un termen e deja depășit')
+    await dialog.getByRole('button', { name: 'Redeschide proiectul' }).click()
+    await expect(page.getByText('Proiectul a fost redeschis.')).toBeVisible()
+    await expect.soft(page.getByText(/^Încheiat pe/)).toHaveCount(0)
+    await expect.soft(bell).toBeEnabled()
+
+    // Încheiat din nou, pentru restul verificărilor.
+    await must(admin, 'POST', `/api/projects/${projectId}/close`)
+
+    // Calendarul general ascunde proiectul încheiat până la comutator.
+    await page.goto('/calendar?cv=list')
+    const ended = page.getByRole('button', { name: /Și proiectele încheiate/ })
+    await expect(ended).toBeVisible({ timeout: 30_000 })
+    await expect.soft(page.getByText(requestName), 'calendarul general: ascuns implicit').toHaveCount(0)
+    await ended.click()
+    await expect.soft(page.getByText(requestName).first(), 'calendarul general: vizibil cu comutatorul').toBeVisible()
+    await expect.soft(page).toHaveURL(/ce=1/)
+
+    // Home: semnul „Încheiat” pe card.
+    await page.goto('/')
+    const card = page.locator('a', { hasText: title }).first()
+    await expect(card).toBeVisible({ timeout: 30_000 })
+    await expect.soft(card.getByText('Încheiat', { exact: true }), 'Home: semnul pe card').toBeVisible()
+    await expect.soft(card.getByText('La zi', { exact: true }), 'Home: un proiect încheiat nu e „la zi”').toHaveCount(0)
+
+    // Tabloul de bord: ascuns implicit; cu proiectele încheiate, semnul și linkul spre calendar.
+    await page.goto('/admin/proiecte?incheiate=1')
+    const row = page.locator('tr', { hasText: title }).first()
+    await expect(row).toBeVisible({ timeout: 30_000 })
+    await expect.soft(row.getByText('Încheiat', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: `Arată termenele — ${title}` }).click()
+    const calendarLink = page.getByRole('link', { name: 'Vezi în calendar' }).first()
+    await expect.soft(calendarLink).toHaveAttribute('href', /ce=1/)
+  } finally {
+    await asAdmin.context.close()
+  }
+
+  // Juniorul nu vede meniul; seniorul îl vede.
+  const asJunior = await login(browser, junior.email, PASSWORD)
+  try {
+    await asJunior.page.goto(`/projects/${projectId}`)
+    await expect(asJunior.page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 30_000 })
+    await expect.soft(asJunior.page.getByRole('button', { name: 'Mai multe acțiuni' }), 'juniorul nu are meniul').toHaveCount(0)
+    await expect.soft(asJunior.page.getByText(/^Încheiat pe/), 'juniorul vede badge-ul').toBeVisible()
+  } finally {
+    await asJunior.context.close()
+  }
+  const asSenior = await login(browser, senior.email, PASSWORD)
+  try {
+    await asSenior.page.goto(`/projects/${projectId}`)
+    await expect.soft(asSenior.page.getByRole('button', { name: 'Mai multe acțiuni' }), 'seniorul membru are meniul').toBeVisible({ timeout: 30_000 })
+  } finally {
+    await asSenior.context.close()
+  }
+
+  // Clientul: data, fără autor.
+  const asClient = await login(browser, CONFIG.clientEmail, CONFIG.clientPassword)
+  try {
+    await asClient.page.goto(`/projects/${projectId}`)
+    const clientBadge = asClient.page.getByText(/^Încheiat pe/)
+    await expect(clientBadge).toBeVisible({ timeout: 30_000 })
+    await expect.soft(clientBadge, 'clientul nu vede cine a încheiat').not.toContainText('· de')
+    await expect.soft(asClient.page.getByRole('button', { name: 'Mai multe acțiuni' })).toHaveCount(0)
+  } finally {
+    await asClient.context.close()
+  }
 })

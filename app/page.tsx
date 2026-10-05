@@ -16,6 +16,7 @@ import {
 import { useProjectChatUnread } from '@/app/providers/ProjectChatUnreadProvider'
 import { useNotifications } from '@/app/providers/NotificationsProvider'
 import { GENERAL_PHASE_ID } from '@/lib/calendar'
+import { PROJECT_CLOSED_REMINDERS_HINT, isProjectActive } from '@/lib/project-lifecycle'
 import { Plate } from '@/components/ui/Plate'
 import { FloatingSurface, Scrim } from '@/components/ui/Surface'
 import { IconButton } from '@/components/ui/IconButton'
@@ -47,6 +48,8 @@ type Att = {
   unreadNotifications: number
   todo: boolean
   clean: boolean
+  /** Proiect încheiat (#109): n-are nimic de făcut, dar nici nu e „la zi". */
+  closed: boolean
 }
 
 type FilterOption = { key: string; name: string; count?: number }
@@ -107,6 +110,11 @@ function Tick({ on }: { on: boolean }) {
 
 function buildBadges(att: Att, isClient: boolean): { key: string; tone: SignalTone; icon: React.ReactNode; label: string; title: string }[] {
   const badges: { key: string; tone: SignalTone; icon: React.ReactNode; label: string; title: string }[] = []
+  // Primul, fiindcă schimbă felul în care se citesc celelalte (D6). Fără iconiță
+  // proprie: tonul `closed` își aduce deja cutia de arhivă.
+  if (att.closed) {
+    badges.push({ key: 'closed', tone: 'closed', icon: null, label: 'Încheiat', title: 'Proiect încheiat: reminderele automate sunt oprite' })
+  }
   if (att.overdue > 0) {
     badges.push({ key: 'overdue', tone: 'danger', icon: <AlertTriangle className="h-3 w-3" />, label: `${att.overdue} depășite`, title: `${att.overdue} cereri cu termen depășit` })
   }
@@ -169,6 +177,9 @@ function AdminMenu({
 }) {
   const remindersEnabled = automaticRemindersEnabled(project)
   const reminderToggleLoading = reminderToggleLoadingId === project.id
+  // Un proiect încheiat nu trimite remindere oricum (#109); comutatorul rămâne
+  // vizibil, dar oprit, iar valoarea lui nu se atinge.
+  const projectClosed = !isProjectActive(project)
 
   return (
     <div className={className}>
@@ -187,9 +198,10 @@ function AdminMenu({
           >
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpenMenuId(null); onToggleAutomaticReminders(project) }}
-              disabled={reminderToggleLoading}
-              className="flex min-h-11 w-full items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors duration-[120ms] hover:bg-paper-sunk disabled:opacity-60"
-              style={{ color: remindersEnabled ? 'var(--sg-warn)' : 'var(--sg-ok)' }}
+              disabled={reminderToggleLoading || projectClosed}
+              title={projectClosed ? PROJECT_CLOSED_REMINDERS_HINT : undefined}
+              className="flex min-h-11 w-full items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors duration-[120ms] hover:bg-paper-sunk disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ color: projectClosed ? 'var(--sg-ink-soft)' : remindersEnabled ? 'var(--sg-warn)' : 'var(--sg-ok)' }}
             >
               {reminderToggleLoading
                 ? <Loader2 className="w-4 h-4 animate-spin" />
@@ -564,12 +576,16 @@ export default function Dashboard() {
       const c = counts.get(p.id) ?? { total: 0, overdue: 0, review: 0, pending: 0 }
       const unreadChat = unreadChatByProjectId.get(p.id) ?? 0
       const unreadNotifications = unreadNotificationsByProjectId.get(p.id) ?? 0
+      // Cererile unui proiect încheiat nu mai vin din API (D5), deci contoarele
+      // lui sunt zero; „La zi" ar fi spus însă altceva decât „încheiat".
+      const closed = !isProjectActive(p)
       map.set(p.id, {
         ...c,
         unreadChat,
         unreadNotifications,
         todo: isClient ? c.total > 0 : c.review > 0,
-        clean: docRequestsLoaded && c.total === 0 && unreadChat === 0 && unreadNotifications === 0,
+        clean: !closed && docRequestsLoaded && c.total === 0 && unreadChat === 0 && unreadNotifications === 0,
+        closed,
       })
     }
     return map

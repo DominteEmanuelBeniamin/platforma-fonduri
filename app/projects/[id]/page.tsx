@@ -23,6 +23,8 @@ import {
   BellOff,
   Copy,
   Trash2,
+  Archive,
+  RotateCcw,
 } from 'lucide-react'
 
 import {
@@ -78,6 +80,15 @@ import { useToast } from '@/app/providers/ToastProvider'
 import { usePatchField } from '@/hooks/usePatchField'
 import { NO_PROJECT_PERMISSIONS, type ProjectPermissions } from '@/lib/project-permissions'
 import { Spinner } from '@/components/ui/Spinner'
+import { Signal } from '@/components/ui/Signal'
+import {
+  PROJECT_CLOSED_REMINDERS_HINT,
+  countOverdueOpenItems,
+  isProjectActive,
+  projectCloseConfirm,
+  projectClosedLabel,
+  projectReopenConfirm,
+} from '@/lib/project-lifecycle'
 
 // Secțiunea distinctă „Cereri generale" (documente fără fază/activitate).
 // Aceeași valoare ajunge în `?phase=` din deep-linkurile calendarului.
@@ -204,6 +215,9 @@ function ProjectDetailsContent() {
   // calendarul: altfel ar fi văzut un „7" roșu care duce într-o vedere cu un
   // singur element, sau chiar goală.
   const calendarUrgentCount = useMemo(() => {
+    // Un proiect încheiat nu mai are termene care să ceară atenție (#109, D5):
+    // reminderele lui s-au oprit, deci nici indicatorul nu mai numără.
+    if (project && !isProjectActive(project)) return 0
     const mineOnly = profile?.role === 'consultant' ? profile.id : null
     const generalOwnerId = projectMembers.some(m => m.id === project?.general_consultant_id)
       ? project?.general_consultant_id ?? null
@@ -228,7 +242,7 @@ function ProjectDetailsContent() {
       if (counts(req.deadline_at ?? null, isRequestDone(req), ownerId)) count++
     }
     return count
-  }, [phases, allDocRequests, profile?.role, profile?.id, project?.general_consultant_id, projectMembers])
+  }, [phases, allDocRequests, profile?.role, profile?.id, project?.general_consultant_id, project?.lifecycle_status, projectMembers])
   // Derivat, nu snapshot: după `refreshDocs` modalul trebuie să vadă datele noi,
   // nu obiectul capturat la click. Dacă cererea dispare, modalul se închide.
   const selectedDocumentRequest = useMemo(
@@ -245,6 +259,7 @@ function ProjectDetailsContent() {
       }
     }
     return allDocRequests.some((req: any) =>
+      req.status !== 'closed' &&
       isClientVisibleDocument(req) && (!req.client_notified_at || req.has_unnotified_review)
     )
   }, [phases, allDocRequests])
@@ -661,6 +676,57 @@ function ProjectDetailsContent() {
     }
   }
 
+  // ─── Încheierea proiectului (#109) ─────────────────────────────────────────
+
+  const [changingLifecycle, setChangingLifecycle] = useState(false)
+  const projectClosed = !!project && !isProjectActive(project)
+
+  /** Proiectul și permisiunile, fără spinnerul de pagină al lui `fetchAll`. */
+  const refreshProject = async () => {
+    if (!projectId) return
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}`)
+      if (!res.ok) return
+      const json = await res.json()
+      setProject(json.project)
+      setPermissions(json.permissions ?? NO_PROJECT_PERMISSIONS)
+    } catch (e) { console.error(e) }
+  }
+
+  /**
+   * Se încheie și se redeschide doar din pagina proiectului (D7). Redeschiderea
+   * spune dinainte câte termene sunt deja depășite: cronul de a doua zi trimite
+   * „Termen depășit" pentru ele.
+   */
+  const handleProjectLifecycle = async (action: 'close' | 'reopen') => {
+    if (!project || changingLifecycle) return
+    const dialog = action === 'close'
+      ? projectCloseConfirm(project.title)
+      : projectReopenConfirm(project.title, countOverdueOpenItems(phases, allDocRequests), automaticRemindersEnabled(project))
+    if (!(await confirm(dialog))) return
+
+    const fallback = action === 'close'
+      ? 'Nu am putut încheia proiectul. Reîncearcă.'
+      : 'Nu am putut redeschide proiectul. Reîncearcă.'
+    setChangingLifecycle(true)
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/${action}`, { method: 'POST' })
+      if (!res.ok) {
+        showToast(await serverMessage(res, fallback), 'error')
+        // Un 409 înseamnă că starea s-a schimbat din alt tab: pagina o preia.
+        await refreshProject()
+        return
+      }
+      const { project: updated } = await res.json()
+      setProject((prev: any) => (prev ? { ...prev, ...updated } : prev))
+      showToast(action === 'close' ? 'Proiectul a fost încheiat.' : 'Proiectul a fost redeschis.', 'success')
+    } catch {
+      showToast(fallback, 'error')
+    } finally {
+      setChangingLifecycle(false)
+    }
+  }
+
   const handleAssignGeneralConsultant = async (assignedTo: string | null) => {
     try {
       const res = await apiFetch(`/api/projects/${projectId}`, {
@@ -1067,9 +1133,10 @@ function ProjectDetailsContent() {
               automaticRemindersEnabled(project) ? (
                 <IconButton
                   label={remindersActionLabel(true)}
-                  title="Reminderele automate sunt pornite. Apasă ca să le oprești."
-                  disabled={togglingReminders}
+                  title={projectClosed ? PROJECT_CLOSED_REMINDERS_HINT : 'Reminderele automate sunt pornite. Apasă ca să le oprești.'}
+                  disabled={togglingReminders || projectClosed}
                   onClick={handleToggleAutomaticReminders}
+                  className="disabled:cursor-not-allowed disabled:opacity-55"
                 >
                   {togglingReminders ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
                 </IconButton>
@@ -1077,9 +1144,9 @@ function ProjectDetailsContent() {
                 <Button
                   variant="secondary"
                   size="sm"
-                  disabled={togglingReminders}
+                  disabled={togglingReminders || projectClosed}
                   onClick={handleToggleAutomaticReminders}
-                  title="Reminderele automate sunt oprite. Apasă ca să le pornești."
+                  title={projectClosed ? PROJECT_CLOSED_REMINDERS_HINT : 'Reminderele automate sunt oprite. Apasă ca să le pornești.'}
                   aria-label={remindersActionLabel(false)}
                   className="border-[var(--sg-warn)] bg-[var(--sg-warn-soft)] text-[var(--sg-warn)]"
                 >
@@ -1092,6 +1159,27 @@ function ProjectDetailsContent() {
               <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
               {project.profiles?.full_name || 'Client'}
             </span>
+            {/* Acțiunile rare ale proiectului stau sub „⋯": încheierea nu e un
+                buton de apăsat zilnic. Meniul nu apare deloc cui n-are voie. */}
+            <RowActionsMenu
+              label="Mai multe acțiuni"
+              busy={changingLifecycle}
+              triggerClassName="inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-ink disabled:opacity-60 pointer-fine:h-9 pointer-fine:w-9"
+              actions={[
+                {
+                  label: 'Încheie proiectul',
+                  icon: <Archive className="h-4 w-4" />,
+                  hidden: !permissions.close_project || projectClosed,
+                  onSelect: () => { void handleProjectLifecycle('close') },
+                },
+                {
+                  label: 'Redeschide proiectul',
+                  icon: <RotateCcw className="h-4 w-4" />,
+                  hidden: !permissions.close_project || !projectClosed,
+                  onSelect: () => { void handleProjectLifecycle('reopen') },
+                },
+              ]}
+            />
           </>
         }
       />
@@ -1099,9 +1187,17 @@ function ProjectDetailsContent() {
       {/* Titlul paginii. A dispărut odată cu antetul vechi și pagina a rămas
           fără `h1` — fâșia de locație e navigație, nu titlu. */}
       {!isEditingTitle && (
-        <h1 className="mb-6 text-3xl font-bold tracking-tight text-ink md:text-4xl">
-          {project.title}
-        </h1>
+        <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">
+            {project.title}
+          </h1>
+          {/* Clientul vede data, nu și cine a încheiat: ruta nu-i trimite numele. */}
+          {projectClosed && (
+            <Signal tone="closed">
+              {projectClosedLabel(project.closed_at, project.closer?.full_name)}
+            </Signal>
+          )}
+        </div>
       )}
 
       {isEditingTitle && (

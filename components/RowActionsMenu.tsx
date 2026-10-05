@@ -34,6 +34,7 @@ export default function RowActionsMenu({
   busy = false,
   size = 'md',
   className = '',
+  triggerClassName,
 }: {
   /** Ce apare în `aria-label`: „Acțiuni pentru faza X”. */
   label: string
@@ -42,6 +43,11 @@ export default function RowActionsMenu({
   /** Doar iconița e mai mică pe rândurile de activitate; ținta rămâne 32 px. */
   size?: 'sm' | 'md'
   className?: string
+  /**
+   * Înlocuiește aspectul butonului „⋯”. Folosit în fâșia de locație, unde stă
+   * lângă `IconButton`-uri și trebuie să aibă aceeași țintă (44px pe telefon).
+   */
+  triggerClassName?: string
 }) {
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState<MenuPosition | null>(null)
@@ -124,7 +130,7 @@ export default function RowActionsMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         data-open={open}
-        className={`${size === 'sm' ? 'p-2.5' : 'p-2'} rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface-2)] disabled:opacity-60`}
+        className={triggerClassName ?? `${size === 'sm' ? 'p-2.5' : 'p-2'} rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface-2)] disabled:opacity-60`}
       >
         {busy
           ? <Loader2 className={`${iconSize} animate-spin`} />
