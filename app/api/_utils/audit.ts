@@ -12,6 +12,11 @@ type AuditActionType =
   | 'login'
   | 'logout'
   | 'download'
+  // #109: încheierea și redeschiderea proiectului, închiderea și redeschiderea
+  // cererilor, finalizarea fazelor și activităților.
+  | 'close'
+  | 'reopen'
+  | 'complete'
 
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true

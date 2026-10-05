@@ -41,6 +41,7 @@ const TONE_CUVANT: Record<SignalTone, string> = {
   neutral: 'la client',
   ok: 'aprobat',
   draft: 'în lucru',
+  closed: 'închisă',
 }
 
 const MAX_VIZIBILE = 24

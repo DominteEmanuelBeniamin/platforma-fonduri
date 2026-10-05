@@ -214,6 +214,10 @@ export function projectPermissions(access: ProjectAccess): ProjectPermissions {
     remove_any_member: access.role === 'admin',
     moderate_chat: manage,
     edit_others_messages: access.role === 'admin',
+    // Juniorul și clientul nu încheie proiectul și nu marchează nimic ca
+    // finalizat (#109, D1); aprobarea unui document rămâne la orice membru.
+    close_project: manage,
+    complete_items: manage,
   }
 }
 

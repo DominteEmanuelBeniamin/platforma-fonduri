@@ -7,7 +7,10 @@
 // Cale relativă, cu extensie: fișierul are teste rulate direct cu `node --test`
 // (vezi `calendar.test.mjs`), iar Node nu cunoaște aliasul `@/` și cere
 // specificatorul complet.
+import { countLabel } from './count-label.ts'
+import { isActivityFinal, isRequestFinal } from './completion.ts'
 import { getDaysUntilDeadline } from './document-reminder.ts'
+import { isProjectActive } from './project-lifecycle.ts'
 
 // ─── Tipuri ───────────────────────────────────────────────────────────────────
 
@@ -146,13 +149,19 @@ export function eventWaitingOn(
 }
 
 /**
- * Ce înseamnă „finalizat" pe fiecare sursă. Scris o singură dată, fiindcă îl
- * folosesc și ruta de calendar, și indicatorul numeric din pagina proiectului.
+ * Ce înseamnă „finalizat" pe fiecare sursă. Îl folosesc ruta de calendar,
+ * indicatorul numeric din pagina proiectului și tabloul de bord; definiția
+ * însăși stă în `lib/completion`, alături de ascunderea din #109, ca toate
+ * ecranele să numere la fel.
+ *
+ * Activitatea: doar `status`. După #109 baza ține `completed_at` legat de
+ * `completed` printr-un CHECK, deci data nu mai e o a doua cale spre „gata".
+ * Cererea: aprobată sau închisă (D4).
  */
-export const isActivityDone = (row: { status?: string | null; completed_at?: string | null }): boolean =>
-  row.status === 'completed' || !!row.completed_at
+export const isActivityDone = (row: { status?: string | null }): boolean => isActivityFinal(row)
 
-export const isRequestDone = (row: { status?: string | null }): boolean => row.status === 'approved'
+export const isRequestDone = (row: { status?: string | null; is_outgoing?: boolean | null }): boolean =>
+  isRequestFinal(row)
 
 /**
  * Responsabilul efectiv al unei cereri: al ei, cu revenire la consultantul
@@ -517,14 +526,10 @@ export function writeMonth(params: URLSearchParams, month: Date): void {
 // sutelor, funcțiile de mai jos sunt exact ce se mută pe server: primesc un
 // `CalendarPayload` și nu ating nici React, nici URL-ul.
 
-/**
- * Proiect „în lucru". Gardă pe egalitate cu `active`, nu pe o listă de valori
- * încheiate: `lifecycle_status` e `text` liber în bază, fără enum, deci o valoare
- * nouă apărută acolo trebuie să cadă în „încheiat" și să se ascundă implicit, nu
- * să se strecoare tăcut în lista pe care adminul o crede curentă.
- */
-export const isProjectActive = (project: Pick<CalendarProjectOption, 'lifecycle_status'>): boolean =>
-  project.lifecycle_status === 'active'
+// „Proiect în lucru" stă în `lib/project-lifecycle`, ca s-o poată folosi și
+// cronul de remindere fără tot calendarul; reexportată aici pentru apelanții
+// de dinainte de #109.
+export { isProjectActive }
 
 /**
  * Numerele unui rând de tablou, oricare ar fi capul lui de rând.
@@ -803,17 +808,9 @@ export function summarizeRows(rows: DashboardTotals[]): DashboardSummary {
   )
 }
 
-/**
- * Numeralul românesc cere „de" peste 20, dar nu la 101–119: „3 termene", „21 de
- * termene", „118 termene". Fără regula asta, linia de rezumat ar fi scris „21
- * termene" de fiecare dată când platforma crește.
- */
-export function countLabel(count: number, singular: string, plural: string): string {
-  if (count === 1) return `1 ${singular}`
-  const lastTwo = Math.abs(count) % 100
-  const needsDe = Math.abs(count) >= 20 && !(lastTwo >= 1 && lastTwo <= 19)
-  return `${count} ${needsDe ? 'de ' : ''}${plural}`
-}
+// Regula „de" peste 20 stă în `count-label`; o reexportăm pentru apelanții de
+// aici, care o luau dintotdeauna din calendar.
+export { countLabel }
 
 // ─── Sortarea tabelelor ───────────────────────────────────────────────────────
 //
