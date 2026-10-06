@@ -158,7 +158,11 @@ export async function resolveNotificationRecipients(
   })
 }
 
-export async function recordNotification(admin: any, input: RecordNotificationInput) {
+export async function recordNotification(
+  admin: any,
+  input: RecordNotificationInput,
+  compensationIds: string[],
+) {
   const title = input.title.trim()
   const itemCount = input.itemCount ?? 1
   if (!title) throw new Error('Notification title is required')
@@ -202,6 +206,8 @@ export async function recordNotification(admin: any, input: RecordNotificationIn
   const insertedIds = (result.data ?? [])
     .map((row: any) => row?.id)
     .filter((id: unknown): id is string => typeof id === 'string' && isUuid(id))
+  // Keep committed IDs available to caller rollback even if verification fails.
+  compensationIds.push(...insertedIds)
 
   // INSERT triggers may skip a recipient deactivated after the preflight query.
   // Return only persisted rows whose profile is still active; callers use this

@@ -191,8 +191,7 @@ async function recordDeadlineNotifications(
         eventKey: buildReminderNotificationEventKey(items),
         recipientIds: [group.recipientId],
         includeAdmins: false,
-      })
-      insertedNotificationIds.push(...result.insertedIds)
+      }, insertedNotificationIds)
       if (!hasReminderRecipient(result.recipientIds, group.recipientId)) {
         const { data: profile, error: profileError } = await admin
           .from('profiles')
@@ -211,7 +210,7 @@ async function recordDeadlineNotifications(
       // al fiecărui destinatar, așa că două grupuri care împart un termen îi
       // trimiteau adminului două notificări pentru același eveniment.
       for (const item of items) {
-        const adminResult = await recordNotification(admin, {
+        await recordNotification(admin, {
           projectId: projectGroup.projectId,
           type: 'deadline',
           severity: reminderNotificationSeverity([item]),
@@ -224,8 +223,7 @@ async function recordDeadlineNotifications(
           recipientIds: [],
           includeAdmins: true,
           fallbackToProjectMembers: false,
-        })
-        insertedNotificationIds.push(...adminResult.insertedIds)
+        }, insertedNotificationIds)
       }
     } catch {
       report.failures.notification++

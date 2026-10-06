@@ -223,7 +223,7 @@ export async function sendDocumentReminder(
     sendIndex: claim.data.sendIndex,
   })
 
-  let notificationIds: readonly string[] = []
+  const notificationIds: string[] = []
   const notificationTitle = reminderType === 'overdue' ? 'Termen depășit' : 'Termen apropiat'
   try {
     const notification = await recordNotification(admin, {
@@ -240,8 +240,7 @@ export async function sendDocumentReminder(
       recipientIds: [client.id],
       includeAdmins: true,
       fallbackToProjectMembers: false,
-    })
-    notificationIds = notification.insertedIds
+    }, notificationIds)
     if (!notification.recipientIds.includes(client.id)) {
       await rollback(notificationIds)
       return { ok: false, status: 409, error: 'Clientul proiectului are contul dezactivat.' }

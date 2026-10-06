@@ -337,8 +337,7 @@ export async function POST(
           recipientIds: [client.id],
           includeAdmins: true,
           fallbackToProjectMembers: false,
-        })
-        insertedNotificationIds.push(...publication.insertedIds)
+        }, insertedNotificationIds)
         if (!publication.recipientIds.includes(client.id)) {
           return failAfterRollback(409, 'Clientul proiectului are contul dezactivat.')
         }
@@ -359,8 +358,7 @@ export async function POST(
           recipientIds: [client.id],
           includeAdmins: true,
           fallbackToProjectMembers: false,
-        })
-        insertedNotificationIds.push(...reviewNotification.insertedIds)
+        }, insertedNotificationIds)
         if (!reviewNotification.recipientIds.includes(client.id)) {
           return failAfterRollback(409, 'Clientul proiectului are contul dezactivat.')
         }
