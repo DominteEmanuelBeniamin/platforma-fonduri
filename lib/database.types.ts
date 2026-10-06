@@ -424,7 +424,7 @@ export interface Project {
   general_consultant_id: string | null;
   automatic_reminders_enabled: boolean;
   /** `active` = în lucru; `completed` = încheiat (#109). `not null` din #109. */
-  lifecycle_status: 'active' | 'suspended' | 'completed' | 'cancelled' | 'archived';
+  lifecycle_status: 'active' | 'completed';
   /** Data încheierii; setată doar cât `lifecycle_status = 'completed'`. */
   closed_at: string | null;
   /** Cine a încheiat proiectul. Nu ajunge la client. */

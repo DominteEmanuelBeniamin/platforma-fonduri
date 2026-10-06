@@ -148,8 +148,8 @@ drop function if exists public.revert_project_phase(uuid, text);
 -- în faze și activități, ocolind rutele, regulile de drepturi (D1) și auditul,
 -- iar `completed_by` se putea falsifica. Aplicația scrie doar prin service_role
 -- (verificat: niciun `.from()` în afara app/api). Același tratament ca la
--- `document_requirements` în 20260921000001. SELECT rămâne: funcțiile RLS ale
--- chatului de proiect citesc fazele și activitățile.
+-- `document_requirements` în 20260921000001. SELECT-ul se revocă în
+-- 20261006090000: nicio funcție RLS nu citește fazele ca invoker.
 drop policy if exists "phases_consultant_update" on public.project_phases;
 drop policy if exists "activities_consultant_update" on public.project_activities;
 
