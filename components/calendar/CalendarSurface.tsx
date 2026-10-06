@@ -13,6 +13,8 @@ import {
   filterEvents,
   formatMonthTitle,
   monthKey,
+  includeEndedForSelection,
+  pinEndedOff,
   readFiltersFromParams,
   readMonth,
   readViewMode,
@@ -129,12 +131,16 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
   const ready = useMemo(() => {
     if (!payload) return null
     const defaults = defaultFilters(payload.role, payload.user_id)
-    return { payload, defaults, filters: readFiltersFromParams(params, defaults) }
-  }, [payload, params])
+    const ended = scope === 'global' ? endedProjectIds(payload.projects) : new Set<string>()
+    return { payload, defaults, filters: includeEndedForSelection(params, readFiltersFromParams(params, defaults), ended) }
+  }, [payload, params, scope])
 
   const changeFilters = (next: CalendarFilterState) => {
     if (!ready) return
-    syncUrl(target => writeFiltersToParams(target, next, ready.defaults))
+    syncUrl(target => {
+      writeFiltersToParams(target, next, ready.defaults)
+      pinEndedOff(target, next, endedIds)
+    })
   }
 
   const changeView = (mode: CalendarViewMode) => syncUrl(target => writeViewMode(target, mode))

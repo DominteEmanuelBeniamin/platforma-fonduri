@@ -30,7 +30,7 @@ export interface CalendarEvent {
   name: string
   /** `timestamptz` în bază, dar folosit ca dată calendaristică. Vezi `deadlineKey`. */
   deadline_at: string | null
-  /** Activitate încheiată, respectiv cerere aprobată. Calculat pe server. */
+  /** Activitate finalizată, respectiv cerere aprobată sau închisă (#109). Calculat pe server. */
   done: boolean
   /**
    * Statusul din bază, neinterpretat. `done` îl colapsează la da/nu, ceea ce
@@ -135,10 +135,9 @@ export const WAITING_LABELS: Record<CalendarWaitingOn, string> = {
  * consultantul la `review`. Activitățile sunt muncă internă, deci una
  * nefinalizată e mereu la noi, indiferent de status.
  *
- * Gardă pe egalitate cu `review`, nu pe lista celorlalte stări: `status` e
- * `text` liber în bază, iar o valoare nouă apărută acolo trebuie să cadă în „la
- * client", nu să fie numărată tăcut ca muncă a echipei. Aceeași alegere ca la
- * `isProjectActive`.
+ * Gardă pe egalitate cu `review`, nu pe lista celorlalte stări: o stare nouă
+ * adăugată în CHECK-ul din bază trebuie să cadă în „la client”, nu să fie
+ * numărată tăcut ca muncă a echipei. Aceeași alegere ca la `isProjectActive`.
  */
 export function eventWaitingOn(
   event: Pick<CalendarEvent, 'kind' | 'status' | 'done'>,
@@ -205,6 +204,15 @@ export const PROGRESS_LABELS: Record<CalendarProgress, string> = {
   open: 'În lucru',
   done: 'Finalizat',
   overdue: 'Depășit',
+}
+
+/**
+ * Cuvântul progresului unui eveniment. O cerere închisă e „finalizată” pentru
+ * numărătoare și filtre (D4), dar nu se citește „Finalizat”: n-a primit
+ * neapărat documentul, iar verdele ar fi spus „aprobat” (#109, DESIGN.md).
+ */
+export function progressLabelFor(event: { kind: CalendarEventKind; status: string | null }, progress: CalendarProgress): string {
+  return progress === 'done' && event.kind === 'request' && event.status === 'closed' ? 'Închisă' : PROGRESS_LABELS[progress]
 }
 
 export const VISIBILITY_LABELS: Record<CalendarVisibility, string> = {
@@ -357,6 +365,33 @@ function matchesSelection(value: string | null, selection: string[] | null, null
 /** Proiectele care nu mai sunt în lucru, pentru filtrul „Și proiectele încheiate". */
 export function endedProjectIds(projects: readonly Pick<CalendarProjectOption, 'id' | 'lifecycle_status'>[]): Set<string> {
   return new Set(projects.filter(project => !isProjectActive(project)).map(project => project.id))
+}
+
+/**
+ * Un link vechi (sau un semn de carte) filtrat pe un proiect încheiat, fără
+ * `ce` în adresă, pornește singur „Și proiectele încheiate" (#109): altfel
+ * calendarul ar fi gol, iar proiectul filtrat n-ar apărea nici în lista
+ * filtrului. Un `ce=0` scris explicit rămâne respectat.
+ */
+export function includeEndedForSelection(
+  params: URLSearchParams,
+  filters: CalendarFilterState,
+  endedIds: ReadonlySet<string>,
+): CalendarFilterState {
+  if (filters.includeEnded || params.has(PARAM.ended) || !filters.projectIds) return filters
+  return filters.projectIds.some(id => endedIds.has(id)) ? { ...filters, includeEnded: true } : filters
+}
+
+/**
+ * Perechea regulii de mai sus: oprit de mână, cu un proiect încheiat în filtru,
+ * comutatorul rămâne oprit (`ce=0` explicit), altfel s-ar reporni singur.
+ */
+export function pinEndedOff(
+  params: URLSearchParams,
+  filters: CalendarFilterState,
+  endedIds: ReadonlySet<string>,
+): void {
+  if (!filters.includeEnded && filters.projectIds?.some(id => endedIds.has(id))) params.set(PARAM.ended, '0')
 }
 
 /**
@@ -1179,11 +1214,14 @@ export function projectCalendarHref(
  */
 export function consultantCalendarHref(
   assigneeId: string,
-  options: { overdueOnly?: boolean } = {},
+  options: { overdueOnly?: boolean; ended?: boolean } = {},
 ): string {
   const params = new URLSearchParams()
   writeViewMode(params, 'list')
   params.set(PARAM.owners, assigneeId)
   if (options.overdueOnly) params.set(PARAM.progress, 'overdue')
+  // Când tabloul numără și proiectele încheiate (#109), calendarul trebuie să
+  // le arate și el, altfel numerele din rând nu se regăsesc acolo.
+  if (options.ended) params.set(PARAM.ended, '1')
   return `/calendar?${params.toString()}`
 }

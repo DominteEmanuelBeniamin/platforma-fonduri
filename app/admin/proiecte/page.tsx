@@ -449,7 +449,7 @@ function ProjectDashboardContent() {
           />
           <tbody>
             {consultantRows.map(row => (
-              <ConsultantRow key={row.id} row={row} open={open === row.id} onToggle={() => toggle(row.id)} />
+              <ConsultantRow key={row.id} row={row} open={open === row.id} onToggle={() => toggle(row.id)} ended={showEnded} />
             ))}
           </tbody>
         </TableFrame>
@@ -853,10 +853,13 @@ function ConsultantRow({
   row,
   open,
   onToggle,
+  ended,
 }: {
   row: ConsultantDashboardRow
   open: boolean
   onToggle: () => void
+  /** Tabloul numără și proiectele încheiate: calendarul le arată și el (#109). */
+  ended: boolean
 }) {
   const detailsId = `detalii-${row.id}`
 
@@ -906,10 +909,10 @@ function ConsultantRow({
             <DetailPanel
               row={row}
               withProject
-              overdueHref={consultantCalendarHref(row.id, { overdueOnly: true })}
-              upcomingHref={consultantCalendarHref(row.id)}
+              overdueHref={consultantCalendarHref(row.id, { overdueOnly: true, ended })}
+              upcomingHref={consultantCalendarHref(row.id, { ended })}
               links={
-                <Link href={consultantCalendarHref(row.id)} className={PANEL_ACTION}>
+                <Link href={consultantCalendarHref(row.id, { ended })} className={PANEL_ACTION}>
                   Vezi în calendar
                 </Link>
               }
