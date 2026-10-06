@@ -357,14 +357,40 @@ test('reactivation keeps identity/password and never restores old session eligib
   expect(produced.data!.some(row => row.event_key.startsWith('document-review:') && row.actor_id === fresh.id)).toBe(true)
 })
 
-test('inactive client is skipped before delivery claims and retains project/files', async () => {
+test('inactive client is skipped before delivery claims and retains project/files', async ({ page }) => {
   const requestBefore = await service.from('document_requirements').select('client_notified_at').eq('id', fixture!.requestId).single()
   const filesBefore = await service.from('files').select('id, storage_path').eq('requirement_id', fixture!.requestId)
   await lifecycle(customer, 'deactivate')
   for (const path of [`/api/projects/${fixture!.projectId}/notify-client`, `/api/document-requests/${fixture!.requestId}/reminder`]) {
     const result = await call(actor, 'POST', path)
     expect(result.status, JSON.stringify(result.json)).toBe(409)
+    if (path.endsWith('/notify-client')) expect(result.json.code).toBe('CLIENT_ACCOUNT_INACTIVE')
   }
+
+  await page.goto('/login')
+  // Cold dev pages can expose the SSR form before React attaches its handlers.
+  const passwordInput = page.locator('input[autocomplete=current-password]')
+  await expect(async () => {
+    if (await passwordInput.getAttribute('type') === 'password') {
+      await page.getByRole('button', { name: 'Arată parola', exact: true }).click()
+    }
+    await expect(passwordInput).toHaveAttribute('type', 'text', { timeout: 1_000 })
+  }).toPass({ timeout: 15_000 })
+  await page.getByRole('button', { name: 'Ascunde parola', exact: true }).click()
+  await expect(passwordInput).toHaveAttribute('type', 'password')
+  await page.fill('input[type=email]', config.staffEmail)
+  await page.fill('input[type=password]', config.staffPassword)
+  await page.click('button[type=submit]')
+  await page.waitForURL(url => !url.pathname.startsWith('/login'))
+  await page.goto(`/projects/${fixture!.projectId}`)
+  await page.getByRole('button', { name: 'Anunță clientul despre actualizări' }).click()
+  const confirmation = page.getByRole('dialog')
+  await expect(confirmation).toBeVisible()
+  await confirmation.getByRole('button', { name: 'Trimite email', exact: true }).click()
+  const toast = page.getByRole('alert').filter({ hasText: 'Clientul are contul dezactivat. Nu a fost trimisă nicio notificare.' })
+  await expect(toast).toBeVisible()
+  await expect(toast).toHaveText('Clientul are contul dezactivat. Nu a fost trimisă nicio notificare.')
+
   expect((await service.from('document_requirements').select('client_notified_at').eq('id', fixture!.requestId).single()).data).toEqual(requestBefore.data)
   expect((await service.from('files').select('id, storage_path').eq('requirement_id', fixture!.requestId)).data).toEqual(filesBefore.data)
   expect((await call(actor, 'GET', '/api/projects/' + fixture!.projectId)).status).toBe(200)

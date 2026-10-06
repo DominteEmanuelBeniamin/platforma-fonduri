@@ -70,7 +70,7 @@ export async function POST(
       return NextResponse.json({ error: 'Clientul proiectului nu are un profil valid' }, { status: 400 })
     }
     if (client.is_active === false) {
-      return NextResponse.json({ error: 'Clientul proiectului are contul dezactivat.' }, { status: 409 })
+      return NextResponse.json({ error: 'Clientul proiectului are contul dezactivat.', code: 'CLIENT_ACCOUNT_INACTIVE' }, { status: 409 })
     }
     if (!client.email) {
       return NextResponse.json({ error: 'Clientul proiectului nu are un email valid' }, { status: 400 })
@@ -164,7 +164,7 @@ export async function POST(
       return NextResponse.json({ error: 'Eroare la verificarea clientului' }, { status: 500 })
     }
     if (!currentClient || currentClient.is_active === false) {
-      return NextResponse.json({ error: 'Clientul proiectului are contul dezactivat.' }, { status: 409 })
+      return NextResponse.json({ error: 'Clientul proiectului are contul dezactivat.', code: 'CLIENT_ACCOUNT_INACTIVE' }, { status: 409 })
     }
 
     const notifiedAt = new Date().toISOString()
@@ -241,7 +241,7 @@ export async function POST(
 
     // Răspunsul de eroare după un rollback: dacă rollback-ul n-a reușit, coada NU mai e
     // intactă, iar consultantul trebuie să știe că o reîncercare simplă nu e suficientă.
-    const failAfterRollback = async (status: number, message: string) => {
+    const failAfterRollback = async (status: number, message: string, code?: string) => {
       const notificationsCleaned = await compensateNotifications()
       if (!shouldReleaseClaimsAfterNotificationCleanup(insertedNotificationIds, notificationsCleaned)) {
         return NextResponse.json(
@@ -259,6 +259,7 @@ export async function POST(
             ? message
             : `${message} În plus, marcajul intern nu a putut fi anulat — anunță un administrator, unele noutăți nu vor mai apărea la următoarea trimitere.`,
           ...(rolledBack ? {} : { rollbackFailed: true }),
+          ...(rolledBack && notificationsCleaned && code ? { code } : {}),
         },
         { status }
       )
@@ -339,7 +340,7 @@ export async function POST(
           fallbackToProjectMembers: false,
         }, insertedNotificationIds)
         if (!publication.recipientIds.includes(client.id)) {
-          return failAfterRollback(409, 'Clientul proiectului are contul dezactivat.')
+          return failAfterRollback(409, 'Clientul proiectului are contul dezactivat.', 'CLIENT_ACCOUNT_INACTIVE')
         }
       }
 
@@ -360,7 +361,7 @@ export async function POST(
           fallbackToProjectMembers: false,
         }, insertedNotificationIds)
         if (!reviewNotification.recipientIds.includes(client.id)) {
-          return failAfterRollback(409, 'Clientul proiectului are contul dezactivat.')
+          return failAfterRollback(409, 'Clientul proiectului are contul dezactivat.', 'CLIENT_ACCOUNT_INACTIVE')
         }
       }
     } catch (notificationError) {
@@ -377,7 +378,7 @@ export async function POST(
       return failAfterRollback(500, 'Eroare la verificarea clientului. Reîncearcă.')
     }
     if (!latestClient || latestClient.is_active === false) {
-      return failAfterRollback(409, 'Clientul proiectului are contul dezactivat.')
+      return failAfterRollback(409, 'Clientul proiectului are contul dezactivat.', 'CLIENT_ACCOUNT_INACTIVE')
     }
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
