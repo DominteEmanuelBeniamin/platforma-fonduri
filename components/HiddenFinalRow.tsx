@@ -14,6 +14,7 @@ export default function HiddenFinalRow({
   singular,
   plural,
   onReveal,
+  focusTargetId,
   className = '',
 }: {
   hiddenCount: number
@@ -22,6 +23,12 @@ export default function HiddenFinalRow({
   singular: string
   plural: string
   onReveal: () => void
+  /**
+   * Id-ul elementului care primește focusul după dezvăluire. Butonul „Arată”
+   * dispare odată cu rândul, iar fără asta focusul ar cădea pe <body> și cine
+   * navighează cu tastatura ar lua-o de la începutul paginii.
+   */
+  focusTargetId?: string
   className?: string
 }) {
   if (hiddenCount <= 0) return null
@@ -31,7 +38,17 @@ export default function HiddenFinalRow({
       <span>{text}</span>
       <button
         type="button"
-        onClick={onReveal}
+        onClick={() => {
+          onReveal()
+          if (!focusTargetId) return
+          // Elementul apare abia la randarea următoare.
+          window.setTimeout(() => {
+            const target = document.getElementById(focusTargetId)
+            if (!target) return
+            if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1')
+            target.focus()
+          }, 50)
+        }}
         aria-label={`${action}: ${text}`}
         className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-plate)] px-1 font-semibold text-[var(--sg-accent)] underline-offset-4 hover:underline pointer-fine:min-h-8"
       >

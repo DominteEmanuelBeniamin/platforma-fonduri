@@ -199,6 +199,10 @@ interface DocumentRequestsProps {
   onRevealRequests?: (ids: string[]) => void
 }
 
+/** Respinsă acum sau închisă din „Respins” (#109): motivul respingerii rămâne la vedere. */
+const wasRejected = (req: { status?: string | null; status_before_close?: string | null }) =>
+  req.status === 'rejected' || (req.status === 'closed' && req.status_before_close === 'rejected')
+
 export default function DocumentRequests({
   projectId,
   activityId,
@@ -987,7 +991,7 @@ export default function DocumentRequests({
           latestVersion: null,
           latestFiles: [],
           latestFile: null,
-          rejectionReason: req.status === 'rejected' ? req.latest_rejection?.reason ?? null : null
+          rejectionReason: wasRejected(req) ? req.latest_rejection?.reason ?? null : null
         })
         continue
       }
@@ -1014,7 +1018,7 @@ export default function DocumentRequests({
         latestVersion,
         latestFiles,
         latestFile: latestFiles[0] ?? null,
-        rejectionReason: req.status === 'rejected' ? req.latest_rejection?.reason ?? null : null
+        rejectionReason: wasRejected(req) ? req.latest_rejection?.reason ?? null : null
       })
     }
 
@@ -1556,7 +1560,7 @@ export default function DocumentRequests({
                         </div>
                       )}
 
-                      {req.status === 'rejected' && (
+                      {wasRejected(req) && (
                         <div className="mt-3 p-3 bg-[var(--sg-danger-soft)] border border-[var(--sg-danger)] rounded-xl">
                           <div className="flex items-start gap-2">
                             <MessageSquare className="w-4 h-4 text-[var(--sg-danger)] flex-shrink-0 mt-0.5" />
@@ -1622,6 +1626,7 @@ export default function DocumentRequests({
               singular="cerere"
               plural="cereri"
               onReveal={() => onRevealRequests(requests.filter(r => hiddenRequestIds?.has(r.id)).map(r => r.id))}
+              focusTargetId={(() => { const first = requests.find(r => hiddenRequestIds?.has(r.id)); return first ? `request-${first.id}` : undefined })()}
             />
           )}
           {isEmbedded && isAdminOrConsultant && (

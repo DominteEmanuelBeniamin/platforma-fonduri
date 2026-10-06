@@ -411,10 +411,13 @@ export default function DocumentModal({
       .sort((a, b) => b.version - a.version)
   }, [request.files])
 
+  // O cerere închisă din „Respins” își păstrează motivul la vedere (#109):
+  // clientul și echipa trebuie să știe de ce a fost respinsă ultima oară.
+  const showsRejection = request.status === 'rejected' || (request.status === 'closed' && request.status_before_close === 'rejected')
   const latestRejectionReason = useMemo(() => {
-    if (request.status !== 'rejected') return null
+    if (!showsRejection) return null
     return request.latest_rejection?.reason ?? null
-  }, [request.latest_rejection?.reason, request.status])
+  }, [request.latest_rejection?.reason, showsRejection])
 
 
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
@@ -1324,7 +1327,7 @@ export default function DocumentModal({
           </div>
 
           {/* Motivul respingerii anterioare */}
-          {request.status === 'rejected' && (
+          {showsRejection && (
             <div className="rounded-xl bg-[var(--sg-danger-soft)] px-4 py-3">
               <p className="text-xs font-semibold text-[var(--sg-danger)] mb-1">Motivul respingerii</p>
               <p className="text-sm text-[var(--sg-danger)] leading-relaxed">

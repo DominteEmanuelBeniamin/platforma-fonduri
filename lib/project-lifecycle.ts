@@ -6,7 +6,6 @@
 //
 // Căi relative, cu extensie: fișierul are teste rulate direct cu `node --test`.
 import { countLabel } from './count-label.ts'
-import { isActivityFinal, isRequestFinal } from './completion.ts'
 import { getDaysUntilDeadline } from './document-reminder.ts'
 
 /**
@@ -19,12 +18,16 @@ import { getDaysUntilDeadline } from './document-reminder.ts'
 export const isProjectActive = (project: { lifecycle_status?: string | null }): boolean =>
   project.lifecycle_status === 'active'
 
-/** Data încheierii, în formatul folosit deja în aplicație: „12 oct. 2026". */
+/**
+ * Data încheierii, în formatul folosit deja în aplicație: „12 oct. 2026".
+ * În ora României, ca toată echipa și clientul să vadă aceeași zi: o
+ * încheiere la 00:30, ora României, e încă ziua precedentă în UTC.
+ */
 export function formatClosedDate(closedAt: string | null | undefined): string | null {
   if (!closedAt) return null
   const date = new Date(closedAt)
   if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })
+  return date.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/Bucharest' })
 }
 
 /**
@@ -85,16 +88,27 @@ export function projectReopenConfirm(projectTitle: string, overdueCount: number,
   }
 }
 
-type DeadlineItem = { status?: string | null; deadline_at?: string | null }
-type RequestDeadlineItem = DeadlineItem & { is_outgoing?: boolean | null; deleted_at?: string | null }
+type ActivityDeadline = { id?: string; status?: string | null; deadline_at?: string | null; visibility?: string | null }
+type PhaseDeadline = { visibility?: string | null; activities?: readonly ActivityDeadline[] | null }
+type RequestDeadlineItem = {
+  status?: string | null
+  deadline_at?: string | null
+  visibility?: string | null
+  activity_id?: string | null
+  is_outgoing?: boolean | null
+  deleted_at?: string | null
+}
 
 /**
- * Câte elemente încă deschise au termenul trecut: activități nefinalizate și
- * cereri nefinalizate (fără documentele trimise clientului). Ziua se socotește
- * ca la cron, în fusul reminderelor.
+ * Câte termene depășite va anunța cronul după redeschidere: aceleași reguli ca
+ * `selectDeadlineReminderCandidates` (lib/deadline-reminder-candidates.ts) —
+ * doar ce e publicat, activitățile în așteptare sau în lucru, cererile „De
+ * încărcat” și „Respins”, fără documentele trimise clientului. Ziua se
+ * socotește ca la cron, în fusul reminderelor. Altfel confirmarea ar fi promis
+ * emailuri pentru ciorne sau pentru cereri aflate deja în verificare.
  */
 export function countOverdueOpenItems(
-  phases: readonly { activities?: readonly DeadlineItem[] | null }[],
+  phases: readonly PhaseDeadline[],
   requests: readonly RequestDeadlineItem[],
   now = new Date(),
 ): number {
@@ -102,15 +116,22 @@ export function countOverdueOpenItems(
     const days = getDaysUntilDeadline(deadlineAt ?? null, now)
     return days !== null && days < 0
   }
+  const published = (visibility: string | null | undefined) => visibility === 'published'
+  const visibleActivities = new Set<string>()
   let count = 0
   for (const phase of phases) {
     for (const activity of phase.activities ?? []) {
-      if (!isActivityFinal(activity) && overdue(activity.deadline_at)) count += 1
+      if (!published(phase.visibility) || !published(activity.visibility)) continue
+      if (activity.id) visibleActivities.add(activity.id)
+      if ((activity.status === 'pending' || activity.status === 'in_progress') && overdue(activity.deadline_at)) count += 1
     }
   }
   for (const request of requests) {
     if (request.is_outgoing || request.deleted_at) continue
-    if (!isRequestFinal(request) && overdue(request.deadline_at)) count += 1
+    if (request.status !== 'pending' && request.status !== 'rejected') continue
+    if (!published(request.visibility)) continue
+    if (request.activity_id && !visibleActivities.has(request.activity_id)) continue
+    if (overdue(request.deadline_at)) count += 1
   }
   return count
 }

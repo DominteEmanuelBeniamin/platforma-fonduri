@@ -875,6 +875,11 @@ function ProjectDetailsContent() {
     setRevealedIds(prev => (fresh.every(id => prev.has(id)) ? prev : new Set([...prev, ...fresh])))
   }, [])
   const toggleShowFinal = (next: boolean) => {
+    // Cu toate fazele deschise (sau cu toate ascunse), fazele finalizate care
+    // apar acum se deschid și ele: altfel comutatorul n-ar arăta nimic nou.
+    if (next && (allPhasesExpanded || visiblePhases.length === 0)) {
+      setExpandedPhases(prev => new Set([...prev, ...phases.map(p => p.id), GENERAL_ID]))
+    }
     setShowFinal(next)
     setRevealedIds(new Set())
     try { window.localStorage.setItem(SHOW_FINAL_KEY, next ? '1' : '0') } catch { /* rămâne doar pentru sesiunea asta */ }
@@ -1036,6 +1041,9 @@ function ProjectDetailsContent() {
   )
 
   const { pendingUploads, waitingOnClient } = useMemo(() => {
+    // Un proiect încheiat nu mai are nimic „de făcut” (#109, D5): cererile lui
+    // deschise au ieșit din toate listele de lucru, deci și din panoul de aici.
+    if (projectClosed) return { pendingUploads: [], waitingOnClient: [] }
     const incoming = allDocRequests.filter((r: any) => !r.is_outgoing && !r.deleted_at)
     const deadlineTs = (r: { deadline_at: string | null }) => {
       const ts = r.deadline_at ? new Date(r.deadline_at).getTime() : Number.POSITIVE_INFINITY
@@ -1062,7 +1070,7 @@ function ProjectDetailsContent() {
         .sort(byDeadline),
       waitingOnClient: isClient ? [] : incoming.filter((r: any) => r.status === 'pending').map(toPanelItem).sort(byDeadline),
     }
-  }, [allDocRequests, phaseNameById, isClient])
+  }, [allDocRequests, phaseNameById, isClient, projectClosed])
   const actionNeededCount = pendingUploads.length + waitingOnClient.length
 
   const boardTodayTs = useMemo(() => {
@@ -1465,7 +1473,7 @@ function ProjectDetailsContent() {
               </div>
 
               {landingView === 'action-needed' ? (
-                <ActionNeededPanel items={pendingUploads} waitingItems={waitingOnClient} isClient={isClient} onJump={jumpToActivity} />
+                <ActionNeededPanel items={pendingUploads} waitingItems={waitingOnClient} isClient={isClient} projectClosed={projectClosed} onJump={jumpToActivity} />
               ) : landingView === 'board' ? (
                 boardRows.length === 0 ? (
                   <div className="mx-auto max-w-5xl p-4 sm:p-8">
@@ -1495,7 +1503,7 @@ function ProjectDetailsContent() {
                     {/* Apare numai când chiar ascunde ceva, ca în tabloul de bord:
                         altfel ar fi un control care nu face nimic vizibil. */}
                     {(finalCount > 0 || showFinal) && (
-                      <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-soft sm:min-h-9">
+                      <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-soft pointer-fine:min-h-9">
                         <input
                           type="checkbox"
                           checked={showFinal}
@@ -1686,6 +1694,7 @@ function ProjectDetailsContent() {
                           singular="activitate"
                           plural="activități"
                           onReveal={() => reveal(...hiddenActivities.map(activity => activity.id))}
+                          focusTargetId={hiddenActivities[0] ? `activity-${hiddenActivities[0].id}` : undefined}
                         />
                         {canEdit && (
                           showAddActivity[phase.id] ? (
@@ -1731,8 +1740,9 @@ function ProjectDetailsContent() {
                     </PhaseAccordionSection>
                     )
                   })}
-                  {/* Cu toate fazele deschise, cele finalizate ascunse își spun numărul. */}
-                  {allPhasesExpanded && (
+                  {/* Cu toate fazele deschise, cele finalizate ascunse își spun numărul.
+                      Și când sunt ascunse toate: altfel lista ar rămâne goală, fără explicație. */}
+                  {(allPhasesExpanded || visiblePhases.length === 0) && (
                     <HiddenFinalRow
                       hiddenCount={phases.length - visiblePhases.length}
                       total={phases.length}
@@ -1743,6 +1753,7 @@ function ProjectDetailsContent() {
                         reveal(...ids)
                         setExpandedPhases(prev => new Set([...prev, ...ids]))
                       }}
+                      focusTargetId={phases.find(p => hidden.phases.has(p.id)) ? `phase-${phases.find(p => hidden.phases.has(p.id))!.id}` : undefined}
                     />
                   )}
                     </div>
