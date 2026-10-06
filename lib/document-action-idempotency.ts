@@ -15,7 +15,7 @@ export type DocumentActionFailure = {
  * `apiFetch` overwrites `error` on every non-OK response, so the reason a
  * document action was refused only reaches the user through `message` (the
  * convention from #70). These are the P0001 reasons raised inside
- * `review_document_request` and `complete_document_upload_batch`, plus the
+ * `review_document_request` and `complete_reserved_document_upload_batch`, plus the
  * trigger that refuses an upload into a closed request (#109).
  */
 const DOCUMENT_ACTION_FAILURES: Record<string, DocumentActionFailure> = {

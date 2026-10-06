@@ -6,8 +6,10 @@ import { isClientVisibleDocument } from '@/lib/client-visibility'
 import { isProjectActive } from '@/lib/project-lifecycle'
 
 // GET /api/my-document-requests
-// Returnează cererile de documente generale (fără activitate) în așteptare
-// din proiectele consultantului — folosit pe dashboard-ul principal.
+// Returnează cererile de documente care așteaptă ceva, pentru cine se uită:
+// clientului, ce are de încărcat; personalului, ce e de verificat sau la client,
+// din proiectele în care e membru (adminului, din toate). Folosit pe Home și în
+// /my-requests.
 //
 // Doar din proiectele active (#109, D5): un proiect încheiat nu mai trimite
 // remindere, deci nici nu mai are ce cere pe Home, în „Ce ai de făcut" sau în
