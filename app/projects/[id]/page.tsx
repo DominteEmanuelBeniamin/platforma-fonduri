@@ -78,6 +78,7 @@ import { useToast } from '@/app/providers/ToastProvider'
 import { usePatchField } from '@/hooks/usePatchField'
 import { NO_PROJECT_PERMISSIONS, type ProjectPermissions } from '@/lib/project-permissions'
 import { Spinner } from '@/components/ui/Spinner'
+import { profileDisplayName } from '@/lib/profile-display'
 
 // Secțiunea distinctă „Cereri generale" (documente fără fază/activitate).
 // Aceeași valoare ajunge în `?phase=` din deep-linkurile calendarului.
@@ -118,7 +119,7 @@ function ProjectDetailsContent() {
   const [selectedDocumentRequestId, setSelectedDocumentRequestId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [documentsError, setDocumentsError] = useState<string | null>(null)
-  const [projectMembers, setProjectMembers] = useState<{ id: string; full_name: string | null; email: string }[]>([])
+  const [projectMembers, setProjectMembers] = useState<{ id: string; full_name: string | null; email: string; is_active?: boolean | null }[]>([])
   const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set())
   const [expandedActivityIds, setExpandedActivityIds] = useState<Set<string>>(new Set())
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
@@ -412,16 +413,17 @@ function ProjectDetailsContent() {
         showToast(await serverMessage(res, 'Nu am putut duplica faza. Reîncearcă.'), 'error')
         return
       }
-      const { phase: copy, activities_created, document_requests_created } = await res.json()
+      const { phase: copy, activities_created, document_requests_created, warnings } = await res.json()
       await refreshContent()
       if (copy?.id) {
         setExpandedPhases(prev => new Set(prev).add(copy.id))
         setRenamingId(copy.id)
       }
+      const omittedAssignments = Array.isArray(warnings) ? warnings.length : 0
       showToast(phaseDuplicatedMessage(phaseName, {
         activities: activities_created ?? 0,
         documentRequests: document_requests_created ?? 0,
-      }), 'success')
+      }, omittedAssignments), omittedAssignments > 0 ? 'warning' : 'success')
     } catch {
       showToast('Nu am putut duplica faza. Reîncearcă.', 'error')
     } finally { setDuplicatingId(null) }
@@ -439,10 +441,11 @@ function ProjectDetailsContent() {
         showToast(await serverMessage(res, 'Nu am putut duplica activitatea. Reîncearcă.'), 'error')
         return
       }
-      const { activity: copy, document_requests_created } = await res.json()
+      const { activity: copy, document_requests_created, warnings } = await res.json()
       await refreshContent()
       if (copy?.id) setRenamingId(copy.id)
-      showToast(activityDuplicatedMessage(activityName, document_requests_created ?? 0), 'success')
+      const omittedAssignments = Array.isArray(warnings) ? warnings.length : 0
+      showToast(activityDuplicatedMessage(activityName, document_requests_created ?? 0, omittedAssignments), omittedAssignments > 0 ? 'warning' : 'success')
     } catch {
       showToast('Nu am putut duplica activitatea. Reîncearcă.', 'error')
     } finally { setDuplicatingId(null) }
@@ -483,6 +486,7 @@ function ProjectDetailsContent() {
           id: m.profiles?.id ?? m.consultant_id,
           full_name: m.profiles?.full_name ?? null,
           email: m.profiles?.email ?? '',
+          is_active: m.profiles?.is_active ?? null,
         }))
       )
     } catch (e) { console.error(e) }
@@ -1090,7 +1094,7 @@ function ProjectDetailsContent() {
             )}
             <span className="hidden items-center gap-1.5 rounded-[var(--radius-plate)] bg-paper-sunk px-2.5 py-1 text-xs text-ink-soft lg:flex">
               <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
-              {project.profiles?.full_name || 'Client'}
+              {profileDisplayName(project.profiles, project.profiles?.full_name || 'Client')}
             </span>
           </>
         }
@@ -1487,11 +1491,12 @@ function ProjectDetailsContent() {
                             className="h-11 max-w-44 rounded-[var(--radius-plate)] border border-rule bg-plate px-2 text-sm text-ink focus:border-[var(--sg-accent)] sm:h-9"
                           >
                             <option value="">Neatribuit</option>
-                            {projectMembers.map(m => <option key={m.id} value={m.id}>{m.full_name || m.email}</option>)}
+                            {projectMembers.find(m => m.id === project?.general_consultant_id && m.is_active === false) && <option value={project.general_consultant_id} disabled>{profileDisplayName(project.general_consultant)}</option>}
+                            {projectMembers.filter(m => m.is_active !== false).map(m => <option key={m.id} value={m.id}>{profileDisplayName(m)}</option>)}
                           </select>
                         ) : (
                           <span className="text-sm text-ink-soft">
-                            {project?.general_consultant?.full_name ?? project?.general_consultant?.email ?? 'Neatribuit'}
+                            {project?.general_consultant ? profileDisplayName(project.general_consultant) : 'Neatribuit'}
                           </span>
                         )
                       }

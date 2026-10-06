@@ -41,15 +41,17 @@ import {
   Activity,
 } from 'lucide-react'
 import SelectFilter from '@/components/SelectFilter'
-import { AUDIT_ACTION_LABELS, AUDIT_ENTITY_LABELS } from '@/lib/audit-catalog'
+import { AUDIT_ACTION_LABELS, AUDIT_ENTITY_LABELS, auditActorEmail } from '@/lib/audit-catalog'
 import { Spinner } from '@/components/ui/Spinner'
 import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { profileDisplayName } from '@/lib/profile-display'
 
 interface AuditLog {
   id: string
   user_id: string | null
+  actor_email?: string | null
   action_type: string
   entity_type: string
   entity_id: string | null
@@ -60,7 +62,7 @@ interface AuditLog {
   ip_address: string | null
   user_agent: string | null
   created_at: string
-  user?: { email: string; full_name: string | null } | null
+  user?: { email: string; full_name: string | null; is_active?: boolean | null } | null
 }
 
 interface Pagination {
@@ -234,7 +236,7 @@ export default function AuditPage() {
   const [toDate, setToDate] = useState<string>('')
   const [search, setSearch] = useState<string>('')
   const [searchInput, setSearchInput] = useState<string>('')
-  const [users, setUsers] = useState<Array<{ id: string; email: string; full_name: string | null }>>([])
+  const [users, setUsers] = useState<Array<{ id: string; email: string; full_name: string | null; is_active?: boolean | null }>>([])
   const [exporting, setExporting] = useState(false)
 
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
@@ -289,7 +291,7 @@ export default function AuditPage() {
 
   const fetchUsers = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/users')
+      const res = await apiFetch('/api/users?state=all')
       const json = await res.json()
       if (res.ok && Array.isArray(json.users)) {
         setUsers(
@@ -297,6 +299,7 @@ export default function AuditPage() {
             id: u.id,
             email: u.email,
             full_name: u.full_name ?? null,
+            is_active: u.is_active ?? null,
           })),
         )
       }
@@ -413,7 +416,7 @@ export default function AuditPage() {
         lines.push(
           [
             log.created_at,
-            log.user?.email ?? '',
+            auditActorEmail(log),
             log.user?.full_name ?? '',
             log.action_type,
             log.entity_type,
@@ -518,11 +521,8 @@ export default function AuditPage() {
     return an.localeCompare(bn, 'ro')
   })
 
-  const selectedUserLabel = userIdFilter
-    ? users.find(u => u.id === userIdFilter)?.full_name ||
-      users.find(u => u.id === userIdFilter)?.email ||
-      userIdFilter
-    : null
+  const selectedUser = userIdFilter ? users.find(u => u.id === userIdFilter) : null
+  const selectedUserLabel = selectedUser ? profileDisplayName(selectedUser, undefined, userIdFilter) : null
 
   const selectedEntityLabel = entityId ? `id: ${entityId.slice(0, 8)}…` : null
 
@@ -650,7 +650,7 @@ export default function AuditPage() {
             onChange={setUserIdFilter}
             placeholder="Toți utilizatorii"
             ariaLabel="Filtrează după utilizator"
-            options={sortedUsers.map(u => ({ value: u.id, label: u.full_name || u.email }))}
+            options={sortedUsers.map(u => ({ value: u.id, label: profileDisplayName(u) }))}
           />
         </div>
 
@@ -790,6 +790,8 @@ function LogRow({
   const EntityIcon = entity.icon
   const hasDetails = Boolean(log.old_values || log.new_values)
   const isSystem = !log.user_id
+  const actorEmail = auditActorEmail(log)
+  const actorName = isSystem ? 'Sistem' : profileDisplayName(log.user, undefined, actorEmail ? `${actorEmail} (cont șters)` : 'Cont șters')
   const detailsId = `audit-detalii-${log.id}`
 
   return (
@@ -823,15 +825,15 @@ function LogRow({
         <td className="px-4 py-3">
           <div className="flex min-w-0 items-center gap-1.5">
             <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-paper-sunk text-xs font-semibold text-ink-soft">
-              {(isSystem ? 'S' : (log.user?.full_name?.[0] || log.user?.email?.[0] || '?')).toUpperCase()}
+              {(isSystem ? 'S' : (log.user?.full_name?.[0] || actorEmail[0] || '?')).toUpperCase()}
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-ink">{isSystem ? 'Sistem' : log.user?.full_name || log.user?.email || 'Cont șters'}</p>
+              <p className="truncate text-sm font-medium text-ink">{actorName}</p>
               {!isSystem && log.user?.email && <p className="truncate text-xs text-ink-faint">{log.user.email}</p>}
             </div>
             {onFilterUser && (
               <IconButton
-                label={`Filtrează jurnalul după ${log.user?.full_name || log.user?.email || 'acest utilizator'}`}
+                label={`Filtrează jurnalul după ${actorName}`}
                 onClick={e => { e.stopPropagation(); onFilterUser() }}
                 className="!h-7 !w-7 shrink-0"
               >

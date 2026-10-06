@@ -3,6 +3,7 @@
 import { NextResponse } from 'next/server'
 import { guardToResponse, projectPermissions, requireAdmin, requireProjectAccess, requireProjectManager } from '../../_utils/auth'
 import { createSupabaseServiceClient } from '../../_utils/supabase'
+import { inactiveReferenceConflict } from '../../_utils/inactive-reference'
 import { logProjectAction, getClientIP, getUserAgent } from '../../_utils/audit'
 
 export async function GET(
@@ -22,7 +23,7 @@ export async function GET(
 
     const { data: project, error } = await admin
       .from('projects')
-      .select('*, profiles!projects_client_id_fkey(*), general_consultant:general_consultant_id(id, full_name, email)')
+      .select('*, profiles!projects_client_id_fkey(*), general_consultant:general_consultant_id(id, full_name, email, is_active)')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -63,7 +64,7 @@ export async function PATCH(
     // 1. Citim proiectul curent (pentru audit)
     const { data: oldProject, error: findErr } = await admin
       .from('projects')
-      .select('id, title, status, client_id, cod_intern, automatic_reminders_enabled, profiles!projects_client_id_fkey(email, full_name, cif)')
+      .select('id, title, status, client_id, general_consultant_id, cod_intern, automatic_reminders_enabled, profiles!projects_client_id_fkey(email, full_name, cif, is_active)')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -132,7 +133,7 @@ export async function PATCH(
       // Verificăm că noul client există și are rol=client
       const { data: newClient, error: clientErr } = await admin
         .from('profiles')
-        .select('id, role, email, full_name')
+        .select('id, role, email, full_name, is_active')
         .eq('id', client_id.trim())
         .maybeSingle()
 
@@ -146,6 +147,9 @@ export async function PATCH(
       if (newClient.role !== 'client') {
         return NextResponse.json({ error: 'Selected user is not a client' }, { status: 400 })
       }
+      if (newClient.is_active === false && oldProject.client_id !== client_id.trim()) {
+        return NextResponse.json({ error: 'Clientul trebuie să aibă un cont activ.' }, { status: 409 })
+      }
 
       update.client_id = client_id.trim()
     }
@@ -155,7 +159,25 @@ export async function PATCH(
       if (general_consultant_id !== null && typeof general_consultant_id !== 'string') {
         return NextResponse.json({ error: 'general_consultant_id trebuie să fie UUID sau null' }, { status: 400 })
       }
-      update.general_consultant_id = general_consultant_id ?? null
+      const consultantId = general_consultant_id?.trim() ?? null
+      if (consultantId && consultantId !== oldProject.general_consultant_id) {
+        const { data: consultant, error: consultantError } = await admin
+          .from('profiles')
+          .select('id, role, is_active')
+          .eq('id', consultantId)
+          .maybeSingle()
+        if (consultantError) {
+          console.error('General consultant lookup error:', consultantError)
+          return NextResponse.json({ error: 'Failed to validate general consultant' }, { status: 500 })
+        }
+        if (!consultant || consultant.role !== 'consultant') {
+          return NextResponse.json({ error: 'Consultantul general trebuie să fie consultant.' }, { status: 400 })
+        }
+        if (consultant.is_active === false) {
+          return NextResponse.json({ error: 'Consultantul general trebuie să aibă un cont activ.' }, { status: 409 })
+        }
+      }
+      update.general_consultant_id = consultantId
     }
 
     if (automatic_reminders_enabled !== undefined) {
@@ -177,10 +199,12 @@ export async function PATCH(
       .from('projects')
       .update(update)
       .eq('id', projectId)
-      .select('*, profiles!projects_client_id_fkey(full_name, cif, email)')
+      .select('*, profiles!projects_client_id_fkey(full_name, cif, email, is_active)')
       .single()
 
     if (updateErr) {
+      const inactive = inactiveReferenceConflict(updateErr, 'Nu poți folosi un cont dezactivat în proiect.')
+      if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
       console.error('Update project error:', updateErr)
       return NextResponse.json({ error: updateErr.message }, { status: 400 })
     }

@@ -4,6 +4,7 @@ import { Resend } from 'resend'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { inactiveReferenceConflict } from '@/app/api/_utils/inactive-reference'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { isRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
@@ -123,6 +124,7 @@ export async function PATCH(
     }
 
     const currentRequest = req
+    const assignmentChanged = assigned_to !== undefined && assigned_to !== req.assigned_to
     const access = await requireProjectAccess(request, req.project_id)
     if (!access.ok) return guardToResponse(access)
     if (access.profile.role === 'client') {
@@ -181,6 +183,25 @@ export async function PATCH(
         : generalConsultantId,
     }
 
+    if (isPublishing && !req.is_outgoing) {
+      const directAssignee = assigned_to === undefined ? req.assigned_to : assigned_to
+      const publishingAssignee = directAssignee ?? publishState.parentAssignee
+      if (publishingAssignee) {
+        const { data: consultant, error: consultantError } = await admin
+          .from('profiles')
+          .select('is_active')
+          .eq('id', publishingAssignee)
+          .maybeSingle()
+        if (consultantError) throw consultantError
+        if (!consultant || consultant.is_active !== true) {
+          return NextResponse.json(
+            { error: 'Cererea trebuie să aibă un responsabil activ înainte de publicare.' },
+            { status: 400 },
+          )
+        }
+      }
+    }
+
     if (isPublishing) {
       const blockers = publishBlockers(publishState)
       if (blockers.length > 0) {
@@ -198,7 +219,27 @@ export async function PATCH(
       }
     }
 
-    // Dacă se atribuie cuiva, verifică că este consultant membru al proiectului
+    // Păstrează o atribuire veche chiar dacă profilul a fost dezactivat;
+    // eligibilitatea se verifică doar când se creează o relație nouă.
+    if (assignmentChanged && typeof assigned_to === 'string') {
+      const { data: consultant, error: consultantError } = await admin
+        .from('profiles')
+        .select('id, role, is_active')
+        .eq('id', assigned_to)
+        .maybeSingle()
+
+      if (consultantError) {
+        console.error('PATCH document-requests consultant lookup error:', consultantError)
+        return NextResponse.json({ error: 'Eroare la verificarea consultantului' }, { status: 500 })
+      }
+      if (!consultant || consultant.role !== 'consultant') {
+        return NextResponse.json({ error: 'Alege un consultant valid.' }, { status: 400 })
+      }
+      if (consultant.is_active === false) {
+        return NextResponse.json({ error: 'Alege un consultant activ pentru o atribuire nouă.' }, { status: 409 })
+      }
+    }
+
     if (assigned_to !== undefined && assigned_to !== null) {
       const { data: membership, error: memberError } = await admin
         .from('project_members')
@@ -262,7 +303,6 @@ export async function PATCH(
       diff.changedKeys.push('attachments')
     }
 
-    const assignmentChanged = assigned_to !== undefined && assigned_to !== req.assigned_to
     const assignmentEventAt = assignmentChanged ? new Date().toISOString() : null
     // Ca la activități: triggerul nu vede autorul, așa că îl scriem pe rând.
     // `assigned_at` se scrie în aceeași actualizare pentru că e versiunea pe
@@ -287,6 +327,8 @@ export async function PATCH(
       .maybeSingle()
 
     if (updateError) {
+      const inactive = inactiveReferenceConflict(updateError, 'Nu poți atribui cererea unui cont dezactivat.')
+      if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
       console.error('PATCH document-requests update error:', updateError)
       return NextResponse.json({ error: 'Eroare la actualizarea cererii' }, { status: 500 })
     }
@@ -367,10 +409,10 @@ export async function PATCH(
       try {
         // Proiectul e deja citit mai sus, în `projectRow`/`projectTitle`.
         const { data: consultant, error: consultantError } = await admin
-          .from('profiles').select('full_name, email').eq('id', assigned_to).maybeSingle()
+          .from('profiles').select('full_name, email, is_active').eq('id', assigned_to).maybeSingle()
         if (consultantError) throw consultantError
 
-        if (consultant?.email) {
+        if (consultant?.email && consultant.is_active !== false) {
           const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
           const projectUrl = `${appUrl}/projects/${currentRequest.project_id}`
           const safeProjectTitle = escapeHtml(projectTitle)

@@ -57,6 +57,15 @@ export async function POST(
     })
 
     if (reviewError) {
+      if (reviewError.code === 'P0001' && reviewError.message === 'ACCOUNT_SESSION_INACTIVE') {
+        return NextResponse.json({
+          error: 'Account session is inactive',
+          code: 'ACCOUNT_SESSION_INACTIVE',
+          reason: 'account_inactive',
+          details: { is_active: false },
+        }, { status: 401 })
+      }
+
       console.error('review_document_request error:', reviewError)
       const failure = describeDocumentActionFailure(reviewError.message, reviewError.code)
       return NextResponse.json(

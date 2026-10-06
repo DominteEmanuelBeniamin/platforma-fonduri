@@ -109,7 +109,7 @@ export async function GET(request: Request) {
       .select(`
         id, project_id, activity_id, name, description, status, visibility, deadline_at,
         created_at,
-        project:project_id(id, title, client:profiles!projects_client_id_fkey(full_name, email)),
+        project:project_id(id, title, client:profiles!projects_client_id_fkey(id, full_name, email, is_active)),
         activity:activity_id(id, name, visibility, phase:phase_id(id, name, visibility))
       `)
       .in('project_id', projectIds)

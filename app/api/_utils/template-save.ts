@@ -75,6 +75,28 @@ export async function saveTemplateTree(
   const plan = planned.plan
   const templateName = plan.templateUpdate?.name ?? current.name
 
+  const defaultConsultantIds = [...new Set([
+    ...plan.activityInserts.map(item => item.row.default_consultant_id),
+    ...plan.activityUpdates.map(item => item.update.default_consultant_id),
+  ].filter((id): id is string => typeof id === 'string' && id.length > 0))]
+  if (defaultConsultantIds.length > 0) {
+    const { data: consultants, error } = await supabase
+      .from('profiles')
+      .select('id, role, is_active')
+      .in('id', defaultConsultantIds)
+    if (error) throw error
+    const consultantById = new Map((consultants ?? []).map((profile: any) => [profile.id, profile]))
+    for (const id of defaultConsultantIds) {
+      const consultant = consultantById.get(id) as any
+      if (!consultant || consultant.role !== 'consultant') {
+        throw new TemplateSaveError('Implicitele de atribuire trebuie să fie consultanți existenți.')
+      }
+      if (consultant.is_active === false) {
+        throw new TemplateSaveError('Implicitele de atribuire trebuie să fie consultanți activi.', 409)
+      }
+    }
+  }
+
   // Documentele noi duplicate dintr-unul existent primesc propriile obiecte în
   // storage, ca ștergerea modelului de pe unul să nu-l rupă pe celălalt.
   const createdPaths: string[] = []

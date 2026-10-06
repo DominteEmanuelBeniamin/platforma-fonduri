@@ -1,5 +1,6 @@
 // app/api/_utils/auth.ts
 import type { User } from '@supabase/supabase-js'
+import { isAuthRetryableFetchError } from '@supabase/supabase-js'
 import { createSupabaseServerClient, createSupabaseServiceClient } from './supabase'
 import type { ProjectPermissions } from '@/lib/project-permissions'
 
@@ -12,10 +13,11 @@ export type AppProfile = {
   role: AppRole
   email?: string | null
   consultant_level: ConsultantLevel
+  is_active: boolean
 }
 
 type Ok<T> = { ok: true } & T
-type Err = { ok: false; status: number; error: string }
+type Err = { ok: false; status: number; error: string; code?: string; reason?: string; details?: unknown }
 export type Result<T> = Ok<T> | Err
 
 function getBearerToken(request: Request) {
@@ -32,13 +34,24 @@ export async function requireUser(request: Request): Promise<Result<{ user: User
 
   // IMPORTANT: validate token in user-context (anon + Authorization header)
   const supabase = createSupabaseServerClient(request)
-  const { data, error } = await supabase.auth.getUser()
-
-  if (error || !data?.user) {
-    return { ok: false, status: 401, error: 'Invalid or expired token' }
+  try {
+    const { data, error } = await supabase.auth.getUser()
+    if (error) {
+      const status = typeof error.status === 'number' ? error.status : 0
+      if (isAuthRetryableFetchError(error) || status >= 500) {
+        console.error('Supabase Auth unavailable while validating API session:', { status })
+        return { ok: false, status: 503, error: 'Authentication service unavailable', code: 'AUTH_SERVICE_UNAVAILABLE', reason: 'auth_unavailable' }
+      }
+      return { ok: false, status: 401, error: 'Invalid or expired token', code: 'INVALID_SESSION', reason: 'invalid_token' }
+    }
+    if (!data?.user) {
+      return { ok: false, status: 401, error: 'Invalid or expired token', code: 'INVALID_SESSION', reason: 'invalid_token' }
+    }
+    return { ok: true, user: data.user }
+  } catch (error) {
+    console.error('Supabase Auth request failed while validating API session:', error)
+    return { ok: false, status: 503, error: 'Authentication service unavailable', code: 'AUTH_SERVICE_UNAVAILABLE', reason: 'auth_unavailable' }
   }
-
-  return { ok: true, user: data.user }
 }
 
 export async function requireProfile(
@@ -48,17 +61,49 @@ export async function requireProfile(
   if (!auth.ok) return auth
 
   const supabase = createSupabaseServerClient(request)
-  // `*` și nu o listă de coloane: dacă deploy-ul ajunge înaintea migrației
-  // pentru consultant_level, nivelul lipsește (= junior) în loc să dea 500
-  // la fiecare cerere autentificată.
   const { data: profile, error } = await supabase
     .from('profiles')
-    .select('*')
+    .select('id, role, email, consultant_level, is_active')
     .eq('id', auth.user.id)
-    .single()
+    .maybeSingle()
 
-  if (error || !profile?.role) {
-    return { ok: false, status: 500, error: 'Failed to load user profile' }
+  if (error) {
+    console.error('Failed to load authenticated user profile:', error)
+    return { ok: false, status: 500, error: 'Failed to load user profile', code: 'PROFILE_LOOKUP_FAILED' }
+  }
+  if (!profile) {
+    return { ok: false, status: 401, error: 'Account profile not found', code: 'PROFILE_NOT_FOUND', reason: 'profile_missing' }
+  }
+  if (!profile.role) {
+    console.error('Authenticated profile has no role:', { userId: auth.user.id })
+    return { ok: false, status: 500, error: 'Failed to load user profile', code: 'PROFILE_LOOKUP_FAILED' }
+  }
+
+  if (profile.is_active === false) {
+    return {
+      ok: false,
+      status: 401,
+      error: 'Account session is inactive',
+      code: 'ACCOUNT_SESSION_INACTIVE',
+      reason: 'account_inactive',
+      details: { is_active: false },
+    }
+  }
+
+  const { data: sessionActive, error: sessionError } = await supabase.rpc('current_account_session_active')
+  if (sessionError) {
+    console.error('Failed to verify authenticated account state:', { userId: auth.user.id, error: sessionError })
+    return { ok: false, status: 500, error: 'Failed to verify account state', code: 'ACCOUNT_STATE_LOOKUP_FAILED' }
+  }
+  if (sessionActive !== true) {
+    return {
+      ok: false,
+      status: 401,
+      error: 'Account session is inactive',
+      code: 'ACCOUNT_SESSION_INACTIVE',
+      reason: 'session_inactive',
+      details: { is_active: true },
+    }
   }
 
   return {
@@ -69,6 +114,7 @@ export async function requireProfile(
       role: profile.role as AppRole,
       email: profile.email,
       consultant_level: profile.consultant_level === 'senior' ? 'senior' : 'junior',
+      is_active: profile.is_active !== false,
     },
   }
 }
@@ -313,6 +359,10 @@ export async function requireProjectManager(request: Request, projectId: string)
 /**
  * Helper: cum răspunzi consistent din route.ts când un guard dă eroare
  */
-export function guardToResponse(err: { status: number; error: string }) {
-  return Response.json({ error: err.error }, { status: err.status })
+export function guardToResponse(err: { status: number; error: string; code?: string; reason?: string; details?: unknown }) {
+  const body: { error: string; code?: string; reason?: string; details?: unknown } = { error: err.error }
+  if (err.code !== undefined) body.code = err.code
+  if (err.reason !== undefined) body.reason = err.reason
+  if (err.details !== undefined) body.details = err.details
+  return Response.json(body, { status: err.status })
 }

@@ -31,6 +31,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Plate } from '@/components/ui/Plate'
 import { Signal } from '@/components/ui/Signal'
 import { FloatingSurface, Scrim } from '@/components/ui/Surface'
+import { profileDisplayName } from '@/lib/profile-display'
 
 interface ProjectStatus {
   id: string
@@ -69,6 +70,7 @@ interface Consultant {
   id: string
   full_name: string | null
   email: string
+  is_active?: boolean | null
 }
 
 interface TemplateActivity {
@@ -491,7 +493,7 @@ function AdminTemplatesContent() {
       const [templatesRes, statusesRes, usersRes] = await Promise.all([
         apiFetch('/api/admin/templates'),
         apiFetch('/api/admin/statuses'),
-        apiFetch('/api/users'),
+        apiFetch('/api/users?state=all'),
       ])
       if (templatesRes.ok) {
         const data = await templatesRes.json()
@@ -1708,8 +1710,11 @@ function AdminTemplatesContent() {
                                   className="h-9 min-w-[150px] rounded-[var(--radius-plate)] border border-rule bg-plate px-2 text-xs text-ink transition-colors duration-[120ms] focus:border-[var(--sg-accent)]"
                                 >
                                   <option value="">Consultant implicit</option>
-                                  {consultants.map(c => (
-                                    <option key={c.id} value={c.id}>{c.full_name || c.email}</option>
+                                  {consultants.find(c => c.id === activity.default_consultant_id && c.is_active === false) && (
+                                    <option value={activity.default_consultant_id} disabled>{profileDisplayName(consultants.find(c => c.id === activity.default_consultant_id))}</option>
+                                  )}
+                                  {consultants.filter(c => c.is_active !== false).map(c => (
+                                    <option key={c.id} value={c.id}>{profileDisplayName(c)}</option>
                                   ))}
                                 </select>
                                 <IconButton

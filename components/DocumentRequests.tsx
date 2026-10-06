@@ -85,9 +85,9 @@ interface DocumentRequest {
   created_at: string
   deleted_at?: string | null
   deleted_by?: string | null
-  creator?: { full_name: string | null; email: string | null }
+  creator?: { full_name: string | null; email: string | null; is_active?: boolean | null }
   assigned_to: string | null
-  assigned_consultant: { id: string; full_name: string | null; email: string } | null
+  assigned_consultant: { id: string; full_name: string | null; email: string; is_active?: boolean | null } | null
   files?: {
     id: string
     storage_path: string
@@ -102,7 +102,7 @@ interface DocumentRequest {
     id: string
     reason: string
     reviewed_at: string
-    reviewed_by: { id: string; full_name: string | null } | null
+    reviewed_by: { id: string; full_name: string | null; is_active?: boolean | null } | null
   } | null
 }
 
@@ -167,7 +167,7 @@ interface DocumentRequestsProps {
   parentPhaseName?: string
   parentPhaseVisibility?: 'draft' | 'published'
   /** Consultanții proiectului, pentru atribuirea unei cereri */
-  projectMembers?: { id: string; full_name: string | null; email: string }[]
+  projectMembers?: { id: string; full_name: string | null; email: string; is_active?: boolean | null }[]
   /** Date externe de la pagina părinte (evită fetch duplicat) */
   externalRequests?: any[]
   /** Callback refresh pentru pagina părinte */

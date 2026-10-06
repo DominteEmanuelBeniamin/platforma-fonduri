@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { UserPlus, Trash2, X, Loader2, ChevronRight } from 'lucide-react'
+import * as Dialog from '@radix-ui/react-dialog'
+import { UserPlus, Trash2, X, Loader2, ChevronRight, Power, RotateCcw } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
@@ -16,8 +17,65 @@ import { Plate } from '@/components/ui/Plate'
 import { FloatingSurface, Scrim } from '@/components/ui/Surface'
 import { formatDate } from '@/lib/signage'
 import { Spinner } from '@/components/ui/Spinner'
+import { Signal } from '@/components/ui/Signal'
+import { profileDisplayName } from '@/lib/profile-display'
 
 type Rol = 'admin' | 'consultant' | 'client'
+type UserState = 'active' | 'inactive' | 'all'
+type LifecycleImpact = {
+  activities: number
+  documentRequests: number
+  activeProjects: number
+  completedProjects: number
+  generalConsultantProjects: number
+  projectsWithoutActiveSenior: number
+}
+
+function lifecycleCodeMessage(code?: string) {
+  if (code === 'SELF_ACCOUNT_ACTION') return 'Nu poți dezactiva sau șterge propriul cont.'
+  if (code === 'LAST_ACTIVE_ADMIN') return 'Trebuie să rămână cel puțin un administrator activ.'
+  if (code === 'USER_HAS_RELATED_DATA') return 'Contul are date asociate și nu poate fi șters.'
+  if (code === 'AUTH_SYNC_INCOMPLETE') return 'Accesul contului este blocat, dar dezactivarea trebuie reîncercată.'
+  return 'Nu am putut finaliza acțiunea. Reîncearcă.'
+}
+
+const BLOCKER_TABLE_LABELS: Record<string, string> = {
+  profiles: 'Profiluri',
+  projects: 'Proiecte',
+  project_members: 'Membri ai proiectelor',
+  project_phases: 'Faze de proiect',
+  project_activities: 'Activități',
+  document_requests: 'Cereri de documente',
+  document_requirements: 'Cerințe de documente',
+  activity_document_requirements: 'Documente de activitate',
+  activity_document_files: 'Fișiere de activitate',
+  template_document_requirements: 'Documente din șabloane',
+  template_phases: 'Faze din șabloane',
+  document_request_reviews: 'Evaluări de documente',
+  document_requirement_attachments: 'Fișiere de documente',
+  document_upload_batches: 'Loturi de încărcare',
+  templates: 'Șabloane',
+  project_templates: 'Șabloane de proiect',
+  template_activities: 'Activități din șabloane',
+  project_chat_messages: 'Mesaje din chatul proiectului',
+  project_chat_events: 'Evenimente din chatul proiectului',
+  project_chat_reads: 'Marcări de citire în chatul proiectului',
+  private_conversations: 'Conversații private',
+  private_conversation_participants: 'Participanți la conversații private',
+  private_messages: 'Mesaje private',
+  private_message_reads: 'Marcări de citire private',
+  notifications: 'Notificări',
+  deadline_reminders: 'Mementouri de termen',
+  reminder_log: 'Istoricul mementourilor',
+  audit_logs: 'Acțiuni în jurnalul de audit',
+}
+
+function blockerLabel(kind: string) {
+  if (kind === 'storage.objects.owner' || kind === 'storage.objects.owner_id' || kind === 'storage.objects.owner/owner_id') return 'Fișiere din stocare'
+  const qualifiedKind = kind.startsWith('public.') ? kind.slice('public.'.length) : kind
+  const table = qualifiedKind.split('.')[0]
+  return BLOCKER_TABLE_LABELS[table] || 'Alte date asociate'
+}
 
 /** Rolul e o identitate, nu o stare. Nu primește culoare de semnal — verdele,
  *  chihlimbarul și roșul rămân rezervate pentru ce se întâmplă cu munca. */
@@ -60,6 +118,7 @@ export default function AdminUsersPage() {
   // Căutare și filtrare — pagina e despre utilizatorii care există deja.
   const [cauta, setCauta] = useState('')
   const [filtruRol, setFiltruRol] = useState<Rol | 'toate'>('toate')
+  const [filtruStare, setFiltruStare] = useState<UserState>('active')
 
   // Formularul stă într-un panou, nu peste listă.
   const [panouDeschis, setPanouDeschis] = useState(false)
@@ -78,8 +137,20 @@ export default function AdminUsersPage() {
   const [isCreating, setIsCreating] = useState(false)
 
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
-  const [userToDelete, setUserToDelete] = useState<{ id: string; email: string } | null>(null)
+  const [userToDelete, setUserToDelete] = useState<{ id: string; email: string; is_active: boolean } | null>(null)
+  const [checkingDelete, setCheckingDelete] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleteBlockers, setDeleteBlockers] = useState<Array<{ kind: string; count: number }>>([])
+  const [deleteHasRelatedData, setDeleteHasRelatedData] = useState(false)
+  const [impactUser, setImpactUser] = useState<any | null>(null)
+  const [impact, setImpact] = useState<LifecycleImpact | null>(null)
+  const [impactBlockers, setImpactBlockers] = useState<Array<{ kind: string; count: number }>>([])
+  const [loadingImpact, setLoadingImpact] = useState(false)
+  const [impactUnavailable, setImpactUnavailable] = useState(false)
+  const [lifecycleActionError, setLifecycleActionError] = useState<string | null>(null)
+  const [changingStateId, setChangingStateId] = useState<string | null>(null)
+  const lifecycleFocusReturnRef = useRef<HTMLElement | null>(null)
 
   const clearCreateForm = () => {
     setNewEmail(''); setNewName(''); setTelefon('')
@@ -103,14 +174,14 @@ export default function AdminUsersPage() {
   const fetchUsers = useCallback(async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true)
-      const res = await apiFetch('/api/users')
+      const res = await apiFetch('/api/users?state=' + filtruStare)
       if (!res.ok) { showToast('Nu am putut încărca utilizatorii. Reîncearcă.', 'error'); return }
       const { users: data } = await res.json()
       setUsers(data)
     } finally {
       if (showLoader) setLoading(false)
     }
-  }, [apiFetch, showToast])
+  }, [apiFetch, showToast, filtruStare])
 
   useEffect(() => {
     if (authLoading) return
@@ -175,20 +246,27 @@ export default function AdminUsersPage() {
     }
   }
 
-  const updateUserRole = async (user: { id: string; email: string; full_name?: string | null; role?: string }, rolNou: string) => {
+  const updateUserRole = async (user: { id: string; email: string; full_name?: string | null; is_active?: boolean | null; role?: string }, rolNou: string) => {
     const rolVechi = ROLURI[(user.role as Rol) || 'client']
     // Descrierea numește persoana și direcția schimbării — un admin care
     // derulează rapid prin listă trebuie să vadă exact ce confirmă, nu o
     // propoziție generică pe care o apasă din reflex.
     if (!await confirm({
       title: 'Confirmă schimbarea rolului',
-      description: `Rolul lui ${user.full_name || user.email} se schimbă din „${rolVechi}” în „${ROLURI[rolNou as Rol]}”.`,
+      description: `Rolul lui ${profileDisplayName(user, user.full_name || user.email)} se schimbă din „${rolVechi}” în „${ROLURI[rolNou as Rol]}”.`,
       confirmText: 'Schimbă rolul',
     })) return
     setUpdatingRoleId(user.id)
     try {
       const res = await apiFetch(`/api/users/${user.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: rolNou }) })
-      if (!res.ok) throw new Error()
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        const message = body?.code === 'LAST_ACTIVE_ADMIN' || body?.code === 'SELF_ACCOUNT_ACTION'
+          ? lifecycleCodeMessage(body.code)
+          : 'Nu am putut actualiza rolul. Reîncearcă.'
+        showToast(message, 'error')
+        return
+      }
       fetchUsers()
       showToast('Rolul utilizatorului a fost actualizat.', 'success')
     } catch {
@@ -199,21 +277,137 @@ export default function AdminUsersPage() {
   }
 
   const handleConfirmDelete = async () => {
-    if (!userToDelete) return
+    if (!userToDelete || checkingDelete || deleteHasRelatedData || deleteError || isDeleting) return
     setIsDeleting(true)
+    setDeleteError(null)
+    setDeleteBlockers([])
+    setDeleteHasRelatedData(false)
     try {
-      const res = await apiFetch(`/api/users/${userToDelete.id}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error()
+      const res = await apiFetch('/api/users/' + userToDelete.id, { method: 'DELETE' })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) {
+        const blockers = Array.isArray(body?.details?.blockers) ? body.details.blockers : []
+        if (body?.code === 'USER_HAS_RELATED_DATA') {
+          setDeleteBlockers(blockers.filter((item: any) => typeof item?.kind === 'string' && Number.isFinite(item?.count)))
+          setDeleteHasRelatedData(true)
+          return
+        }
+        setDeleteError(lifecycleCodeMessage(body?.code))
+        return
+      }
       setDeleteModalOpen(false)
       setUserToDelete(null)
       fetchUsers()
     } catch {
-      showToast('Nu am putut șterge utilizatorul. Reîncearcă.', 'error')
+      setDeleteError(lifecycleCodeMessage())
     } finally {
       setIsDeleting(false)
     }
   }
 
+  useEffect(() => {
+    if (!userToDelete) return
+    let cancelled = false
+    const load = async () => {
+      setCheckingDelete(true)
+      try {
+        const res = await apiFetch('/api/users/' + userToDelete.id + '/lifecycle-impact')
+        const body = await res.json().catch(() => null)
+        if (cancelled) return
+        if (!res.ok || !Array.isArray(body?.blockers) || !body.blockers.every((item: any) =>
+          typeof item?.kind === 'string' && Number.isInteger(item.count) && item.count >= 0
+        )) throw new Error('Invalid account blockers')
+        const blockers = body.blockers.filter((item: any) => item.count > 0)
+        setDeleteBlockers(blockers)
+        setDeleteHasRelatedData(blockers.length > 0)
+      } catch {
+        if (!cancelled) setDeleteError('Nu am putut verifica legăturile contului. Închide dialogul și reîncearcă.')
+      } finally {
+        if (!cancelled) setCheckingDelete(false)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [userToDelete, apiFetch])
+
+  const loadLifecycleImpact = (user: any) => {
+    setImpactUser(user)
+    setImpact(null)
+    setImpactBlockers([])
+    setImpactUnavailable(false)
+    setLifecycleActionError(null)
+  }
+
+  useEffect(() => {
+    if (!impactUser) return
+    let cancelled = false
+    const load = async () => {
+      setLoadingImpact(true)
+      try {
+        const res = await apiFetch('/api/users/' + impactUser.id + '/lifecycle-impact')
+        const body = await res.json().catch(() => null)
+        if (cancelled) return
+        if (!res.ok || !body?.impact) {
+          setImpactUnavailable(true)
+          return
+        }
+        setImpact(body.impact)
+        setImpactBlockers(Array.isArray(body.blockers)
+          ? body.blockers.filter((item: any) => typeof item?.kind === 'string' && Number.isFinite(item?.count))
+          : [])
+      } catch {
+        if (!cancelled) setImpactUnavailable(true)
+      } finally {
+        if (!cancelled) setLoadingImpact(false)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [impactUser, apiFetch])
+
+  const openImpactForDeletedUser = () => {
+    const user = users.find((item) => item.id === userToDelete?.id)
+    if (!user) return
+    setDeleteModalOpen(false)
+    setUserToDelete(null)
+    setDeleteError(null)
+    setDeleteBlockers([])
+    setDeleteHasRelatedData(false)
+    loadLifecycleImpact(user)
+  }
+
+  const changeLifecycle = async (user: any, action: 'deactivate' | 'reactivate') => {
+    const deactivate = action === 'deactivate'
+    if (!deactivate && !await confirm({
+      title: 'Reactivează contul',
+      description: 'Contul va putea accesa din nou platforma.',
+      confirmText: 'Reactivează',
+    })) return
+    setChangingStateId(user.id)
+    if (deactivate) setLifecycleActionError(null)
+    try {
+      const res = await apiFetch('/api/users/' + user.id + '/' + action, { method: 'POST' })
+      const body = await res.json().catch(() => null)
+      await fetchUsers(false)
+      if (res.status === 503 && body?.code === 'AUTH_SYNC_INCOMPLETE') {
+        setImpactUser(null)
+        showToast(lifecycleCodeMessage(body.code), 'error')
+      } else if (!res.ok) {
+        const message = lifecycleCodeMessage(body?.code)
+        if (deactivate) setLifecycleActionError(message)
+        else showToast(message, 'error')
+      } else {
+        setImpactUser(null)
+        showToast(deactivate ? 'Contul a fost dezactivat.' : 'Contul a fost reactivat.', 'success')
+      }
+    } catch {
+      const message = lifecycleCodeMessage()
+      if (deactivate) setLifecycleActionError(message)
+      else showToast(message, 'error')
+    } finally {
+      setChangingStateId(null)
+    }
+  }
   const peRol = useMemo(() => {
     const c: Record<string, number> = { admin: 0, consultant: 0, client: 0 }
     for (const u of users) c[u.role as string] = (c[u.role as string] ?? 0) + 1
@@ -242,14 +436,104 @@ export default function AdminUsersPage() {
     <div>
       <ConfirmDeleteModal
         isOpen={deleteModalOpen}
-        onClose={() => { setDeleteModalOpen(false); setUserToDelete(null) }}
+        onClose={() => { setDeleteModalOpen(false); setUserToDelete(null); setDeleteError(null); setDeleteBlockers([]); setDeleteHasRelatedData(false) }}
         onConfirm={handleConfirmDelete}
-        title="Șterge utilizator"
-        description={`Ștergi definitiv utilizatorul „${userToDelete?.email}”? Acțiunea nu poate fi anulată.`}
-        confirmText="Șterge utilizator"
+        title={deleteHasRelatedData ? 'Utilizatorul nu poate fi șters' : 'Șterge definitiv utilizatorul'}
+        description={checkingDelete
+          ? `Verificăm legăturile utilizatorului „${userToDelete?.email}”.`
+          : deleteHasRelatedData
+          ? `Utilizatorul „${userToDelete?.email}” are date asociate care trebuie păstrate.`
+          : `Ștergi definitiv utilizatorul „${userToDelete?.email}”? Acțiunea nu poate fi anulată.`}
+        confirmText="Șterge definitiv"
         confirmWord="sterge"
         loading={isDeleting}
-      />
+        canConfirm={!checkingDelete && !deleteHasRelatedData && !deleteError}
+        error={deleteError}
+      >
+        {userToDelete?.is_active === false && (
+          <FeedbackMessage variant="info">Contul este deja dezactivat. Accesul este blocat, iar datele și istoricul sunt păstrate.</FeedbackMessage>
+        )}
+        {checkingDelete && <p className="text-sm text-ink-soft" role="status">Se verifică legăturile contului…</p>}
+        {deleteHasRelatedData && (
+          <div className="space-y-3 rounded-[var(--radius-plate)] border border-[var(--sg-warn)] p-3">
+            <p className="text-sm font-semibold text-ink">Ștergerea nu este disponibilă. Legăturile găsite:</p>
+            <ul className="space-y-1 text-sm text-ink-soft">
+              {deleteBlockers.map((blocker, index) => (
+                <li key={`${blocker.kind}-${index}`} className="flex justify-between gap-3">
+                  <span>{blockerLabel(blocker.kind)}</span><span className="font-semibold tabular-nums">{blocker.count}</span>
+                </li>
+              ))}
+            </ul>
+            {userToDelete?.is_active && (
+              <Button variant="secondary" onClick={openImpactForDeletedUser}>Dezactivează contul</Button>
+            )}
+          </div>
+        )}
+      </ConfirmDeleteModal>
+
+      <Dialog.Root open={!!impactUser} onOpenChange={(open) => { if (!open) setImpactUser(null) }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[999999] backdrop-blur-sm" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }} />
+          <Dialog.Content
+            onCloseAutoFocus={(event) => {
+              event.preventDefault()
+              const trigger = lifecycleFocusReturnRef.current
+              if (trigger?.isConnected) trigger.focus()
+              else document.getElementById('admin-users-heading')?.focus()
+              lifecycleFocusReturnRef.current = null
+            }}
+            className="fixed left-1/2 top-1/2 z-[1000000] max-h-[calc(100dvh_-_2rem)] w-[calc(100%_-_2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[var(--radius-plate-lg)] bg-plate shadow-2xl focus:outline-none"
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-rule px-5 py-4">
+              <div>
+                <Dialog.Title className="text-lg font-bold text-ink">Dezactivează contul</Dialog.Title>
+                <Dialog.Description className="mt-1 text-sm text-ink-soft">
+                  {impactUser?.email} nu va mai putea accesa platforma. Datele și istoricul rămân păstrate.
+                </Dialog.Description>
+              </div>
+              <Dialog.Close asChild><IconButton label="Închide"><X className="h-4 w-4" /></IconButton></Dialog.Close>
+            </div>
+            <div className="space-y-4 px-5 py-5">
+              {loadingImpact && <p className="text-sm text-ink-soft" role="status">Se încarcă impactul…</p>}
+              {impactUnavailable && (
+                <FeedbackMessage variant="warning">
+                  Impactul nu este disponibil acum. Numărul de elemente nu este cunoscut; poți continua dezactivarea.
+                </FeedbackMessage>
+              )}
+              {impact && (
+                <dl className="grid grid-cols-2 gap-x-5 gap-y-3 text-sm">
+                  <div><dt className="text-ink-soft">Activități</dt><dd className="font-semibold text-ink">{impact.activities}</dd></div>
+                  <div><dt className="text-ink-soft">Cereri de documente</dt><dd className="font-semibold text-ink">{impact.documentRequests}</dd></div>
+                  <div><dt className="text-ink-soft">Proiecte active</dt><dd className="font-semibold text-ink">{impact.activeProjects}</dd></div>
+                  <div><dt className="text-ink-soft">Proiecte finalizate</dt><dd className="font-semibold text-ink">{impact.completedProjects}</dd></div>
+                  <div><dt className="text-ink-soft">Proiecte cu consultant general</dt><dd className="font-semibold text-ink">{impact.generalConsultantProjects}</dd></div>
+                  <div><dt className="text-ink-soft">Proiecte fără consultant senior activ</dt><dd className="font-semibold text-ink">{impact.projectsWithoutActiveSenior}</dd></div>
+                </dl>
+              )}
+              {impactBlockers.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-ink">Legături care împiedică ștergerea</h3>
+                  <ul className="mt-2 space-y-1 text-sm text-ink-soft">
+                    {impactBlockers.map((blocker, index) => (
+                      <li key={`${blocker.kind}-${index}`} className="flex justify-between gap-3">
+                        <span>{blockerLabel(blocker.kind)}</span><span className="font-semibold tabular-nums">{blocker.count}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {lifecycleActionError && <FeedbackMessage variant="error">{lifecycleActionError}</FeedbackMessage>}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-rule bg-paper-sunk px-5 py-4">
+              <Dialog.Close asChild><Button variant="secondary">Anulează</Button></Dialog.Close>
+              <Button variant="danger" disabled={changingStateId !== null} onClick={() => { if (impactUser) void changeLifecycle(impactUser, 'deactivate') }}>
+                {changingStateId === impactUser?.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Dezactivează contul
+              </Button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       <LocationStrip
         segments={[{ label: 'Bonie', href: '/' }, { label: 'Utilizatori' }]}
@@ -261,7 +545,7 @@ export default function AdminUsersPage() {
         }
       />
 
-      <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Utilizatori</h1>
+      <h1 id="admin-users-heading" tabIndex={-1} className="text-3xl font-bold tracking-tight text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--sg-accent)] md:text-4xl">Utilizatori</h1>
       <p className="mt-2 text-sm text-ink-soft">
         {users.length} {users.length === 1 ? 'cont' : 'conturi'} · {peRol.client} clienți, {peRol.consultant} consultanți, {peRol.admin} administratori
       </p>
@@ -289,6 +573,15 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
+      <div className="mt-3 flex flex-wrap items-center gap-1" role="group" aria-label="Filtrează după starea contului">
+        {(['active', 'inactive', 'all'] as const).map((state) => (
+          <Button key={state} variant="secondary" size="sm" aria-pressed={filtruStare === state} onClick={() => setFiltruStare(state)}
+            className={filtruStare === state ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : ''}>
+            {state === 'active' ? 'Active' : state === 'inactive' ? 'Dezactivate' : 'Toate stările'}
+          </Button>
+        ))}
+      </div>
+
       <div className="mt-4 flex flex-col gap-2 pb-10">
         {filtrati.length === 0 ? (
           <EmptyState
@@ -307,20 +600,25 @@ export default function AdminUsersPage() {
               <div className="flex flex-wrap items-center gap-3 p-4 sm:flex-nowrap">
                 <button
                   onClick={() => router.push(`/admin/users/${user.id}`)}
-                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                  className="flex min-w-0 flex-1 basis-full items-center gap-3 text-left sm:basis-auto"
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold text-ink transition-colors duration-[120ms] group-hover:text-[var(--sg-accent)]">
                       {user.email}
                     </span>
                     <span className="mt-0.5 block truncate text-sm text-ink-soft">
-                      {user.full_name || 'Fără nume'} · cont din {formatDate(user.created_at)}
+                      {user.full_name?.trim() || 'Fără nume'} · cont din {formatDate(user.created_at)}
                     </span>
+                    {user.auth_sync_pending && (
+                      <Signal tone="warn" className="mt-2 max-w-full">
+                        Acces blocat · reîncearcă dezactivarea
+                      </Signal>
+                    )}
                   </span>
                   <ChevronRight className="h-4 w-4 shrink-0 text-ink-faint transition-colors duration-[120ms] group-hover:text-[var(--sg-accent)]" aria-hidden="true" />
                 </button>
 
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex max-w-full flex-wrap items-center gap-2 sm:shrink-0 sm:flex-nowrap">
                   {user.role === 'consultant' && user.consultant_level === 'senior' && (
                     <span className="shrink-0 rounded-[var(--radius-plate)] border border-rule bg-paper-sunk px-2 py-0.5 text-xs font-semibold text-ink-soft">
                       Senior
@@ -339,10 +637,27 @@ export default function AdminUsersPage() {
                     <option value="admin">Administrator</option>
                   </select>
                   {updatingRoleId === user.id && <Loader2 className="h-4 w-4 animate-spin text-ink-soft" aria-hidden="true" />}
+                  <span className={`rounded border px-2 py-1 text-xs font-semibold ${user.is_active === false ? 'border-rule text-ink-soft' : 'border-[var(--sg-ok)] text-[var(--sg-ok)]'}`}>
+                    {user.is_active === false ? 'Dezactivat' : 'Activ'}
+                  </span>
+                  {user.is_active === false ? (
+                    <IconButton
+                      label={user.auth_sync_pending ? 'Reîncearcă dezactivarea pentru ' + user.email : 'Reactivează ' + user.email}
+                      disabled={changingStateId !== null}
+                      onClick={() => { void changeLifecycle(user, user.auth_sync_pending ? 'deactivate' : 'reactivate') }}
+                    >
+                      {changingStateId === user.id ? <Loader2 className="h-4 w-4 animate-spin" /> : user.auth_sync_pending ? <RotateCcw className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+                    </IconButton>
+                  ) : (
+                    <IconButton label={'Dezactivează ' + user.email} disabled={changingStateId !== null} onClick={(event) => { lifecycleFocusReturnRef.current = event.currentTarget; loadLifecycleImpact(user) }}>
+                      <Power className="h-4 w-4" />
+                    </IconButton>
+                  )}
                   <IconButton
-                    label={`Șterge utilizatorul ${user.email}`}
+                    label={'Șterge definitiv utilizatorul ' + user.email}
                     tone="danger"
-                    onClick={() => { setUserToDelete({ id: user.id, email: user.email }); setDeleteModalOpen(true) }}
+                    disabled={changingStateId !== null}
+                    onClick={(event) => { lifecycleFocusReturnRef.current = event.currentTarget; setDeleteError(null); setDeleteBlockers([]); setDeleteHasRelatedData(false); setCheckingDelete(true); setUserToDelete({ id: user.id, email: user.email, is_active: user.is_active !== false }); setDeleteModalOpen(true) }}
                   >
                     <Trash2 className="h-4 w-4" />
                   </IconButton>

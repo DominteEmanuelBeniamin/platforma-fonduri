@@ -14,6 +14,7 @@ import { useToast } from '@/app/providers/ToastProvider'
 import { useRouter } from 'next/navigation'
 import { isPreviewableFile, buildPreviewPageUrl, openInNewTab, downloadUrl } from '@/lib/file-preview'
 import { formatDate } from '@/lib/signage'
+import { profileDisplayName } from '@/lib/profile-display'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,6 +22,7 @@ interface UserDrawerUser {
   id: string
   email: string
   full_name: string | null
+  is_active?: boolean | null
   role: 'admin' | 'consultant' | 'client'
   created_at: string
   cif?: string | null
@@ -282,7 +284,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                 {initials}
               </div>
               <div>
-                <h2 className="text-base font-bold text-ink leading-tight">{user.full_name || '—'}</h2>
+                <h2 className="text-base font-bold text-ink leading-tight">{profileDisplayName(user, user.full_name || '—')}</h2>
                 <p className="text-xs text-ink-faint mt-0.5">{user.email}</p>
                 <div className="mt-2 flex items-center gap-2 flex-wrap">
                   <RoleBadge role={user.role} />

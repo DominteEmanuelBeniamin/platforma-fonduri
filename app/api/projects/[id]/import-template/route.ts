@@ -5,7 +5,7 @@ import { requireProjectManager } from '@/app/api/_utils/auth'
 import { logActions, type LogActionParams } from '@/app/api/_utils/audit'
 import { sendActivityAssignedEmails } from '@/app/api/_utils/activity-assignment-email'
 import { createStoragePathChecker, loadTemplateTree } from '@/app/api/_utils/template-tree'
-import { buildAssignmentEmailIdempotencyKey } from '@/lib/notification-utils'
+import { buildAssignmentEmailIdempotencyKey, isUuid } from '@/lib/notification-utils'
 import { mapWithConcurrency } from '@/lib/template-tree'
 
 const supabaseAdmin = createClient(
@@ -18,19 +18,51 @@ interface RouteParams {
 }
 
 /**
- * `assignments`: consultantul ales în formularul „Dosar nou” pentru fiecare
- * activitate din șablon, `{ id activitate din șablon: id consultant }`.
- * Lipsa lui înseamnă import fără atribuiri; `null` la o formă greșită.
+ * assignments conține numai alegerile explicite: cheia absentă păstrează
+ * consultantul implicit din șablon, iar null înseamnă neasignat explicit.
  */
-function parseAssignments(value: unknown): Map<string, string> | null {
+function parseAssignments(value: unknown): Map<string, string | null> | null {
   if (value === undefined || value === null) return new Map()
   if (typeof value !== 'object' || Array.isArray(value)) return null
-  const assignments = new Map<string, string>()
+  const assignments = new Map<string, string | null>()
   for (const [templateActivityId, consultantId] of Object.entries(value)) {
-    if (typeof consultantId !== 'string' || !consultantId.trim()) return null
+    if (!isUuid(templateActivityId)) return null
+    if (consultantId === null) {
+      assignments.set(templateActivityId, null)
+      continue
+    }
+    if (typeof consultantId !== 'string' || !isUuid(consultantId.trim())) return null
     assignments.set(templateActivityId, consultantId.trim())
   }
   return assignments
+}
+
+type InactiveAssignment = { activity_id: string; consultant_id: string; reason: 'inactive_consultant' | 'consultant_not_found' | 'not_consultant' }
+
+function inactiveAssignmentDetails(error: unknown): InactiveAssignment[] | null {
+  if (!error || typeof error !== 'object') return null
+  const candidate = error as { code?: unknown; message?: unknown; details?: unknown }
+  if (candidate.code !== 'P0001' || candidate.message !== 'INACTIVE_ASSIGNMENT' || typeof candidate.details !== 'string') return null
+  try {
+    const parsed = JSON.parse(candidate.details) as { invalid_assignments?: unknown }
+    if (!Array.isArray(parsed.invalid_assignments)) return null
+    const assignments = parsed.invalid_assignments
+    if (!assignments.every(item =>
+      item && typeof item === 'object'
+      && typeof item.activity_id === 'string'
+      && typeof item.consultant_id === 'string'
+      && (item.reason === 'inactive_consultant'
+        || item.reason === 'consultant_not_found'
+        || item.reason === 'not_consultant')
+    )) return null
+    return assignments.map((item: any) => ({
+      activity_id: item.activity_id,
+      consultant_id: item.consultant_id,
+      reason: item.reason,
+    }))
+  } catch {
+    return null
+  }
 }
 
 // POST /api/projects/[id]/import-template
@@ -48,12 +80,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const body = await req.json()
     const { template_id } = body
 
-    if (!template_id) {
+    if (typeof template_id !== 'string' || !isUuid(template_id)) {
       return NextResponse.json({ error: 'template_id este obligatoriu' }, { status: 400 })
     }
     const assignments = parseAssignments(body.assignments)
     if (!assignments) {
-      return NextResponse.json({ error: 'assignments trebuie să fie { id activitate din șablon: id consultant }' }, { status: 400 })
+      return NextResponse.json({ error: 'assignments trebuie să fie { id activitate din șablon: id consultant sau null }' }, { status: 400 })
     }
 
     // Cele trei verificări nu depind una de alta: pleacă împreună, iar
@@ -119,32 +151,50 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const pathExists = createStoragePathChecker(supabaseAdmin)
     const available = new Set<string>()
 
-    // Atribuirile pentru activități care nu mai sunt în șablon (formular vechi)
-    // nu au unde să se aplice și se ignoră. Consultanții se verifică odată cu
-    // fișierele, înainte de orice scriere.
-    const templateActivityIds = new Set(templatePhases.flatMap(phase => phase.activities.map((activity: any) => activity.id as string)))
-    const assigneeIds = [...new Set([...assignments]
-      .filter(([templateActivityId]) => templateActivityIds.has(templateActivityId))
-      .map(([, consultantId]) => consultantId))]
-    const loadAssignees = async () => assigneeIds.length === 0
-      ? { data: [] as any[], error: null }
-      : await supabaseAdmin.from('profiles').select('id, role, is_active, email, full_name').in('id', assigneeIds)
-
+    // Cheile vechi din formular se ignoră. Cheia absentă folosește implicitul;
+    // cheia cu null îl suprascrie explicit.
+    const templateActivityTargets = templatePhases.flatMap((phase: any) =>
+      phase.activities.map((activity: any) => {
+        const explicit = assignments.has(activity.id)
+        return {
+          activity,
+          phase,
+          explicit,
+          consultantId: explicit ? assignments.get(activity.id) : activity.default_consultant_id ?? null,
+        }
+      })
+    )
+    const assigneeIds = [...new Set(templateActivityTargets
+      .map((target: any) => target.consultantId)
+      .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0))]
     const [{ data: assigneeRows, error: assigneesError }] = await Promise.all([
-      loadAssignees(),
+      assigneeIds.length === 0
+        ? Promise.resolve({ data: [] as any[], error: null })
+        : supabaseAdmin.from('profiles').select('id, role, is_active, email, full_name').in('id', assigneeIds),
       mapWithConcurrency(uniquePaths, 8, async path => {
         if (await pathExists(path)) available.add(path)
       }),
     ])
     if (assigneesError) throw assigneesError
     const assigneeById = new Map((assigneeRows ?? []).map((row: any) => [row.id as string, row]))
-    // Aceleași condiții ca triggerul de notificare, care ar refuza atribuirea
-    // după ce proiectul a fost deja scris.
-    if (assigneeIds.some(id => {
-      const assignee = assigneeById.get(id)
-      return assignee?.role !== 'consultant' || assignee.is_active === false
-    })) {
-      return NextResponse.json({ error: 'Activitățile se pot atribui doar consultanților activi.' }, { status: 400 })
+    const invalidAssignments = templateActivityTargets
+      .filter((target: any) => target.explicit && typeof target.consultantId === 'string')
+      .flatMap((target: any) => {
+        const profile = assigneeById.get(target.consultantId)
+        const reason = !profile ? 'consultant_not_found'
+          : profile.role !== 'consultant' ? 'not_consultant'
+          : profile.is_active === false ? 'inactive_consultant'
+          : null
+        return reason
+          ? [{ activity_id: target.activity.id, consultant_id: target.consultantId, reason }]
+          : []
+      })
+    if (invalidAssignments.length > 0) {
+      return NextResponse.json({
+        code: 'INACTIVE_ASSIGNMENT',
+        message: 'Un consultant selectat nu mai poate fi atribuit. Alege un consultant activ și reîncearcă.',
+        details: { invalid_assignments: invalidAssignments },
+      }, { status: 409 })
     }
 
     const warnings: Array<{ type: string; template_document_requirement_id: string; name: string; attachment_path: string | null }> = []
@@ -154,8 +204,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const activityRows: any[] = []
     const docRows: any[] = []
     const attachmentRows: any[] = []
-    // Activitățile noi cu consultant ales, legate de șablon prin id, nu prin nume.
-    const assignedActivities: Array<{ id: string; consultantId: string; name: string; phaseName: string }> = []
+    // Payloadul conține doar activitățile cu un consultant efectiv: cheia null
+    // blochează implicitul fără a crea o atribuire.
+    const assignmentInputs: Array<{ activity_id: string; consultant_id: string; explicit: boolean; template_activity_id: string }> = []
+    const assignmentContextById = new Map<string, { id: string; consultantId: string; name: string; phaseName: string; explicit: boolean }>()
+    let assignedActivities: Array<{ id: string; consultantId: string; name: string; phaseName: string; updatedAt: string }> = []
+    let omittedAssignments: Array<{ activity_id: string; consultant_id: string; template_activity_id: string }> = []
 
     templatePhases.forEach((tPhase, phaseIndex) => {
       const phaseId = crypto.randomUUID()
@@ -186,9 +240,16 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           visibility: 'draft',
           source_template_activity_id: tActivity.id,
         })
-        const consultantId = assignments.get(tActivity.id)
-        if (consultantId) {
-          assignedActivities.push({ id: activityId, consultantId, name: tActivity.name, phaseName: tPhase.name })
+        const explicit = assignments.has(tActivity.id)
+        const consultantId = explicit ? assignments.get(tActivity.id) : tActivity.default_consultant_id ?? null
+        if (typeof consultantId === 'string' && consultantId.length > 0) {
+          assignmentInputs.push({
+            activity_id: activityId,
+            consultant_id: consultantId,
+            explicit,
+            template_activity_id: tActivity.id,
+          })
+          assignmentContextById.set(activityId, { id: activityId, consultantId, name: tActivity.name, phaseName: tPhase.name, explicit })
         }
 
         for (const tDoc of tActivity.document_requirements) {
@@ -292,12 +353,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     })
 
     let addedMembers: Array<{ id: string; consultant_id: string }> = []
-    const assignedAt = new Map<string, string>()
+    let finalizeCommitted = false
     try {
       const { error: phaseError } = await supabaseAdmin.from('project_phases').insert(phaseRows)
       if (phaseError) {
         console.error('import-template phase insert error:', { projectId, error: phaseError })
-        throw new Error('Nu s-au putut crea fazele proiectului. Verifică dacă migrarea DB este aplicată.')
+        throw new Error('Nu s-au putut crea fazele proiectului.')
       }
       if (activityRows.length > 0) {
         const { error: activityError } = await supabaseAdmin.from('project_activities').insert(activityRows)
@@ -318,49 +379,101 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         if (attachmentInsertError) throw attachmentInsertError
       }
 
-      if (assignedActivities.length > 0) {
-        // Consultantul ales pe o activitate intră în echipă, altfel n-ar vedea
-        // proiectul. Supervizorii și cine a creat dosarul sunt deja membri;
-        // `ignoreDuplicates` întoarce doar rândurile adăugate acum.
-        const { data: added, error: membersError } = await supabaseAdmin
-          .from('project_members')
-          .upsert(
-            assigneeIds.map(consultant_id => ({ project_id: projectId, consultant_id, role_in_project: 'member' })),
-            { onConflict: 'project_id,consultant_id', ignoreDuplicates: true },
-          )
-          .select('id, consultant_id')
-        if (membersError) throw membersError
-        addedMembers = added ?? []
+      const { data: finalized, error: finalizeError } = await supabaseAdmin.rpc('finalize_template_import', {
+        p_project_id: projectId,
+        p_template_id: template_id,
+        p_first_status_id: phaseRows[0].project_status_id,
+        p_actor_id: auth.user.id,
+        p_assignments: assignmentInputs,
+      })
+      if (finalizeError) throw finalizeError
+      finalizeCommitted = true
 
-        // Atribuirea trece printr-un UPDATE, câte unul per consultant, nu prin
-        // insert: triggerul de notificări pornește doar la UPDATE, deci fiecare
-        // consultant e anunțat ca la o atribuire făcută din proiect.
-        const activityIdsByConsultant = new Map<string, string[]>()
-        for (const activity of assignedActivities) {
-          activityIdsByConsultant.set(activity.consultantId, [...(activityIdsByConsultant.get(activity.consultantId) ?? []), activity.id])
+      if (!finalized || !Array.isArray(finalized.assigned)
+        || !Array.isArray(finalized.added_members) || !Array.isArray(finalized.omitted)) {
+        throw new Error('Contract invalid pentru finalizarea importului.')
+      }
+
+      addedMembers = finalized.added_members
+      omittedAssignments = finalized.omitted
+      const assignedRows = finalized.assigned
+      const returnedAssignmentIds = new Set<string>()
+      assignedActivities = assignedRows.map((row: any) => {
+        const context = assignmentContextById.get(row?.id)
+        if (!context || context.consultantId !== row.consultant_id
+          || typeof row.updated_at !== 'string' || !isUuid(row.id) || !isUuid(row.consultant_id)
+          || returnedAssignmentIds.has(row.id)) {
+          throw new Error('Contract invalid pentru asignările importului.')
         }
-        const updates = await Promise.all([...activityIdsByConsultant].map(([consultantId, activityIds]) => supabaseAdmin
-          .from('project_activities')
-          .update({ assigned_to: consultantId, assigned_by: auth.user.id })
-          .in('id', activityIds)
-          .select('id, updated_at')))
-        for (const { data, error: assignError } of updates) {
-          if (assignError) throw assignError
-          for (const row of data ?? []) assignedAt.set(row.id, row.updated_at)
+        returnedAssignmentIds.add(row.id)
+        return { ...context, consultantId: row.consultant_id, updatedAt: row.updated_at }
+      })
+
+      const omittedIds = new Set<string>()
+      for (const row of omittedAssignments) {
+        const context = assignmentContextById.get(row?.activity_id)
+        if (!context || context.explicit || context.consultantId !== row.consultant_id
+          || !isUuid(row.activity_id) || !isUuid(row.consultant_id)
+          || !isUuid(row.template_activity_id) || omittedIds.has(row.activity_id)) {
+          throw new Error('Contract invalid pentru asignările omise la import.')
         }
+        omittedIds.add(row.activity_id)
+      }
+      if (returnedAssignmentIds.size + omittedIds.size !== assignmentInputs.length
+        || assignmentInputs.some(item => !returnedAssignmentIds.has(item.activity_id) && !omittedIds.has(item.activity_id))) {
+        throw new Error('Contract incomplet pentru asignările importului.')
+      }
+      if (addedMembers.some((row: any) => !row || !isUuid(row.id) || !isUuid(row.consultant_id))) {
+        throw new Error('Contract invalid pentru membrii adăugați la import.')
       }
     } catch (error) {
-      // Nimic parțial: cererile nu cad odată cu activitatea (SET NULL), deci
-      // se șterg explicit; fazele iau activitățile cu ele.
-      if (docRows.length > 0) {
-        await supabaseAdmin.from('document_requirements').delete().in('id', docRows.map(row => row.id))
+      if (finalizeCommitted) {
+        console.error('import-template could not validate committed result:', error)
+        return NextResponse.json({ error: 'Nu putem confirma importul. Verifică proiectul înainte de a încerca din nou.' }, { status: 500 })
       }
-      await supabaseAdmin.from('project_phases').delete().in('id', phaseRows.map(row => row.id))
-      if (addedMembers.length > 0) {
-        await supabaseAdmin.from('project_members').delete().in('id', addedMembers.map(member => member.id))
+      // RPC-ul este atomic; la eșec curățăm doar rândurile create înaintea lui.
+      const cleanupErrors: Array<{ step: string; error: unknown }> = []
+      if (docRows.length > 0) {
+        const { error: deleteDocsError } = await supabaseAdmin
+          .from('document_requirements')
+          .delete()
+          .in('id', docRows.map(row => row.id))
+        if (deleteDocsError) cleanupErrors.push({ step: 'document_requirements', error: deleteDocsError })
+      }
+      const { error: deletePhasesError } = await supabaseAdmin
+        .from('project_phases')
+        .delete()
+        .in('id', phaseRows.map(row => row.id))
+      if (deletePhasesError) cleanupErrors.push({ step: 'project_phases', error: deletePhasesError })
+
+      if (cleanupErrors.length > 0) {
+        console.error('import-template cleanup failed:', { projectId, cleanupErrors })
+        return NextResponse.json({
+          error: 'Importul a eșuat și nu am putut curăța toate datele create. Contactează un administrator.',
+        }, { status: 500 })
+      }
+
+      const invalid = inactiveAssignmentDetails(error)
+      if (invalid) {
+        return NextResponse.json({
+          code: 'INACTIVE_ASSIGNMENT',
+          message: 'Un consultant selectat nu mai poate fi atribuit. Alege un consultant activ și reîncearcă.',
+          details: { invalid_assignments: invalid },
+        }, { status: 409 })
       }
       throw error
     }
+
+    const importWarnings = [
+      ...warnings,
+      ...omittedAssignments.map(item => ({
+        type: 'inactive_default_assignment',
+        activity_id: item.activity_id,
+        template_activity_id: item.template_activity_id,
+        consultant_id: item.consultant_id,
+        name: assignmentContextById.get(item.activity_id)?.name ?? item.template_activity_id,
+      })),
+    ]
 
     const memberLabel = (consultantId: string) => {
       const profile = assigneeById.get(consultantId)
@@ -377,8 +490,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           template_id,
           template_name: template.name,
           phases_created: templatePhases.length,
-          warnings_count: warnings.length,
+          warnings_count: importWarnings.length,
           assignments: assignedActivities.map(activity => ({ activity: activity.name, consultant: memberLabel(activity.consultantId) })),
+          assignments_omitted: omittedAssignments.map(item => ({ template_activity_id: item.template_activity_id, consultant_id: item.consultant_id })),
           members_added: addedMembers.map(member => memberLabel(member.consultant_id)),
         },
         description: `Import template "${template.name}" in proiectul ${project.title} (${templatePhases.length} faze)`,
@@ -408,17 +522,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       }),
     ]
 
-    // Emailurile de atribuire pleacă într-un singur lot, iar auditul într-un
-    // singur insert, în paralel cu ultimele actualizări ale proiectului.
+    // Finalizarea atomică a actualizat deja proiectul și atribuirea. Auditul
+    // și emailurile folosesc numai asignările confirmate de RPC.
     await Promise.all([
       ...missingMarks,
-      supabaseAdmin
-        .from('projects')
-        .update({
-          template_id: template_id,
-          current_status_id: phaseRows[0].project_status_id
-        })
-        .eq('id', projectId),
       sendActivityAssignedEmails(assignedActivities.map(activity => ({
         consultantId: activity.consultantId,
         activityName: activity.name,
@@ -431,7 +538,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           entityType: 'activity',
           entityId: activity.id,
           recipientId: activity.consultantId,
-          version: assignedAt.get(activity.id) ?? now,
+          version: activity.updatedAt,
         }),
       }))),
       logActions(auditEntries),
@@ -443,10 +550,15 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       phases_created: templatePhases.length,
       assignments: assignedActivities.length,
       members_added: addedMembers.length,
-      warnings,
+      assignments_omitted: omittedAssignments.map(item => ({
+        activity_id: item.activity_id,
+        template_activity_id: item.template_activity_id,
+        consultant_id: item.consultant_id,
+      })),
+      warnings: importWarnings,
     })
   } catch (error: any) {
     console.error('POST /api/projects/[id]/import-template error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Importul șablonului a eșuat.' }, { status: 500 })
   }
 }

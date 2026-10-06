@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { requireProfile, guardToResponse } from '../_utils/auth'
 import { canCreateProjects } from '@/lib/project-permissions'
 import { createSupabaseServiceClient } from '../_utils/supabase'
+import { inactiveReferenceConflict } from '../_utils/inactive-reference'
 import { logProjectAction, getClientIP, getUserAgent } from '../_utils/audit'
 
 function isNonEmptyString(x: unknown): x is string {
@@ -23,7 +24,7 @@ export async function GET(request: Request) {
     if (profile.role === 'admin') {
       const { data, error } = await admin
         .from('projects')
-        .select('*, profiles!projects_client_id_fkey(full_name, cif), template:project_templates(id, name)')
+        .select('*, profiles!projects_client_id_fkey(full_name, cif, is_active), template:project_templates(id, name)')
         .order('created_at', { ascending: false })
 
       if (error) return NextResponse.json({ error: error.message }, { status: 400 })
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
     if (profile.role === 'client') {
       const { data, error } = await admin
         .from('projects')
-        .select('*, profiles!projects_client_id_fkey(full_name, cif), template:project_templates(id, name)')
+        .select('*, profiles!projects_client_id_fkey(full_name, cif, is_active), template:project_templates(id, name)')
         .eq('client_id', callerId)
         .order('created_at', { ascending: false })
 
@@ -61,7 +62,7 @@ export async function GET(request: Request) {
 
       const { data, error } = await admin
         .from('projects')
-        .select('*, profiles!projects_client_id_fkey(full_name, cif), template:project_templates(id, name)')
+        .select('*, profiles!projects_client_id_fkey(full_name, cif, is_active), template:project_templates(id, name)')
         .in('id', projectIds)
         .order('created_at', { ascending: false })
 
@@ -134,7 +135,7 @@ export async function POST(request: Request) {
         .in('id', supervisorIds),
       admin
         .from('profiles')
-        .select('id, role, email, full_name, cif')
+        .select('id, role, email, full_name, cif, is_active')
         .eq('id', client_id)
         .maybeSingle(),
     ])
@@ -164,6 +165,9 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
+    if (clientProfile.is_active === false) {
+      return NextResponse.json({ error: 'Clientul trebuie să aibă un cont activ.' }, { status: 409 })
+    }
 
     // Inserăm proiectul
     const { data: project, error: insertError } = await admin
@@ -173,10 +177,12 @@ export async function POST(request: Request) {
         client_id: client_id,
         status: 'contractare'
       })
-      .select('*, profiles!projects_client_id_fkey(full_name, cif)')
+      .select('*, profiles!projects_client_id_fkey(full_name, cif, is_active)')
       .single()
 
     if (insertError) {
+      const inactive = inactiveReferenceConflict(insertError, 'Nu poți crea proiectul cu un cont dezactivat.')
+      if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
       return NextResponse.json({ error: insertError.message }, { status: 400 })
     }
 
@@ -191,7 +197,13 @@ export async function POST(request: Request) {
 
     if (memberError) {
       console.error('project members insert error:', memberError)
-      await admin.from('projects').delete().eq('id', project.id)
+      const { error: cleanupError } = await admin.from('projects').delete().eq('id', project.id)
+      if (cleanupError) {
+        console.error('project cleanup after member insert failure:', cleanupError)
+        return NextResponse.json({ error: 'Proiectul nu a putut fi finalizat sau curățat. Contactează un administrator.' }, { status: 500 })
+      }
+      const inactive = inactiveReferenceConflict(memberError, 'Nu poți adăuga un cont dezactivat în echipa proiectului.')
+      if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
       return NextResponse.json({ error: 'Nu am putut adăuga supervizorii în proiect.' }, { status: 500 })
     }
 

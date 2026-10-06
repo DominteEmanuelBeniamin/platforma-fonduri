@@ -6,11 +6,13 @@ import type { ReactNode } from 'react'
 import type { ProjectActivity } from '@/components/ProjectPhasesSidebar'
 import PublishStatusControl from '@/components/PublishStatusControl'
 import InlineInput from '@/components/InlineInput'
+import { profileDisplayName } from '@/lib/profile-display'
 
 interface Member {
   id: string
   full_name: string | null
   email: string
+  is_active?: boolean | null
 }
 
 interface ActivityFoldProps {
@@ -143,17 +145,20 @@ export default function ActivityFold({
               className="font-sans text-xs font-medium text-[var(--p-accent)] border border-[var(--p-accent-soft)] rounded-md pl-2 pr-5 py-1 bg-[var(--p-accent-soft)] hover:opacity-80 cursor-pointer outline-none max-w-[10rem] truncate"
             >
               <option value="">Neasignată</option>
-              {projectMembers.map(m => (
-                <option key={m.id} value={m.id}>{m.full_name || m.email}</option>
+              {activity.assigned_user?.is_active === false && activity.assigned_to && (
+                <option value={activity.assigned_to} disabled>{profileDisplayName(activity.assigned_user)}</option>
+              )}
+              {projectMembers.filter(m => m.is_active !== false).map(m => (
+                <option key={m.id} value={m.id}>{profileDisplayName(m)}</option>
               ))}
             </select>
           ) : activity.assigned_to ? (
-            <span className="inline-flex items-center gap-1.5 text-xs leading-none text-[var(--p-ink-soft)]" title={activity.assigned_user?.full_name || activity.assigned_user?.email}>
+            <span className="inline-flex items-center gap-1.5 text-xs leading-none text-[var(--p-ink-soft)]" title={profileDisplayName(activity.assigned_user)}>
               <span className="w-5 h-5 rounded-full bg-[var(--p-accent-soft)] text-[var(--p-accent-ink)] text-[10px] font-bold flex items-center justify-center flex-shrink-0">
                 {initials(activity.assigned_user?.full_name, activity.assigned_user?.email)}
               </span>
               <span className="hidden md:inline truncate max-w-[8rem]">
-                {activity.assigned_user?.full_name || activity.assigned_user?.email}
+                {profileDisplayName(activity.assigned_user)}
               </span>
             </span>
           ) : (

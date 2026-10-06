@@ -3,6 +3,7 @@
 import { Pencil, Trash2, MoreHorizontal } from 'lucide-react'
 import type { ChatImage } from '@/lib/project-chat-contracts'
 import { getAvatarColor, getInitials } from '@/lib/avatar'
+import { profileDisplayName } from '@/lib/profile-display'
 import { toMs, isSameDay, formatDayLabel, formatTime } from './date-helpers'
 
 /**
@@ -161,9 +162,7 @@ export default function ChatMessageList({
           {/* 1. Numele (apare doar la primul mesaj din grup) */}
           {!isMe && shouldShowHeader && (
             <span className="text-[11px] font-medium text-ink-soft mb-1 ml-10">
-              {m.profiles?.full_name ||
-                m.profiles?.email ||
-                "Necunoscut"}
+              {profileDisplayName(m.profiles, undefined, 'Necunoscut')}
             </span>
           )}
 

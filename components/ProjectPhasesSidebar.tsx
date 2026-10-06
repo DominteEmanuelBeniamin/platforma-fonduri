@@ -42,7 +42,7 @@ export interface ProjectActivity {
   client_notified_at?: string | null
   deadline_at?: string | null
   assigned_to?: string | null
-  assigned_user?: { id: string; full_name: string | null; email: string } | null
+  assigned_user?: { id: string; full_name: string | null; email: string; is_active?: boolean | null } | null
 }
 
 export interface ProjectPhase {
@@ -233,13 +233,14 @@ export default function ProjectPhasesSidebar({
         method: 'POST',
       })
       if (res.ok) {
-        const { phase: copy, activities_created, document_requests_created } = await res.json()
+        const { phase: copy, activities_created, document_requests_created, warnings } = await res.json()
         await duplicateRefresh()
         if (copy?.id) setRenamingId(copy.id)
+        const omittedAssignments = Array.isArray(warnings) ? warnings.length : 0
         showToast(phaseDuplicatedMessage(phase.name, {
           activities: activities_created ?? 0,
           documentRequests: document_requests_created ?? 0,
-        }), 'success')
+        }, omittedAssignments), omittedAssignments > 0 ? 'warning' : 'success')
       } else {
         showToast(await serverMessage(res, 'Nu am putut duplica faza. Reîncearcă.'), 'error')
       }
@@ -257,10 +258,11 @@ export default function ProjectPhasesSidebar({
         { method: 'POST' }
       )
       if (res.ok) {
-        const { activity: copy, document_requests_created } = await res.json()
+        const { activity: copy, document_requests_created, warnings } = await res.json()
         await duplicateRefresh()
         if (copy?.id) setRenamingId(copy.id)
-        showToast(activityDuplicatedMessage(activity.name, document_requests_created ?? 0), 'success')
+        const omittedAssignments = Array.isArray(warnings) ? warnings.length : 0
+        showToast(activityDuplicatedMessage(activity.name, document_requests_created ?? 0, omittedAssignments), omittedAssignments > 0 ? 'warning' : 'success')
       } else {
         showToast(await serverMessage(res, 'Nu am putut duplica activitatea. Reîncearcă.'), 'error')
       }

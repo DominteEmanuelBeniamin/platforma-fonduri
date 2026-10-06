@@ -194,6 +194,15 @@ async function recordDeadlineNotifications(
       })
       insertedNotificationIds.push(...result.insertedIds)
       if (!hasReminderRecipient(result.recipientIds, group.recipientId)) {
+        const { data: profile, error: profileError } = await admin
+          .from('profiles')
+          .select('is_active')
+          .eq('id', group.recipientId)
+          .maybeSingle()
+        if (profileError) throw profileError
+        if (!profile || profile.is_active === false) {
+          return { ok: false, inactiveRecipient: true, insertedNotificationIds }
+        }
         throw new Error('logical reminder recipient is no longer eligible')
       }
 
@@ -221,10 +230,10 @@ async function recordDeadlineNotifications(
     } catch {
       report.failures.notification++
       logFailure(runId, 'notification_failed', items[0]?.entityType, items[0]?.entityId)
-      return { ok: false, insertedNotificationIds }
+      return { ok: false, inactiveRecipient: false, insertedNotificationIds }
     }
   }
-  return { ok: true, insertedNotificationIds }
+  return { ok: true, inactiveRecipient: false, insertedNotificationIds }
 }
 
 async function processRecipient(
@@ -234,6 +243,20 @@ async function processRecipient(
   appUrl: string,
   report: CronReport,
 ) {
+  const { data: recipient, error: recipientError } = await admin
+    .from('profiles')
+    .select('is_active')
+    .eq('id', group.recipientId)
+    .maybeSingle()
+  if (recipientError) {
+    report.ok = false
+    report.error ??= 'Nu am putut verifica destinatarii reminderelor.'
+    report.failures.claim++
+    logFailure(runId, 'recipient_status_failed', group.items[0]?.entityType, group.items[0]?.entityId)
+    return
+  }
+  if (!recipient || recipient.is_active === false) return
+
   const delivery = resolveReminderDelivery(group.recipientEmail)
   if (!delivery.ok) {
     report.failures[delivery.error.code === 'invalid_email' ? 'invalid_email' : 'provider']++
@@ -282,7 +305,7 @@ async function processRecipient(
       notificationResult.insertedNotificationIds,
       runId,
       report,
-      'notification_failure_claims_kept',
+      notificationResult.inactiveRecipient ? 'inactive_recipient_claims_kept' : 'notification_failure_claims_kept',
     )
     return
   }
@@ -308,6 +331,27 @@ async function processRecipient(
     )
     return
   }
+  const { data: latestRecipient, error: latestRecipientError } = await admin
+    .from('profiles')
+    .select('is_active')
+    .eq('id', group.recipientId)
+    .maybeSingle()
+  if (latestRecipientError) {
+    report.ok = false
+    report.error ??= 'Nu am putut verifica destinatarii reminderelor.'
+    report.failures.claim++
+    await compensateNotificationsAndReleaseClaims(
+      admin, claimed, notificationResult.insertedNotificationIds, runId, report, 'recipient_status_claims_kept',
+    )
+    return
+  }
+  if (!latestRecipient || latestRecipient.is_active === false) {
+    await compensateNotificationsAndReleaseClaims(
+      admin, claimed, notificationResult.insertedNotificationIds, runId, report, 'inactive_recipient_claims_kept',
+    )
+    return
+  }
+
   report.emails_attempted++
   let providerId: string | null = null
   try {
@@ -385,7 +429,7 @@ async function runCron(
   const now = new Date()
   const { data: projectRows, error: projectError } = await admin
     .from('projects')
-    .select('id,title,status,client_id,general_consultant_id,automatic_reminders_enabled,client:profiles!projects_client_id_fkey(id,full_name,email)')
+    .select('id,title,status,client_id,general_consultant_id,automatic_reminders_enabled,client:profiles!projects_client_id_fkey(id,full_name,email,is_active)')
     .in('status', ['contractare', 'implementare', 'monitorizare'])
   if (projectError) {
     logFailure(runId, 'project_query_failed')
@@ -433,7 +477,7 @@ async function runCron(
 
   const { data: memberRows, error: memberError } = await admin
     .from('project_members')
-    .select('project_id,consultant_id,profile:consultant_id(id,full_name,email)')
+    .select('project_id,consultant_id,profile:consultant_id(id,full_name,email,is_active)')
     .in('project_id', projectIds)
   if (memberError) {
     logFailure(runId, 'member_query_failed')
@@ -454,7 +498,7 @@ async function runCron(
 
   let consultantRows: any[] = []
   if (consultantIds.size) {
-    const result = await admin.from('profiles').select('id,full_name,email').in('id', [...consultantIds])
+    const result = await admin.from('profiles').select('id,full_name,email,is_active').in('id', [...consultantIds])
     if (result.error) logFailure(runId, 'profile_query_failed')
     consultantRows = (result.data ?? []) as any[]
   }

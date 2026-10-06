@@ -73,7 +73,7 @@ export async function sendDocumentReminder(
     .from('document_requirements')
     .select(`
       id, project_id, activity_id, name, description, status, visibility, is_outgoing, deadline_at, deleted_at,
-      project:project_id(id, title, client:profiles!projects_client_id_fkey(id, full_name, email)),
+      project:project_id(id, title, client:profiles!projects_client_id_fkey(id, full_name, email, is_active)),
       activity:activity_id(id, phase_id, visibility, phase:phase_id(id, visibility))
     `)
     .eq('id', requestId)
@@ -93,6 +93,9 @@ export async function sendDocumentReminder(
 
   const requestProject = relation((req as any).project)
   const client = relation(requestProject?.client)
+  if (client?.is_active === false) {
+    return { ok: false, status: 409, error: 'Clientul proiectului are contul dezactivat.' }
+  }
   const deadlineAt = (req as any).deadline_at as string | null
   const reminderType = getManualReminderType(deadlineAt)
   if (!deadlineAt || !reminderType) {
@@ -136,6 +139,18 @@ export async function sendDocumentReminder(
       url: actionUrl,
     }],
   })
+
+  const { data: claimClient, error: claimClientError } = await admin
+    .from('profiles')
+    .select('is_active')
+    .eq('id', client.id)
+    .maybeSingle()
+  if (claimClientError) {
+    return { ok: false, status: 500, error: 'Nu am putut verifica starea clientului. Reîncearcă.' }
+  }
+  if (!claimClient || claimClient.is_active === false) {
+    return { ok: false, status: 409, error: 'Clientul proiectului are contul dezactivat.' }
+  }
 
   const claim = await claimReminder(admin, {
     entityType: 'request',
@@ -228,12 +243,27 @@ export async function sendDocumentReminder(
     })
     notificationIds = notification.insertedIds
     if (!notification.recipientIds.includes(client.id)) {
-      throw new Error('Clientul proiectului nu mai este un destinatar valid')
+      await rollback(notificationIds)
+      return { ok: false, status: 409, error: 'Clientul proiectului are contul dezactivat.' }
     }
   } catch {
     console.error('manual reminder notification failure:', { requestId, code: 'notification_failed' })
     await rollback(notificationIds)
     return { ok: false, status: 500, error: 'Nu am putut pregăti notificarea. Reîncearcă.' }
+  }
+
+  const { data: currentClient, error: currentClientError } = await admin
+    .from('profiles')
+    .select('is_active')
+    .eq('id', client.id)
+    .maybeSingle()
+  if (currentClientError) {
+    await rollback(notificationIds)
+    return { ok: false, status: 500, error: 'Nu am putut verifica starea clientului. Reîncearcă.' }
+  }
+  if (!currentClient || currentClient.is_active === false) {
+    await rollback(notificationIds)
+    return { ok: false, status: 409, error: 'Clientul proiectului are contul dezactivat.' }
   }
 
   let providerId: string | null = null
