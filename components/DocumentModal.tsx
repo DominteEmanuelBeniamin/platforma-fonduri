@@ -33,6 +33,7 @@ import {
 } from '@/lib/document-reminder'
 import type { ReminderEntityState } from '@/lib/reminder-state'
 import ReminderStatus, { getReminderDisplayStatus } from '@/components/ReminderStatus'
+import { profileDisplayName } from '@/lib/profile-display'
 import { REQUIREMENT_LABELS, type RequirementType } from '@/lib/requirement-type'
 import {
   formatFileSize,
@@ -66,8 +67,8 @@ interface DocumentRequest {
   created_by: string | null
   created_at: string
   assigned_to: string | null
-  assigned_consultant?: { id: string; full_name: string | null; email: string } | null
-  creator?: { full_name: string | null; email: string | null }
+  assigned_consultant?: { id: string; full_name: string | null; email: string; is_active?: boolean | null } | null
+  creator?: { full_name: string | null; email: string | null; is_active?: boolean | null }
   files?: {
     id: string
     storage_path: string
@@ -82,7 +83,7 @@ interface DocumentRequest {
     id: string
     reason: string
     reviewed_at: string
-    reviewed_by: { id: string; full_name: string | null } | null
+    reviewed_by: { id: string; full_name: string | null; is_active?: boolean | null } | null
   } | null
 }
 
@@ -117,7 +118,7 @@ export default function DocumentModal({
   request: DocumentRequest
   projectId: string
   /** Consultanții proiectului, pentru atribuirea cererii */
-  projectMembers?: { id: string; full_name: string | null; email: string }[]
+  projectMembers?: { id: string; full_name: string | null; email: string; is_active?: boolean | null }[]
   onClose: () => void
   onUpdate: () => void
   clientEmail?: string | null
@@ -173,13 +174,10 @@ export default function DocumentModal({
   const assignedMember = localAssignee
     ? projectMembers.find(member => member.id === localAssignee)
     : undefined
-  const assigneeLabel = localAssignee
-    ? assignedMember?.full_name
-      || assignedMember?.email
-      || request.assigned_consultant?.full_name
-      || request.assigned_consultant?.email
-      || 'consultant atribuit'
-    : null
+  const inactiveAssignee = [assignedMember, request.assigned_consultant]
+    .find(member => member?.id === assigneeDraft && member.is_active === false)
+  const assigneeProfile = assignedMember || request.assigned_consultant
+  const assigneeLabel = localAssignee ? profileDisplayName(assigneeProfile, undefined, 'consultant atribuit') : null
   const requestAttachments = request.attachments?.length
     ? request.attachments
     : localAttachmentPath
@@ -932,8 +930,9 @@ export default function DocumentModal({
                   className="text-sm px-2 py-1 border border-[var(--sg-accent)] rounded-lg bg-white text-ink focus:outline-none focus:ring-2 focus:ring-[var(--sg-accent)] disabled:opacity-50"
                 >
                   <option value="" disabled={!canEmptyRequiredFields}>Fără responsabil</option>
-                  {projectMembers.map(member => (
-                    <option key={member.id} value={member.id}>{member.full_name || member.email}</option>
+                  {inactiveAssignee?.id === assigneeDraft && inactiveAssignee.is_active === false && <option value={inactiveAssignee.id} disabled>{profileDisplayName(inactiveAssignee)}</option>}
+                  {projectMembers.filter(member => member.is_active !== false).map(member => (
+                    <option key={member.id} value={member.id}>{profileDisplayName(member)}</option>
                   ))}
                 </select>
                 <button

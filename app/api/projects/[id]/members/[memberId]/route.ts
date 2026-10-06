@@ -42,7 +42,7 @@ export async function DELETE(
 
     const [{ data: projectRow }, { data: consultantProfile }] = await Promise.all([
       admin.from('projects').select('title').eq('id', projectId).maybeSingle(),
-      admin.from('profiles').select('full_name, email, consultant_level').eq('id', existing.consultant_id).maybeSingle(),
+      admin.from('profiles').select('full_name, email, consultant_level, is_active').eq('id', existing.consultant_id).maybeSingle(),
     ])
     const projectTitle = projectRow?.title ?? projectId
     const consultantLabel =

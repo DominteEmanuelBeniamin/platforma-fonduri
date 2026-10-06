@@ -28,6 +28,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { TONE, type SignalTone } from '@/lib/signage'
 import { canCreateProjects } from '@/lib/project-permissions'
 import { ToneIcon } from '@/components/ui/ToneIcon'
+import { profileDisplayName } from '@/lib/profile-display'
 import { Spinner } from '@/components/ui/Spinner'
 import {
   REMINDERS_ERROR_MESSAGE,
@@ -80,7 +81,7 @@ function ToneDot({ tone }: { tone: SignalTone }) {
 }
 
 const clientKey = (p: any) => p?.client_id || '__none__'
-const clientName = (p: any) => p?.profiles?.full_name || 'Fără client'
+const clientName = (p: any) => profileDisplayName(p?.profiles, undefined, 'Fără client')
 const templateKey = (p: any) => p?.template?.id || '__none__'
 const templateName = (p: any) => p?.template?.name || 'Fără șablon'
 

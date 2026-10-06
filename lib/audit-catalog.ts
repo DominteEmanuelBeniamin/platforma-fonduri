@@ -44,3 +44,19 @@ export const AUDIT_ENTITY_LABELS = {
   audit_log: 'Jurnal audit',
   deadline_reminder_digest: 'Digest de remindere',
 } as const
+
+export function auditActorEmail(log: {
+  user_id: string | null
+  action_type: string
+  entity_type: string
+  entity_id: string | null
+  entity_name: string | null
+  user?: { email: string | null } | null
+  actor_email?: string | null
+}): string {
+  if (log.user?.email) return log.user.email
+  return log.user_id && (log.user_id === log.entity_id || log.entity_id === null) && log.entity_type === 'user'
+    && (log.action_type === 'login' || log.action_type === 'logout')
+    ? log.entity_name?.trim() || log.actor_email?.trim() || ''
+    : ''
+}

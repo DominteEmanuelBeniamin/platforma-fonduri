@@ -98,13 +98,24 @@ async function fixedConsultant(tag: string, level: 'junior' | 'senior', label: s
     await service.auth.admin.updateUserById(id, { password: PASSWORD })
   }
   accounts.add(id)
-  await service.from('profiles').upsert({ id, email, role: 'consultant', consultant_level: level, full_name: name, is_active: true })
+  await service.from('profiles').upsert({ id, email, role: 'consultant', consultant_level: level, full_name: name })
+  await must(admin, 'POST', '/api/users/' + id + '/reactivate')
   return { id, email, name, password: PASSWORD, token: await signIn(email, PASSWORD), who }
 }
 
 async function existing(email: string, password: string, who: string): Promise<Person> {
   const { data } = await service.from('profiles').select('id, email, full_name').eq('email', email).single()
   return { id: data!.id, email: data!.email, name: data!.full_name, password, token: await signIn(email, password), who }
+}
+
+// API-created fixture passwords may be returned or delivered to the local mail mock.
+async function fixturePassword(creation: Json): Promise<string> {
+  expect(created.users.has(creation.userId)).toBe(true)
+  if (typeof creation.temporaryPassword === 'string') return creation.temporaryPassword
+  expect(creation.emailSent).toBe(true)
+  const reset = await service.auth.admin.updateUserById(creation.userId, { password: PASSWORD })
+  expect(reset.error).toBeNull()
+  return PASSWORD
 }
 
 async function call(who: Person, method: string, url: string, body?: unknown, token = who.token): Promise<Res> {
@@ -210,11 +221,14 @@ test.afterAll(async () => {
   if (created.storage.size) await service.storage.from(BUCKET).remove([...created.storage])
   await service.from('files').delete().like('storage_path', `test-fixtures/matrice/${STAMP}/%`)
   for (const id of created.users) {
-    const { error } = await service.auth.admin.deleteUser(id)
-    // Un cont cu intrări în jurnal nu se poate șterge (jurnalul e append-only): rămâne dezactivat.
-    if (error) await service.from('profiles').update({ is_active: false }).eq('id', id)
+    const response = await call(admin, 'DELETE', `/api/users/${id}`)
+    if (response.status === 409) await must(admin, 'POST', `/api/users/${id}/deactivate`)
+    else if (response.status !== 200 && response.status !== 404) throw new Error(`Cleanup cont fixture: HTTP ${response.status}`)
   }
-  for (const id of accounts) await service.from('profiles').update({ consultant_level: 'junior', is_active: false }).eq('id', id)
+  for (const id of accounts) {
+    await service.from('profiles').update({ consultant_level: 'junior' }).eq('id', id)
+    await must(admin, 'POST', `/api/users/${id}/deactivate`)
+  }
 })
 
 // ─── A. Șabloane și statusuri ────────────────────────────────────────────────
@@ -364,52 +378,83 @@ test('B. Conturi, audit, clienți', async () => {
   verifica(JA, 'își schimbă singur rolul în admin', await call(JA, 'PATCH', `/api/users/${JA.id}`, { role: 'admin' }), 403)
   verifica(client, 'își schimbă singur rolul în admin', await call(client, 'PATCH', `/api/users/${client.id}`, { role: 'admin' }), 403)
   const tempAdminEmail = `matrice.${STAMP}.admin-temporar@test.local`
-  await must(admin, 'POST', '/api/users', { email: tempAdminEmail, password: PASSWORD, role: 'admin', fullName: 'Admin temporar' })
-  const tempAdmin = await existing(tempAdminEmail, PASSWORD, 'admin temporar')
+  const tempAdminCreation = await must(admin, 'POST', '/api/users', { email: tempAdminEmail, password: PASSWORD, role: 'admin', fullName: 'Admin temporar' })
+  created.users.add(tempAdminCreation.userId)
+  const tempAdmin = await existing(tempAdminEmail, await fixturePassword(tempAdminCreation), 'admin temporar')
   created.users.add(tempAdmin.id)
   verifica(tempAdmin, 'adminul își schimbă singur rolul în consultant (PDF: nu poate)', await call(tempAdmin, 'PATCH', `/api/users/${tempAdmin.id}`, { role: 'consultant' }), 403, { cunoscut: true })
 
-  rand('Ștergere cont', 'neschimbat: doar adminul; hard delete, fără gardă — PDF îl numește defect real')
+  rand('Lifecycle cont', 'reparat prin #105: adminul dezactivează fără pierdere de date; șterge numai conturi fără relații')
   for (const person of [SA, JA, client]) {
     verifica(person, 'șterge un cont', await call(person, 'DELETE', `/api/users/${JO.id}`), 403)
+    verifica(person, 'dezactivează un cont', await call(person, 'POST', `/api/users/${JO.id}/deactivate`), 403)
+    verifica(person, 'reactivează un cont', await call(person, 'POST', `/api/users/${JO.id}/reactivate`), 403)
+    verifica(person, 'citește impactul unui cont', await call(person, 'GET', `/api/users/${JO.id}/lifecycle-impact`), 403)
   }
-  // Un consultant temporar care a lucrat într-un proiect: ce rămâne după ștergerea contului?
   const tempEmail = `matrice.${STAMP}.consultant-temporar@test.local`
-  await must(admin, 'POST', '/api/users', { email: tempEmail, password: PASSWORD, role: 'consultant', fullName: 'Consultant temporar' })
-  const temp = await existing(tempEmail, PASSWORD, 'consultant temporar')
+  const tempCreation = await must(admin, 'POST', '/api/users', { email: tempEmail, password: PASSWORD, role: 'consultant', fullName: 'Consultant temporar' })
+  created.users.add(tempCreation.userId)
+  const temp = await existing(tempEmail, await fixturePassword(tempCreation), 'consultant temporar')
   created.users.add(temp.id)
   await must(admin, 'POST', `/api/projects/${OWN}/members`, { consultant_id: temp.id })
   const tempRequest = await request(temp, OWN, 'Cerere pusă de consultantul temporar', ACTIVITY)
   await must(temp, 'POST', '/api/auth/audit', { action: 'login' })
-  verifica(admin, 'șterge contul unui consultant care a lucrat (are intrări în jurnal)', await call(admin, 'DELETE', `/api/users/${temp.id}`), 'permis', { cunoscut: true })
+  const blockedConsultant = await call(admin, 'DELETE', `/api/users/${temp.id}`)
+  verifica(admin, 'șterge contul consultantului care a lucrat', blockedConsultant, 409)
+  expect(blockedConsultant.json.code).toBe('USER_HAS_RELATED_DATA')
+  expect(blockedConsultant.json.details.blockers.length).toBeGreaterThan(0)
   const { data: stillThere } = await service.from('profiles').select('id').eq('id', temp.id).maybeSingle()
-  noteaza('sistem', 'după răspuns, contul consultantului', 'șters', stillThere ? 'există încă (ștergerea a eșuat)' : 'șters', !stillThere, 'Bază de date', { cunoscut: true })
+  noteaza('sistem', 'refuzul păstrează contul consultantului', 'există', stillThere ? 'există' : 'lipsește', !!stillThere, 'Bază de date')
   const { data: survivedRequest } = await service.from('document_requirements').select('id').eq('id', tempRequest).maybeSingle()
-  noteaza('sistem', 'cererea de document pusă de el în proiectul clientului', 'rămâne în proiect', survivedRequest ? 'rămâne în proiect' : 'ștearsă, deși contul a rămas', !!survivedRequest, 'Bază de date', { cunoscut: true })
+  noteaza('sistem', 'refuzul păstrează cererea de document', 'rămâne în proiect', survivedRequest ? 'rămâne' : 'lipsește', !!survivedRequest, 'Bază de date')
   const { data: tempMembership } = await service.from('project_members').select('id').eq('project_id', OWN).eq('consultant_id', temp.id).maybeSingle()
-  noteaza('sistem', 'locul lui în echipa proiectului', stillThere ? 'rămâne, cât timp contul există' : 'scos odată cu contul', tempMembership ? 'rămâne' : 'scos', !stillThere || !!tempMembership, 'Bază de date', { cunoscut: true })
+  noteaza('sistem', 'refuzul păstrează membership-ul', 'rămâne', tempMembership ? 'rămâne' : 'lipsește', !!tempMembership, 'Bază de date')
+  verifica(admin, 'dezactivează consultantul cu date', await call(admin, 'POST', `/api/users/${temp.id}/deactivate`), 200)
+  verifica(temp, 'JWT-ul dezactivat nu mai accesează platforma', await call(temp, 'GET', '/api/me'), 401)
+  const { data: retainedRequest } = await service.from('document_requirements').select('id').eq('id', tempRequest).maybeSingle()
+  expect(retainedRequest?.id).toBe(tempRequest)
+  verifica(admin, 'reactivează consultantul', await call(admin, 'POST', `/api/users/${temp.id}/reactivate`), 200)
+  verifica(temp, 'JWT-ul vechi rămâne revocat după reactivare', await call(temp, 'GET', '/api/me'), 401)
+  const newTempToken = await signIn(temp.email, temp.password)
+  verifica(temp, 'autentificarea nouă folosește aceeași parolă', await call(temp, 'GET', '/api/me', undefined, newTempToken), 200)
 
-  // Un client care s-a logat măcar o dată: ce se întâmplă cu proiectele lui la ștergerea contului?
   const tempClientEmail = `matrice.${STAMP}.client-temporar@test.local`
-  await must(admin, 'POST', '/api/users', { email: tempClientEmail, password: PASSWORD, role: 'client', fullName: 'Client temporar', numeFirma: 'Firmă temporară SRL' })
-  const tempClient = await existing(tempClientEmail, PASSWORD, 'client temporar')
+  const tempClientCreation = await must(admin, 'POST', '/api/users', { email: tempClientEmail, password: PASSWORD, role: 'client', fullName: 'Client temporar', numeFirma: 'Firmă temporară SRL' })
+  created.users.add(tempClientCreation.userId)
+  const tempClient = await existing(tempClientEmail, await fixturePassword(tempClientCreation), 'client temporar')
   created.users.add(tempClient.id)
   await must(tempClient, 'POST', '/api/auth/audit', { action: 'login' })
   const tempClientProject = await project(`Matrice ${STAMP} — proiectul clientului temporar`, tempClient.id, [SA.id])
-  verifica(admin, 'șterge contul unui client care s-a logat', await call(admin, 'DELETE', `/api/users/${tempClient.id}`), 'permis', { cunoscut: true })
+  verifica(admin, 'ștergerea clientului cu proiect este refuzată', await call(admin, 'DELETE', `/api/users/${tempClient.id}`), 409)
   const { data: clientStill } = await service.from('profiles').select('id').eq('id', tempClient.id).maybeSingle()
   const { data: projectStill } = await service.from('projects').select('id').eq('id', tempClientProject).maybeSingle()
-  noteaza('sistem', 'după răspuns: contul clientului / proiectul lui', 'ambele șterse, sau niciunul',
-    `cont ${clientStill ? 'existent' : 'șters'} / proiect ${projectStill ? 'existent' : 'șters'}`, !!clientStill === !!projectStill, 'Bază de date', { cunoscut: true })
+  noteaza('sistem', 'refuzul păstrează clientul și proiectul', 'ambele păstrate', `cont ${clientStill ? 'existent' : 'lipsă'} / proiect ${projectStill ? 'existent' : 'lipsă'}`, !!clientStill && !!projectStill, 'Bază de date')
+  verifica(admin, 'dezactivarea clientului păstrează proiectele', await call(admin, 'POST', `/api/users/${tempClient.id}/deactivate`), 200)
+  expect((await service.from('projects').select('id').eq('id', tempClientProject).single()).data?.id).toBe(tempClientProject)
 
-  const selfEmail = `matrice.${STAMP}.admin-sinucigas@test.local`
-  await must(admin, 'POST', '/api/users', { email: selfEmail, password: PASSWORD, role: 'admin', fullName: 'Admin care se șterge singur' })
-  const selfAdmin = await existing(selfEmail, PASSWORD, 'admin temporar')
+  const selfEmail = `matrice.${STAMP}.admin-propriu@test.local`
+  const selfAdminCreation = await must(admin, 'POST', '/api/users', { email: selfEmail, password: PASSWORD, role: 'admin', fullName: 'Admin care testează contul propriu' })
+  created.users.add(selfAdminCreation.userId)
+  const selfAdmin = await existing(selfEmail, await fixturePassword(selfAdminCreation), 'admin temporar')
   created.users.add(selfAdmin.id)
-  verifica(selfAdmin, 'adminul își șterge propriul cont', await call(selfAdmin, 'DELETE', `/api/users/${selfAdmin.id}`), 403, { cunoscut: true })
+  for (const action of ['delete', 'deactivate']) {
+    const response = await call(selfAdmin, action === 'delete' ? 'DELETE' : 'POST', `/api/users/${selfAdmin.id}${action === 'delete' ? '' : '/deactivate'}`)
+    verifica(selfAdmin, `${action} cont propriu este refuzat`, response, 409)
+    expect(response.json.code).toBe('SELF_ACCOUNT_ACTION')
+  }
   const { data: selfAudit } = await service.from('audit_logs').select('id').eq('entity_id', selfAdmin.id).eq('action_type', 'delete')
-  noteaza('sistem', 'ștergerea propriului cont apare în jurnal', 'o intrare', `${(selfAudit ?? []).length} intrări`, (selfAudit ?? []).length > 0, 'Bază de date', { cunoscut: true })
+  noteaza('sistem', 'refuzul nu inventează audit de ștergere', 'zero intrări', `${(selfAudit ?? []).length} intrări`, (selfAudit ?? []).length === 0, 'Bază de date')
 
+  const emptyEmail = `matrice.${STAMP}.cont-gol@test.local`
+  const emptyCreated = await must(admin, 'POST', '/api/users', { email: emptyEmail, password: PASSWORD, role: 'consultant', fullName: 'Cont gol' })
+  const emptyId = emptyCreated.user?.id ?? emptyCreated.profile?.id ?? (await service.from('profiles').select('id').eq('email', emptyEmail).single()).data?.id
+  expect(emptyId).toBeTruthy()
+  created.users.add(emptyId)
+  verifica(admin, 'șterge definitiv contul fără relații', await call(admin, 'DELETE', `/api/users/${emptyId}`), 200)
+  expect((await service.from('profiles').select('id').eq('id', emptyId).maybeSingle()).data).toBeNull()
+  const { data: deletionAudit } = await service.from('audit_logs').select('old_values').eq('entity_id', emptyId).eq('action_type', 'delete')
+  expect(deletionAudit).toHaveLength(1)
+  expect(deletionAudit?.[0].old_values.email).toBe(emptyEmail)
   rand('Jurnal de audit — vizualizare/statistici', 'neschimbat: doar adminul')
   verifica(admin, 'citește jurnalul', await call(admin, 'GET', '/api/audit'), 200)
   for (const person of [SA, JA, client]) verifica(person, 'citește jurnalul', await call(person, 'GET', '/api/audit'), 403)

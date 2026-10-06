@@ -272,11 +272,14 @@ test('Dosar nou cu un implicit care nu mai e consultant activ: șablonul intră 
     await page.getByRole('radio', { name: /Din șablon/ }).check()
     await page.getByRole('radio', { name: exact(tplName) }).check()
 
-    for (const [label, person] of [['Activitate cu implicit devenit admin', promoted], ['Activitate cu implicit dezactivat', inactive]] as const) {
-      const select = page.getByLabel(label)
-      await expect(select, `${label}: implicitul nu mai e propus`).toHaveValue('')
-      await expect(select.locator('option', { hasText: person.name }), `${label}: nici nu se poate alege`).toHaveCount(0)
-    }
+    const promotedSelect = page.getByLabel('Activitate cu implicit devenit admin')
+    await expect(promotedSelect, 'implicitul ieșit din rol nu mai e propus').toHaveValue('')
+    await expect(promotedSelect.locator('option', { hasText: promoted.name })).toHaveCount(0)
+    const inactiveSelect = page.getByLabel('Activitate cu implicit dezactivat')
+    await expect(inactiveSelect, 'valoarea istorică este vizibilă, fără override explicit').toHaveValue(inactive.id)
+    const inactiveOption = inactiveSelect.locator('option', { hasText: inactive.name })
+    await expect(inactiveOption).toBeDisabled()
+    await expect(inactiveOption).toHaveText(inactive.name + ' (cont dezactivat)')
     await expect(page.getByLabel('Activitate cu implicit valabil'), 'implicitul activ rămâne propus').toHaveValue(SA.id)
     await page.screenshot({ path: path.join(SHOTS, 'dosar-nou-impliciti-scosi-din-rol.png') })
 
@@ -321,7 +324,11 @@ test('Importul unui șablon: doar adminul și seniorul din echipă; activități
   expect(outsider.status, 'un consultant din afara echipei nu importă și nu se adaugă singur').toBe(403)
 
   const toClient = await call(admin, 'POST', `/api/projects/${projectId}/import-template`, { template_id: TPL, assignments: { [colleague]: clientId } })
-  expect(toClient.status, 'o activitate nu se dă unui client').toBe(400)
+  expect(toClient.status, 'asignarea explicită către client este un conflict corectabil').toBe(409)
+  expect(toClient.json.code).toBe('INACTIVE_ASSIGNMENT')
+  expect(toClient.json.details.invalid_assignments).toEqual([
+    { activity_id: colleague, consultant_id: clientId, reason: 'not_consultant' },
+  ])
 
   const { count } = await service.from('project_phases').select('id', { count: 'exact', head: true }).eq('project_id', projectId)
   expect(count, 'încercările refuzate nu lasă faze în urmă').toBe(0)

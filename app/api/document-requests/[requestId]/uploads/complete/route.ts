@@ -165,6 +165,15 @@ export async function POST(
     })
 
     if (rpcError) {
+      if (rpcError.code === 'P0001' && rpcError.message === 'ACCOUNT_SESSION_INACTIVE') {
+        return NextResponse.json({
+          error: 'Account session is inactive',
+          code: 'ACCOUNT_SESSION_INACTIVE',
+          reason: 'account_inactive',
+          details: { is_active: false },
+        }, { status: 401 })
+      }
+
       console.error('complete_reserved_document_upload_batch error:', rpcError)
       const failure = describeDocumentActionFailure(rpcError.message, rpcError.code)
       return NextResponse.json({ error: rpcError.message, message: failure.message }, { status: failure.status })

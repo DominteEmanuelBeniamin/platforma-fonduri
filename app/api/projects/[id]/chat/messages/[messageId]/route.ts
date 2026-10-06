@@ -21,7 +21,8 @@ const MESSAGE_SELECT = `
   profiles:created_by (
     id,
     full_name,
-    email
+    email,
+    is_active
   )
 `
 

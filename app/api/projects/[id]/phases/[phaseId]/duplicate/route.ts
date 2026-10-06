@@ -6,6 +6,7 @@ import { logActions } from '@/app/api/_utils/audit'
 import { duplicationAuditEntries } from '@/app/api/_utils/duplication-audit'
 import { duplicatePhase } from '@/app/api/_utils/duplicate-project-items'
 import { buildCopyName } from '@/lib/duplicate-name'
+import { inactiveReferenceConflict } from '@/app/api/_utils/inactive-reference'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const name = buildCopyName(source.name, (phases ?? []).map(phase => phase.name))
 
-    const { phase, counts, audit } = await duplicatePhase(supabaseAdmin, {
+    const { phase, counts, audit, warnings } = await duplicatePhase(supabaseAdmin, {
       projectId,
       sourcePhase: source,
       name,
@@ -110,9 +111,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       phase,
       activities_created: counts.activities,
       document_requests_created: counts.documentRequests,
+      warnings,
     }, { status: 201 })
   } catch (error: any) {
     console.error('POST /api/projects/[id]/phases/[phaseId]/duplicate error:', error)
-    return NextResponse.json({ error: error.message, message: error.message }, { status: 500 })
+    const inactive = inactiveReferenceConflict(error, 'Un cont dezactivat nu poate fi păstrat ca responsabil al copiei.')
+    if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
+    return NextResponse.json({ error: 'Duplicarea nu a putut fi finalizată.', message: 'Duplicarea nu a putut fi finalizată.' }, { status: 500 })
   }
 }

@@ -15,6 +15,8 @@ export type NotificationItem = {
   entityId: string
   title: string
   actorName: string | null
+  actorId: string | null
+  actorIsActive: boolean | null
   entityLabel: string | null
   itemCount: number
   createdAt: string

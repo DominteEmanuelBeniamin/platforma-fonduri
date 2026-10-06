@@ -180,13 +180,21 @@ export async function GET(request: Request){
     const ctx = await requireProfile(request)
     if (!ctx.ok) return guardToResponse(ctx)
 
+    const state = new URL(request.url).searchParams.get('state') ??
+      (ctx.profile.role === 'admin' ? 'all' : 'active')
+    if (!['active', 'inactive', 'all'].includes(state)) {
+      return NextResponse.json({ error: 'state trebuie să fie active, inactive sau all' }, { status: 400 })
+    }
+
     const admin = createSupabaseServiceClient()
     if (ctx.profile.role === 'consultant') {
-      const { data, error } = await admin
+      let query = admin
         .from('profiles')
         .select('id, email, full_name, role, consultant_level, is_active')
         .eq('role', 'consultant')
-        .order('full_name')
+      if (state === 'active') query = query.or('is_active.is.null,is_active.eq.true')
+      if (state === 'inactive') query = query.eq('is_active', false)
+      const { data, error } = await query.order('full_name')
 
       if (error) throw error
 
@@ -197,10 +205,13 @@ export async function GET(request: Request){
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const { data, error } = await admin
+    let query = admin
       .from('profiles')
       .select('*')
-      .order('created_at', { ascending: false })
+    if (state === 'active') query = query.or('is_active.is.null,is_active.eq.true')
+    if (state === 'inactive') query = query.eq('is_active', false)
+
+    const { data, error } = await query.order('created_at', { ascending: false })
 
     if (error) throw error
 

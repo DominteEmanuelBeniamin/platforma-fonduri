@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { canManageProject, requireProjectAccess } from '@/app/api/_utils/auth'
+import { inactiveReferenceConflict } from '@/app/api/_utils/inactive-reference'
 import { logAction } from '@/app/api/_utils/audit'
 import { isClientVisiblePhase } from '@/lib/client-visibility'
 
@@ -174,6 +175,8 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       if (deletionError.code === 'P0002') {
         return NextResponse.json({ error: 'Not found' }, { status: 404 })
       }
+      const inactive = inactiveReferenceConflict(deletionError, 'Un cont dezactivat nu poate rămâne responsabil al cererii mutate.')
+      if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
       throw deletionError
     }
 
@@ -209,6 +212,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ success: true, deleted: deletion.deleted, ...deletionSummary })
   } catch (error: any) {
     console.error('DELETE /api/projects/[id]/phases/[phaseId] error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Operația de ștergere nu a putut fi finalizată.' }, { status: 500 })
   }
 }

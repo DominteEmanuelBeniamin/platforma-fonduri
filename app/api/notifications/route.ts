@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
-import { requireProfile } from '@/app/api/_utils/auth'
-import { createSupabaseServerClient } from '@/app/api/_utils/supabase'
+import { guardToResponse, requireProfile } from '@/app/api/_utils/auth'
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import {
   decodeNotificationCursor,
   encodeNotificationCursor,
@@ -31,7 +31,7 @@ function parseLimit(value: string | null): number | null {
 
 export async function GET(request: Request) {
   const ctx = await requireProfile(request)
-  if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status })
+  if (!ctx.ok) return guardToResponse(ctx)
 
   const url = new URL(request.url)
   const projectId = url.searchParams.get('projectId')
@@ -66,7 +66,7 @@ export async function GET(request: Request) {
   const supabase = createSupabaseServerClient(request)
   let query = supabase
     .from('notifications')
-    .select('id, project_id, type, severity, entity_type, entity_id, title, actor_name, entity_label, item_count, created_at, read_at, project:project_id(title)')
+    .select('id, project_id, type, severity, entity_type, entity_id, title, actor_name, actor_id, entity_label, item_count, created_at, read_at, project:project_id(title)')
     .is('dismissed_at', null)
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })
@@ -90,6 +90,24 @@ export async function GET(request: Request) {
   const rows = (data ?? []) as any[]
   const hasMore = rows.length > limit
   const page = hasMore ? rows.slice(0, limit) : rows
+  const actorIds = [...new Set(page
+    .map(row => row.actor_id)
+    .filter((id): id is string => typeof id === 'string' && isUuid(id)))]
+  let activeByActorId = new Map<string, boolean>()
+  if (actorIds.length > 0) {
+    const admin = createSupabaseServiceClient()
+    const { data: actors, error: actorsError } = await admin
+      .from('profiles')
+      .select('id, is_active')
+      .in('id', actorIds)
+
+    if (actorsError) {
+      console.error('GET /api/notifications actor-state lookup failed:', actorsError)
+      return NextResponse.json({ error: 'Failed to load notifications' }, { status: 500 })
+    }
+    activeByActorId = new Map((actors ?? []).map((actor: any) => [actor.id, actor.is_active === true]))
+  }
+
   const items = page.map(row => ({
     id: row.id,
     projectId: row.project_id,
@@ -100,6 +118,10 @@ export async function GET(request: Request) {
     entityId: row.entity_id,
     title: row.title,
     actorName: row.actor_name,
+    actorId: typeof row.actor_id === 'string' && isUuid(row.actor_id) ? row.actor_id : null,
+    actorIsActive: typeof row.actor_id === 'string' && isUuid(row.actor_id)
+      ? activeByActorId.get(row.actor_id) ?? null
+      : null,
     entityLabel: row.entity_label,
     itemCount: row.item_count,
     createdAt: row.created_at,

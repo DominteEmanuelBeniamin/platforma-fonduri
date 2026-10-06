@@ -2,6 +2,7 @@ import { createSupabaseServiceClient } from './supabase'
 import type { AppRole, Result } from './auth'
 import { requireProfile } from './auth'
 import { canChatWithUser } from './private-chat-access'
+import { inactiveReferenceConflict } from './inactive-reference'
 
 export type PrivateConversation = {
   id: string
@@ -234,7 +235,7 @@ export async function getOrCreatePrivateConversation(
 
   const { data: otherUser, error: otherUserError } = await admin
     .from('profiles')
-    .select('id, role')
+    .select('id, role, is_active')
     .eq('id', otherUserId)
     .maybeSingle()
 
@@ -249,6 +250,9 @@ export async function getOrCreatePrivateConversation(
 
   if (!otherUser) {
     return { ok: false, status: 404, error: 'Target user not found' }
+  }
+  if (otherUser.is_active === false) {
+    return { ok: false, status: 409, error: 'Nu poți începe o conversație cu un cont dezactivat' }
   }
 
   if (
@@ -282,6 +286,8 @@ export async function getOrCreatePrivateConversation(
     .single()
 
   if (createConversationError || !createdConversation) {
+    const inactive = inactiveReferenceConflict(createConversationError, 'Nu poți începe o conversație folosind un cont dezactivat.')
+    if (inactive) return { ok: false, status: inactive.status, error: inactive.body.message, code: inactive.body.code, details: inactive.body.details }
     console.error('Failed to create private conversation:', {
       currentUserId: ctx.user.id,
       otherUserId,
@@ -311,8 +317,13 @@ export async function getOrCreatePrivateConversation(
       error: participantsError,
     })
 
-    await admin.from('private_conversations').delete().eq('id', createdConversation.id)
-
+    const { error: cleanupError } = await admin.from('private_conversations').delete().eq('id', createdConversation.id)
+    if (cleanupError) {
+      console.error('Failed to clean up private conversation after participant insert:', { conversationId: createdConversation.id, cleanupError })
+      return { ok: false, status: 500, error: 'Failed to clean up conversation after participant insert' }
+    }
+    const inactive = inactiveReferenceConflict(participantsError, 'Nu poți începe o conversație cu un cont dezactivat.')
+    if (inactive) return { ok: false, status: inactive.status, error: inactive.body.message, code: inactive.body.code, details: inactive.body.details }
     return { ok: false, status: 500, error: 'Failed to create conversation participants' }
   }
 
@@ -335,6 +346,7 @@ export type PrivateConversationListItem = {
     id: string
     full_name: string | null
     email: string | null
+    is_active: boolean | null
   } | null
   last_message: {
     id: string
@@ -410,7 +422,8 @@ export async function listPrivateConversationsForCurrentUser(
       profiles:user_id (
         id,
         full_name,
-        email
+        email,
+        is_active
       )
     `)
     .in('conversation_id', conversationIds)
@@ -444,11 +457,13 @@ export async function listPrivateConversationsForCurrentUser(
       id: string
       full_name: string | null
       email: string | null
+      is_active: boolean | null
     }
   | {
       id: string
       full_name: string | null
       email: string | null
+      is_active: boolean | null
     }[]
   | null
 

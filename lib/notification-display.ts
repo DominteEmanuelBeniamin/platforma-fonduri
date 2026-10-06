@@ -5,6 +5,8 @@
  * alege aici, o singură dată, și nu în două componente.
  */
 
+import { profileDisplayName } from './profile-display.ts'
+
 export const NOTIFICATION_TYPES = ['publication', 'assignment', 'deadline', 'document_action'] as const
 
 export type NotificationTypeName = (typeof NOTIFICATION_TYPES)[number]
@@ -20,6 +22,7 @@ export type NotificationDisplayItem = {
   type: string
   title: string
   actorName?: string | null
+  actorIsActive?: boolean | null
   entityLabel?: string | null
   projectTitle?: string | null
   itemCount: number
@@ -132,7 +135,8 @@ export function notificationSubject(item: NotificationDisplayItem): string {
 export function notificationContext(item: NotificationDisplayItem, now: Date = new Date()): string[] {
   const parts: string[] = []
   const label = item.entityLabel?.trim()
-  const actor = item.actorName?.trim()
+  const actorName = item.actorName?.trim()
+  const actor = actorName ? profileDisplayName({ is_active: item.actorIsActive }, actorName) : null
 
   if (label) parts.push(actor ? `${notificationAction(item)} de ${actor}` : notificationAction(item))
   else if (actor) parts.push(`de ${actor}`)

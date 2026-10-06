@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { canManageProject, requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
+import { inactiveReferenceConflict } from '@/app/api/_utils/inactive-reference'
 import { sendActivityAssignedEmail } from '@/app/api/_utils/activity-assignment-email'
 import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
 import { buildAssignmentEmailIdempotencyKey, isRealAssignmentChange } from '@/lib/notification-utils'
@@ -89,7 +90,28 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (phaseError) throw phaseError
     if (!phase) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    // Dacă se atribuie cuiva, verifică că este consultant membru al proiectului
+    const assignmentChanged = assigned_to !== undefined && assigned_to !== before.assigned_to
+    // Un consultant inactiv existent poate fi păstrat când se editează alte
+    // câmpuri; starea se validează doar pentru o relație nouă.
+    if (assignmentChanged && typeof assigned_to === 'string') {
+      const { data: consultant, error: consultantError } = await supabaseAdmin
+        .from('profiles')
+        .select('id, role, is_active')
+        .eq('id', assigned_to)
+        .maybeSingle()
+
+      if (consultantError) {
+        console.error('PATCH activity consultant lookup error:', consultantError)
+        return NextResponse.json({ error: 'Eroare la verificarea consultantului' }, { status: 500 })
+      }
+      if (!consultant || consultant.role !== 'consultant') {
+        return NextResponse.json({ error: 'Alege un consultant valid.' }, { status: 400 })
+      }
+      if (consultant.is_active === false) {
+        return NextResponse.json({ error: 'Alege un consultant activ pentru o atribuire nouă.' }, { status: 409 })
+      }
+    }
+
     if (assigned_to !== undefined && assigned_to !== null) {
       const { data: membership, error: memberError } = await supabaseAdmin
         .from('project_members')
@@ -125,6 +147,21 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
 
     if (isPublishing) {
+      const publishedAssignee = assigned_to === undefined ? before.assigned_to : assigned_to
+      if (publishedAssignee) {
+        const { data: consultant, error: consultantError } = await supabaseAdmin
+          .from('profiles')
+          .select('is_active')
+          .eq('id', publishedAssignee)
+          .maybeSingle()
+        if (consultantError) throw consultantError
+        if (!consultant || consultant.is_active !== true) {
+          return NextResponse.json(
+            { error: 'Activitatea trebuie să aibă un responsabil activ înainte de publicare.' },
+            { status: 400 },
+          )
+        }
+      }
       const blockers = publishBlockers(publishState)
       if (blockers.length > 0) {
         return NextResponse.json(publishBlockedError(blockers), { status: 400 })
@@ -142,7 +179,6 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
     if (isPublishing) updateData.visibility = 'published'
 
-    const assignmentChanged = assigned_to !== undefined && assigned_to !== before.assigned_to
     if (assignmentChanged) {
       updateData.updated_at = new Date().toISOString()
       // Triggerul de notificare rulează cu clientul de service, unde `auth.uid()`
@@ -162,7 +198,11 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
     const { data: activity, error } = await activityUpdate.select().maybeSingle()
 
-    if (error) throw error
+    if (error) {
+      const inactive = inactiveReferenceConflict(error, 'Nu poți atribui activitatea unui cont dezactivat.')
+      if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
+      throw error
+    }
     if (!activity) {
       return NextResponse.json(
         { error: assignmentChanged ? 'Activitatea a fost modificată între timp. Reîncarcă și încearcă din nou.' : 'Activitatea nu mai există' },
@@ -250,6 +290,8 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       if (deletionError.code === 'P0002') {
         return NextResponse.json({ error: 'Not found' }, { status: 404 })
       }
+      const inactive = inactiveReferenceConflict(deletionError, 'Un cont dezactivat nu poate rămâne responsabil al cererii mutate.')
+      if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
       throw deletionError
     }
 
@@ -284,6 +326,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ success: true, deleted: deletion.deleted, ...deletionSummary })
   } catch (error: any) {
     console.error('DELETE activity error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Operația de ștergere nu a putut fi finalizată.' }, { status: 500 })
   }
 }

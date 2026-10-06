@@ -76,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               error: userErrorMessage(response.status, 'Nu am putut finaliza acțiunea.'),
             }))
             if (body && typeof body === 'object' && 'error' in body) {
-              return { ...body, error: userErrorMessage(response.status, 'Nu am putut finaliza acțiunea.') }
+              return { ...body, error: userErrorMessage(response.status, 'Nu am putut finaliza acțiunea.', body.code) }
             }
             return body
           },

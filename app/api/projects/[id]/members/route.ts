@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess, requireProjectManager } from '../../../_utils/auth'
 import { createSupabaseServiceClient } from '../../../_utils/supabase'
 import { logAction } from '../../../_utils/audit'
+import { inactiveReferenceConflict } from '../../../_utils/inactive-reference'
 
 function isNonEmptyString(x: unknown): x is string {
   return typeof x === 'string' && x.trim().length > 0
@@ -42,7 +43,8 @@ export async function GET(
           email,
           full_name,
           role,
-          consultant_level
+          consultant_level,
+          is_active
         )
       `
       )
@@ -110,7 +112,7 @@ export async function POST(
     // 2) Verificăm consultantul există și are rol consultant
     const { data: consultantProfile, error: consultantErr } = await admin
       .from('profiles')
-      .select('id, role, email, full_name')
+      .select('id, role, email, full_name, is_active')
       .eq('id', cleanConsultantId)
       .maybeSingle()
 
@@ -123,6 +125,9 @@ export async function POST(
     }
     if (consultantProfile.role !== 'consultant') {
       return NextResponse.json({ error: 'User is not a consultant' }, { status: 400 })
+    }
+    if (consultantProfile.is_active === false) {
+      return NextResponse.json({ error: 'Doar consultanții activi pot fi adăugați în proiect.' }, { status: 409 })
     }
 
     // 3) Verificăm dacă nu e deja membru
@@ -164,7 +169,8 @@ export async function POST(
           email,
           full_name,
           role,
-          consultant_level
+          consultant_level,
+          is_active
         )
       `
       )
@@ -172,6 +178,8 @@ export async function POST(
 
     if (insertErr) {
       console.error('Insert membership error:', insertErr)
+      const inactive = inactiveReferenceConflict(insertErr, 'Nu poți adăuga un cont dezactivat în echipa proiectului.')
+      if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
       return NextResponse.json({ error: insertErr.message }, { status: 400 })
     }
 

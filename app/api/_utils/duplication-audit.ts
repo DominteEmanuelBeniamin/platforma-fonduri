@@ -32,6 +32,8 @@ function activityEntry(item: DuplicationAuditNode, ctx: Context): LogActionParam
       phase_name: item.phaseName,
       source_activity_id: item.sourceId,
       source_activity_name: item.sourceName,
+      assigned_to: item.assignedTo ?? null,
+      assigned_by: item.assignedBy ?? null,
       created_by: ctx.actorId,
       duplication: {
         source_kind: 'persistent',
@@ -61,6 +63,9 @@ function documentRequestEntry(item: DuplicationAuditNode, ctx: Context): LogActi
       activity_name: item.activityName,
       source_activity_id: item.sourceActivityId,
       source_activity_name: item.sourceActivityName,
+      assigned_to: item.assignedTo ?? null,
+      assigned_by: item.assignedBy ?? null,
+      assigned_at: item.assignedAt ?? null,
       created_by: ctx.actorId,
       duplication: {
         source_kind: 'persistent',

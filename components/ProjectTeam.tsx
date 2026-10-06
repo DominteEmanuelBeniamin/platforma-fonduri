@@ -6,8 +6,9 @@ import { Loader2, UserMinus, UserPlus, Users, X } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
+import { profileDisplayName } from '@/lib/profile-display'
 
-type Person = { id: string; full_name: string | null; email: string }
+type Person = { id: string; full_name: string | null; email: string; is_active?: boolean | null }
 
 type Member = {
   id: string
@@ -76,7 +77,7 @@ export default function ProjectTeam({
         canManage ? apiFetch(`/api/projects/${projectId}/available-consultants`) : Promise.resolve(null),
       ])
       if (membersRes.ok) setTeam((await membersRes.json()).members ?? [])
-      if (availRes?.ok) setAvailable((await availRes.json()).consultants ?? [])
+      if (availRes?.ok) setAvailable(((await availRes.json()).consultants ?? []).filter((person: Person) => person.is_active !== false))
     } catch (error) {
       console.error('Echipa proiectului nu s-a încărcat:', error)
     } finally {
@@ -127,7 +128,7 @@ export default function ProjectTeam({
         return
       }
       setTeam(prev => prev.filter(m => m.id !== member.id))
-      if (member.profiles) setAvailable(prev => [...prev, member.profiles!])
+      if (member.profiles?.is_active !== false && member.profiles) setAvailable(prev => [...prev, member.profiles!])
       onChange()
     } catch {
       setRowError({ id: member.id, message: 'Nu am putut scoate membrul din echipă. Reîncearcă.' })
@@ -197,7 +198,7 @@ export default function ProjectTeam({
                 {team.map(member => {
                   const person = member.profiles
                   const isSelf = member.consultant_id === userId
-                  const name = person?.full_name || person?.email || 'consultantul'
+                  const name = person ? profileDisplayName(person) : 'consultantul'
                   const confirming = confirmingId === member.id
                   const error = rowError?.id === member.id ? rowError.message : null
                   return (
@@ -211,7 +212,7 @@ export default function ProjectTeam({
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="flex items-center gap-2">
-                            <span className="truncate text-sm font-semibold text-ink">{person?.full_name || person?.email || 'Consultant'}</span>
+                            <span className="truncate text-sm font-semibold text-ink">{person ? profileDisplayName(person) : 'Consultant'}</span>
                             {person?.consultant_level === 'senior' && (
                               <span className="shrink-0 rounded-[var(--radius-plate)] border border-rule-strong px-1.5 text-[11px] font-semibold text-ink-soft">Senior</span>
                             )}
@@ -273,7 +274,7 @@ export default function ProjectTeam({
                     >
                       <option value="">{loading ? 'Se încarcă…' : 'Alege un consultant'}</option>
                       {available.map(c => (
-                        <option key={c.id} value={c.id}>{c.full_name || c.email}</option>
+                        <option key={c.id} value={c.id}>{profileDisplayName(c)}</option>
                       ))}
                     </select>
                     <Button variant="primary" disabled={!selectedId || adding} onClick={() => { void addMember() }}>

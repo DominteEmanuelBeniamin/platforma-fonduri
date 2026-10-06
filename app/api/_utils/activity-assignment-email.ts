@@ -85,12 +85,12 @@ export async function sendActivityAssignedEmail(params: ActivityAssignedEmail) {
   try {
     const { data: consultant, error: consultantError } = await createSupabaseServiceClient()
       .from('profiles')
-      .select('full_name, email')
+      .select('full_name, email, is_active')
       .eq('id', params.consultantId)
       .maybeSingle()
 
     if (consultantError) throw consultantError
-    if (!consultant?.email) return
+    if (!consultant?.email || consultant.is_active === false) return
 
     const resend = new Resend(process.env.RESEND_API_KEY)
     const { error: emailError } = await resend.emails.send({
@@ -118,15 +118,16 @@ export async function sendActivityAssignedEmails(items: ActivityAssignedEmail[])
     const consultantIds = [...new Set(items.map(item => item.consultantId))]
     const { data: consultants, error: consultantsError } = await createSupabaseServiceClient()
       .from('profiles')
-      .select('id, full_name, email')
+      .select('id, full_name, email, is_active')
       .in('id', consultantIds)
 
     if (consultantsError) throw consultantsError
     const byId = new Map((consultants ?? []).map(consultant => [consultant.id as string, consultant]))
     const messages = items.flatMap(item => {
       const consultant = byId.get(item.consultantId)
-      if (!consultant?.email) return []
+      if (!consultant?.email || consultant.is_active === false) return []
       return [{
+        recipientId: item.consultantId,
         key: item.idempotencyKey,
         email: {
           from: resendFromAddress(),
@@ -139,8 +140,19 @@ export async function sendActivityAssignedEmails(items: ActivityAssignedEmail[])
     const resend = new Resend(process.env.RESEND_API_KEY)
     for (let index = 0; index < messages.length; index += 100) {
       const chunk = messages.slice(index, index + 100)
-      const idempotencyKey = `assignment-email-batch-v1-${createHash('sha256').update(chunk.map(message => message.key).join('|')).digest('hex')}`
-      const { error: emailError } = await resend.batch.send(chunk.map(message => message.email), { idempotencyKey })
+      const { data: currentProfiles, error: currentProfilesError } = await createSupabaseServiceClient()
+        .from('profiles')
+        .select('id, is_active')
+        .in('id', [...new Set(chunk.map(message => message.recipientId))])
+      if (currentProfilesError) throw currentProfilesError
+      const activeRecipientIds = new Set((currentProfiles ?? [])
+        .filter(profile => profile.is_active !== false)
+        .map(profile => profile.id))
+      const sendable = chunk.filter(message => activeRecipientIds.has(message.recipientId))
+      if (sendable.length === 0) continue
+
+      const idempotencyKey = `assignment-email-batch-v1-${createHash('sha256').update(sendable.map(message => message.key).join('|')).digest('hex')}`
+      const { error: emailError } = await resend.batch.send(sendable.map(message => message.email), { idempotencyKey })
       if (emailError) {
         console.error('Resend batch error:', emailError)
       }

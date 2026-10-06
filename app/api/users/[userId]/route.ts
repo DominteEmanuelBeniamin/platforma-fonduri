@@ -3,6 +3,8 @@
 import { requireUserOrAdmin, requireAdmin, guardToResponse } from '../../_utils/auth'
 import { createSupabaseServiceClient } from '../../_utils/supabase'
 import { logUserAction, getClientIP, getUserAgent } from '../../_utils/audit'
+import { userLifecycleConflict } from '../../_utils/user-lifecycle'
+import { isUuid } from '@/lib/notification-utils'
 import { NextResponse } from 'next/server'
 
 type PatchBody = Partial<{
@@ -32,66 +34,51 @@ export async function PATCH(
 ) {
   try {
     const { userId: targetUserId } = await params
-
-    if (!targetUserId) {
-      return NextResponse.json({ error: 'User ID lipsește din URL' }, { status: 400 })
+    if (!isUuid(targetUserId)) {
+      return NextResponse.json({ error: 'User ID trebuie să fie UUID valid' }, { status: 400 })
     }
 
     const ctx = await requireUserOrAdmin(request, targetUserId)
-    if(!ctx.ok) return guardToResponse(ctx)
+    if (!ctx.ok) return guardToResponse(ctx)
     const admin = createSupabaseServiceClient()
-
-    // Obținem profilul curent ÎNAINTE de update (pentru audit)
-    const { data: oldProfile } = await admin
+    const { data: oldProfile, error: profileError } = await admin
       .from('profiles')
       .select('id, email, full_name, role, consultant_level, telefon, cif, nume_firma, adresa_firma, departament, specializare')
       .eq('id', targetUserId)
-      .single()
+      .maybeSingle()
+    if (profileError) {
+      console.error('PATCH user profile lookup failed:', profileError)
+      return NextResponse.json({ error: 'Nu am putut încărca profilul.' }, { status: 500 })
+    }
+    if (!oldProfile) return NextResponse.json({ error: 'Utilizatorul nu a fost găsit.' }, { status: 404 })
 
     const body = (await request.json().catch(() => null)) as PatchBody | null
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
-
     if (body.email !== undefined) {
       return NextResponse.json({ error: 'Email cannot be updated via this endpoint' }, { status: 400 })
     }
 
     const update: Record<string, any> = {}
-
-    // full_name
     if (body.full_name !== undefined) {
       if (typeof body.full_name !== 'string' || body.full_name.trim().length === 0) {
         return NextResponse.json({ error: 'full_name must be a non-empty string' }, { status: 400 })
       }
       update.full_name = body.full_name.trim()
     }
-
-    // telefon
     if (body.telefon !== undefined) {
       if (!isStringOrNullOrUndef(body.telefon)) {
         return NextResponse.json({ error: 'telefon must be a string or null' }, { status: 400 })
       }
-      if (typeof body.telefon === 'string') {
-        update.telefon = normalizePhone(body.telefon)
-      } else {
-        update.telefon = body.telefon
-      }
+      update.telefon = typeof body.telefon === 'string' ? normalizePhone(body.telefon) : body.telefon
     }
-
-    // cif
     if (body.cif !== undefined) {
       if (!isStringOrNullOrUndef(body.cif)) {
         return NextResponse.json({ error: 'cif must be a string or null' }, { status: 400 })
       }
-      if (typeof body.cif === 'string') {
-        update.cif = normalizeCui(body.cif)
-      } else {
-        update.cif = body.cif
-      }
+      update.cif = typeof body.cif === 'string' ? normalizeCui(body.cif) : body.cif
     }
-
-    // role (DOAR admin)
     if (body.role !== undefined) {
       if (!ctx.isAdmin) {
         return NextResponse.json({ error: 'Forbidden: only admin can update role' }, { status: 403 })
@@ -99,35 +86,24 @@ export async function PATCH(
       if (typeof body.role !== 'string' || body.role.trim().length === 0) {
         return NextResponse.json({ error: 'role must be a non-empty string' }, { status: 400 })
       }
-
       const role = body.role.trim()
-      const allowedRoles = new Set(['admin', 'client', 'consultant'])
-      if (!allowedRoles.has(role)) {
-        return NextResponse.json({ error: `Invalid role. Allowed: ${Array.from(allowedRoles).join(', ')}` }, { status: 400 })
+      if (!new Set(['admin', 'client', 'consultant']).has(role)) {
+        return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
       }
-
       update.role = role
     }
-
-    // consultant_level (DOAR admin, doar pentru consultanți)
     if (body.consultant_level !== undefined) {
       if (!ctx.isAdmin) {
         return NextResponse.json({ error: 'Forbidden: only admin can update consultant_level' }, { status: 403 })
       }
       if (body.consultant_level !== 'junior' && body.consultant_level !== 'senior') {
-        return NextResponse.json({ error: 'consultant_level must be "junior" or "senior"' }, { status: 400 })
+        return NextResponse.json({ error: 'consultant_level must be junior or senior' }, { status: 400 })
       }
-      if ((update.role ?? oldProfile?.role) !== 'consultant') {
+      if ((update.role ?? oldProfile.role) !== 'consultant') {
         return NextResponse.json({ error: 'consultant_level se poate seta doar pentru consultanți' }, { status: 400 })
       }
       update.consultant_level = body.consultant_level
     }
-
-    // Cine nu mai e consultant pierde nivelul, ca să nu redevină senior fără o decizie.
-    if (update.role !== undefined && update.role !== 'consultant' && oldProfile?.consultant_level === 'senior') {
-      update.consultant_level = 'junior'
-    }
-
     if (Object.keys(update).length === 0) {
       return NextResponse.json(
         { error: 'Nothing to update. Allowed fields: full_name, telefon, cif, role and consultant_level (admin only).' },
@@ -135,137 +111,102 @@ export async function PATCH(
       )
     }
 
-    const { data, error } = await admin
-      .from('profiles')
-      .update(update)
-      .eq('id', targetUserId)
-      .select('id, email, full_name, role, consultant_level, telefon, cif')
-      .single()
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 })
-    }
-
-    // ✅ AUDIT LOG - Modificare utilizator
-    // Construim old_values și new_values doar cu câmpurile modificate
-    const oldValues: Record<string, unknown> = {}
-    const newValues: Record<string, unknown> = {}
-    
-    for (const key of Object.keys(update)) {
-      if (oldProfile && oldProfile[key as keyof typeof oldProfile] !== update[key]) {
-        oldValues[key] = oldProfile[key as keyof typeof oldProfile]
-        newValues[key] = update[key]
-      }
-    }
-
-    // Descriere detaliată
-    let description = `${ctx.profile.email} a modificat utilizatorul ${data.email}`
-    if (update.role && oldProfile?.role !== update.role) {
-      description = `${ctx.profile.email} a schimbat rolul utilizatorului ${data.email} din "${oldProfile?.role}" în "${update.role}"`
-    } else if (update.consultant_level && oldProfile?.consultant_level !== update.consultant_level) {
-      description = `${ctx.profile.email} a schimbat nivelul consultantului ${data.email} din "${oldProfile?.consultant_level}" în "${update.consultant_level}"`
-    }
-
-    await logUserAction({
-      adminId: ctx.user.id,
-      actionType: 'update',
-      userId: targetUserId,
-      userEmail: data.email,
-      oldValues: Object.keys(oldValues).length > 0 ? oldValues : null,
-      newValues: Object.keys(newValues).length > 0 ? newValues : null,
-      description,
-      ipAddress: getClientIP(request),
-      userAgent: getUserAgent(request)
+    const { data: result, error } = await admin.rpc('update_user_profile_guarded', {
+      p_target_id: targetUserId,
+      p_actor_id: ctx.user.id,
+      p_changes: update,
     })
+    if (error) {
+      const conflict = userLifecycleConflict(error)
+      if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
+      console.error('PATCH guarded profile update failed:', error)
+      return NextResponse.json({ error: 'Nu am putut actualiza profilul.' }, { status: 500 })
+    }
 
-    return NextResponse.json({ message: 'Profile updated', profile: data })
-  } catch (e: any) {
-    console.error('PATCH /api/users/[id] error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Server error' }, { status: 500 })
+    const profile = result?.profile
+    const changed = result?.changed
+    if (!profile || typeof changed !== 'boolean') {
+      console.error('PATCH guarded profile update returned an invalid result:', { targetUserId })
+      return NextResponse.json({ error: 'Nu am putut confirma actualizarea profilului.' }, { status: 500 })
+    }
+
+    if (changed) {
+      const oldValues: Record<string, unknown> = {}
+      const newValues: Record<string, unknown> = {}
+      const auditKeys = new Set(Object.keys(update))
+      if (oldProfile.consultant_level !== profile.consultant_level) auditKeys.add('consultant_level')
+      for (const key of auditKeys) {
+        const previous = oldProfile[key as keyof typeof oldProfile]
+        const current = profile[key]
+        if (previous !== current) {
+          oldValues[key] = previous
+          newValues[key] = current
+        }
+      }
+
+      let description = String(ctx.profile.email) + ' a modificat utilizatorul ' + String(profile.email)
+      if (update.role && oldProfile.role !== update.role) {
+        description = String(ctx.profile.email) + ' a schimbat rolul utilizatorului ' + String(profile.email)
+          + ' din "' + oldProfile.role + '" în "' + update.role + '"'
+      } else if (update.consultant_level && oldProfile.consultant_level !== update.consultant_level) {
+        description = String(ctx.profile.email) + ' a schimbat nivelul consultantului ' + String(profile.email)
+          + ' din "' + oldProfile.consultant_level + '" în "' + update.consultant_level + '"'
+      }
+
+      await logUserAction({
+        adminId: ctx.user.id,
+        actionType: 'update',
+        userId: targetUserId,
+        userEmail: profile.email,
+        oldValues: Object.keys(oldValues).length > 0 ? oldValues : null,
+        newValues: Object.keys(newValues).length > 0 ? newValues : null,
+        description,
+        ipAddress: getClientIP(request),
+        userAgent: getUserAgent(request),
+      })
+    }
+
+    return NextResponse.json({ message: 'Profile updated', profile, changed })
+  } catch (error) {
+    console.error('PATCH /api/users/[userId] error:', error)
+    return NextResponse.json({ error: 'Nu am putut actualiza profilul.' }, { status: 500 })
   }
 }
-
 
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
+    const { userId } = await params
+    if (!isUuid(userId)) {
+      return NextResponse.json({ error: 'User ID trebuie să fie UUID valid' }, { status: 400 })
+    }
+
     const ctx = await requireAdmin(request)
-    if(!ctx.ok) return guardToResponse(ctx)
+    if (!ctx.ok) return guardToResponse(ctx)
+
     const admin = createSupabaseServiceClient()
-    const {userId : userId} = await params
-
-    if (!userId) {
-      return NextResponse.json({ error: 'User ID lipsește' }, { status: 400 })
+    const { data: deleted, error } = await admin.rpc('delete_empty_user_account', {
+      p_target_id: userId,
+      p_actor_id: ctx.user.id,
+      p_ip_address: getClientIP(request),
+      p_user_agent: getUserAgent(request),
+    })
+    if (error) {
+      const conflict = userLifecycleConflict(error)
+      if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
+      console.error('DELETE guarded user lifecycle RPC failed:', error)
+      return NextResponse.json({ error: 'Nu am putut șterge utilizatorul.' }, { status: 500 })
     }
 
-    // Obținem datele utilizatorului ÎNAINTE de ștergere (pentru audit)
-    const { data: userToDelete } = await admin
-      .from('profiles')
-      .select('id, email, full_name, role, cif, telefon, nume_firma, adresa_firma, departament, specializare')
-      .eq('id', userId)
-      .single()
-
-    // Ștergem toate proiectele create de user (dacă e client)
-    const { error: projectsError } = await admin
-      .from('projects')
-      .delete()
-      .eq('client_id', userId)
-    
-    if (projectsError) console.warn('Eroare la ștergere proiecte:', projectsError)
-
-    const { error: membersError } = await admin
-      .from('project_members')
-      .delete()
-      .eq('consultant_id', userId)
-    
-    if (membersError) console.warn('Eroare la ștergere members:', membersError)
-
-    const { error: docsError } = await admin
-      .from('document_requirements')
-      .delete()
-      .eq('created_by', userId)
-    
-    if (docsError) console.warn('Eroare la ștergere documente:', docsError)
-
-    const { error: filesError } = await admin
-      .from('files')
-      .delete()
-      .eq('uploaded_by', userId)
-    
-    if (filesError) console.warn('Eroare la ștergere files:', filesError)
-
-    const { error: deleteError } = await admin.auth.admin.deleteUser(userId)
-
-    if (deleteError) throw deleteError
-
-    // ✅ AUDIT LOG - Ștergere utilizator
-    if (userToDelete) {
-      await logUserAction({
-        adminId: ctx.user.id,
-        actionType: 'delete',
-        userId: userId,
-        userEmail: userToDelete.email,
-        oldValues: {
-          email: userToDelete.email,
-          full_name: userToDelete.full_name,
-          role: userToDelete.role,
-          cif: userToDelete.cif,
-          telefon: userToDelete.telefon,
-          nume_firma: userToDelete.nume_firma
-        },
-        newValues: null,
-        description: `${ctx.profile.email} a șters utilizatorul ${userToDelete.email} (rol: ${userToDelete.role})`,
-        ipAddress: getClientIP(request),
-        userAgent: getUserAgent(request)
-      })
+    if (!deleted || typeof deleted !== 'object' || (deleted as any).deleted !== true) {
+      console.error('DELETE account lifecycle RPC returned an invalid result:', { targetUserId: userId })
+      return NextResponse.json({ error: 'Nu am putut confirma ștergerea utilizatorului.' }, { status: 500 })
     }
-
     return NextResponse.json({ message: 'Utilizator șters cu succes!' })
-
-  } catch (error: any) {
-    console.error('Eroare la ștergere user:', error)
-    return NextResponse.json({ error: error.message }, { status: 400 })
+  } catch (error) {
+    console.error('DELETE /api/users/[userId] error:', error)
+    return NextResponse.json({ error: 'Nu am putut șterge utilizatorul.' }, { status: 500 })
   }
 }

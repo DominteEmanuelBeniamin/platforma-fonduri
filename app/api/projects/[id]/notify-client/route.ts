@@ -54,7 +54,7 @@ export async function POST(
 
     const { data: project, error: projectError } = await admin
       .from('projects')
-      .select('id, title, client:profiles!projects_client_id_fkey(id, full_name, email)')
+      .select('id, title, client:profiles!projects_client_id_fkey(id, full_name, email, is_active)')
       .eq('id', projectId)
       .maybeSingle()
 
@@ -66,7 +66,13 @@ export async function POST(
       return NextResponse.json({ error: 'Proiectul nu a fost găsit' }, { status: 404 })
     }
     const client = Array.isArray(project.client) ? project.client[0] : project.client
-    if (!client?.id || !client.email) {
+    if (!client?.id) {
+      return NextResponse.json({ error: 'Clientul proiectului nu are un profil valid' }, { status: 400 })
+    }
+    if (client.is_active === false) {
+      return NextResponse.json({ error: 'Clientul proiectului are contul dezactivat.', code: 'CLIENT_ACCOUNT_INACTIVE' }, { status: 409 })
+    }
+    if (!client.email) {
       return NextResponse.json({ error: 'Clientul proiectului nu are un email valid' }, { status: 400 })
     }
 
@@ -148,6 +154,19 @@ export async function POST(
       return NextResponse.json({ error: 'Nu există elemente noi de anunțat clientului' }, { status: 400 })
     }
 
+    const { data: currentClient, error: currentClientError } = await admin
+      .from('profiles')
+      .select('is_active')
+      .eq('id', client.id)
+      .maybeSingle()
+    if (currentClientError) {
+      console.error('notify-client recipient status check failed:', currentClientError)
+      return NextResponse.json({ error: 'Eroare la verificarea clientului' }, { status: 500 })
+    }
+    if (!currentClient || currentClient.is_active === false) {
+      return NextResponse.json({ error: 'Clientul proiectului are contul dezactivat.', code: 'CLIENT_ACCOUNT_INACTIVE' }, { status: 409 })
+    }
+
     const notifiedAt = new Date().toISOString()
 
     // Revendicare atomică: update-ul condiționat pe `client_notified_at is null`
@@ -222,7 +241,7 @@ export async function POST(
 
     // Răspunsul de eroare după un rollback: dacă rollback-ul n-a reușit, coada NU mai e
     // intactă, iar consultantul trebuie să știe că o reîncercare simplă nu e suficientă.
-    const failAfterRollback = async (status: number, message: string) => {
+    const failAfterRollback = async (status: number, message: string, code?: string) => {
       const notificationsCleaned = await compensateNotifications()
       if (!shouldReleaseClaimsAfterNotificationCleanup(insertedNotificationIds, notificationsCleaned)) {
         return NextResponse.json(
@@ -240,6 +259,7 @@ export async function POST(
             ? message
             : `${message} În plus, marcajul intern nu a putut fi anulat — anunță un administrator, unele noutăți nu vor mai apărea la următoarea trimitere.`,
           ...(rolledBack ? {} : { rollbackFailed: true }),
+          ...(rolledBack && notificationsCleaned && code ? { code } : {}),
         },
         { status }
       )
@@ -318,10 +338,9 @@ export async function POST(
           recipientIds: [client.id],
           includeAdmins: true,
           fallbackToProjectMembers: false,
-        })
-        insertedNotificationIds.push(...publication.insertedIds)
+        }, insertedNotificationIds)
         if (!publication.recipientIds.includes(client.id)) {
-          throw new Error('Clientul proiectului nu mai este un destinatar valid')
+          return failAfterRollback(409, 'Clientul proiectului are contul dezactivat.', 'CLIENT_ACCOUNT_INACTIVE')
         }
       }
 
@@ -333,16 +352,16 @@ export async function POST(
           entityType: 'document_request',
           entityId: reviewEvent.requestId,
           title: reviewEvent.title,
+          actorId: access.profile.id,
           entityLabel: reviewEvent.entityLabel,
           itemCount: 1,
           eventKey: reviewEvent.eventKey,
           recipientIds: [client.id],
           includeAdmins: true,
           fallbackToProjectMembers: false,
-        })
-        insertedNotificationIds.push(...reviewNotification.insertedIds)
+        }, insertedNotificationIds)
         if (!reviewNotification.recipientIds.includes(client.id)) {
-          throw new Error('Clientul proiectului nu mai este un destinatar valid pentru review')
+          return failAfterRollback(409, 'Clientul proiectului are contul dezactivat.', 'CLIENT_ACCOUNT_INACTIVE')
         }
       }
     } catch (notificationError) {
@@ -350,8 +369,20 @@ export async function POST(
       return failAfterRollback(500, 'Eroare la pregătirea notificării. Reîncearcă.')
     }
 
+    const { data: latestClient, error: latestClientError } = await admin
+      .from('profiles')
+      .select('is_active')
+      .eq('id', client.id)
+      .maybeSingle()
+    if (latestClientError) {
+      return failAfterRollback(500, 'Eroare la verificarea clientului. Reîncearcă.')
+    }
+    if (!latestClient || latestClient.is_active === false) {
+      return failAfterRollback(409, 'Clientul proiectului are contul dezactivat.', 'CLIENT_ACCOUNT_INACTIVE')
+    }
+
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
-    const projectUrl = `${appUrl}/projects/${projectId}`
+    const projectUrl = appUrl + '/projects/' + projectId
     let html: string
     try {
       const safeProjectTitle = escapeHtml(project.title)

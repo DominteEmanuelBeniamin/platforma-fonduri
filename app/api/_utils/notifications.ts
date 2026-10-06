@@ -158,7 +158,11 @@ export async function resolveNotificationRecipients(
   })
 }
 
-export async function recordNotification(admin: any, input: RecordNotificationInput) {
+export async function recordNotification(
+  admin: any,
+  input: RecordNotificationInput,
+  compensationIds: string[],
+) {
   const title = input.title.trim()
   const itemCount = input.itemCount ?? 1
   if (!title) throw new Error('Notification title is required')
@@ -189,6 +193,7 @@ export async function recordNotification(admin: any, input: RecordNotificationIn
         title,
         severity,
         actor_name: actorName,
+        actor_id: input.actorId && isUuid(input.actorId) ? input.actorId : null,
         entity_label: entityLabel,
         item_count: itemCount,
         event_key: eventKey,
@@ -201,7 +206,35 @@ export async function recordNotification(admin: any, input: RecordNotificationIn
   const insertedIds = (result.data ?? [])
     .map((row: any) => row?.id)
     .filter((id: unknown): id is string => typeof id === 'string' && isUuid(id))
-  return { recipientIds, inserted: insertedIds.length, insertedIds, eventKey }
+  // Keep committed IDs available to caller rollback even if verification fails.
+  compensationIds.push(...insertedIds)
+
+  // INSERT triggers may skip a recipient deactivated after the preflight query.
+  // Return only persisted rows whose profile is still active; callers use this
+  // list before consuming claims or calling email providers.
+  const persisted = await admin
+    .from('notifications')
+    .select('user_id')
+    .eq('event_key', eventKey)
+    .in('user_id', recipientIds)
+  if (persisted.error) dbError(persisted.error, 'Failed to verify notification recipients')
+  const persistedIds = [...new Set((persisted.data ?? [])
+    .map((row: any) => row?.user_id)
+    .filter((id: unknown): id is string => typeof id === 'string' && isUuid(id)))]
+  const currentProfiles = persistedIds.length > 0
+    ? await admin.from('profiles').select('id, is_active').in('id', persistedIds)
+    : { data: [], error: null }
+  if (currentProfiles.error) dbError(currentProfiles.error, 'Failed to verify notification recipient state')
+  const activeIds = new Set((currentProfiles.data ?? [])
+    .filter((profile: any) => profile?.is_active === true)
+    .map((profile: any) => profile.id))
+  const deliverableRecipientIds = recipientIds.filter(id => persistedIds.includes(id) && activeIds.has(id))
+  return {
+    recipientIds: deliverableRecipientIds,
+    inserted: insertedIds.length,
+    insertedIds,
+    eventKey,
+  }
 }
 
 /** Delete only rows inserted by the current attempt. The caller must pass a service-role client. */

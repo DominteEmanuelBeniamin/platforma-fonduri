@@ -7,6 +7,7 @@ export type ReminderProfile = {
   id: string
   full_name: string | null
   email: string | null
+  is_active?: boolean | null
 }
 
 type Relation<T> = T | T[] | null | undefined
@@ -264,6 +265,7 @@ export function selectDeadlineReminderCandidates(input: CandidateSelectionInput)
     profile: ReminderProfile | null,
   ) => {
     const recipientKind = candidate.recipientKind
+    if (profile?.is_active === false) return
     if (!profile?.id) {
       fail(candidate.entityType, candidate.entityId, recipientKind, candidate.recipientId, 'missing_recipient')
       return

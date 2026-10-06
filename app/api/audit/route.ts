@@ -93,19 +93,44 @@ export async function GET(request: Request) {
 
     const userIds = [...new Set((logs || []).map(log => log.user_id).filter((id): id is string => Boolean(id)))]
     const { data: profiles, error: profilesError } = userIds.length
-      ? await admin.from('profiles').select('id, email, full_name').in('id', userIds)
+      ? await admin.from('profiles').select('id, email, full_name, is_active').in('id', userIds)
       : { data: [], error: null }
     if (profilesError) {
       console.error('Audit users fetch error:', profilesError)
       return NextResponse.json({ error: 'Failed to fetch audit users' }, { status: 500 })
     }
     const usersById = new Map((profiles || []).map(profile => [profile.id, profile]))
+    // Preserve existing rows; recover missing auth-event email from the atomic deletion snapshot.
+    const snapshotIds = [...new Set((logs || [])
+      .filter(log => !usersById.has(log.user_id ?? '') && !log.entity_name?.trim()
+        && log.entity_type === 'user' && (log.action_type === 'login' || log.action_type === 'logout')
+        && (log.entity_id === log.user_id || log.entity_id === null))
+      .map(log => log.user_id).filter((id): id is string => Boolean(id)))]
+    const { data: deletedAccounts, error: snapshotError } = snapshotIds.length
+      ? await admin.from('audit_logs').select('entity_id, old_values')
+        .eq('action_type', 'delete').eq('entity_type', 'user').in('entity_id', snapshotIds)
+        .order('created_at', { ascending: false })
+      : { data: [], error: null }
+    if (snapshotError) {
+      console.error('Historical audit users fetch error:', snapshotError)
+      return NextResponse.json({ error: 'Failed to fetch historical audit users' }, { status: 500 })
+    }
+    const actorEmails = new Map<string, string>()
+    for (const row of deletedAccounts || []) {
+      const snapshot = row.old_values
+      if (row.entity_id && snapshot?.id === row.entity_id && typeof snapshot.email === 'string'
+        && !actorEmails.has(row.entity_id)) actorEmails.set(row.entity_id, snapshot.email)
+    }
 
     // Calculăm informațiile de paginare
     const totalPages = Math.ceil((count || 0) / limit)
 
     return NextResponse.json({
-      logs: (logs || []).map(log => ({ ...log, user: usersById.get(log.user_id ?? '') ?? null })),
+      logs: (logs || []).map(log => ({
+        ...log,
+        user: usersById.get(log.user_id ?? '') ?? null,
+        actor_email: actorEmails.get(log.user_id ?? '') ?? null,
+      })),
       pagination: {
         page,
         limit,
