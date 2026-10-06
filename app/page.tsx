@@ -67,6 +67,9 @@ const ATTENTION_OPTIONS: { key: string; label: string; tone: SignalTone }[] = [
   { key: 'todo', label: 'De rezolvat', tone: 'warn' },
   { key: 'unread', label: 'Necitite', tone: 'neutral' },
   { key: 'clean', label: 'La zi', tone: 'ok' },
+  // Un proiect încheiat nu intră în niciun filtru de mai sus (#109): fără el,
+  // orice filtru activ l-ar fi ascuns de tot.
+  { key: 'closed', label: 'Încheiate', tone: 'closed' },
 ]
 
 /** Pastila de ton: culoare, glifă și cuvânt, niciodată doar culoare. */
@@ -593,7 +596,7 @@ export default function Dashboard() {
 
   // Contoare pentru opțiunile de „atenție"
   const attentionCounts = useMemo(() => {
-    const c: Record<string, number> = { overdue: 0, todo: 0, unread: 0, clean: 0 }
+    const c: Record<string, number> = { overdue: 0, todo: 0, unread: 0, clean: 0, closed: 0 }
     for (const p of projects) {
       const a = attentionByProject.get(p.id)
       if (!a) continue
@@ -601,6 +604,7 @@ export default function Dashboard() {
       if (a.todo) c.todo += 1
       if (a.unreadChat > 0 || a.unreadNotifications > 0) c.unread += 1
       if (a.clean) c.clean += 1
+      if (a.closed) c.closed += 1
     }
     return c
   }, [projects, attentionByProject])
@@ -612,7 +616,8 @@ export default function Dashboard() {
     (attentionFilter.has('overdue') && att.overdue > 0) ||
     (attentionFilter.has('todo') && att.todo) ||
     (attentionFilter.has('unread') && (att.unreadChat > 0 || att.unreadNotifications > 0)) ||
-    (attentionFilter.has('clean') && att.clean)
+    (attentionFilter.has('clean') && att.clean) ||
+    (attentionFilter.has('closed') && att.closed)
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -798,6 +803,7 @@ export default function Dashboard() {
     ...(!isClient ? [{ tone: 'neutral' as SignalTone, label: 'La client', desc: 'așteaptă document de la client' }] : []),
     { tone: 'neutral', label: 'Necitite', desc: 'mesaje sau notificări noi' },
     { tone: 'ok', label: 'La zi', desc: 'nimic de făcut' },
+    { tone: 'closed', label: 'Încheiat', desc: 'proiect încheiat; reminderele automate sunt oprite' },
   ]
 
   const activeChips: { key: string; name: string; tone?: SignalTone; remove: () => void }[] = [

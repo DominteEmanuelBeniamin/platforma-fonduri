@@ -10,6 +10,7 @@ import {
   Loader2, Edit2, AlertCircle, GripVertical, Copy,
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { countLabel } from '@/lib/count-label'
 import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS, REQUIREMENT_BADGE, normalizeRequirementType } from '@/lib/requirement-type'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
@@ -986,7 +987,25 @@ function AdminTemplatesContent() {
         return
       }
 
-      showToast('Modificările template-ului au fost propagate.', 'success')
+      // Ce a rămas neatins spune aplicarea, nu previzualizarea: cererile închise
+      // nu se modifică până la redeschidere (#109, D13), iar proiectele încheiate
+      // sunt sărite (D8). Fără mesajul ăsta, adminul ar crede că s-a propagat tot.
+      const results = (applyData.results ?? []) as any[]
+      const closedRequests = results.flatMap(result => (result.warnings ?? [])
+        .filter((warning: any) => warning.type === 'closed_request')
+        .map((warning: any) => warning.name as string))
+      const skippedProjects = results.filter(result => result.status === 'skipped').length
+      const notes: string[] = []
+      if (closedRequests.length > 0) {
+        // Aceeași cerere din șablon poate fi închisă în mai multe proiecte: se
+        // numără fiecare, dar numele apare o dată.
+        const uniqueNames = [...new Set(closedRequests)]
+        const names = uniqueNames.slice(0, 3).map(name => `„${name}”`).join(', ')
+        notes.push(`${countLabel(closedRequests.length, 'cerere închisă a rămas neschimbată', 'cereri închise au rămas neschimbate')} (${names}${uniqueNames.length > 3 ? ', …' : ''}); se actualizează după redeschidere`)
+      }
+      if (skippedProjects > 0) notes.push(countLabel(skippedProjects, 'proiect a fost sărit', 'proiecte au fost sărite'))
+      if (notes.length > 0) showToast(`Modificările template-ului au fost propagate. ${notes.join('. ')}.`, 'warning')
+      else showToast('Modificările template-ului au fost propagate.', 'success')
       const appliedId = propagationTemplateId
       setTemplates(current => current.map(template =>
         template.id === appliedId ? { ...template, unpropagated_changes_at: null } : template))
