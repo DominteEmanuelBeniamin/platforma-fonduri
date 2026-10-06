@@ -9,6 +9,7 @@ import { guardToResponse, requireProjectManager } from './auth'
 import { logAction } from './audit'
 import { createSupabaseServiceClient } from './supabase'
 import { PROJECT_ALREADY_CLOSED_MESSAGE, PROJECT_NOT_CLOSED_MESSAGE } from '@/lib/project-lifecycle'
+import { isUuid } from '@/lib/notification-utils'
 
 type Action = 'close' | 'reopen'
 
@@ -16,6 +17,8 @@ const COLUMNS = 'id, title, lifecycle_status, closed_at, closed_by, closer:close
 
 export async function changeProjectLifecycle(request: Request, projectId: string, action: Action) {
   try {
+    // Un id care nu e UUID ar ajunge ca eroare de Postgres, deci 500.
+    if (!isUuid(projectId)) return NextResponse.json({ error: 'Project not found', message: 'Proiectul nu există.' }, { status: 404 })
     // Adminul și seniorul membru (D7: doar din pagina proiectului).
     const ctx = await requireProjectManager(request, projectId)
     if (!ctx.ok) return guardToResponse(ctx)

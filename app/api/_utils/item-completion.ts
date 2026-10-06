@@ -9,6 +9,7 @@ import { guardToResponse, requireProjectManager } from './auth'
 import { logAction } from './audit'
 import { createSupabaseServiceClient } from './supabase'
 import { completeRefusal, reopenRefusal } from '@/lib/completion'
+import { isUuid } from '@/lib/notification-utils'
 
 type Target =
   | { kind: 'phase'; projectId: string; phaseId: string }
@@ -25,6 +26,9 @@ const COLUMNS = 'id, name, status, started_at, completed_at, completed_by'
 
 export async function changeItemCompletion(request: Request, target: Target, action: Action) {
   try {
+    // Un id care nu e UUID ar ajunge ca eroare de Postgres, deci 500.
+    const ids = target.kind === 'phase' ? [target.projectId, target.phaseId] : [target.projectId, target.phaseId, target.activityId]
+    if (!ids.every(isUuid)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     // Doar adminul și seniorul membru marchează și redeschid (D1): juniorul și
     // clientul primesc 403 înainte să afle ceva despre starea elementului.
     const ctx = await requireProjectManager(request, target.projectId)
@@ -59,10 +63,11 @@ export async function changeItemCompletion(request: Request, target: Target, act
     }
 
     const now = new Date().toISOString()
-    // Redeschis = în lucru (D17); data de început rămâne cea dinainte, dacă era.
+    // Redeschis = în lucru (D17); data de început rămâne neatinsă, inclusiv
+    // când nu era (plan: „started_at păstrat”).
     const update = action === 'complete'
       ? { status: 'completed', completed_at: now, completed_by: ctx.user.id }
-      : { status: 'in_progress', completed_at: null, completed_by: null, started_at: before.started_at ?? now }
+      : { status: 'in_progress', completed_at: null, completed_by: null }
 
     // Condiționat pe starea citită: din două apăsări simultane, una reușește,
     // cealaltă primește 409, iar auditul are un singur rând.

@@ -123,7 +123,9 @@ export function completeRefusal(kind: ItemKind, status: string | null | undefine
 export function reopenRefusal(kind: ItemKind, status: string | null | undefined): TransitionRefusal | null {
   return status === 'completed'
     ? null
-    : { status: 409, message: `${ITEM_WORDS[kind].subject} nu e finalizată, deci e deja în lucru.` }
+    // Fără „deci e în lucru”: o stare scrisă din bază (blocked, skipped) nu e
+    // finalizată, dar nici în lucru.
+    : { status: 409, message: `${ITEM_WORDS[kind].subject} nu e finalizată.` }
 }
 
 // ─── Ascunderea ───────────────────────────────────────────────────────────────

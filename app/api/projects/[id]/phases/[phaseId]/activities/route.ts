@@ -43,10 +43,17 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     if (error) throw error
 
+    if (auth.access.role !== 'client') return NextResponse.json({ activities: activities || [] })
+
+    // Clientul vede ce e finalizat, dar nu și cine a marcat (#109).
     return NextResponse.json({
-      activities: auth.access.role === 'client'
-        ? (activities || []).filter(activity => isClientVisibleActivity({ ...activity, phase }))
-        : activities || [],
+      activities: (activities || [])
+        .filter(activity => isClientVisibleActivity({ ...activity, phase }))
+        .map(activity => {
+          const visible = { ...activity }
+          delete visible.completed_by
+          return visible
+        }),
     })
   } catch (error: any) {
     console.error('GET activities error:', error)

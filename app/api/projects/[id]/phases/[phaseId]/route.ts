@@ -45,8 +45,12 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Fază negăsită' }, { status: 404 })
     }
 
-    if (auth.access.role === 'client' && !isClientVisiblePhase(phase)) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    if (auth.access.role === 'client') {
+      if (!isClientVisiblePhase(phase)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      // Clientul vede că faza e finalizată, dar nu și cine a marcat-o (#109).
+      const visible = { ...phase }
+      delete visible.completed_by
+      return NextResponse.json({ phase: visible })
     }
 
     return NextResponse.json({ phase })
