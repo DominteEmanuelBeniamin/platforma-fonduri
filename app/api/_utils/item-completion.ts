@@ -8,7 +8,7 @@ import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectManager } from './auth'
 import { logAction } from './audit'
 import { createSupabaseServiceClient } from './supabase'
-import { completeRefusal, reopenRefusal } from '@/lib/completion'
+import { activityCompletionBlocker, completeRefusal, phaseCompletionBlocker, reopenRefusal } from '@/lib/completion'
 import { isUuid } from '@/lib/notification-utils'
 
 type Target =
@@ -60,6 +60,33 @@ export async function changeItemCompletion(request: Request, target: Target, act
       : reopenRefusal(target.kind, before.status)
     if (refusal) {
       return NextResponse.json({ error: 'Invalid status transition', message: refusal.message }, { status: refusal.status })
+    }
+
+    // Finalizarea cere ca tot ce e dedesubt să fie gata (decizia din 7 octombrie
+    // 2026): activitatea, cererile ei aprobate sau închise; faza, activitățile ei
+    // finalizate. Doar la finalizare: redeschiderea nu verifică nimic.
+    if (action === 'complete') {
+      let blocker: string | null
+      if (target.kind === 'activity') {
+        const { data: requests, error } = await admin
+          .from('document_requirements')
+          .select('name, status, is_outgoing, deleted_at, activity_id')
+          .eq('activity_id', target.activityId)
+          .is('deleted_at', null)
+        if (error) throw error
+        blocker = activityCompletionBlocker(target.activityId, requests ?? [])
+      } else {
+        const { data: activities, error } = await admin
+          .from('project_activities')
+          .select('id, name, status')
+          .eq('phase_id', target.phaseId)
+          .order('order_index', { ascending: true })
+        if (error) throw error
+        blocker = phaseCompletionBlocker(activities ?? [])
+      }
+      if (blocker) {
+        return NextResponse.json({ error: 'Open children', message: blocker }, { status: 409 })
+      }
     }
 
     const now = new Date().toISOString()

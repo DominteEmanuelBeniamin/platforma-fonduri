@@ -330,12 +330,15 @@ test('Fazele și activitățile: doar adminul și seniorul membru le finalizeaz�
   const phaseId = await addPhase(projectId, 'Contractare')
   const activityId = await addActivity(projectId, phaseId, 'Verificare eligibilitate')
 
+  const activityBase = `/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`
+  // Activitatea întâi: o fază se finalizează doar cu activitățile ei finalizate.
   for (const [kind, base] of [
+    ['activity', activityBase],
     ['phase', `/api/projects/${projectId}/phases/${phaseId}`],
-    ['activity', `/api/projects/${projectId}/phases/${phaseId}/activities/${activityId}`],
   ] as const) {
     const table = kind === 'phase' ? 'project_phases' : 'project_activities'
     const id = kind === 'phase' ? phaseId : activityId
+    if (kind === 'phase') await must(admin, 'POST', `${activityBase}/complete`)
 
     await refusedFor('POST', `${base}/complete`, `finalizează ${kind}`)
     const done = await call(admin, 'POST', `${base}/complete`)
@@ -369,11 +372,27 @@ test('Fazele și activitățile: doar adminul și seniorul membru le finalizeaz�
     expect.soft(audit.every(r => r.entity_type === (kind === 'phase' ? 'project_phase' : 'project_activity'))).toBe(true)
   }
 
+  // Regula din 7 octombrie 2026: tot ce e dedesubt trebuie să fie gata, iar
+  // mesajul spune ce anume mai e deschis.
+  const ruleActivity = await addActivity(projectId, phaseId, 'Cu cerere deschisă')
+  const openRequest = await addRequest(projectId, ruleActivity, 'Cerere încă deschisă')
+  const ruleBase = `/api/projects/${projectId}/phases/${phaseId}/activities/${ruleActivity}`
+  const blockedActivity = await call(admin, 'POST', `${ruleBase}/complete`)
+  expectStatus(blockedActivity, 409, 'finalizarea unei activități cu o cerere deschisă')
+  expect.soft(blockedActivity.json.message).toMatch(/„Cerere încă deschisă” nu e încă aprobată sau închisă/)
+  const blockedPhase = await call(admin, 'POST', `/api/projects/${projectId}/phases/${phaseId}/complete`)
+  expectStatus(blockedPhase, 409, 'finalizarea unei faze cu o activitate nefinalizată')
+  expect.soft(blockedPhase.json.message).toMatch(/„Cu cerere deschisă” nu e încă finalizată/)
+  await must(admin, 'POST', `/api/document-requests/${openRequest}/close`)
+  expectStatus(await call(admin, 'POST', `${ruleBase}/complete`), 200, 'finalizarea activității după închiderea cererii')
+
   // Nici la creare: un element nou pornește „pending".
   expectStatus(await call(admin, 'POST', `/api/projects/${projectId}/phases`, { name: 'Gata de la început', status: 'completed' }), 400, 'POST fază cu status')
   expectStatus(await call(admin, 'POST', `/api/projects/${projectId}/phases/${phaseId}/activities`, { name: 'Gata', status: 'completed' }), 400, 'POST activitate cu status')
-  // Juniorul poate în continuare să adauge conținut (rândul p-continut).
-  expectStatus(await call(junior, 'POST', `/api/projects/${projectId}/phases/${phaseId}/activities`, { name: 'Activitate de junior' }), 201, 'juniorul adaugă o activitate')
+  // Juniorul poate în continuare să adauge conținut (rândul p-continut), aici
+  // într-o fază separată, ca să nu blocheze finalizarea celei de mai jos.
+  const juniorPhase = await addPhase(projectId, 'Implementare')
+  expectStatus(await call(junior, 'POST', `/api/projects/${projectId}/phases/${juniorPhase}/activities`, { name: 'Activitate de junior' }), 201, 'juniorul adaugă o activitate')
 
   // Faza altui proiect nu se atinge prin URL-ul acestuia.
   const otherProject = await createProject('alt proiect')

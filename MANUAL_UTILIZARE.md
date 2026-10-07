@@ -120,7 +120,8 @@ Pe pagina unui proiect administratorul poate:
 - Se redeschide din același meniu → **Redeschide proiectul**. Confirmarea spune câte termene sunt deja depășite: la următoarea rulare a reminderelor, pentru ele pleacă „Termen depășit”.
 
 **Faze și activități finalizate:**
-- Adminul și consultantul senior din echipă marchează o fază sau o activitate din meniul ei **⋯** → **Marchează ca finalizată**. Confirmarea spune ce rămâne deschis: cererile de documente rămân deschise și își păstrează reminderele.
+- Adminul și consultantul senior din echipă marchează o fază sau o activitate din meniul ei **⋯** → **Marchează ca finalizată**.
+- O activitate se poate finaliza doar când toate cererile ei sunt aprobate sau închise; o fază, doar când toate activitățile ei sunt finalizate. Altfel apare un mesaj care spune ce mai e deschis (documentele trimise clientului nu contează). Nimic nu se finalizează singur, iar ce redeschizi după aceea nu schimbă faza sau activitatea de deasupra.
 - Tot din meniu: **Readu în lucru**.
 - Contoarele arată progresul: „3 din 5 activități finalizate”, „2 din 4 cereri finalizate” (cererile aprobate sau închise).
 

@@ -85,6 +85,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { Signal } from '@/components/ui/Signal'
 import HiddenFinalRow from '@/components/HiddenFinalRow'
 import {
+  activityCompletionBlocker,
   activityCompletionConfirm,
   activityProgress,
   countHiddenRoots,
@@ -92,6 +93,7 @@ import {
   type HiddenItems,
   isActivityFinal,
   isPhaseFinal,
+  phaseCompletionBlocker,
   phaseCompletionConfirm,
   phaseProgress,
   progressLabel,
@@ -754,9 +756,9 @@ function ProjectDetailsContent() {
   const [completingId, setCompletingId] = useState<string | null>(null)
 
   /**
-   * Doar adminul și seniorul membru (D1) văd acțiunile. Confirmarea cere doar
-   * finalizarea: spune câte cereri rămân deschise (D2). Readucerea în lucru nu
-   * strică nimic, deci nu întreabă.
+   * Doar adminul și seniorul membru (D1) văd acțiunile. Finalizarea cere ca tot
+   * ce e dedesubt să fie gata; altfel spune ce lipsește, fără apel. Apoi cere
+   * confirmarea (D2). Readucerea în lucru nu strică nimic, deci nu întreabă.
    */
   const handleItemCompletion = async (
     action: 'complete' | 'reopen',
@@ -766,6 +768,15 @@ function ProjectDetailsContent() {
     const itemId = activity?.id ?? phase.id
     if (completingId) return
     if (action === 'complete') {
+      // Întâi ce mai e deschis dedesubt: aceeași regulă ca pe server, spusă
+      // înainte de orice apel (decizia din 7 octombrie 2026).
+      const blocker = activity
+        ? activityCompletionBlocker(activity.id, allDocRequests)
+        : phaseCompletionBlocker(phase.activities ?? [])
+      if (blocker) {
+        showToast(blocker, 'warning')
+        return
+      }
       const dialog = activity
         ? activityCompletionConfirm(activity, allDocRequests)
         : phaseCompletionConfirm(phase, allDocRequests)

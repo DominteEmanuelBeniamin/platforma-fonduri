@@ -11,6 +11,7 @@ import { requestStatusInfo } from './request-status.ts'
 
 type RequestLike = {
   id?: string
+  name?: string | null
   status?: string | null
   is_outgoing?: boolean | null
   deleted_at?: string | null
@@ -305,6 +306,39 @@ export function mergeVisibleOrder(fullIds: readonly string[], visibleNewOrder: r
   return fullIds.map(id => (moving.has(id) ? queue[next++] : id))
 }
 
+// ─── Ce trebuie să fie gata înainte de finalizare ─────────────────────────────
+//
+// Decizia din 7 octombrie 2026: o activitate se finalizează doar cu toate
+// cererile ei aprobate sau închise, iar o fază doar cu toate activitățile ei
+// finalizate. Doar blocare: nimic nu se finalizează singur, iar ce se redeschide
+// după aceea nu atinge elementul de deasupra. Documentele trimise clientului
+// nu așteaptă nimic de la el, deci nu blochează. Aceeași regulă în interfață
+// (mesajul de dinainte de apel) și pe server (409).
+
+const liveRequestsOf = (activityId: string, requests: readonly RequestLike[]) =>
+  requests.filter(request => request.activity_id === activityId && !request.deleted_at)
+
+const numeInGhilimele = (names: readonly (string | null | undefined)[]) =>
+  names.slice(0, 3).map(name => `„${name ?? ''}”`).join(', ') + (names.length > 3 ? ', …' : '')
+
+/** De ce nu se poate finaliza încă activitatea; `null` dacă se poate. */
+export function activityCompletionBlocker(activityId: string, requests: readonly RequestLike[]): string | null {
+  const open = liveRequestsOf(activityId, requests).filter(request => !request.is_outgoing && !isRequestFinal(request))
+  if (open.length === 0) return null
+  return open.length === 1
+    ? `Activitatea nu se poate finaliza: cererea ${numeInGhilimele([open[0].name])} nu e încă aprobată sau închisă.`
+    : `Activitatea nu se poate finaliza: ${open.length} cereri nu sunt încă aprobate sau închise (${numeInGhilimele(open.map(request => request.name))}).`
+}
+
+/** De ce nu se poate finaliza încă faza; `null` dacă se poate. */
+export function phaseCompletionBlocker(activities: readonly ActivityLike[]): string | null {
+  const open = activities.filter(activity => !isActivityFinal(activity))
+  if (open.length === 0) return null
+  return open.length === 1
+    ? `Faza nu se poate finaliza: activitatea ${numeInGhilimele([open[0].name])} nu e încă finalizată.`
+    : `Faza nu se poate finaliza: ${open.length} activități nu sunt încă finalizate (${numeInGhilimele(open.map(activity => activity.name))}).`
+}
+
 // ─── Confirmări ───────────────────────────────────────────────────────────────
 
 function openRequestsLine(open: number): string | null {
@@ -313,9 +347,6 @@ function openRequestsLine(open: number): string | null {
     ? 'O cerere de documente e încă deschisă: rămâne deschisă și își păstrează reminderele.'
     : `${countLabel(open, 'cerere de documente', 'cereri de documente')} sunt încă deschise: rămân deschise și își păstrează reminderele.`
 }
-
-const liveRequestsOf = (activityId: string, requests: readonly RequestLike[]) =>
-  requests.filter(request => request.activity_id === activityId && !request.deleted_at)
 
 /** Cereri care încă așteaptă ceva; documentele trimise clientului nu așteaptă nimic. */
 const openRequestCount = (own: readonly RequestLike[]) =>
