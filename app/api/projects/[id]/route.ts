@@ -196,7 +196,9 @@ export async function PATCH(
       .from('projects')
       .update(update)
       .eq('id', projectId)
-      .select('*, profiles!projects_client_id_fkey(full_name, cif, email)')
+      // `closer` ca la GET: pagina înlocuiește proiectul cu acest răspuns, iar
+      // fără el badge-ul unui proiect încheiat își pierde „· de …” (#109).
+      .select('*, profiles!projects_client_id_fkey(full_name, cif, email), closer:closed_by(id, full_name)')
       .single()
 
     if (updateErr) {

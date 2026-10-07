@@ -1041,9 +1041,12 @@ function ProjectDetailsContent() {
   )
 
   const { pendingUploads, waitingOnClient } = useMemo(() => {
-    // Un proiect încheiat nu mai are nimic „de făcut” (#109, D5): cererile lui
-    // deschise au ieșit din toate listele de lucru, deci și din panoul de aici.
-    if (projectClosed) return { pendingUploads: [], waitingOnClient: [] }
+    // Clientul unui proiect încheiat nu mai are nimic „de făcut” (#109, D5), iar
+    // personalul nu mai urmărește ce e la client. Ce a ajuns deja „În verificare”
+    // rămâne însă în panoul personalului: încărcarea nu trimite nicio notificare,
+    // iar Home și /my-requests nu mai arată proiectul, deci altfel n-ar apărea
+    // nicăieri.
+    if (projectClosed && isClient) return { pendingUploads: [], waitingOnClient: [] }
     const incoming = allDocRequests.filter((r: any) => !r.is_outgoing && !r.deleted_at)
     const deadlineTs = (r: { deadline_at: string | null }) => {
       const ts = r.deadline_at ? new Date(r.deadline_at).getTime() : Number.POSITIVE_INFINITY
@@ -1068,7 +1071,7 @@ function ProjectDetailsContent() {
         .filter((r: any) => isClient ? (r.status === 'pending' || r.status === 'rejected') : r.status === 'review')
         .map(toPanelItem)
         .sort(byDeadline),
-      waitingOnClient: isClient ? [] : incoming.filter((r: any) => r.status === 'pending').map(toPanelItem).sort(byDeadline),
+      waitingOnClient: isClient || projectClosed ? [] : incoming.filter((r: any) => r.status === 'pending').map(toPanelItem).sort(byDeadline),
     }
   }, [allDocRequests, phaseNameById, isClient, projectClosed])
   const actionNeededCount = pendingUploads.length + waitingOnClient.length

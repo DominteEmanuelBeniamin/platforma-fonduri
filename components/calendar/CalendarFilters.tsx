@@ -78,9 +78,10 @@ export default function CalendarFilters({
     { value: GENERAL_PHASE_ID, label: 'General' },
   ]
   // Cât timp proiectele încheiate sunt ascunse, nici nu se oferă la filtru:
-  // alese, n-ar fi arătat niciun termen.
+  // alese, n-ar fi arătat niciun termen. Rămân doar cele deja alese (comutatorul
+  // oprit de mână, ce=0), ca selecția să se vadă și să poată fi scoasă.
   const projectOptions: FilterOption[] = projects
-    .filter(project => filters.includeEnded || !endedProjectIds.has(project.id))
+    .filter(project => filters.includeEnded || !endedProjectIds.has(project.id) || !!filters.projectIds?.includes(project.id))
     .map(project => ({
       value: project.id,
       label: project.title,

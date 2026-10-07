@@ -43,10 +43,7 @@ async function markAttachmentMissing(
         attachment_missing_checked_at: checkedAt,
       })
       .eq('attachment_path', reqRow.attachment_path)
-      .is('deleted_at', null)
-      // O cerere închisă nu se modifică până la redeschidere (#109, D13),
-      // nici măcar prin marcajele tehnice ale modelului.
-      .neq('status', 'closed'),
+      .is('deleted_at', null),
     admin
       .from('template_document_requirements')
       .update({
@@ -77,10 +74,7 @@ async function clearAttachmentMissing(
         attachment_missing_checked_at: checkedAt,
       })
       .eq('attachment_path', reqRow.attachment_path)
-      .is('deleted_at', null)
-      // O cerere închisă nu se modifică până la redeschidere (#109, D13),
-      // nici măcar prin marcajele tehnice ale modelului.
-      .neq('status', 'closed'),
+      .is('deleted_at', null),
     admin
       .from('template_document_requirements')
       .update({
@@ -116,7 +110,7 @@ export async function POST(
 
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('project_id, name, status, activity_id, visibility, is_outgoing, attachment_path, attachment_original_name, attachment_missing_at, deleted_at, activity:activity_id(visibility, phase:phase_id(visibility)), document_requirement_attachments(id, storage_path, original_name, missing_at, missing_checked_at, order_index)')
+      .select('project_id, name, activity_id, visibility, is_outgoing, attachment_path, attachment_original_name, attachment_missing_at, deleted_at, activity:activity_id(visibility, phase:phase_id(visibility)), document_requirement_attachments(id, storage_path, original_name, missing_at, missing_checked_at, order_index)')
       .eq('id', requestId)
       .is('deleted_at', null)
       .single()
@@ -164,7 +158,7 @@ export async function POST(
       await markAttachmentMissing(admin, {
         attachment_path: attachmentPath,
         attachment_missing_at: attachmentMissingAt,
-      }, reqRow.status === 'closed' ? null : attachment?.id)
+      }, attachment?.id)
       return missingAttachmentResponse()
     }
 
@@ -173,14 +167,14 @@ export async function POST(
       await markAttachmentMissing(admin, {
         attachment_path: attachmentPath,
         attachment_missing_at: attachmentMissingAt,
-      }, reqRow.status === 'closed' ? null : attachment?.id)
+      }, attachment?.id)
       return missingAttachmentResponse()
     }
 
     if (attachmentMissingAt) {
       await clearAttachmentMissing(admin, {
         attachment_path: attachmentPath,
-      }, reqRow.status === 'closed' ? null : attachment?.id)
+      }, attachment?.id)
     }
 
     await logAction({

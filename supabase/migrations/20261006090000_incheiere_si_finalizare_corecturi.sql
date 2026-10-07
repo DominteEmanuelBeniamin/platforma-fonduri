@@ -18,6 +18,13 @@
 
 -- ─── 1. Starea proiectului ───────────────────────────────────────────────────
 
+-- Plasă de siguranță pentru alte baze (în producție nu e niciun rând): cronul
+-- tratează deja orice stare în afară de `active` ca proiect oprit, deci
+-- `completed` păstrează comportamentul și face proiectul redeschidibil.
+update public.projects
+set lifecycle_status = 'completed', closed_at = coalesce(closed_at, updated_at, now())
+where lifecycle_status not in ('active', 'completed');
+
 alter table public.projects drop constraint if exists projects_lifecycle_status_check;
 alter table public.projects
   add constraint projects_lifecycle_status_check
