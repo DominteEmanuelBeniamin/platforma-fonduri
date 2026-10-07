@@ -147,7 +147,8 @@ DECLARE
   v_version text;
 BEGIN
   IF to_regclass('auth.users') IS NULL OR to_regclass('auth.sessions') IS NULL
-     OR to_regclass('auth.one_time_tokens') IS NULL OR to_regclass('public.profiles') IS NULL
+     OR to_regclass('auth.one_time_tokens') IS NULL OR to_regclass('auth.flow_state') IS NULL
+     OR to_regclass('auth.mfa_amr_claims') IS NULL OR to_regclass('public.profiles') IS NULL
      OR to_regclass('public.audit_logs') IS NULL OR to_regclass('storage.objects') IS NULL
      OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_auth_admin')
      OR to_regprocedure('extensions.crypt(text,text)') IS NULL
@@ -184,6 +185,19 @@ BEGIN
       (to_regclass('auth.sessions'), 'id', ARRAY['uuid']::text[]),
       (to_regclass('auth.sessions'), 'user_id', ARRAY['uuid']::text[]),
       (to_regclass('auth.one_time_tokens'), 'user_id', ARRAY['uuid']::text[]),
+      (to_regclass('auth.flow_state'), 'id', ARRAY['uuid']::text[]),
+      (to_regclass('auth.flow_state'), 'user_id', ARRAY['uuid']::text[]),
+      (to_regclass('auth.flow_state'), 'auth_code', ARRAY['text']::text[]),
+      (to_regclass('auth.flow_state'), 'code_challenge', ARRAY['text']::text[]),
+      (to_regclass('auth.flow_state'), 'provider_type', ARRAY['text']::text[]),
+      (to_regclass('auth.flow_state'), 'authentication_method', ARRAY['text']::text[]),
+      (to_regclass('auth.flow_state'), 'auth_code_issued_at', ARRAY['timestamp with time zone']::text[]),
+      (to_regclass('auth.flow_state'), 'linking_target_id', ARRAY['uuid']::text[]),
+      (to_regclass('auth.mfa_amr_claims'), 'id', ARRAY['uuid']::text[]),
+      (to_regclass('auth.mfa_amr_claims'), 'session_id', ARRAY['uuid']::text[]),
+      (to_regclass('auth.mfa_amr_claims'), 'authentication_method', ARRAY['text']::text[]),
+      (to_regclass('auth.mfa_amr_claims'), 'created_at', ARRAY['timestamp with time zone']::text[]),
+      (to_regclass('auth.mfa_amr_claims'), 'updated_at', ARRAY['timestamp with time zone']::text[]),
       (to_regclass('public.profiles'), 'id', ARRAY['uuid']::text[]),
       (to_regclass('public.profiles'), 'email', ARRAY['text','character varying']::text[]),
       (to_regclass('public.profiles'), 'is_active', ARRAY['boolean']::text[]),
@@ -215,10 +229,27 @@ BEGIN
       AND t.typtype = 'e' AND NOT a.attisdropped
       AND EXISTS (SELECT 1 FROM pg_enum AS e WHERE e.enumtypid = t.oid AND e.enumlabel = 'recovery_token')
       AND EXISTS (SELECT 1 FROM pg_enum AS e WHERE e.enumtypid = t.oid AND e.enumlabel = 'confirmation_token')
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_attribute AS a
+    JOIN pg_type AS t ON t.oid = a.atttypid
+    WHERE a.attrelid = to_regclass('auth.flow_state') AND a.attname = 'code_challenge_method'
+      AND t.typtype = 'e' AND NOT a.attisdropped
+      AND EXISTS (SELECT 1 FROM pg_enum AS e WHERE e.enumtypid = t.oid AND e.enumlabel = 'plain')
+      AND EXISTS (SELECT 1 FROM pg_enum AS e WHERE e.enumtypid = t.oid AND e.enumlabel = 's256')
   ) OR NOT has_table_privilege('postgres', 'auth.users', 'SELECT')
     OR NOT has_table_privilege('postgres', 'auth.users', 'UPDATE')
     OR NOT has_table_privilege('postgres', 'auth.sessions', 'DELETE')
     OR NOT has_table_privilege('postgres', 'auth.one_time_tokens', 'DELETE')
+    OR NOT has_table_privilege('postgres', 'auth.flow_state', 'SELECT')
+    OR NOT has_table_privilege('postgres', 'auth.flow_state', 'DELETE')
+    OR NOT has_table_privilege('supabase_auth_admin', 'auth.flow_state', 'SELECT')
+    OR NOT has_table_privilege('supabase_auth_admin', 'auth.flow_state', 'INSERT')
+    OR NOT has_table_privilege('supabase_auth_admin', 'auth.flow_state', 'UPDATE')
+    OR NOT has_table_privilege('supabase_auth_admin', 'auth.flow_state', 'DELETE')
+    OR NOT has_table_privilege('postgres', 'auth.mfa_amr_claims', 'SELECT')
+    OR NOT has_table_privilege('supabase_auth_admin', 'auth.mfa_amr_claims', 'SELECT')
+    OR NOT has_table_privilege('supabase_auth_admin', 'auth.mfa_amr_claims', 'INSERT')
+    OR NOT has_table_privilege('supabase_auth_admin', 'auth.mfa_amr_claims', 'UPDATE')
     OR NOT has_table_privilege('postgres', 'public.audit_logs', 'INSERT') THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'RECOVERY_PREFLIGHT_FAILED';
   END IF;
@@ -794,6 +825,7 @@ BEGIN
   WHERE id = v_user_id;
 
   DELETE FROM auth.one_time_tokens WHERE user_id = v_user_id;
+  DELETE FROM auth.flow_state WHERE user_id = v_user_id OR linking_target_id = v_user_id;
   DELETE FROM auth.sessions WHERE user_id = v_user_id;
   UPDATE public.profiles SET must_change_password = false WHERE id = v_user_id;
   UPDATE account_recovery.flows
@@ -898,6 +930,23 @@ BEGIN
 END
 $fn$;
 
+CREATE OR REPLACE FUNCTION account_recovery.native_mfa_amr_claim_guard()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+AS $fn$
+BEGIN
+  IF session_user = 'supabase_auth_admin' AND account_recovery.recovery_enabled()
+     AND NEW.authentication_method IS DISTINCT FROM 'password'
+     AND NOT EXISTS (
+       SELECT 1 FROM auth.mfa_amr_claims AS existing
+       WHERE existing.session_id = NEW.session_id
+         AND existing.authentication_method = 'password'
+         AND existing.id IS DISTINCT FROM NEW.id
+     ) THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'NATIVE_NON_PASSWORD_AMR_BLOCKED';
+  END IF;
+  RETURN NEW;
+END
+$fn$;
 -- Configure this invoker/auth-only hook only after external preflight; native proof persistence is blocked independently of recovery-flow rows.
 CREATE OR REPLACE FUNCTION account_recovery.send_email_hook(event jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog
@@ -1018,13 +1067,16 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'RECOVERY_PREFLIGHT_FAILED';
   END IF;
 
+  -- Deliberate all-account legacy credential revocations before enabling replacement recovery paths.
   UPDATE auth.users
   SET recovery_token = '', recovery_sent_at = NULL, confirmation_token = '', confirmation_sent_at = NULL,
       email_change_token_new = '', email_change_token_current = '', email_change_sent_at = NULL,
       phone_change_token = '', phone_change_sent_at = NULL,
-      reauthentication_token = '', reauthentication_sent_at = NULL;
-  DELETE FROM auth.one_time_tokens;
-  DELETE FROM auth.sessions;
+      reauthentication_token = '', reauthentication_sent_at = NULL
+  WHERE true;
+  DELETE FROM auth.one_time_tokens WHERE true;
+  DELETE FROM auth.flow_state WHERE true;
+  DELETE FROM auth.sessions WHERE true;
   UPDATE account_recovery.settings
   SET enabled = true, auth_version = p_verified_auth_version, activated_at = clock_timestamp()
   WHERE singleton;
@@ -1058,7 +1110,7 @@ BEFORE UPDATE OF email, encrypted_password ON auth.users
 FOR EACH ROW EXECUTE FUNCTION account_recovery.recovery_auth_change_guard();
 
 -- Auth v2.197.0 pgcrypto compatibility is limited to $2a$ bcrypt: existing costs 05-10 remain unchanged. Native password writes stay blocked after activation; recheck this adapter on upgrades.
--- Native proof persistence is gated for every Auth account regardless of recovery flow. Confirmed admin creation is preserved because email_confirmed_at is untouched; Auth-native one_time_tokens writes are suppressed.
+-- Native proof state is gated for every Auth account, regardless of recovery flow. Activation clears legacy flow_state and proof columns; confirmed admin creation remains intact. After activation, flow_state writes are blocked and non-password AMR claims require a password claim for that session.
 DROP TRIGGER IF EXISTS issue107_native_auth_email_insert ON auth.users;
 CREATE TRIGGER issue107_native_auth_email_insert
 BEFORE INSERT ON auth.users
@@ -1075,6 +1127,16 @@ DROP TRIGGER IF EXISTS issue107_native_one_time_tokens ON auth.one_time_tokens;
 CREATE TRIGGER issue107_native_one_time_tokens
 BEFORE INSERT OR UPDATE ON auth.one_time_tokens
 FOR EACH ROW EXECUTE FUNCTION account_recovery.native_email_token_gate();
+
+DROP TRIGGER IF EXISTS issue107_native_flow_state ON auth.flow_state;
+CREATE TRIGGER issue107_native_flow_state
+BEFORE INSERT OR UPDATE ON auth.flow_state
+FOR EACH ROW EXECUTE FUNCTION account_recovery.native_email_token_gate();
+
+DROP TRIGGER IF EXISTS issue107_native_mfa_amr_claim_guard ON auth.mfa_amr_claims;
+CREATE TRIGGER issue107_native_mfa_amr_claim_guard
+BEFORE INSERT OR UPDATE ON auth.mfa_amr_claims
+FOR EACH ROW EXECUTE FUNCTION account_recovery.native_mfa_amr_claim_guard();
 
 -- Preserve #105 login/logout handling and exempt only this actor's exact own completed recovery.
 CREATE OR REPLACE FUNCTION public.user_account_blockers(p_target_id uuid)

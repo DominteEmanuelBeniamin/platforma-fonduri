@@ -18,7 +18,7 @@ Un rezultat deja finalizat poate fi recuperat timp de 24 ore, numai cu aceeași 
 
 | Verificare | Rezultat |
 | --- | --- |
-| Integrare DB/Auth/API/browser | 19 grupuri trecute + 1 înregistrare cu măsurătorile R31; 20/20 în raport |
+| Integrare DB/Auth/API/browser | 20 grupuri trecute + 1 înregistrare cu măsurătorile R31; 21/21 în raport |
 | Matrice R01–R35 | Toate cele 35 ID-uri au dovezi locale trecute |
 | Regresii reale #105 | 9/9 teste API, REST, RPC, Storage, Realtime, lifecycle, ștergere și UI |
 | Teste unitare | 269/269 |
@@ -31,9 +31,9 @@ Un rezultat deja finalizat poate fi recuperat timp de 24 ore, numai cu aceeași 
 | Securitate/performance locală | RLS FORCE, schema privată inaccesibilă, RPC-uri service-only, hook auth-only, FK-uri indexate |
 | Migrație nouă | Instalare de la zero și activare probate în tranzacție cu rollback; un singur rând settings inițial dezactivat, toate parolele păstrate |
 
-[Măsurătorile și rezultatele fără secrete](issue-107-implementation-results.json) sunt generate de [verificarea executabilă](../scripts/issue-107-check.mjs). Rularea integrală a folosit serverul dev separat pe 3107. Headerele au fost verificate și pe build-ul production pe 3117. Corecțiile finale ale verificărilor pentru junior/senior, minimele Unicode, validarea HTTP și ban-ul Auth au fost rerulate separat.
+[Măsurătorile și rezultatele fără secrete](issue-107-implementation-results.json) sunt generate de [verificarea executabilă](../scripts/issue-107-check.mjs). Grupele DB/Auth/API/browser au folosit serverul dev separat pe 3107. Headerele no-store/no-referrer au fost verificate pe build-ul production pe 3117; Next dev suprascrie Cache-Control cu no-cache, must-revalidate. Regresiile #105 au fost rerulate după corecția adaptorului nativ.
 
-R31 folosește opt probe pentru fiecare stare, în ordine rotită, cu furnizorul simulat întârziat 1,8 secunde. Medianele active/inexistente/inactive/cooldown au fost **15/14/16/14 ms**. Statusul, corpul și headerele sunt identice. Acestea sunt măsurători locale; distribuția și headerele CDN se verifică din nou în preview înainte de activarea hosted.
+R31 folosește opt probe pentru fiecare stare, în ordine rotită, cu furnizorul simulat întârziat 1,8 secunde. Medianele active/inexistente/inactive/cooldown au fost **15/14/15/15 ms**. Statusul, corpul și headerele sunt identice. Acestea sunt măsurători locale; distribuția și headerele CDN se verifică din nou în preview înainte de activarea hosted.
 
 ## Trasabilitatea R01–R35
 
@@ -50,7 +50,7 @@ R31 folosește opt probe pentru fiecare stare, în ordine rotită, cu furnizorul
 | R25, R26 | fault-uri DB/audit/login/ban: eroare temporară controlată, rollback complet și răspuns corect după commit |
 | R27, R28 | browser_lost_response_fallback_and_installation_race: răspuns pierdut, receipt după refresh, instalare refuzată, login manual A cu B conectat, 401 întârziat al lui B |
 | R29 | confirmation_state_and_temporary_api_errors: confirmare omisă după dezactivare sau refuzată de furnizor, fără anularea parolei |
-| R30 | native_recovery_and_magiclink_have_no_credentials, private_state_and_http_boundaries, fresh_migration_disabled_activation_and_rollback: proof native recovery/magiclink/email-change și OTP inutilizabile, țintă din body refuzată, scriere nativă de parolă blocată |
+| R30 | native_recovery_and_magiclink_have_no_credentials, native_pkce_legacy_and_inflight_credentials, private_state_and_http_boundaries, fresh_migration_disabled_activation_and_rollback: recovery/magiclink/email-change, OTP și coduri PKCE legacy inutilizabile; țintă din body refuzată; scriere nativă de parolă blocată |
 | R31 | uniform_latency_and_atomic_volume_limits: răspuns uniform, IP 10/min atomic și global 1000/oră, independent de cont |
 | R32 | lookup_coherence_and_audit_auth_classification și #105: autor anonim vs actor dovedit, excepție exactă self_recovery, lipsa source rămâne blocantă, audit păstrat după ștergere |
 | R33, R34 | preflight real pozitiv/negativ, public_page_headers, browser și testul de redactare: origine/override, cheie, rol DB, tracking atestat, niciun secret în rezultate/trace; tastatură, mobil și autofill |
@@ -77,12 +77,16 @@ Adaptorul este demonstrat pentru **Auth v2.197.0**, SDK **2.90.0**, PostgreSQL *
 
 După activare, schimbarea parolei prin Auth updateUser sau Admin HTTP este blocată. #108 trebuie să folosească tranzacția DB canonică, cu aceeași blocare (105,1), invalidare, marcaj, revocare și audit obligatoriu. Probe locale au validat integrarea, nu interfața completă #108. Crearea admin a unui cont confirmat și loginul normal prin parolă funcționează.
 
-Activarea elimină toate credențialele native legacy și toate sesiunile existente, fără schimbarea parolelor. Necesită preflight explicit și fereastră de rollout anunțată. Rolul conexiunii native trebuie atestat efectiv ca supabase_auth_admin; simpla existență a rolului nu ajunge.
+Activarea elimină toate credențialele native legacy, inclusiv auth.flow_state, și toate sesiunile existente, fără schimbarea parolelor. Necesită preflight explicit și fereastră de rollout anunțată. Rolul conexiunii native trebuie atestat efectiv ca supabase_auth_admin; simpla existență a rolului nu ajunge.
+
+Codurile PKCE native sunt păstrate separat în auth.flow_state și pot emite o sesiune prin [schimbul PKCE din Auth v2.197.0](https://github.com/supabase/auth/blob/v2.197.0/internal/api/token.go#L198). Verificarea native_pkce_legacy_and_inflight_credentials are controale pozitive reale: aceleași coduri recovery/magiclink emit JWT când adaptorul este dezactivat și sunt refuzate după activare, fără sesiune sau modificarea parolei. Adaptorul blochează persistarea flow_state și prima metodă de autentificare diferită de password; MFA suplimentar rămâne permis după autentificarea cu parolă. Nu permite înlocuirea claim-ului password cu OTP.
+
+Activarea prin RPC service-role a fost probată inclusiv în timp ce o cerere nativă citise deja codul vechi și aștepta crearea sesiunii: după activare, emiterea eșuează și sesiunea se anulează. Revocarea globală are WHERE explicit pentru protecția safeupdate a Data API. Finalizarea recovery șterge flow_state legat atât prin user_id, cât și prin linking_target_id; fault-ul auditului restaurează și aceste coduri în rollback.
 
 ## Limite de recepție și starea mediilor
 
 - **Nicio scriere sau activare hosted.** Compatibilitatea remote, advisorii Supabase, configurația reală Auth/Resend, scheduler-ul și comportamentul CDN rămân verificări de deploy documentate în rollout.
-- Dispatch-ul durabil la fiecare minut este obligatoriu. Vercel cere Pro/Enterprise pentru această frecvență; configurația domeniului Resend trebuie să aibă tracking dezactivat.
+- Dispatch-ul durabil la minut este obligatoriu și se configurează prin Supabase Cron pentru proiectele Vercel Hobby existente. vercel.json păstrează cronul zilnic; preflight-ul cere atestarea explicită RECOVERY_DISPATCH_EVERY_MINUTE_CONFIGURED=true după verificarea programării reale. Scheduler-ul hosted rămâne un pas de deploy documentat. Tracking-ul domeniului Resend trebuie dezactivat.
 - Testele de livrare folosesc exclusiv furnizorul HTTP simulat și adrese example.invalid. Acceptarea furnizorului nu dovedește ajungerea în inbox; la bounce nu există fallback cu parolă, iar linkul/cooldown-ul respectă expirarea normală. Nu s-au trimis emailuri reale.
 - URL-urile Storage deja semnate păstrează limita TTL acceptată în #105.
 - După teste, recovery local este din nou **enabled=false**, schema fixture și conturile issue107.impl sunt eliminate, iar containerele Auth și serverele de probă au fost oprite. Migrația este în istoricul local. Auditul istoric este păstrat.
@@ -101,12 +105,13 @@ REMINDER_EMAIL_OVERRIDE_TO=recovery-test@example.invalid
 RESEND_LINK_TRACKING_DISABLED=true
 ```
 
-RECOVERY_SECRET trebuie generat separat, ca 32 bytes aleatorii în base64 canonic; CRON_SECRET este separat. Pornește Next pe 3107 cu aceste valori numai în development și cu URL-ul/cheile stack-ului local. După preflight și activarea explicită pe acest proiect de test:
+RECOVERY_SECRET trebuie generat separat, ca 32 bytes aleatorii în base64 canonic; CRON_SECRET este separat. Pornește Next dev pe 3107 cu aceste valori și cu URL-ul/cheile stack-ului local. Construiește separat aplicația cu aceleași variabile și pornește Next start pe 3117 pentru headerele production. După preflight și activarea explicită pe acest proiect de test:
 
 ```powershell
 $env:E2E_ENV_FILE='.env.e2e.localdb'
 $env:ISSUE107_BASE_URL='http://127.0.0.1:3107'
+$env:ISSUE107_PUBLIC_HEADERS_BASE_URL='http://127.0.0.1:3117'
 node scripts/issue-107-check.mjs
 ```
 
-Verificarea refuză hosturi nelocale, pornește singură furnizorul simulat pe 4017 și clona Auth configurată pe 3108, apoi le elimină. Filtrul ISSUE107_CHECK_ONLY permite rerularea unui grup. Pentru headerele production folosește build/start pe 3117 și filtrul public_page_headers. Probele phase0 sunt istorice, anterioare implementării; ele refuză rularea cu recovery activ și nu înlocuiesc verificarea finală.
+Verificarea refuză hosturi nelocale, pornește singură furnizorul simulat pe 4017 și clona Auth configurată pe 3108, apoi le elimină. Filtrul ISSUE107_CHECK_ONLY permite rerularea unui grup. Pentru rerularea exclusivă a headerelor păstrează ISSUE107_PUBLIC_HEADERS_BASE_URL pe serverul production și folosește filtrul public_page_headers. Probele phase0 sunt istorice, anterioare implementării; ele refuză rularea cu recovery activ și nu înlocuiesc verificarea finală.

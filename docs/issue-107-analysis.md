@@ -225,3 +225,10 @@ Prototipul nu este implementarea #107. Planul final trebuie să precizeze reten�
 Dovezile locale au fost adăugate și recitite din descrierile #105/#106/#107/#108 și PR #117; criteriile de recepție rămân nebifate. Comentariu: https://github.com/DominteEmanuelBeniamin/platforma-fonduri/issues/107#issuecomment-6035208852.
 
 Verificarea căii native include și un adaptor DB: credențialele generate pentru recovery/magiclink nu sunt persistate și sunt refuzate atât ca hashed_token, cât și ca email OTP. Hook-ul singur blochează doar livrarea. Protecția finală trebuie să acopere toate conturile aplicației, independent de retenția stării private.
+
+
+## Implementarea nativă finală
+
+Adaptorul final acoperă și auth.flow_state, separat de tokenurile legacy și one_time_tokens. Codurile PKCE recovery/magiclink au emis sesiuni în controalele pozitive locale cu adaptorul dezactivat; după activare, aceleași coduri nu emit credențiale. Prima metodă AMR cere password, iar MFA suplimentar rămâne disponibil după parolă. Activarea prin Data API și cazul cererii native deja în curs au fost probate. Finalizarea șterge codurile legate prin user_id și linking_target_id, în aceeași tranzacție cu parola și auditul. Detaliile și dovezile 21/21 sunt în [raportul implementării](issue-107-implementation.md).
+
+Programarea la minut este separată de Vercel Hobby, care permite doar cron zilnic: se folosește Supabase Cron pentru dispatch, iar preflight-ul cere RECOVERY_DISPATCH_EVERY_MINUTE_CONFIGURED=true numai după verificarea jobului real. Cronul zilnic existent rămâne în vercel.json. Configurarea hosted este descrisă în [rollout](issue-107-rollout.md), fără activare în acest task.

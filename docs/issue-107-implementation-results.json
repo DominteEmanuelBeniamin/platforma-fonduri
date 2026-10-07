@@ -1,14 +1,11 @@
 {
-  "date": "2026-10-07T13:55:25.131Z",
+  "date": "2026-10-07T15:19:34.240Z",
   "environment": {
     "baseUrl": "http://127.0.0.1:3107",
     "auth": "v2.197.0",
     "postgres": "17.6",
     "sdk": "2.90.0",
-    "servers": {
-      "development": "http://127.0.0.1:3107",
-      "production": "http://127.0.0.1:3117"
-    }
+    "publicHeadersBaseUrl": "http://127.0.0.1:3117"
   },
   "cases": [
     {
@@ -18,8 +15,8 @@
         "R30",
         "R33"
       ],
-      "passed": true,
-      "baseUrl": "http://127.0.0.1:3107"
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
     },
     {
       "name": "private_state_and_http_boundaries",
@@ -31,18 +28,33 @@
         "R30",
         "R34"
       ],
-      "passed": true,
-      "baseUrl": "http://127.0.0.1:3107"
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
     },
     {
-      "name": "native_recovery_and_magiclink_have_no_credentials",
+      "name": "native_pkce_legacy_and_inflight_credentials",
       "ids": [
         "R09",
+        "R17",
+        "R26",
         "R30",
         "R33"
       ],
-      "passed": true,
-      "baseUrl": "http://127.0.0.1:3107"
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
+    },
+    {
+      "name": "roles_cooldown_latest_and_invalid_passwords",
+      "ids": [
+        "R01",
+        "R05",
+        "R06",
+        "R14",
+        "R16",
+        "R22"
+      ],
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
     },
     {
       "name": "two_requests_and_two_completions_one_commit",
@@ -51,8 +63,8 @@
         "R15",
         "R27"
       ],
-      "passed": true,
-      "baseUrl": "http://127.0.0.1:3107"
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
     },
     {
       "name": "expiry_after_wait_and_atomic_audit_rollback",
@@ -61,8 +73,8 @@
         "R25",
         "R26"
       ],
-      "passed": true,
-      "baseUrl": "http://127.0.0.1:3107"
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
     },
     {
       "name": "lifecycle_email_admin_invalidation_permanent",
@@ -75,8 +87,8 @@
         "R23",
         "R35"
       ],
-      "passed": true,
-      "baseUrl": "http://127.0.0.1:3107"
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
     },
     {
       "name": "lifecycle_auth_failure_and_concurrent_order",
@@ -86,121 +98,8 @@
         "R28",
         "R35"
       ],
-      "passed": true,
-      "baseUrl": "http://127.0.0.1:3107"
-    },
-    {
-      "name": "lease_fencing_frozen_bytes_and_stale_generation",
-      "ids": [
-        "R05",
-        "R06",
-        "R24",
-        "R35"
-      ],
-      "passed": true,
-      "baseUrl": "http://127.0.0.1:3107"
-    },
-    {
-      "name": "confirmation_state_and_temporary_api_errors",
-      "ids": [
-        "R25",
-        "R28",
-        "R29",
-        "R35"
-      ],
-      "passed": true,
-      "baseUrl": "http://127.0.0.1:3107"
-    },
-    {
-      "name": "uniform_latency_measurements",
-      "ids": [
-        "R31"
-      ],
-      "passed": true,
-      "samplesPerState": 8,
-      "medianMs": [
-        15,
-        14,
-        16,
-        14
-      ],
-      "baseUrl": "http://127.0.0.1:3107"
-    },
-    {
-      "name": "uniform_latency_and_atomic_volume_limits",
-      "ids": [
-        "R03",
-        "R31"
-      ],
-      "passed": true,
-      "baseUrl": "http://127.0.0.1:3107"
-    },
-    {
-      "name": "delivery_deadline_after_job_row_wait",
-      "ids": [
-        "R10",
-        "R24",
-        "R35"
-      ],
-      "passed": true,
-      "baseUrl": "http://127.0.0.1:3107"
-    },
-    {
-      "name": "anonymous_request_ttl_after_account_lock_wait",
-      "ids": [
-        "R10",
-        "R24",
-        "R35"
-      ],
-      "passed": true,
-      "baseUrl": "http://127.0.0.1:3107"
-    },
-    {
-      "name": "request_audit_rollback_and_missing_profile",
-      "ids": [
-        "R02",
-        "R04",
-        "R26",
-        "R32"
-      ],
-      "passed": true,
-      "baseUrl": "http://127.0.0.1:3107"
-    },
-    {
-      "name": "browser_public_refresh_identity_mobile",
-      "ids": [
-        "R08",
-        "R09",
-        "R11",
-        "R12",
-        "R13",
-        "R28",
-        "R34"
-      ],
-      "passed": true,
-      "baseUrl": "http://127.0.0.1:3107"
-    },
-    {
-      "name": "browser_lost_response_fallback_and_installation_race",
-      "ids": [
-        "R11",
-        "R13",
-        "R27",
-        "R28",
-        "R34"
-      ],
-      "passed": true,
-      "baseUrl": "http://127.0.0.1:3107"
-    },
-    {
-      "name": "public_page_headers",
-      "ids": [
-        "R09",
-        "R33",
-        "R34"
-      ],
-      "passed": true,
-      "baseUrl": "http://127.0.0.1:3117"
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
     },
     {
       "name": "api_email_delivery_retry_uniformity_and_postcommit_fallback",
@@ -233,21 +132,131 @@
       "passed": true
     },
     {
-      "name": "roles_cooldown_latest_and_invalid_passwords",
+      "name": "lease_fencing_frozen_bytes_and_stale_generation",
       "ids": [
-        "R01",
         "R05",
         "R06",
-        "R14",
-        "R16",
-        "R22"
+        "R24",
+        "R35"
+      ],
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
+    },
+    {
+      "name": "confirmation_state_and_temporary_api_errors",
+      "ids": [
+        "R25",
+        "R28",
+        "R29",
+        "R35"
+      ],
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
+    },
+    {
+      "name": "uniform_latency_measurements",
+      "baseUrl": "http://127.0.0.1:3107",
+      "ids": [
+        "R31"
+      ],
+      "passed": true,
+      "samplesPerState": 8,
+      "medianMs": [
+        15,
+        14,
+        15,
+        15
+      ]
+    },
+    {
+      "name": "uniform_latency_and_atomic_volume_limits",
+      "ids": [
+        "R03",
+        "R31"
+      ],
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
+    },
+    {
+      "name": "delivery_deadline_after_job_row_wait",
+      "ids": [
+        "R10",
+        "R24",
+        "R35"
+      ],
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
+    },
+    {
+      "name": "anonymous_request_ttl_after_account_lock_wait",
+      "ids": [
+        "R10",
+        "R24",
+        "R35"
+      ],
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
+    },
+    {
+      "name": "request_audit_rollback_and_missing_profile",
+      "ids": [
+        "R02",
+        "R04",
+        "R26",
+        "R32"
+      ],
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
+    },
+    {
+      "name": "browser_public_refresh_identity_mobile",
+      "ids": [
+        "R08",
+        "R09",
+        "R11",
+        "R12",
+        "R13",
+        "R28",
+        "R34"
+      ],
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
+    },
+    {
+      "name": "browser_lost_response_fallback_and_installation_race",
+      "ids": [
+        "R11",
+        "R13",
+        "R27",
+        "R28",
+        "R34"
+      ],
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
+    },
+    {
+      "name": "public_page_headers",
+      "ids": [
+        "R09",
+        "R33",
+        "R34"
+      ],
+      "baseUrl": "http://127.0.0.1:3117",
+      "passed": true
+    },
+    {
+      "name": "native_recovery_and_magiclink_have_no_credentials",
+      "ids": [
+        "R09",
+        "R30",
+        "R33"
       ],
       "baseUrl": "http://127.0.0.1:3107",
       "passed": true
     }
   ],
-  "passed": 20,
-  "total": 20,
+  "passed": 21,
+  "total": 21,
   "validation": {
     "unitTests": {
       "passed": 269,
@@ -257,7 +266,7 @@
       "passed": 9,
       "total": 9
     },
-    "integrationGroups": 19,
+    "integrationGroups": 20,
     "latencyMeasurements": 1,
     "eslintErrors": 0,
     "existingEslintWarnings": 3,
@@ -268,7 +277,12 @@
     "localDbLintNewWarnings": [
       "send_email_hook: unused event parameter (intentional)"
     ],
-    "remoteAdvisorsRun": false
+    "remoteAdvisorsRun": false,
+    "nativePkceLegacyAndInflight": true,
+    "serviceRoleFirstActivation": true,
+    "supplementaryMfaAfterPassword": true,
+    "minuteSchedulerGate": true,
+    "hostedSchedulerValidated": false
   },
   "cleanup": {
     "disabled": true,
@@ -278,11 +292,9 @@
     "foreign_keys_indexed": true,
     "service_rpc_boundary": true,
     "private_schema_denied": true,
-    "fixture_accounts_removed": true
+    "fixture_accounts_removed": true,
+    "legacy_fixture_flows_removed": true,
+    "native_guard_private": true
   },
-  "hosted": {
-    "writes": false,
-    "activated": false,
-    "gate": "explicit_read_only_preflight_required"
-  }
+  "finalizedAt": "2026-10-07T15:25:48.720Z"
 }

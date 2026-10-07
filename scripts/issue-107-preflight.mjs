@@ -287,13 +287,7 @@ async function main() {
     checks.resendLinkTrackingDisabled = false
   }
 
-  try {
-    const vercel = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8'))
-    checks.dispatchCron = Array.isArray(vercel.crons)
-      && vercel.crons.some((cron) => cron?.path === '/api/auth/recovery/dispatch' && cron?.schedule === '* * * * *')
-  } catch {
-    checks.dispatchCron = false
-  }
+  checks.dispatchCron = env.RECOVERY_DISPATCH_EVERY_MINUTE_CONFIGURED === 'true'
 
   const safeToContact = checks.supabaseUrlsMatch && checks.anonKeyPresent && appOrigin
   if (safeToContact) {

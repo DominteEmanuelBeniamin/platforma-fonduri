@@ -17,7 +17,8 @@ const recoveryEnv = readEnv('.env.issue107.local')
 assert.equal(env.E2E_WRITES,'1','Explicit dedicated write permission required')
 assert.equal(env.E2E_TEST_PROJECT,'1','Dedicated test project required')
 const baseUrl = process.env.ISSUE107_BASE_URL || 'http://127.0.0.1:3107'
-for (const url of [baseUrl,env.E2E_SUPABASE_URL]) assert.ok(['127.0.0.1','localhost','[::1]'].includes(new URL(url).hostname),'Local environment only')
+const publicHeadersBaseUrl = process.env.ISSUE107_PUBLIC_HEADERS_BASE_URL || baseUrl
+for (const url of [baseUrl,publicHeadersBaseUrl,env.E2E_SUPABASE_URL]) assert.ok(['127.0.0.1','localhost','[::1]'].includes(new URL(url).hostname),'Local environment only')
 const authOptions = {autoRefreshToken:false,persistSession:false,detectSessionInUrl:false}
 const service = createClient(env.E2E_SUPABASE_URL,env.E2E_SUPABASE_SERVICE_ROLE_KEY,{auth:authOptions})
 const userClient = token => createClient(env.E2E_SUPABASE_URL,env.E2E_SUPABASE_ANON_KEY,{
@@ -31,10 +32,21 @@ const key = Buffer.from(recoveryEnv.RECOVERY_SECRET,'base64')
 assert.equal(key.length,32,'Recovery encryption key required')
 const hash = token => createHash('sha256').update(token).digest('hex')
 const q = value => "'"+String(value).replaceAll("'","''")+"'"
-function sql(query) {
+function sql(query,native=false) {
   sqlCounter++
-  try { return execFileSync('docker',['exec','-i','supabase_db_platforma-fonduri','psql','-U','postgres','-d','postgres','-X','-v','ON_ERROR_STOP=1','-qAt','-v','VERBOSITY=sqlstate'],
-    {input:"set log_min_error_statement='panic'; set log_parameter_max_length_on_error=0; "+query,encoding:'utf8',windowsHide:true,stdio:['pipe','pipe','pipe']}).trim()
+  try {
+    const args=['exec','-i','supabase_db_platforma-fonduri']
+    let input="set log_min_error_statement='panic'; set log_parameter_max_length_on_error=0; "+query
+    if(native){
+      const source=JSON.parse(execFileSync('docker',['inspect','supabase_auth_platforma-fonduri'],{encoding:'utf8',windowsHide:true}))[0]
+      const databaseUrl=new URL(source.Config.Env.find(line=>line.startsWith('GOTRUE_DB_DATABASE_URL=')).slice('GOTRUE_DB_DATABASE_URL='.length))
+      assert.equal(decodeURIComponent(databaseUrl.username),'supabase_auth_admin','Actual Native DB role')
+      const nativePassword=decodeURIComponent(databaseUrl.password)
+      assert.ok(nativePassword&&!/[\r\n]/.test(nativePassword),'Native DB password usable over stdin')
+      args.push('sh','-c','IFS= read -r task_native_password; export PGPASSWORD="$task_native_password"; exec psql -h 127.0.0.1 -U supabase_auth_admin -d postgres -X -v ON_ERROR_STOP=1 -qAt -v VERBOSITY=sqlstate')
+      input=nativePassword+'\n'+query
+    }else args.push('psql','-U','postgres','-d','postgres','-X','-v','ON_ERROR_STOP=1','-qAt','-v','VERBOSITY=sqlstate')
+    return execFileSync('docker',args,{input,encoding:'utf8',windowsHide:true,stdio:['pipe','pipe','pipe']}).trim()
   } catch(error) { const state=String(error?.stderr||'').match(/ERROR:\s+([A-Z0-9]{5})\b/)?.[1]||'unknown';throw new Error('SQL check failed '+sqlCounter+' '+state) }
 }
 function concurrentSql(query) {
@@ -51,7 +63,7 @@ async function lockBarrier(name) {
   await waitFor(()=>sql("select exists(select 1 from pg_stat_activity a join pg_locks l on l.pid=a.pid where a.application_name="+q(name)+" and l.locktype='advisory' and l.classid=105 and l.objid=1 and l.granted)")==='t','Lock barrier missing')
 }
 function ok(result,label) { assert.ok(!result.error,label);return result.data }
-const rpc = async (name,args) => ok(await service.rpc(name,args),'RPC '+name)
+const rpc = async (name,args) => { const result=await service.rpc(name,args);return ok(result,'RPC '+name+' '+(result.error?.code||'')) }
 function encrypt(payload) {
   const iv=randomBytes(12), cipher=createCipheriv('aes-256-gcm',key,iv)
   const value=Buffer.concat([cipher.update(JSON.stringify(payload),'utf8'),cipher.final()])
@@ -73,7 +85,16 @@ const lifecycle = (person,active) => rpc('set_user_account_active',{p_target_id:
 const clearCooldown = person => sql('update public.profiles set password_reset_requested_at=null where id='+q(person.id))
 const flow = person => { const row=sql("select row_to_json(f) from account_recovery.flows f where user_id="+q(person.id));return row?JSON.parse(row):null }
 function snapshot(person) {
-  return JSON.parse(sql("select jsonb_build_object('password',u.encrypted_password,'marker',p.must_change_password,'flow',(select to_jsonb(f) from account_recovery.flows f where f.user_id=u.id),'sessions',(select count(*) from auth.sessions where user_id=u.id),'tokens',(select count(*) from auth.one_time_tokens where user_id=u.id),'audit',(select count(*) from public.audit_logs where user_id=u.id and action_type='password_reset_completed'),'receipts',(select count(*) from account_recovery.receipts where user_id=u.id)) from auth.users u join public.profiles p on p.id=u.id where u.id="+q(person.id)))
+  return JSON.parse(sql("select jsonb_build_object('password',u.encrypted_password,'marker',p.must_change_password,'flow',(select to_jsonb(f) from account_recovery.flows f where f.user_id=u.id),'sessions',(select count(*) from auth.sessions where user_id=u.id),'tokens',(select count(*) from auth.one_time_tokens where user_id=u.id),'nativeFlows',(select count(*) from auth.flow_state where user_id=u.id or linking_target_id=u.id),'audit',(select count(*) from public.audit_logs where user_id=u.id and action_type='password_reset_completed'),'receipts',(select count(*) from account_recovery.receipts where user_id=u.id)) from auth.users u join public.profiles p on p.id=u.id where u.id="+q(person.id)))
+}
+function seedPkce(person,method='recovery',linkingTarget=null) {
+  const code=randomUUID(),verifier=randomBytes(32).toString('base64url')
+  sql("insert into auth.flow_state(id,user_id,auth_code,code_challenge_method,code_challenge,provider_type,provider_access_token,provider_refresh_token,authentication_method,created_at,updated_at,auth_code_issued_at,linking_target_id) values(gen_random_uuid(),"+q(person.id)+","+q(code)+",'plain',"+q(verifier)+",'email','','',"+q(method)+",clock_timestamp(),clock_timestamp(),clock_timestamp(),"+(linkingTarget?q(linkingTarget):'null')+")")
+  return {code,verifier}
+}
+async function exchangePkce(proof) {
+  const response=await fetch(env.E2E_SUPABASE_URL+'/auth/v1/token?grant_type=pkce',{method:'POST',headers:{apikey:env.E2E_SUPABASE_ANON_KEY,'Content-Type':'application/json'},body:JSON.stringify({auth_code:proof.code,code_verifier:proof.verifier}),signal:AbortSignal.timeout(10000)})
+  return {status:response.status,data:await response.json()}
 }
 async function enqueue(person) {
   const id=randomUUID(),token=id+'.'+randomBytes(32).toString('base64url')
@@ -126,7 +147,7 @@ async function waitMessage(person,from=messages.length) {
 async function probe(name,ids,run) {
   if(process.env.ISSUE107_CHECK_ONLY&&!name.includes(process.env.ISSUE107_CHECK_ONLY))return
   checkStage=name
-  try { await run();results.push({name,ids,baseUrl,passed:true}) }
+  try { await run();results.push({name,ids,baseUrl:name==='public_page_headers'?publicHeadersBaseUrl:baseUrl,passed:true}) }
   catch(error) { results.push({name,ids,baseUrl,passed:false,stage:checkStage,reason:error instanceof assert.AssertionError||(/^SQL check failed [0-9]+ [A-Z0-9a-z]+$/.test(error?.message))?error.message.split('\n')[0]:'Check failed; private diagnostics withheld'}) }
   console.log(JSON.stringify(results.at(-1)))
 }
@@ -164,11 +185,12 @@ try {
       if not has_function_privilege('supabase_auth_admin','account_recovery.send_email_hook(jsonb)','EXECUTE') or has_function_privilege('service_role','account_recovery.send_email_hook(jsonb)','EXECUTE') then raise exception 'Native hook role boundary required';end if;
       if has_table_privilege('supabase_auth_admin','account_recovery.flows','SELECT') then raise exception 'Native hook cannot read proofs';end if;
     end $check$;`
-    const activate=`update auth.users set recovery_token='fixture',confirmation_token='fixture',email_change_token_new='fixture',email_change_token_current='fixture',phone_change_token='fixture',reauthentication_token='fixture' where id=${q(actor.id)};
+    const activate=`insert into auth.flow_state(id,user_id,auth_code,code_challenge_method,code_challenge,provider_type,provider_access_token,provider_refresh_token,authentication_method,created_at,updated_at) values(gen_random_uuid(),${q(actor.id)},gen_random_uuid()::text,'plain',gen_random_uuid()::text,'email','','','recovery',clock_timestamp(),clock_timestamp());
+      update auth.users set recovery_token='fixture',confirmation_token='fixture',email_change_token_new='fixture',email_change_token_current='fixture',phone_change_token='fixture',reauthentication_token='fixture' where id=${q(actor.id)};
       select public.activate_account_recovery('v2.197.0');
       do $check$ begin
         if not (select enabled from account_recovery.settings) then raise exception 'Activation must enable';end if;
-        if exists(select 1 from auth.sessions) or exists(select 1 from auth.one_time_tokens) then raise exception 'Activation must revoke all old credentials';end if;
+        if exists(select 1 from auth.sessions) or exists(select 1 from auth.one_time_tokens) or exists(select 1 from auth.flow_state) then raise exception 'Activation must revoke all old credentials';end if;
         if exists(select 1 from auth.users where coalesce(recovery_token,'')<>'' or coalesce(confirmation_token,'')<>'' or coalesce(email_change_token_new,'')<>'' or coalesce(email_change_token_current,'')<>'' or coalesce(phone_change_token,'')<>'' or coalesce(reauthentication_token,'')<>'') then raise exception 'Every legacy native proof cleared';end if;
         if exists(select 1 from auth.users u join issue107_password_baseline b using(id) where u.encrypted_password is distinct from b.encrypted_password) then raise exception 'Activation cannot change passwords';end if;
       end $check$;`
@@ -178,7 +200,7 @@ try {
   })
   await probe('public_page_headers',['R09','R33','R34'],async()=>{
     for(const pathname of ['/forgot-password','/reset-password']) {
-      const response=await fetch(baseUrl+pathname)
+      const response=await fetch(publicHeadersBaseUrl+pathname)
       assert.equal(response.status,200,'Public page available without normal Auth')
       assert.match(response.headers.get('cache-control'),/no-store/,'Public recovery page never cached')
       assert.equal(response.headers.get('referrer-policy'),'no-referrer','Public recovery page never sends referrer')
@@ -240,10 +262,12 @@ try {
     await waitFor(async()=>{try{return(await fetch('http://127.0.0.1:3108/health')).ok}catch{return false}},'Configured Auth clone health')
     const before=(await(await fetch('http://127.0.0.1:54324/api/v1/messages')).json()).total
     const headers={'Content-Type':'application/json',apikey:env.E2E_SUPABASE_ANON_KEY}
-    for(const [path,body] of [['/recover',{email:person.email}],['/otp',{email:person.email,create_user:false}],['/recover',{email:'issue107.impl.'+stamp+'.missing@example.invalid'}]]) {
+    const pkceChallenge=hash(randomUUID())
+    for(const [path,body] of [['/recover',{email:person.email}],['/otp',{email:person.email,create_user:false}],['/recover',{email:'issue107.impl.'+stamp+'.missing@example.invalid'}],['/recover',{email:person.email,code_challenge:pkceChallenge,code_challenge_method:'s256'}],['/otp',{email:person.email,create_user:false,code_challenge:pkceChallenge,code_challenge_method:'s256'}]]) {
       assert.equal((await fetch('http://127.0.0.1:3108'+path,{method:'POST',headers,body:JSON.stringify(body)})).status,200,'Native request remains generic')
     }
     assert.equal((await(await fetch('http://127.0.0.1:54324/api/v1/messages')).json()).total,before,'Hook suppresses SMTP delivery')
+    assert.equal(snapshot(person).nativeFlows,0,'Native PKCE requests cannot persist flow_state')
     assert.equal((await fetch('http://127.0.0.1:3108/token?grant_type=password',{method:'POST',headers,body:JSON.stringify({email:person.email,password})})).status,200,'Configured Auth password login intact')
     const proxy=http.createServer(async(req,res)=>{
       try {
@@ -257,7 +281,7 @@ try {
     const configFile='supabase/.temp/issue107-preflight-config.json',envFile='.env.issue107.preflight.local'
     const databaseRole=decodeURIComponent(new URL(source.Config.Env.find(line=>line.startsWith('GOTRUE_DB_DATABASE_URL=')).slice('GOTRUE_DB_DATABASE_URL='.length)).username)
     const config={databaseRole,minimumPasswordLength:6,passwordRequirements:'',dbEncryptionEnabled:false,otpExpiry:3600,disableSignup:true,sendEmailHookEnabled:true,sendEmailHookUri:'pg-functions://postgres/account_recovery/send_email_hook',alternativeProvidersDisabled:true,resendLinkTrackingDisabled:true}
-    const explicitEnv={...recoveryEnv,SUPABASE_URL:'http://127.0.0.1:3111',NEXT_PUBLIC_SUPABASE_URL:'http://127.0.0.1:3111',NEXT_PUBLIC_SUPABASE_ANON_KEY:env.E2E_SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE_KEY:env.E2E_SUPABASE_SERVICE_ROLE_KEY,NODE_ENV:'development'}
+    const explicitEnv={...recoveryEnv,SUPABASE_URL:'http://127.0.0.1:3111',NEXT_PUBLIC_SUPABASE_URL:'http://127.0.0.1:3111',NEXT_PUBLIC_SUPABASE_ANON_KEY:env.E2E_SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE_KEY:env.E2E_SUPABASE_SERVICE_ROLE_KEY,NODE_ENV:'development',RECOVERY_DISPATCH_EVERY_MINUTE_CONFIGURED:'true'}
     const runPreflight=async(configOverride={},envOverride={})=>{
       fs.writeFileSync(configFile,JSON.stringify({...config,...configOverride}))
       fs.writeFileSync(envFile,Object.entries({...explicitEnv,...envOverride}).map(([name,value])=>name+'='+value).join('\n')+'\n')
@@ -271,6 +295,9 @@ try {
       assert.equal(positive.code,0,'Configured real Auth preflight passes')
       assert.equal(positive.report.status,'already_enabled','Preflight sees enabled database read-only')
       assert.equal(positive.report.checks.authDbRole,true,'Actual native database role attested')
+      const noDispatch=await runPreflight({},{RECOVERY_DISPATCH_EVERY_MINUTE_CONFIGURED:''})
+      assert.equal(noDispatch.report.status,'blocked','Missing actual minute-scheduler attestation blocks deployment')
+      assert.equal(noDispatch.report.checks.dispatchCron,false,'Daily Vercel cron cannot certify recovery dispatch')
       const badRole=await runPreflight({databaseRole:'wrong_role'})
       assert.equal(badRole.report.status,'blocked','Wrong native database role blocks deployment')
       assert.equal(badRole.report.checks.authDbRole,false,'Wrong role cannot bypass gate')
@@ -283,6 +310,58 @@ try {
       fs.rmSync(configFile,{force:true});fs.rmSync(envFile,{force:true})
       await new Promise(resolve=>proxy.close(resolve))
     }
+  })
+  await probe('native_pkce_legacy_and_inflight_credentials',['R09','R17','R26','R30','R33'],async()=>{
+    const person=await fixture(),other=await fixture()
+    try {
+      // Positive controls: these exact supported legacy PKCE rows issue real credentials while the adapter is disabled.
+      sql('update account_recovery.settings set enabled=false')
+      for(const method of ['recovery','magiclink']) {
+        const result=await exchangePkce(seedPkce(person,method))
+        assert.equal(result.status,200,'Disabled adapter legacy PKCE positive control')
+        assert.ok(result.data.access_token&&result.data.refresh_token,'Positive control emitted actual native credentials')
+      }
+    }finally{
+      sql('delete from auth.sessions where user_id='+q(person.id)+';delete from auth.flow_state where user_id='+q(person.id)+';update account_recovery.settings set enabled=true')
+    }
+    for(const method of ['recovery','magiclink']) {
+      const legacy=seedPkce(person,method),before=snapshot(person),result=await exchangePkce(legacy)
+      assert.ok(result.status>=400&&!result.data.access_token&&!result.data.refresh_token,'Enabled adapter rejects even a valid legacy PKCE code')
+      assert.deepEqual(snapshot(person),before,'Rejected native PKCE atomically preserves password and creates no session')
+    }
+    sql('delete from auth.flow_state where user_id='+q(person.id))
+    const normal=await login(person),sessionId=JSON.parse(Buffer.from(normal.access_token.split('.')[1],'base64url').toString()).session_id
+    assert.ok(sessionId,'Password session ID')
+    const claimCheck=sql("begin;insert into auth.mfa_amr_claims(id,session_id,created_at,updated_at,authentication_method) values(gen_random_uuid(),"+q(sessionId)+",clock_timestamp(),clock_timestamp(),'totp');do $check$ begin begin update auth.mfa_amr_claims set authentication_method='otp' where session_id="+q(sessionId)+" and authentication_method='password';raise exception 'AMR replacement unexpectedly allowed';exception when raise_exception then if SQLERRM<>'NATIVE_NON_PASSWORD_AMR_BLOCKED' then raise;end if;end;end $check$;rollback;select 'native_claim_guard_passed';",true)
+    assert.ok(claimCheck.endsWith('native_claim_guard_passed'),'Additional MFA permitted after password; replacing the password claim refused')
+    // Hold the Native request after it has read its code but before it creates a session.
+    const raced=seedPkce(other),holder=concurrentSql("set application_name='issue107-native-pkce-holder';begin;select pg_advisory_xact_lock(107,3);select pg_sleep(3);commit;")
+    await waitFor(()=>sql("select exists(select 1 from pg_stat_activity a join pg_locks l on l.pid=a.pid where a.application_name='issue107-native-pkce-holder' and l.locktype='advisory' and l.classid=107 and l.objid=3 and l.granted)")==='t','Native PKCE barrier holder')
+    sql("create function issue107_check.hold_native_session() returns trigger language plpgsql as $$begin if NEW.user_id="+q(other.id)+"::uuid then perform pg_advisory_xact_lock(107,3);end if;return NEW;end$$;create trigger issue107_check_native_session before insert on auth.sessions for each row execute function issue107_check.hold_native_session();update account_recovery.settings set enabled=false")
+    let pending
+    try {
+      pending=exchangePkce(raced)
+      await waitFor(()=>sql("select exists(select 1 from pg_stat_activity a join pg_locks l on l.pid=a.pid where a.usename='supabase_auth_admin' and l.locktype='advisory' and l.classid=107 and l.objid=3 and not l.granted)")==='t','Native request read its legacy proof')
+      await rpc('activate_account_recovery',{p_verified_auth_version:'v2.197.0'})
+      assert.equal(sql('select enabled from account_recovery.settings'),'t','Activation committed during in-flight native request')
+      assert.equal(sql('select count(*) from auth.flow_state'),'0','Activation removed all legacy PKCE state')
+      assert.equal((await holder).code,0,'Native barrier released')
+      const outcome=await pending
+      assert.ok(outcome.status>=400&&!outcome.data.access_token&&!outcome.data.refresh_token,'In-flight native proof cannot mint credentials after activation')
+      assert.equal(snapshot(other).sessions,0,'Rejected in-flight request rolls its session back')
+      assert.equal(snapshot(other).nativeFlows,0,'Activation does not restore stale native flow')
+    }finally{
+      await holder
+      if(pending)await pending.catch(()=>{})
+      sql('drop trigger if exists issue107_check_native_session on auth.sessions;drop function if exists issue107_check.hold_native_session();update account_recovery.settings set enabled=true')
+    }
+    // Completion also removes flow_state bound through either native UUID column.
+    const ownProof=await issue(person)
+    seedPkce(person);seedPkce(other,'magiclink',person.id)
+    assert.equal(snapshot(person).nativeFlows,2,'Both user and linking-target native credentials seeded')
+    assert.equal((await complete(ownProof,'Selected-'+randomUUID())).status,'completed','Atomic completion with legacy PKCE rows')
+    assert.equal(snapshot(person).nativeFlows,0,'Completion clears both legacy native flow bindings')
+    assert.equal(snapshot(person).sessions,0,'Completion revokes password and supplementary MFA sessions')
   })
   await probe('roles_cooldown_latest_and_invalid_passwords',['R01','R05','R06','R14','R16','R22'],async()=>{
     for(const role of ['client','junior','consultant','admin']) {
@@ -326,6 +405,7 @@ try {
     const person=await fixture(),proof=await issue(person)
     await login(person)
     sql('insert into auth.one_time_tokens(id,user_id,token_type,token_hash,relates_to,created_at,updated_at) values(gen_random_uuid(),'+q(person.id)+','+q('reauthentication_token')+','+q(hash(randomUUID()))+','+q(person.email)+',clock_timestamp(),clock_timestamp())')
+    seedPkce(person)
     const before=snapshot(person)
     sql("create function issue107_check.reject_audit() returns trigger language plpgsql as $$begin if NEW.entity_id="+q(person.id)+"::uuid and NEW.action_type='password_reset_completed' then raise exception 'fixture audit failure'; end if; return NEW; end$$;create trigger issue107_check_audit before insert on public.audit_logs for each row execute function issue107_check.reject_audit();")
     try {
@@ -333,6 +413,7 @@ try {
       assert.deepEqual(snapshot(person),before,'Full commit rollback incl password, flow, marker, sessions, receipt')
     }finally{sql('drop trigger issue107_check_audit on public.audit_logs;drop function issue107_check.reject_audit();')}
     assert.equal((await complete(proof,'Changed-'+randomUUID())).status,'completed','Retry after rollback succeeds')
+    assert.equal(snapshot(person).nativeFlows,0,'Successful retry removes native PKCE state with all other credentials')
     clearCooldown(person);const expiring=await issue(person)
     sql("update account_recovery.flows set expires_at=clock_timestamp()+interval '900 milliseconds' where user_id="+q(person.id))
     const holder=concurrentSql("set application_name='issue107-expiry';begin;select pg_advisory_xact_lock(105,1);select pg_sleep(1.7);commit;")
@@ -771,6 +852,7 @@ try {
   sql('drop schema if exists issue107_check cascade;')
   for(const person of fixtures.toReversed()){
     assert.ok(person.email.startsWith('issue107.impl.'+stamp+'.')&&person.email.endsWith('@example.invalid'),'Fixture cleanup scope')
+    sql('delete from auth.flow_state where user_id='+q(person.id)+' or linking_target_id='+q(person.id))
     const deleted=await service.auth.admin.deleteUser(person.id)
     if(deleted.error&&deleted.error.status!==404){
       ok(await service.from('profiles').update({is_active:false}).eq('id',person.id),'Safe fixture cleanup')

@@ -38,11 +38,12 @@ Cererea proprie anonimă verificată (source=self_recovery) și finalizarea prop
 ## Livrare și eșecuri
 Payloadul și cheia de idempotency rămân stabile la rezultat necunoscut. Un refuz cert invalidează numai generația acelei livrări și eliberează numai cooldown-ul ei; nu restaurează linkul precedent. Un worker vechi verifică lease, generație și destinatar înainte de predare și nu poate publica drept curent un flux invalidat.
 Confirmarea este înscrisă atomic după finalizare și predată după commit. Destinatarul activ/consistent se revalidează; eșecul sau omisiunea sunt înregistrate fără anularea parolei.
-Cronul este obligatoriu pentru recuperarea livrărilor după restart; Next after asigură predarea imediată, coada DB asigură durabilitatea. Retry-ul unui link nu creează o sesiune nouă.
+Supabase Cron este scheduler-ul la minut pentru proiectele Vercel Hobby; preflight-ul cere atestarea explicită după verificarea programării efective. Cronul este obligatoriu pentru recuperarea livrărilor după restart; Next after asigură predarea imediată, coada DB asigură durabilitatea. Retry-ul unui link nu creează o sesiune nouă.
 
 ## Securitate și activare
 - Send Email Hook oprește emailurile native care pot produce proofuri alternative; adaptorul DB împiedică persistarea credențialelor native pentru toate conturile, indiferent de retenția flows.
 - Preflight verifică versiunea Auth demonstrată, schema, pgcrypto, rolul DB nativ atestat, bcrypt necriptat $2a$ cost 05–10 și politica minim 6/fără reguli suplimentare. După activare, Auth updateUser/Admin HTTP nu pot schimba parola; #108 folosește tranzacția DB canonică.
+- Codurile PKCE native din auth.flow_state sunt invalidate la activare și la finalizare; persistarea lor este blocată după activare. Claim-ul AMR inițial cere password; MFA suplimentar este permis după parolă. Cererile native deja în curs sunt verificate prin bariere reale și nu emit o sesiune nouă după activare.
 - Activarea invalidează toate credențialele native legacy și sesiunile deja emise. Aceasta deconectează sesiunile existente; este o măsură explicită de rollout, fără schimbarea parolelor.
 - Signup public și providerii alternativi nefolosiți sunt dezactivați. Conturile continuă să fie create prin API admin.
 - NEXT_PUBLIC_APP_URL este explicit și HTTPS în preview/producție; nu folosim Host sau redirectTo primit de la solicitant.
