@@ -39,6 +39,7 @@ import {
 import ProjectChatDrawer from '@/components/ProjectChatDrawer'
 import ProjectTeam from '@/components/ProjectTeam'
 import { ProjectBoard, type BoardRow, type BoardItem } from '@/components/ProjectBoard'
+import { displayedRequestStatus } from '@/lib/request-status'
 import { bandFor } from '@/lib/signage'
 import { LocationStrip } from '@/components/ui/LocationStrip'
 import { Button } from '@/components/ui/Button'
@@ -1091,7 +1092,8 @@ function ProjectDetailsContent() {
       lista.push({
         id: r.id,
         name: r.name,
-        status: r.status ?? null,
+        // Închisă din „Aprobat”, rămâne „Aprobat” și pe panou.
+        status: displayedRequestStatus(r),
         deadline_at: r.deadline_at ?? null,
         activity_id: r.activity?.id ?? r.activity_id ?? null,
         activity_name: r.activity?.name ?? null,

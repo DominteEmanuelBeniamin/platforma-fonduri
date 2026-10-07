@@ -16,6 +16,10 @@
 --    invoker de `can_access_project` și de politicile de storage, deci primește
 --    grant pe coloane: toate, în afară de `closed_by`.
 
+-- 3. O cerere aprobată se poate închide (decizia din 7 octombrie 2026). În
+--    interfață rămâne „Aprobat”, dar devine finală: nu mai primește fișiere și
+--    nu se mai modifică până la redeschidere, când revine la „Aprobat”.
+
 -- ─── 1. Starea proiectului ───────────────────────────────────────────────────
 
 -- Plasă de siguranță pentru alte baze (în producție nu e niciun rând): cronul
@@ -41,3 +45,11 @@ grant select (
   preluat_detalii, current_phase_slug, lifecycle_status, updated_at, current_status_id,
   template_id, general_consultant_id, automatic_reminders_enabled, closed_at
 ) on public.projects to authenticated;
+
+-- ─── 3. Închiderea unei cereri aprobate ──────────────────────────────────────
+
+alter table public.document_requirements drop constraint if exists document_requirements_status_before_close_check;
+alter table public.document_requirements
+  add constraint document_requirements_status_before_close_check
+  check (status_before_close in ('pending', 'rejected', 'approved'));
+comment on column public.document_requirements.status_before_close is 'Starea la care revine cererea la redeschidere: pending, rejected sau approved.';

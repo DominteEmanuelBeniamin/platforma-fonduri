@@ -1,6 +1,6 @@
 // Grupează cererile de documente ale unui proiect în „documente logice"
 // (cerere + atașamente + versiuni de fișiere) și în dosare per fază.
-import type { RequestStatus } from './request-status.ts'
+import { displayedRequestStatus, type RequestStatus } from './request-status.ts'
 
 /** Starea cererii, plus `sent` pentru documentele trimise clientului. */
 export type DriveDocStatus = RequestStatus | 'sent' | null
@@ -29,6 +29,7 @@ export interface DriveSourceRequest {
   id: string
   name: string
   status: RequestStatus
+  status_before_close?: string | null
   visibility?: Visibility
   is_outgoing?: boolean
   created_at: string
@@ -203,7 +204,8 @@ export function buildDriveDocuments(
       id: request.id,
       requestId: request.id,
       docName: request.name,
-      docStatus: request.is_outgoing ? 'sent' : request.status,
+      // Închisă din „Aprobat”, se arată și se filtrează „Aprobat”.
+      docStatus: request.is_outgoing ? 'sent' : displayedRequestStatus(request) as RequestStatus,
       publicationStatus: publication.status,
       publicationReason: publication.reason,
       folderId,

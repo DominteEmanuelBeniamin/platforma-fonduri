@@ -53,7 +53,7 @@ import { Signal } from '@/components/ui/Signal'
 import { TONE } from '@/lib/signage'
 import { isRequestFinal, mergeVisibleOrder } from '@/lib/completion'
 import HiddenFinalRow from './HiddenFinalRow'
-import { CLOSED_REQUEST_CLIENT_NOTE, requestStatusInfo, type RequestStatus } from '@/lib/request-status'
+import { closedRequestClientNote, displayedRequestStatus, requestStatusInfo, type RequestStatus } from '@/lib/request-status'
 
 interface DocumentRequest {
   id: string
@@ -62,7 +62,7 @@ interface DocumentRequest {
   requirement_type?: RequirementType
   status: RequestStatus
   /** Starea la care revine o cerere închisă (#109). */
-  status_before_close?: 'pending' | 'rejected' | null
+  status_before_close?: 'pending' | 'rejected' | 'approved' | null
   closed_at?: string | null
   closer?: { id: string; full_name: string | null } | null
   visibility?: 'draft' | 'published'
@@ -1027,9 +1027,10 @@ export default function DocumentRequests({
 
 
   // Starea vine din dicționarul comun (#109): o valoare necunoscută nu mai cade
-  // pe „De încărcat", iar o cerere închisă are cuvântul și semnul ei.
-  const statusLabel = (status: string) => {
-    const info = requestStatusInfo(status)
+  // pe „De încărcat", iar o cerere închisă are cuvântul și semnul ei — în afară
+  // de cea închisă din „Aprobat”, care se arată tot „Aprobat”.
+  const statusLabel = (req: { status: string; status_before_close?: string | null }) => {
+    const info = requestStatusInfo(displayedRequestStatus(req))
     return isClient ? info.clientLabel : info.label
   }
   const isEmbedded = activityId !== undefined
@@ -1167,7 +1168,7 @@ export default function DocumentRequests({
             </div>
           ) : (
             displayRequests.map((req) => {
-              const statusInfo = requestStatusInfo(req.status)
+              const statusInfo = requestStatusInfo(displayedRequestStatus(req))
               const statusTone = TONE[statusInfo.tone]
               const isClosed = req.status === 'closed'
               // O cerere aprobată sau închisă nu mai are un termen care să ardă.
@@ -1247,7 +1248,7 @@ export default function DocumentRequests({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 mt-2">
-                        <Signal tone={statusInfo.tone}>{statusLabel(req.status)}</Signal>
+                        <Signal tone={statusInfo.tone}>{statusLabel(req)}</Signal>
                         {!isFolded && (
                           <PublishStatusControl
                             status={req.visibility ?? 'draft'}
@@ -1580,7 +1581,7 @@ export default function DocumentRequests({
                     <div className="mt-4 pt-4 border-t border-rule">
                       <div className="flex items-center gap-2 bg-paper-sunk px-4 py-2.5 rounded-xl text-ink-soft">
                         <Archive className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
-                        <span className="text-sm">{CLOSED_REQUEST_CLIENT_NOTE}</span>
+                        <span className="text-sm">{closedRequestClientNote(req)}</span>
                       </div>
                     </div>
                   )}
@@ -1794,7 +1795,7 @@ export default function DocumentRequests({
                     : `Se vor șterge automat și ${responseCount} răspunsuri încărcate. `
                   : ''
 
-                return `Status curent: ${statusLabel(requestToDelete.status)}. ` +
+                return `Status curent: ${statusLabel(requestToDelete)}. ` +
                   responseWarning +
                   'Template-ul nu va fi modificat. Istoricul cererii rămâne păstrat.'
               })()

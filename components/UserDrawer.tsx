@@ -15,7 +15,7 @@ import { useRouter } from 'next/navigation'
 import { isPreviewableFile, buildPreviewPageUrl, openInNewTab, downloadUrl } from '@/lib/file-preview'
 import { formatDate } from '@/lib/signage'
 import { Signal } from '@/components/ui/Signal'
-import { requestStatusInfo } from '@/lib/request-status'
+import { displayedRequestStatus, requestStatusInfo } from '@/lib/request-status'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -152,6 +152,8 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
             .filter((req: any) => req.files?.length > 0)
             .map((req: any) => ({
               ...req,
+              // Închisă din „Aprobat”, se numără și se arată „Aprobat” (#109).
+              status: displayedRequestStatus(req),
               _projectId: p.id,
               _projectTitle: p.title,
               _projectCodIntern: p.cod_intern,

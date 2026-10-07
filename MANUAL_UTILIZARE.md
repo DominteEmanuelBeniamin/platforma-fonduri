@@ -125,8 +125,9 @@ Pe pagina unui proiect administratorul poate:
 - Contoarele arată progresul: „3 din 5 activități finalizate”, „2 din 4 cereri finalizate” (cererile aprobate sau închise).
 
 **Închiderea unei cereri de documente:**
-- O cerere pe care clientul nu o mai poate furniza se închide din fișa ei → **Închide cererea**, doar din „Așteaptă răspuns” sau „Respins”. O cerere „În verificare” se verifică întâi.
-- Cererea închisă nu mai primește fișiere, remindere sau modificări până o redeschizi din fișă → **Redeschide cererea**; revine exact la starea dinainte. Clientul vede „Închisă”.
+- O cerere pe care clientul nu o mai poate furniza se închide din fișa ei → **Închide cererea**, din „Așteaptă răspuns” sau „Respins”. O cerere „În verificare” se verifică întâi.
+- Și o cerere **aprobată** se poate închide, ca s-o faci finală: rămâne „Aprobat”, dar nu mai primește fișiere noi și nu se mai modifică. Fără închidere, o încărcare nouă peste o cerere aprobată o trimite înapoi la verificare.
+- Cererea închisă nu mai primește fișiere, remindere sau modificări până o redeschizi din fișă → **Redeschide cererea**; revine exact la starea dinainte. Clientul vede „Închisă” sau, dacă documentul fusese aprobat, „Aprobat”.
 
 **Ce e finalizat se ascunde:**
 - Fazele, activitățile și cererile finalizate (aprobate sau închise) se ascund din lista proiectului, ca să rămână la vedere ce e de făcut. Bifează **Arată și ce e finalizat** (alegerea se ține minte în browser) sau apasă **Arată** pe rândul care le numără.
@@ -277,7 +278,7 @@ Clientul poate **vizualiza** progresul proiectului:
 
 **Proiecte încheiate și cereri închise:**
 - Un proiect încheiat are semnul **Încheiat pe <dată>** și nu mai apare la „Ce ai de făcut”.
-- O cerere **Închisă** nu mai așteaptă nimic de la tine: în locul zonei de încărcare scrie „Consultantul a închis cererea; nu mai e nevoie să încarci nimic aici.”
+- O cerere **Închisă** nu mai așteaptă nimic de la tine: în locul zonei de încărcare scrie „Consultantul a închis cererea; nu mai e nevoie să încarci nimic aici.” Dacă documentul fusese aprobat, cererea rămâne „Aprobat”, iar mesajul spune că documentul e aprobat și cererea închisă.
 - Ce e finalizat se ascunde din pagina proiectului; **Arată și ce e finalizat** sau **Arată** le aduce la vedere.
 
 > Clientul **nu poate** crea proiecte, adăuga cereri de documente sau modifica structura proiectului.
@@ -313,7 +314,7 @@ Consultant verifică
 | În verificare | Galben | Consultantul analizează documentul |
 | Aprobat | Verde | Documentul a fost acceptat |
 | Respins | Roșu | Documentul nu corespunde, clientul trebuie să reîncerce |
-| Închisă | Gri, cu cutie de arhivă | Consultantul a închis cererea; nu mai așteaptă nimic, până la o eventuală redeschidere |
+| Închisă | Gri, cu cutie de arhivă | Consultantul a închis cererea; nu mai așteaptă nimic, până la o eventuală redeschidere. O cerere aprobată și apoi închisă se arată tot „Aprobat” |
 
 ---
 

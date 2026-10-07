@@ -46,9 +46,13 @@ export const isActivityFinal = (activity: { status?: string | null }): boolean =
 export const isPhaseFinal = (phase: { status?: string | null }): boolean =>
   phase.status === 'completed'
 
-/** Doar „De încărcat" și „Respins" se închid (D3), niciodată un document trimis clientului (D12). */
+/**
+ * Se închid „De încărcat”, „Respins” (D3) și „Aprobat” (decizia din 7 octombrie
+ * 2026: închisă, rămâne „Aprobat”, dar devine finală). Niciodată „În verificare”,
+ * care se verifică întâi, și niciodată un document trimis clientului (D12).
+ */
 export const canCloseRequest = (request: Pick<RequestLike, 'status' | 'is_outgoing' | 'deleted_at'>): boolean =>
-  !request.is_outgoing && !request.deleted_at && (request.status === 'pending' || request.status === 'rejected')
+  requestCloseRefusal(request) === null
 
 export const isRequestClosed = (request: Pick<RequestLike, 'status'>): boolean => request.status === 'closed'
 
@@ -77,11 +81,10 @@ export function requestCloseRefusal(
   switch (request.status) {
     case 'pending':
     case 'rejected':
+    case 'approved':
       return null
     case 'review':
       return { status: 409, message: REQUEST_REVIEW_FIRST_MESSAGE }
-    case 'approved':
-      return { status: 409, message: 'Cererea e aprobată, deci deja finalizată.' }
     case 'closed':
       return { status: 409, message: 'Cererea e deja închisă.' }
     default:
@@ -99,7 +102,7 @@ export function requestReopenRefusal(
   if (request.status !== 'closed') {
     return { status: 409, message: 'Cererea nu e închisă, deci nu are ce să se redeschidă.' }
   }
-  if (request.status_before_close !== 'pending' && request.status_before_close !== 'rejected') {
+  if (request.status_before_close !== 'pending' && request.status_before_close !== 'rejected' && request.status_before_close !== 'approved') {
     return { status: 409, message: 'Nu știu în ce stare să readuc cererea. Reîncarcă pagina.' }
   }
   return null
@@ -360,12 +363,14 @@ export function activityCompletionConfirm(activity: ActivityLike, requests: read
   }
 }
 
-export function requestCloseConfirm(requestName: string) {
+export function requestCloseConfirm(requestName: string, status?: string | null) {
   return {
     title: `Închizi cererea „${requestName}”?`,
-    description:
-      'Cererea nu mai așteaptă nimic de la client: nu mai primește remindere și nu se mai pot încărca fișiere în ea. ' +
-      'Nu se mai poate modifica până o redeschizi. Cât timp elementele finalizate sunt ascunse, nu mai apare în listă.',
+    description: status === 'approved'
+      // Aprobată, cererea e deja finalizată; închiderea doar o încuie.
+      ? 'Cererea rămâne „Aprobat”, dar devine finală: nu se mai pot încărca fișiere noi în ea și nu se mai poate modifica până o redeschizi.'
+      : 'Cererea nu mai așteaptă nimic de la client: nu mai primește remindere și nu se mai pot încărca fișiere în ea. ' +
+        'Nu se mai poate modifica până o redeschizi. Cât timp elementele finalizate sunt ascunse, nu mai apare în listă.',
     confirmText: 'Închide cererea',
   }
 }
@@ -373,9 +378,11 @@ export function requestCloseConfirm(requestName: string) {
 export function requestReopenConfirm(requestName: string, statusBeforeClose: string | null | undefined) {
   return {
     title: `Redeschizi cererea „${requestName}”?`,
-    description:
-      `Revine la „${requestStatusInfo(statusBeforeClose).label}”. Clientul nu e anunțat acum; ` +
-      'reminderele automate o readuc în atenția lui la următorul prag.',
+    description: statusBeforeClose === 'approved'
+      // O cerere aprobată nu primește remindere, deci nu are ce să-i readucă.
+      ? 'Rămâne „Aprobat”, dar se poate modifica din nou, iar clientul poate încărca alte fișiere (o încărcare nouă o trimite la verificare).'
+      : `Revine la „${requestStatusInfo(statusBeforeClose).label}”. Clientul nu e anunțat acum; ` +
+        'reminderele automate o readuc în atenția lui la următorul prag.',
     confirmText: 'Redeschide cererea',
   }
 }

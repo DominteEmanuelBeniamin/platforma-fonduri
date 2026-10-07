@@ -391,7 +391,7 @@ test('Fazele și activitățile: doar adminul și seniorul membru le finalizeaz�
 
 // ═══ CERERI ══════════════════════════════════════════════════════════════════
 
-test('Cererile: se închid doar din „De încărcat" și „Respins", și revin exact la starea dinainte', async () => {
+test('Cererile: se închid din „De încărcat", „Respins" și „Aprobat", și revin exact la starea dinainte', async () => {
   const projectId = await createProject('cereri')
   const phaseId = await addPhase(projectId, 'Depunere')
   const activityId = await addActivity(projectId, phaseId, 'Dosarul de finanțare')
@@ -429,11 +429,18 @@ test('Cererile: se închid doar din „De încărcat" și „Respins", și revin
   expectStatus(await call(admin, 'POST', `/api/document-requests/${review}/reopen`), 200, 'redeschiderea cererii respinse')
   expect.soft((await requestRow(review)).status).toBe('rejected')
 
-  // Aprobată: deja finalizată, nu se închide.
+  // Aprobată: se închide și ea (decizia din 7 octombrie 2026), rămâne „Aprobat”
+  // în interfață, dar nu mai primește fișiere; redeschisă, revine la „Aprobat”.
   const approved = await addRequest(projectId, activityId, 'Extras de cont')
   await putInReview(approved)
   expectStatus(await call(junior, 'POST', `/api/document-requests/${approved}/review`, { action: 'approved' }), 200, 'juniorul aprobă documentul')
-  expectStatus(await call(admin, 'POST', `/api/document-requests/${approved}/close`), 409, 'închiderea unei cereri aprobate')
+  expectStatus(await call(admin, 'POST', `/api/document-requests/${approved}/close`), 200, 'închiderea unei cereri aprobate')
+  expect.soft((await requestRow(approved)).status_before_close).toBe('approved')
+  // Publicată, ca refuzul să vină din închidere, nu din vizibilitate (404).
+  await publishEverything(projectId)
+  expectStatus(await call(client, 'POST', `/api/document-requests/${approved}/uploads/init`, { files: [{ name: 'nou.pdf', size: 9, type: 'application/pdf' }] }), 409, 'încărcarea într-o cerere aprobată și închisă')
+  expectStatus(await call(admin, 'POST', `/api/document-requests/${approved}/reopen`), 200, 'redeschiderea cererii aprobate')
+  expect.soft((await requestRow(approved)).status).toBe('approved')
 
   // Documentul trimis clientului nu se închide niciodată (D12).
   const outgoing = randomUUID()

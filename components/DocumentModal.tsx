@@ -38,7 +38,7 @@ import ReminderStatus, { getReminderDisplayStatus } from '@/components/ReminderS
 import { REQUIREMENT_LABELS, type RequirementType } from '@/lib/requirement-type'
 import { Signal } from '@/components/ui/Signal'
 import { canCloseRequest as isClosable, requestCloseConfirm, requestReopenConfirm } from '@/lib/completion'
-import { CLOSED_REQUEST_CLIENT_NOTE, requestStatusInfo, type RequestStatus } from '@/lib/request-status'
+import { closedRequestClientNote, displayedRequestStatus, requestStatusInfo, type RequestStatus } from '@/lib/request-status'
 import { formatClosedDate } from '@/lib/project-lifecycle'
 import {
   formatFileSize,
@@ -57,7 +57,7 @@ interface DocumentRequest {
   requirement_type?: RequirementType
   status: RequestStatus
   /** Starea la care revine o cerere închisă (#109). */
-  status_before_close?: 'pending' | 'rejected' | null
+  status_before_close?: 'pending' | 'rejected' | 'approved' | null
   closed_at?: string | null
   closer?: { id: string; full_name: string | null } | null
   is_outgoing?: boolean
@@ -290,8 +290,9 @@ export default function DocumentModal({
   }
 
   // Starea, din dicționarul comun (#109). Documentul trimis clientului nu e o
-  // stare de cerere, deci are cuvântul lui.
-  const statusInfo = requestStatusInfo(request.status)
+  // stare de cerere, deci are cuvântul lui. Închisă din „Aprobat”, cererea se
+  // arată tot „Aprobat”.
+  const statusInfo = requestStatusInfo(displayedRequestStatus(request))
   const statusSignal = isOutgoing
     ? { tone: 'ok' as const, label: 'Trimis clientului' }
     : { tone: statusInfo.tone, label: isAdminOrConsultant ? statusInfo.label : statusInfo.clientLabel }
@@ -301,7 +302,7 @@ export default function DocumentModal({
   /** Închide sau redeschide cererea (#109, D14), cu confirmare. Fișa rămâne deschisă. */
   const handleClosure = async (action: 'close' | 'reopen') => {
     const dialog = action === 'close'
-      ? requestCloseConfirm(request.name)
+      ? requestCloseConfirm(request.name, request.status)
       : requestReopenConfirm(request.name, request.status_before_close)
     if (!(await confirm(dialog))) return
     const fallback = action === 'close'
@@ -780,8 +781,8 @@ export default function DocumentModal({
               <Archive className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
               <p>
                 {isAdminOrConsultant
-                  ? `Cererea e închisă${formatClosedDate(request.closed_at) ? ` din ${formatClosedDate(request.closed_at)}` : ''}${request.closer?.full_name ? `, de ${request.closer.full_name}` : ''}. Nu mai primește fișiere și nu se mai modifică până o redeschizi.`
-                  : CLOSED_REQUEST_CLIENT_NOTE}
+                  ? `Cererea e ${request.status_before_close === 'approved' ? 'aprobată și ' : ''}închisă${formatClosedDate(request.closed_at) ? ` din ${formatClosedDate(request.closed_at)}` : ''}${request.closer?.full_name ? `, de ${request.closer.full_name}` : ''}. Nu mai primește fișiere și nu se mai modifică până o redeschizi.`
+                  : closedRequestClientNote(request)}
               </p>
             </div>
           )}
