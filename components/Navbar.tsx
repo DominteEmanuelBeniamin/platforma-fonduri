@@ -55,6 +55,8 @@ export default function Navbar() {
     pillsRef.current?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
   }, [pathname, profile?.role])
 
+  if (pathname === '/login' || pathname === '/forgot-password' || pathname === '/reset-password') return null
+
   return (
     <nav
       aria-label="Navigare principală"

@@ -1,0 +1,112 @@
+# Issue #107 — implementare și validare
+
+7 octombrie 2026. Implementarea este gata pentru review pe `codex/issue-107-recovery`, peste PR #117 (`2471801629dbd444980f0f38b4493b6d89136a4e`). Planul este în [issue-107-implementation-plan.md](issue-107-implementation-plan.md), iar activarea în [issue-107-rollout.md](issue-107-rollout.md).
+
+Codul a fost scris de trei subagenți **gpt-6-luna, xhigh**. Orchestratorul a făcut review-ul și a scris/rulat verificările independent. Subagenții nu au rulat validări. Nu există dependențe noi, migrare generală la SSR sau implementare a interfețelor #106/#108.
+
+## Rezultatul
+
+Linkul aplicației acordă numai dreptul de alegere a parolei. Finalizarea schimbă atomic parola, marcajul temporar, consumul dovezii, revocarea tuturor sesiunilor, auditul obligatoriu și înscrierea confirmării în coadă. Loginul normal este făcut după commit și sesiunea este returnată numai după verificarea proaspătă a profilului și a accesului.
+
+Dezactivarea, schimbarea efectivă a emailului și resetarea administrativă invalidează permanent generația anterioară. Reactivarea și revenirea la emailul vechi nu o restaurează. Linkurile greșite, expirate, folosite sau invalidate afișează același mesaj:
+
+> Linkul de resetare nu mai este valid. Solicită un link nou sau contactează administratorul.
+
+Un rezultat deja finalizat poate fi recuperat timp de 24 ore, numai cu aceeași dovadă și încercare. Receipt-ul confirmă rezultatul fără a schimba din nou parola sau a emite o altă sesiune. Eșecul loginului/instalării după commit păstrează parola nouă și oferă autentificarea manuală, inclusiv când B era deja conectat.
+
+## Dovezi independente
+
+| Verificare | Rezultat |
+| --- | --- |
+| Integrare DB/Auth/API/browser | 19 grupuri trecute + 1 înregistrare cu măsurătorile R31; 20/20 în raport |
+| Matrice R01–R35 | Toate cele 35 ID-uri au dovezi locale trecute |
+| Regresii reale #105 | 9/9 teste API, REST, RPC, Storage, Realtime, lifecycle, ștergere și UI |
+| Teste unitare | 269/269 |
+| ESLint | 0 erori; 3 avertismente preexistente |
+| TypeScript | Trecut, inclusiv în build |
+| Build Next.js 16.3.5 | Trecut în mod production |
+| Headere pe server production | Forgot/reset: HTTP 200 fără Auth, Cache-Control no-store, Referrer-Policy no-referrer |
+| audit:check | Trecut; acțiuni renderabile și audit append-only |
+| Lint SQL local | 0 erori; hook-ul ignoră intenționat parametrul event; restul avertismentelor provin din funcții existente |
+| Securitate/performance locală | RLS FORCE, schema privată inaccesibilă, RPC-uri service-only, hook auth-only, FK-uri indexate |
+| Migrație nouă | Instalare de la zero și activare probate în tranzacție cu rollback; un singur rând settings inițial dezactivat, toate parolele păstrate |
+
+[Măsurătorile și rezultatele fără secrete](issue-107-implementation-results.json) sunt generate de [verificarea executabilă](../scripts/issue-107-check.mjs). Rularea integrală a folosit serverul dev separat pe 3107. Headerele au fost verificate și pe build-ul production pe 3117. Corecțiile finale ale verificărilor pentru junior/senior, minimele Unicode, validarea HTTP și ban-ul Auth au fost rerulate separat.
+
+R31 folosește opt probe pentru fiecare stare, în ordine rotită, cu furnizorul simulat întârziat 1,8 secunde. Medianele active/inexistente/inactive/cooldown au fost **15/14/16/14 ms**. Statusul, corpul și headerele sunt identice. Acestea sunt măsurători locale; distribuția și headerele CDN se verifică din nou în preview înainte de activarea hosted.
+
+## Trasabilitatea R01–R35
+
+| Cazuri | Dovezi din verificarea executabilă |
+| --- | --- |
+| R01, R05, R06, R14, R16, R22 | roles_cooldown_latest_and_invalid_passwords: client, junior, senior și admin; 15:00; 6 caractere Unicode; exact 72 bytes; spații; marcaj; refuz fără consum |
+| R02, R03, R04 | private_state_and_http_boundaries, lookup_coherence_and_audit_auth_classification, api_email_delivery_retry_uniformity_and_postcommit_fallback: normalizare, lookup exact, duplicate/divergență, profil absent, ban Auth, JSON/limite/origine |
+| R07, R18, R19, R20, R21, R23 | lifecycle_email_admin_invalidation_permanent: link/formular vechi, email A→B→A, reset admin, marcaj repetat, ștergere și reutilizare email cu alt UUID |
+| R08, R09, R11, R12, R13 | browser_public_refresh_identity_mobile, native_recovery_and_magiclink_have_no_credentials, public_page_headers: alt browser, GET fără consum, refresh, B→A, lipsă proof și link invalid cu sesiune păstrată |
+| R10 | expiry_after_wait_and_atomic_audit_rollback, delivery_deadline_after_job_row_wait, anonymous_request_ttl_after_account_lock_wait: ceas proaspăt după blocări, fără prelungirea expirării |
+| R15 | two_requests_and_two_completions_one_commit: o rezervare, o parolă și un audit sub concurență |
+| R17 | lifecycle_auth_failure_and_concurrent_order și suita #105: JWT copiat, REST/RPC/Storage/Realtime conectat, reactivare fără revalidarea sesiunii vechi |
+| R24, R35 | lease_fencing_frozen_bytes_and_stale_generation și probele email/deadline: payload identic la rezultat necunoscut, idempotency, worker vechi, lease expirat, refuz cert fără restaurarea vechiului link/cooldown |
+| R25, R26 | fault-uri DB/audit/login/ban: eroare temporară controlată, rollback complet și răspuns corect după commit |
+| R27, R28 | browser_lost_response_fallback_and_installation_race: răspuns pierdut, receipt după refresh, instalare refuzată, login manual A cu B conectat, 401 întârziat al lui B |
+| R29 | confirmation_state_and_temporary_api_errors: confirmare omisă după dezactivare sau refuzată de furnizor, fără anularea parolei |
+| R30 | native_recovery_and_magiclink_have_no_credentials, private_state_and_http_boundaries, fresh_migration_disabled_activation_and_rollback: proof native recovery/magiclink/email-change și OTP inutilizabile, țintă din body refuzată, scriere nativă de parolă blocată |
+| R31 | uniform_latency_and_atomic_volume_limits: răspuns uniform, IP 10/min atomic și global 1000/oră, independent de cont |
+| R32 | lookup_coherence_and_audit_auth_classification și #105: autor anonim vs actor dovedit, excepție exactă self_recovery, lipsa source rămâne blocantă, audit păstrat după ștergere |
+| R33, R34 | preflight real pozitiv/negativ, public_page_headers, browser și testul de redactare: origine/override, cheie, rol DB, tracking atestat, niciun secret în rezultate/trace; tastatură, mobil și autofill |
+
+## Cele 11 cazuri de dezactivare
+
+| Caz acceptat | Dovadă/rezultat |
+| --- | --- |
+| Deja inactiv când cere forgot | R02: răspuns generic, fără email eligibil |
+| Dezactivat înainte de predarea emailului | R35: revalidare în delivery_ready; generația invalidată nu poate fi predată ca validă |
+| Email deja acceptat, apoi dezactivat | R07/R35: linkul este invalid; un email deja acceptat nu poate fi retras |
+| Formular deschis, apoi dezactivat | R07: salvare refuzată, parola și marcajul păstrate |
+| Salvare și dezactivare concurente | R26/R28: ambele ordini; verificare suplimentară când dezactivarea intervine în emiterea sesiunii după commit |
+| Finalizare urmată de dezactivare | R17 + #105: revocare și refuzul operațiilor noi |
+| Ban-ul Auth eșuează | R26: profilul inactiv și auth_sync_pending blochează accesul și recovery |
+| Reactivare înaintea expirării linkului | R07: vechiul link rămâne invalid |
+| Reactivare și forgot nou | R21/R35: cooldown-ul vechi este eliberat, numai generația nouă este validă |
+| Mai multe cicluri activ/inactiv | lookup_coherence_and_audit_auth_classification: două cicluri probate, fără restaurarea linkului |
+| Alt ban Auth, profil activ | Aceeași probă: cererea nouă și salvarea sunt refuzate, fără mutații ale contului |
+
+## Compatibilitate și integrarea #108
+
+Adaptorul este demonstrat pentru **Auth v2.197.0**, SDK **2.90.0**, PostgreSQL **17.6** și hashuri necriptate bcrypt **$2a$ cu cost 05–10**. Parolele noi folosesc $2a$10$. Au fost probate loginul și refuzul aceleiași parole pentru costul 6 existent. Hashurile cu cost 4/peste 10 ar declanșa rehash-ul nativ, iar pgcrypto nu verifică prefixele 2b/2y; preflight-ul le refuză fără a modifica parolele. Eligibilitatea refuză și un format nesuportat apărut după activare.
+
+După activare, schimbarea parolei prin Auth updateUser sau Admin HTTP este blocată. #108 trebuie să folosească tranzacția DB canonică, cu aceeași blocare (105,1), invalidare, marcaj, revocare și audit obligatoriu. Probe locale au validat integrarea, nu interfața completă #108. Crearea admin a unui cont confirmat și loginul normal prin parolă funcționează.
+
+Activarea elimină toate credențialele native legacy și toate sesiunile existente, fără schimbarea parolelor. Necesită preflight explicit și fereastră de rollout anunțată. Rolul conexiunii native trebuie atestat efectiv ca supabase_auth_admin; simpla existență a rolului nu ajunge.
+
+## Limite de recepție și starea mediilor
+
+- **Nicio scriere sau activare hosted.** Compatibilitatea remote, advisorii Supabase, configurația reală Auth/Resend, scheduler-ul și comportamentul CDN rămân verificări de deploy documentate în rollout.
+- Dispatch-ul durabil la fiecare minut este obligatoriu. Vercel cere Pro/Enterprise pentru această frecvență; configurația domeniului Resend trebuie să aibă tracking dezactivat.
+- Testele de livrare folosesc exclusiv furnizorul HTTP simulat și adrese example.invalid. Acceptarea furnizorului nu dovedește ajungerea în inbox; la bounce nu există fallback cu parolă, iar linkul/cooldown-ul respectă expirarea normală. Nu s-au trimis emailuri reale.
+- URL-urile Storage deja semnate păstrează limita TTL acceptată în #105.
+- După teste, recovery local este din nou **enabled=false**, schema fixture și conturile issue107.impl sunt eliminate, iar containerele Auth și serverele de probă au fost oprite. Migrația este în istoricul local. Auditul istoric este păstrat.
+- Serverul utilizatorului de pe 3000 și serviciul Auth principal nu au fost restartate; configurația Auth runtime principală necesită aplicarea setărilor noi înainte de activare. Modificările utilizatorului din checkout-ul D: sunt păstrate.
+
+## Reproducere
+
+Folosește un Supabase local dedicat, configurația din rollout și fișierul explicit .env.e2e.localdb cu E2E_WRITES=1/E2E_TEST_PROJECT=1. .env.issue107.local este ignorat de Git și trebuie să declare cheia recovery/cron locale, originea serverului, expeditorul, override-ul example.invalid, tracking disabled și furnizorul de test:
+
+```dotenv
+NEXT_PUBLIC_APP_URL=http://127.0.0.1:3107
+RESEND_API_KEY=re_test_local_issue107
+RESEND_BASE_URL=http://127.0.0.1:4017
+RESEND_FROM_EMAIL=onboarding@resend.dev
+REMINDER_EMAIL_OVERRIDE_TO=recovery-test@example.invalid
+RESEND_LINK_TRACKING_DISABLED=true
+```
+
+RECOVERY_SECRET trebuie generat separat, ca 32 bytes aleatorii în base64 canonic; CRON_SECRET este separat. Pornește Next pe 3107 cu aceste valori numai în development și cu URL-ul/cheile stack-ului local. După preflight și activarea explicită pe acest proiect de test:
+
+```powershell
+$env:E2E_ENV_FILE='.env.e2e.localdb'
+$env:ISSUE107_BASE_URL='http://127.0.0.1:3107'
+node scripts/issue-107-check.mjs
+```
+
+Verificarea refuză hosturi nelocale, pornește singură furnizorul simulat pe 4017 și clona Auth configurată pe 3108, apoi le elimină. Filtrul ISSUE107_CHECK_ONLY permite rerularea unui grup. Pentru headerele production folosește build/start pe 3117 și filtrul public_page_headers. Probele phase0 sunt istorice, anterioare implementării; ele refuză rularea cu recovery activ și nu înlocuiesc verificarea finală.

@@ -1,0 +1,288 @@
+{
+  "date": "2026-10-07T13:55:25.131Z",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:3107",
+    "auth": "v2.197.0",
+    "postgres": "17.6",
+    "sdk": "2.90.0",
+    "servers": {
+      "development": "http://127.0.0.1:3107",
+      "production": "http://127.0.0.1:3117"
+    }
+  },
+  "cases": [
+    {
+      "name": "fresh_migration_disabled_activation_and_rollback",
+      "ids": [
+        "R26",
+        "R30",
+        "R33"
+      ],
+      "passed": true,
+      "baseUrl": "http://127.0.0.1:3107"
+    },
+    {
+      "name": "private_state_and_http_boundaries",
+      "ids": [
+        "R03",
+        "R07",
+        "R12",
+        "R25",
+        "R30",
+        "R34"
+      ],
+      "passed": true,
+      "baseUrl": "http://127.0.0.1:3107"
+    },
+    {
+      "name": "native_recovery_and_magiclink_have_no_credentials",
+      "ids": [
+        "R09",
+        "R30",
+        "R33"
+      ],
+      "passed": true,
+      "baseUrl": "http://127.0.0.1:3107"
+    },
+    {
+      "name": "two_requests_and_two_completions_one_commit",
+      "ids": [
+        "R05",
+        "R15",
+        "R27"
+      ],
+      "passed": true,
+      "baseUrl": "http://127.0.0.1:3107"
+    },
+    {
+      "name": "expiry_after_wait_and_atomic_audit_rollback",
+      "ids": [
+        "R10",
+        "R25",
+        "R26"
+      ],
+      "passed": true,
+      "baseUrl": "http://127.0.0.1:3107"
+    },
+    {
+      "name": "lifecycle_email_admin_invalidation_permanent",
+      "ids": [
+        "R07",
+        "R18",
+        "R19",
+        "R20",
+        "R21",
+        "R23",
+        "R35"
+      ],
+      "passed": true,
+      "baseUrl": "http://127.0.0.1:3107"
+    },
+    {
+      "name": "lifecycle_auth_failure_and_concurrent_order",
+      "ids": [
+        "R17",
+        "R26",
+        "R28",
+        "R35"
+      ],
+      "passed": true,
+      "baseUrl": "http://127.0.0.1:3107"
+    },
+    {
+      "name": "lease_fencing_frozen_bytes_and_stale_generation",
+      "ids": [
+        "R05",
+        "R06",
+        "R24",
+        "R35"
+      ],
+      "passed": true,
+      "baseUrl": "http://127.0.0.1:3107"
+    },
+    {
+      "name": "confirmation_state_and_temporary_api_errors",
+      "ids": [
+        "R25",
+        "R28",
+        "R29",
+        "R35"
+      ],
+      "passed": true,
+      "baseUrl": "http://127.0.0.1:3107"
+    },
+    {
+      "name": "uniform_latency_measurements",
+      "ids": [
+        "R31"
+      ],
+      "passed": true,
+      "samplesPerState": 8,
+      "medianMs": [
+        15,
+        14,
+        16,
+        14
+      ],
+      "baseUrl": "http://127.0.0.1:3107"
+    },
+    {
+      "name": "uniform_latency_and_atomic_volume_limits",
+      "ids": [
+        "R03",
+        "R31"
+      ],
+      "passed": true,
+      "baseUrl": "http://127.0.0.1:3107"
+    },
+    {
+      "name": "delivery_deadline_after_job_row_wait",
+      "ids": [
+        "R10",
+        "R24",
+        "R35"
+      ],
+      "passed": true,
+      "baseUrl": "http://127.0.0.1:3107"
+    },
+    {
+      "name": "anonymous_request_ttl_after_account_lock_wait",
+      "ids": [
+        "R10",
+        "R24",
+        "R35"
+      ],
+      "passed": true,
+      "baseUrl": "http://127.0.0.1:3107"
+    },
+    {
+      "name": "request_audit_rollback_and_missing_profile",
+      "ids": [
+        "R02",
+        "R04",
+        "R26",
+        "R32"
+      ],
+      "passed": true,
+      "baseUrl": "http://127.0.0.1:3107"
+    },
+    {
+      "name": "browser_public_refresh_identity_mobile",
+      "ids": [
+        "R08",
+        "R09",
+        "R11",
+        "R12",
+        "R13",
+        "R28",
+        "R34"
+      ],
+      "passed": true,
+      "baseUrl": "http://127.0.0.1:3107"
+    },
+    {
+      "name": "browser_lost_response_fallback_and_installation_race",
+      "ids": [
+        "R11",
+        "R13",
+        "R27",
+        "R28",
+        "R34"
+      ],
+      "passed": true,
+      "baseUrl": "http://127.0.0.1:3107"
+    },
+    {
+      "name": "public_page_headers",
+      "ids": [
+        "R09",
+        "R33",
+        "R34"
+      ],
+      "passed": true,
+      "baseUrl": "http://127.0.0.1:3117"
+    },
+    {
+      "name": "api_email_delivery_retry_uniformity_and_postcommit_fallback",
+      "ids": [
+        "R02",
+        "R03",
+        "R04",
+        "R08",
+        "R24",
+        "R27",
+        "R28",
+        "R29",
+        "R33",
+        "R34",
+        "R35"
+      ],
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
+    },
+    {
+      "name": "lookup_coherence_and_audit_auth_classification",
+      "ids": [
+        "R04",
+        "R18",
+        "R22",
+        "R23",
+        "R32"
+      ],
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
+    },
+    {
+      "name": "roles_cooldown_latest_and_invalid_passwords",
+      "ids": [
+        "R01",
+        "R05",
+        "R06",
+        "R14",
+        "R16",
+        "R22"
+      ],
+      "baseUrl": "http://127.0.0.1:3107",
+      "passed": true
+    }
+  ],
+  "passed": 20,
+  "total": 20,
+  "validation": {
+    "unitTests": {
+      "passed": 269,
+      "total": 269
+    },
+    "lifecycleE2E": {
+      "passed": 9,
+      "total": 9
+    },
+    "integrationGroups": 19,
+    "latencyMeasurements": 1,
+    "eslintErrors": 0,
+    "existingEslintWarnings": 3,
+    "typeScript": true,
+    "productionBuild": true,
+    "productionPageHeaders": true,
+    "localDbLintErrors": 0,
+    "localDbLintNewWarnings": [
+      "send_email_hook: unused event parameter (intentional)"
+    ],
+    "remoteAdvisorsRun": false
+  },
+  "cleanup": {
+    "disabled": true,
+    "migration_recorded": true,
+    "private_rls_forced": true,
+    "probe_schema_absent": true,
+    "foreign_keys_indexed": true,
+    "service_rpc_boundary": true,
+    "private_schema_denied": true,
+    "fixture_accounts_removed": true
+  },
+  "hosted": {
+    "writes": false,
+    "activated": false,
+    "gate": "explicit_read_only_preflight_required"
+  }
+}

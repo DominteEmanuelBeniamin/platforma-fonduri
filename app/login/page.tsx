@@ -8,6 +8,7 @@ import { Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
 import { useToast } from '@/app/providers/ToastProvider'
+import Link from 'next/link'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -22,7 +23,7 @@ export default function LoginPage() {
   // Redirect dacă e deja logat
   useEffect(() => {
     if (authInitLoading) return
-    if (token) router.replace('/')
+    if (token && new URLSearchParams(window.location.search).get('recovery') !== 'complete') router.replace('/')
   }, [authInitLoading, token, router])
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -119,6 +120,11 @@ export default function LoginPage() {
             <Button type="submit" variant="primary" disabled={authLoading} className="w-full">
               {authLoading ? 'Se conectează…' : 'Intră în cont'}
             </Button>
+            <p className="text-center text-sm">
+              <Link href="/forgot-password" className="font-semibold text-[var(--sg-accent-ink)] underline underline-offset-4">
+                Ai uitat parola?
+              </Link>
+            </p>
           </form>
         </div>
       </div>

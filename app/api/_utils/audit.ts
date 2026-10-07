@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 // app/api/_utils/audit.ts
 import { createSupabaseServiceClient } from './supabase.ts'
 
@@ -12,6 +11,8 @@ type AuditActionType =
   | 'login'
   | 'logout'
   | 'download'
+  | 'password_reset_requested'
+  | 'password_reset_completed'
 
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true
@@ -36,17 +37,17 @@ function deepEqual(a: unknown, b: unknown): boolean {
  * tratate echivalent, ca sa nu marchezi un PATCH no-op drept modificare.
  */
 export function computeDiff(
-  before: Record<string, any> | null | undefined,
-  update: Record<string, any> | null | undefined,
+  before: Record<string, unknown> | null | undefined,
+  update: Record<string, unknown> | null | undefined,
 ): {
-  oldValues: Record<string, any> | null
-  newValues: Record<string, any> | null
+  oldValues: Record<string, unknown> | null
+  newValues: Record<string, unknown> | null
   changedKeys: string[]
   isEmpty: boolean
 } {
   if (!update) return { oldValues: null, newValues: null, changedKeys: [], isEmpty: true }
-  const oldValues: Record<string, any> = {}
-  const newValues: Record<string, any> = {}
+  const oldValues: Record<string, unknown> = {}
+  const newValues: Record<string, unknown> = {}
   const changedKeys: string[] = []
   for (const key of Object.keys(update)) {
     const oldVal = before ? before[key] : undefined
@@ -69,25 +70,78 @@ export function computeDiff(
 
 const SENSITIVE_KEYS = new Set([
   'password',
-  'password_hash',
+  'passwordhash',
+  'encryptedpassword',
+  'passwordconfirmation',
+  'passwordconfirm',
+  'confirmpassword',
+  'confirmation',
+  'currentpassword',
+  'newpassword',
+  'oldpassword',
   'token',
-  'access_token',
-  'refresh_token',
-  'signed_url',
+  'recoverytoken',
+  'accesstoken',
+  'refreshtoken',
+  'hashedtoken',
+  'tokenhash',
+  'proof',
+  'recoveryproof',
+  'signedurl',
   'signature',
   'secret',
-  'api_key',
+  'recoverysecret',
+  'cronsecret',
+  'apikey',
+  'resendapikey',
+  'servicerolekey',
+  'payloadcipher',
+  'frozenpayloadcipher',
+  'encryptedpayload',
+  'ciphertext',
+  'cookie',
+  'setcookie',
+  'authorization',
+  'bearertoken',
+  'otp',
+  'magiclinktoken',
+  'reseturl',
+  'resetlink',
+  'recoveryurl',
+  'recoverylink',
+  'actionlink',
+  'passwordreseturl',
+
 ])
 
+function normalizeAuditKey(key: string) {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+export function redactAuditText(value: string) {
+  return value
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [redacted]')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[A-Za-z0-9_-]{43}(?=$|[^A-Za-z0-9_-])/gi, '[redacted]')
+    .replace(/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?=$|[^A-Za-z0-9_-])/gi, '[redacted]')
+    .replace(/([?&#](?:token|access_token|refresh_token|hashed_token|token_hash|secret|password|action_?link)=)[^&#\s"'<>]+/gi, '$1[redacted]')
+}
+
+function auditErrorCode(error: unknown) {
+  if (!error || typeof error !== 'object' || !('code' in error) || typeof error.code !== 'string') return undefined
+  return /^[A-Z0-9_]+$/.test(error.code) ? error.code : undefined
+}
 const MAX_PAYLOAD_BYTES = 32 * 1024
 
 function sanitize(value: unknown): unknown {
   if (value === null || value === undefined) return value
+  if (typeof value === 'string') return redactAuditText(value)
   if (Array.isArray(value)) return value.map(sanitize)
   if (typeof value === 'object') {
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (SENSITIVE_KEYS.has(k.toLowerCase())) {
+      const normalizedKey = normalizeAuditKey(k)
+      if (SENSITIVE_KEYS.has(normalizedKey)
+        || (normalizedKey.startsWith('p') && SENSITIVE_KEYS.has(normalizedKey.slice(1)))) {
         out[k] = '[redacted]'
       } else {
         out[k] = sanitize(v)
@@ -122,8 +176,8 @@ export interface LogActionParams {
   entityType: string
   entityId?: string | null
   entityName?: string | null
-  oldValues?: Record<string, any> | null
-  newValues?: Record<string, any> | null
+  oldValues?: Record<string, unknown> | null
+  newValues?: Record<string, unknown> | null
   description: string
   request?: Request
   ipAddress?: string
@@ -137,16 +191,12 @@ function auditRow(params: LogActionParams) {
     action_type: params.actionType,
     entity_type: params.entityType,
     entity_id: params.entityId ?? null,
-    entity_name: params.entityName ?? null,
+    entity_name: params.entityName ? redactAuditText(params.entityName) : null,
     old_values: truncatePayload(params.oldValues ?? null),
     new_values: truncatePayload(params.newValues ?? null),
-    description: params.description,
-    ip_address:
-      params.ipAddress ??
-      (params.request ? getClientIP(params.request) : 'unknown'),
-    user_agent:
-      params.userAgent ??
-      (params.request ? getUserAgent(params.request) : 'unknown'),
+    description: redactAuditText(params.description),
+    ip_address: redactAuditText(params.ipAddress ?? (params.request ? getClientIP(params.request) : 'unknown')),
+    user_agent: redactAuditText(params.userAgent ?? (params.request ? getUserAgent(params.request) : 'unknown')),
   }
 }
 
@@ -170,15 +220,14 @@ export async function logActions(entries: LogActionParams[]): Promise<void> {
 
     console.error('[audit_log_failure]', {
       batch: entries.length,
-      error: error.message,
+      code: auditErrorCode(error),
       retry: 'per rand',
     })
     await Promise.all(entries.map(entry => logAction(entry)))
-  } catch (e) {
-    const err = e as Error
+  } catch {
     console.error('[audit_log_failure]', {
       batch: entries.length,
-      error: err?.message ?? String(e),
+      event: 'write_failed',
     })
   }
 }
@@ -197,16 +246,14 @@ export async function logAction(params: LogActionParams): Promise<void> {
     if (error) {
       console.error('[audit_log_failure]', {
         entityType: params.entityType,
-        entityId: params.entityId,
-        error: error.message,
+        code: auditErrorCode(error),
       })
     }
-  } catch (e) {
-    const err = e as Error
+  } catch {
     console.error('[audit_log_failure]', {
       entityType: params.entityType,
-      entityId: params.entityId,
-      error: err?.message ?? String(e),
+
+      event: 'write_failed',
     })
   }
 }
@@ -216,8 +263,8 @@ interface LogUserActionParams {
   actionType: AuditActionType
   userId: string
   userEmail: string
-  oldValues?: Record<string, any> | null
-  newValues?: Record<string, any> | null
+  oldValues?: Record<string, unknown> | null
+  newValues?: Record<string, unknown> | null
   description: string
   ipAddress: string
   userAgent: string
@@ -229,25 +276,25 @@ interface LogUserActionParams {
 export async function logUserAction(params: LogUserActionParams) {
   try {
     const admin = createSupabaseServiceClient()
-    
+
     const { error } = await admin.from('audit_logs').insert({
       user_id: params.adminId,
       action_type: params.actionType,
       entity_type: 'user',
       entity_id: params.userId,
-      entity_name: params.userEmail,
-      old_values: params.oldValues || null,
-      new_values: params.newValues || null,
-      description: params.description,
-      ip_address: params.ipAddress,
-      user_agent: params.userAgent
+      entity_name: redactAuditText(params.userEmail),
+      old_values: truncatePayload(params.oldValues ?? null),
+      new_values: truncatePayload(params.newValues ?? null),
+      description: redactAuditText(params.description),
+      ip_address: redactAuditText(params.ipAddress),
+      user_agent: redactAuditText(params.userAgent)
     })
 
     if (error) {
-      console.error('❌ Audit log failed:', error)
+      console.error('[audit_log_failure]', { entityType: 'user', code: auditErrorCode(error) })
     }
-  } catch (e) {
-    console.error('❌ Audit log exception:', e)
+  } catch {
+    console.error('[audit_log_failure]', { entityType: 'user' })
   }
 }
 
@@ -256,8 +303,8 @@ interface LogProjectActionParams {
   actionType: AuditActionType
   projectId: string
   projectTitle: string
-  oldValues?: Record<string, any> | null
-  newValues?: Record<string, any> | null
+  oldValues?: Record<string, unknown> | null
+  newValues?: Record<string, unknown> | null
   description: string
   ipAddress: string
   userAgent: string
@@ -269,25 +316,25 @@ interface LogProjectActionParams {
 export async function logProjectAction(params: LogProjectActionParams) {
   try {
     const admin = createSupabaseServiceClient()
-    
+
     const { error } = await admin.from('audit_logs').insert({
       user_id: params.adminId,
       action_type: params.actionType,
       entity_type: 'project',
       entity_id: params.projectId,
-      entity_name: params.projectTitle,
-      old_values: params.oldValues || null,
-      new_values: params.newValues || null,
-      description: params.description,
-      ip_address: params.ipAddress,
-      user_agent: params.userAgent
+      entity_name: redactAuditText(params.projectTitle),
+      old_values: truncatePayload(params.oldValues ?? null),
+      new_values: truncatePayload(params.newValues ?? null),
+      description: redactAuditText(params.description),
+      ip_address: redactAuditText(params.ipAddress),
+      user_agent: redactAuditText(params.userAgent)
     })
 
     if (error) {
-      console.error('❌ Audit log (project) failed:', error)
+      console.error('[audit_log_failure]', { entityType: 'project', code: auditErrorCode(error) })
     }
-  } catch (e) {
-    console.error('❌ Audit log (project) exception:', e)
+  } catch {
+    console.error('[audit_log_failure]', { entityType: 'project' })
   }
 } 
 
@@ -297,8 +344,8 @@ interface LogChatMessageActionParams {
   projectId: string
   messageId: string
   messagePreview?: string | null
-  oldValues?: Record<string, any> | null
-  newValues?: Record<string, any> | null
+  oldValues?: Record<string, unknown> | null
+  newValues?: Record<string, unknown> | null
   description: string
   ipAddress: string
   userAgent: string
@@ -323,19 +370,19 @@ export async function logChatMessageAction(params: LogChatMessageActionParams) {
       action_type: params.actionType,
       entity_type: 'chat_message',
       entity_id: params.messageId,
-      entity_name: entityName,
-      old_values: params.oldValues || null,
-      new_values: params.newValues || null,
-      description: params.description,
-      ip_address: params.ipAddress,
-      user_agent: params.userAgent,
+      entity_name: redactAuditText(entityName),
+      old_values: truncatePayload(params.oldValues ?? null),
+      new_values: truncatePayload(params.newValues ?? null),
+      description: redactAuditText(params.description),
+      ip_address: redactAuditText(params.ipAddress),
+      user_agent: redactAuditText(params.userAgent),
     })
 
     if (error) {
-      console.error('❌ Audit log (chat_message) failed:', error)
+      console.error('[audit_log_failure]', { entityType: 'chat_message', code: auditErrorCode(error) })
     }
-  } catch (e) {
-    console.error('❌ Audit log (chat_message) exception:', e)
+  } catch {
+    console.error('[audit_log_failure]', { entityType: 'chat_message' })
   }
 }
 
