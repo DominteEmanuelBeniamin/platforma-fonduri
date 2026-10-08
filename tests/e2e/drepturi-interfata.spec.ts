@@ -3,7 +3,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { test, expect, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { e2eEnv, requireE2EConfig, serviceClient } from './helpers/project-state'
+import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
 import { ROW, ROWS } from './helpers/matricea-drepturilor'
 
 /**
@@ -205,8 +205,7 @@ async function fixedConsultant(tag: 'sa' | 'sb' | 'ja' | 'jb', level: 'junior' |
     const { data: existing } = await service.from('profiles').select('id').eq('email', email).maybeSingle()
     if (!existing) throw new Error(`Nu am putut crea ${email}`)
     id = existing.id as string
-    const { error } = await service.auth.admin.updateUserById(id, { password: PASSWORD })
-    if (error) throw new Error(`Parola pentru ${email}: ${error.message}`)
+    setLocalFixturePassword(id, PASSWORD)
   }
   fixedAccounts.add(id)
   const { error } = await service.from('profiles').upsert({ id, email, role: 'consultant', consultant_level: level, full_name: name, is_active: true })
@@ -1168,7 +1167,7 @@ test('Conturi — adminul creează, schimbă rolul și șterge din „Utilizator
     await panel.getByRole('radio', { name: 'Consultant' }).check()
     await panel.getByLabel('Email').fill(email)
     await panel.getByLabel('Nume complet').fill(name)
-    await panel.getByLabel('Parolă temporară').fill(PASSWORD)
+    await expect(panel.getByLabel('Parolă temporară')).toHaveCount(0)
     await panel.getByLabel('Specializare').fill('PNRR')
     await panel.getByRole('button', { name: 'Creează' }).click()
     let userId = ''
@@ -1200,8 +1199,8 @@ test('Conturi — adminul creează, schimbă rolul și șterge din „Utilizator
       return data?.role as string
     }, v => v === 'client', v => String(v))
 
-    await page.getByRole('button', { name: `Șterge utilizatorul ${email}` }).click()
-    await confirmWithWord(page, 'Șterge utilizator', 'sterge', 'Șterge utilizator')
+    await page.getByRole('button', { name: `Șterge definitiv utilizatorul ${email}` }).click()
+    await confirmWithWord(page, 'Șterge definitiv utilizatorul', 'sterge', 'Șterge definitiv')
     await stored('a-conturi', 'admin', 'șterge contul din listă', 'șters', async () => {
       const { data } = await service.from('profiles').select('id').eq('id', userId).maybeSingle()
       return data
@@ -1221,7 +1220,7 @@ test('Conturi — adminul creează, schimbă rolul și șterge din „Utilizator
       }
     })
   }
-  observe('a-conturi', 'Parola se stabilește doar la creare („Parolă temporară”), de admin', 'nu există resetare separată de parolă în interfață')
+  observe('a-conturi', 'Parola temporară este generată automat la creare', 'nu există resetare separată de parolă în interfață')
 })
 
 test('Statusurile de proiect — adminul adaugă un status din pagină; consultanții sunt trimiși înapoi', async ({ browser }) => {

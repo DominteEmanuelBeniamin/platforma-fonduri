@@ -313,6 +313,7 @@ async function processRecipient(
     digest = renderReminderDigest({
       audience: group.recipientKind,
       recipientName: group.recipientName,
+      recipientEmail: delivery.data.intendedEmail,
       dashboardUrl: appUrl,
       items: claimed.map(entry => entry.item),
     })

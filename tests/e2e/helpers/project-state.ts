@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 export const BUCKET = 'project-files'
@@ -89,6 +90,43 @@ export function serviceClient(): SupabaseClient | null {
   return createClient(env.E2E_SUPABASE_URL, env.E2E_SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
+}
+
+/** Fixed test accounts need a DB transaction because native Auth password updates are gated. */
+export function setLocalFixturePassword(userId: string, password: string, env: Record<string, string> = e2eEnv()) {
+  const config = requireE2EConfig(env)
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(config.supabaseUrl).hostname)) {
+    throw new Error('Parolele fixture-urilor se pregătesc numai în Supabase local')
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    throw new Error('Fixture UUID invalid')
+  }
+  if (password.length < 6 || Buffer.byteLength(password, 'utf8') > 72) {
+    throw new Error('Fixture password must have at least 6 characters and at most 72 bytes')
+  }
+  const literal = "'" + password.replaceAll("'", "''") + "'"
+  const tag = '$fixture_' + randomUUID().replaceAll('-', '') + '$'
+  try {
+    execFileSync('docker', ['exec', '-i', 'supabase_db_platforma-fonduri', 'psql', '-U', 'postgres', '-d', 'postgres', '-X', '-v', 'ON_ERROR_STOP=1', '-qAt'], {
+      input: `set log_min_error_statement='panic'; set log_parameter_max_length_on_error=0; set standard_conforming_strings=on;
+        do ${tag} begin
+          perform pg_advisory_xact_lock(105, 1);
+          perform 1 from public.profiles where id='${userId}'
+            and (email like '%@test.local' or email like '%@example.invalid') for update;
+          if not found then raise exception 'Fixture profile missing'; end if;
+          perform 1 from auth.users where id='${userId}' for update;
+          if not found then raise exception 'Fixture Auth account missing'; end if;
+          update auth.users set encrypted_password=extensions.crypt(${literal}, extensions.gen_salt('bf', 10)), updated_at=clock_timestamp()
+            where id='${userId}';
+          delete from auth.sessions where user_id='${userId}';
+          delete from auth.one_time_tokens where user_id='${userId}';
+          delete from auth.flow_state where user_id='${userId}' or linking_target_id='${userId}';
+        end; ${tag};`,
+      encoding: 'utf8', windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+    })
+  } catch {
+    throw new Error('Nu am putut pregăti parola fixture-ului local')
+  }
 }
 
 export type CreatedRegistry = {

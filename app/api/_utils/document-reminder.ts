@@ -126,6 +126,7 @@ export async function sendDocumentReminder(
   const digest = renderReminderDigest({
     audience: 'client',
     recipientName: clientName,
+    recipientEmail: delivery.data.intendedEmail,
     dashboardUrl: publicAppUrl,
     items: [{
       entityType: 'request',

@@ -386,6 +386,7 @@ export async function POST(
     let html: string
     try {
       const safeProjectTitle = escapeHtml(project.title)
+      const safeRecipientEmail = escapeHtml(client.email)
       const salut = client.full_name ? `Salut, ${escapeHtml(client.full_name)}!` : 'Salut!'
       const phaseItems = claimedPhases.map(p => escapeHtml(p.name))
     const activityItems = claimedActivities.map(a => {
@@ -434,6 +435,9 @@ export async function POST(
     <div style="padding:20px 40px;border-top:1px solid #f1f5f9;">
       <p style="margin:0;color:#9ca3af;font-size:12px;">
         Acest email a fost generat automat de Platforma Fonduri EU. Nu răspunde la acest mesaj.
+      </p>
+      <p style="margin:8px 0 0;color:#9ca3af;font-size:12px;">
+        Acest mesaj privește contul <strong>${safeRecipientEmail}</strong>.
       </p>
     </div>
   </div>

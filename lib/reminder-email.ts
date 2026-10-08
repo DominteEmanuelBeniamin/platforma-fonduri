@@ -17,6 +17,7 @@ export interface ReminderEmailItem {
 export interface ReminderEmailDigestInput {
   audience: ReminderEmailAudience
   recipientName: string | null
+  recipientEmail: string
   dashboardUrl: string
   items: ReminderEmailItem[]
 }
@@ -147,6 +148,8 @@ export function renderReminderDigest(input: ReminderEmailDigestInput): ReminderE
     '',
     input.audience === 'client' ? 'Cu respect,' : 'Mulțumesc,',
     input.audience === 'client' ? 'Echipa de consultanță' : 'Platforma Fonduri EU',
+    '',
+    `Acest mesaj privește contul ${input.recipientEmail}.`,
   ].join('\n')
 
   const htmlSections = input.audience === 'client'
@@ -164,7 +167,8 @@ export function renderReminderDigest(input: ReminderEmailDigestInput): ReminderE
     '<div style="max-width:680px;margin:24px auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">' +
     `<div style="background:linear-gradient(135deg,#4f46e5,#6366f1);padding:28px 32px;"><h1 style="margin:0;color:#fff;font-size:22px;">${escapeHtml(heading)}</h1><p style="margin:8px 0 0;color:#c7d2fe;font-size:14px;">${escapeHtml(mostUrgent.projectTitle)}</p></div>` +
     `<div style="padding:28px 32px;"><p style="margin:0 0 18px;color:#334155;font-size:15px;">${escapeHtml(greeting)}</p><p style="margin:0 0 22px;color:#334155;font-size:15px;line-height:1.6;">${escapeHtml(input.audience === 'client' ? clientIntro : consultantIntro)}</p>${htmlSections}<p style="margin:24px 0 0;"><a href="${escapeHtml(input.dashboardUrl)}" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:600;">Deschide platforma</a></p></div>` +
-    '<div style="padding:18px 32px;border-top:1px solid #f1f5f9;"><p style="margin:0;color:#94a3b8;font-size:12px;">Acest email a fost generat automat de Platforma Fonduri EU.</p></div>' +
+    '<div style="padding:18px 32px;border-top:1px solid #f1f5f9;"><p style="margin:0;color:#94a3b8;font-size:12px;">Acest email a fost generat automat de Platforma Fonduri EU.</p>' +
+    `<p style="margin:8px 0 0;color:#94a3b8;font-size:12px;">Acest mesaj privește contul ${escapeHtml(input.recipientEmail)}.</p></div>` +
     '</div></body></html>'
 
   return {
