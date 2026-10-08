@@ -18,6 +18,11 @@ assert.equal(env.E2E_WRITES,'1','Explicit dedicated write permission required')
 assert.equal(env.E2E_TEST_PROJECT,'1','Dedicated test project required')
 const baseUrl = process.env.ISSUE107_BASE_URL || 'http://127.0.0.1:3107'
 const publicHeadersBaseUrl = process.env.ISSUE107_PUBLIC_HEADERS_BASE_URL || baseUrl
+const nativeAuthPort = Number(process.env.ISSUE107_AUTH_PORT || 3108)
+const preflightPort = Number(process.env.ISSUE107_PREFLIGHT_PORT || 3111)
+for (const port of [nativeAuthPort,preflightPort]) assert.ok(Number.isInteger(port)&&port>0&&port<=65535,'Valid local test ports required')
+const nativeAuthUrl = 'http://127.0.0.1:'+nativeAuthPort
+const preflightUrl = 'http://127.0.0.1:'+preflightPort
 for (const url of [baseUrl,publicHeadersBaseUrl,env.E2E_SUPABASE_URL]) assert.ok(['127.0.0.1','localhost','[::1]'].includes(new URL(url).hostname),'Local environment only')
 const authOptions = {autoRefreshToken:false,persistSession:false,detectSessionInUrl:false}
 const service = createClient(env.E2E_SUPABASE_URL,env.E2E_SUPABASE_SERVICE_ROLE_KEY,{auth:authOptions})
@@ -255,25 +260,25 @@ try {
     fs.mkdirSync('supabase/.temp',{recursive:true})
     fs.writeFileSync(file,source.Config.Env.filter(line=>!line.startsWith('GOTRUE_HOOK_SEND_EMAIL_')&&!line.startsWith('GOTRUE_DISABLE_SIGNUP=')).join('\n')+'\n')
     try {
-      execFileSync('docker',['run','-d','--name',containerName,'--network','supabase_network_platforma-fonduri','-p','127.0.0.1:3108:9999','--env-file',file,
+      execFileSync('docker',['run','-d','--name',containerName,'--network','supabase_network_platforma-fonduri','-p','127.0.0.1:'+nativeAuthPort+':9999','--env-file',file,
         '-e','GOTRUE_DISABLE_SIGNUP=true','-e','GOTRUE_HOOK_SEND_EMAIL_ENABLED=true','-e','GOTRUE_HOOK_SEND_EMAIL_URI=pg-functions://postgres/account_recovery/send_email_hook',source.Config.Image],
         {windowsHide:true,stdio:'pipe'});hookStarted=true
     }finally{fs.rmSync(file,{force:true})}
-    await waitFor(async()=>{try{return(await fetch('http://127.0.0.1:3108/health')).ok}catch{return false}},'Configured Auth clone health')
+    await waitFor(async()=>{try{return(await fetch(nativeAuthUrl+'/health')).ok}catch{return false}},'Configured Auth clone health')
     const before=(await(await fetch('http://127.0.0.1:54324/api/v1/messages')).json()).total
     const headers={'Content-Type':'application/json',apikey:env.E2E_SUPABASE_ANON_KEY}
     const pkceChallenge=hash(randomUUID())
     for(const [path,body] of [['/recover',{email:person.email}],['/otp',{email:person.email,create_user:false}],['/recover',{email:'issue107.impl.'+stamp+'.missing@example.invalid'}],['/recover',{email:person.email,code_challenge:pkceChallenge,code_challenge_method:'s256'}],['/otp',{email:person.email,create_user:false,code_challenge:pkceChallenge,code_challenge_method:'s256'}]]) {
-      assert.equal((await fetch('http://127.0.0.1:3108'+path,{method:'POST',headers,body:JSON.stringify(body)})).status,200,'Native request remains generic')
+      assert.equal((await fetch(nativeAuthUrl+path,{method:'POST',headers,body:JSON.stringify(body)})).status,200,'Native request remains generic')
     }
     assert.equal((await(await fetch('http://127.0.0.1:54324/api/v1/messages')).json()).total,before,'Hook suppresses SMTP delivery')
     assert.equal(snapshot(person).nativeFlows,0,'Native PKCE requests cannot persist flow_state')
-    assert.equal((await fetch('http://127.0.0.1:3108/token?grant_type=password',{method:'POST',headers,body:JSON.stringify({email:person.email,password})})).status,200,'Configured Auth password login intact')
+    assert.equal((await fetch(nativeAuthUrl+'/token?grant_type=password',{method:'POST',headers,body:JSON.stringify({email:person.email,password})})).status,200,'Configured Auth password login intact')
     let preflightDisableEmail=false
     const proxy=http.createServer(async(req,res)=>{
       try {
         let body='';for await(const chunk of req)body+=chunk
-        const target=req.url.startsWith('/auth/v1/')?'http://127.0.0.1:3108'+req.url.slice('/auth/v1'.length):env.E2E_SUPABASE_URL+req.url
+        const target=req.url.startsWith('/auth/v1/')?nativeAuthUrl+req.url.slice('/auth/v1'.length):env.E2E_SUPABASE_URL+req.url
         const forwarded=await fetch(target,{method:req.method,headers:{apikey:req.headers.apikey||'',Authorization:req.headers.authorization||'','Content-Type':req.headers['content-type']||'application/json'},...(req.method==='GET'?{}:{body}),signal:AbortSignal.timeout(5000)})
         res.writeHead(forwarded.status,{'Content-Type':'application/json'})
         if(preflightDisableEmail&&req.url==='/auth/v1/settings'){
@@ -281,11 +286,11 @@ try {
         }else res.end(await forwarded.text())
       }catch{res.writeHead(503);res.end('{}')}
     })
-    await new Promise(resolve=>proxy.listen(3111,'127.0.0.1',resolve))
+    await new Promise(resolve=>proxy.listen(preflightPort,'127.0.0.1',resolve))
     const configFile='supabase/.temp/issue107-preflight-config.json',envFile='.env.issue107.preflight.local'
     const databaseRole=decodeURIComponent(new URL(source.Config.Env.find(line=>line.startsWith('GOTRUE_DB_DATABASE_URL=')).slice('GOTRUE_DB_DATABASE_URL='.length)).username)
     const config={databaseRole,minimumPasswordLength:6,passwordRequirements:'',dbEncryptionEnabled:false,otpExpiry:3600,disableSignup:true,sendEmailHookEnabled:true,sendEmailHookUri:'pg-functions://postgres/account_recovery/send_email_hook',alternativeProvidersDisabled:true,resendLinkTrackingDisabled:true}
-    const explicitEnv={...recoveryEnv,SUPABASE_URL:'http://127.0.0.1:3111',NEXT_PUBLIC_SUPABASE_URL:'http://127.0.0.1:3111',NEXT_PUBLIC_SUPABASE_ANON_KEY:env.E2E_SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE_KEY:env.E2E_SUPABASE_SERVICE_ROLE_KEY,NODE_ENV:'development',RECOVERY_DISPATCH_EVERY_MINUTE_CONFIGURED:'true'}
+    const explicitEnv={...recoveryEnv,SUPABASE_URL:preflightUrl,NEXT_PUBLIC_SUPABASE_URL:preflightUrl,NEXT_PUBLIC_SUPABASE_ANON_KEY:env.E2E_SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE_KEY:env.E2E_SUPABASE_SERVICE_ROLE_KEY,NODE_ENV:'development',RECOVERY_DISPATCH_EVERY_MINUTE_CONFIGURED:'true'}
     const runPreflight=async(configOverride={},envOverride={})=>{
       fs.writeFileSync(configFile,JSON.stringify({...config,...configOverride}))
       fs.writeFileSync(envFile,Object.entries({...explicitEnv,...envOverride}).map(([name,value])=>name+'='+value).join('\n')+'\n')

@@ -14,7 +14,7 @@ Dezactivarea, schimbarea efectivă a emailului și resetarea administrativă inv
 
 Un rezultat deja finalizat poate fi recuperat timp de 24 ore, numai cu aceeași dovadă și încercare. Receipt-ul confirmă rezultatul fără a schimba din nou parola sau a emite o altă sesiune. Eșecul loginului/instalării după commit păstrează parola nouă și oferă autentificarea manuală, inclusiv când B era deja conectat.
 
-## Dovezi independente
+## Dovezi independente — rularea inițială din 7 octombrie 2026
 
 | Verificare | Rezultat |
 | --- | --- |
@@ -89,32 +89,76 @@ Activarea prin RPC service-role a fost probată inclusiv în timp ce o cerere na
 - Dispatch-ul durabil la minut este obligatoriu și se configurează prin Supabase Cron pentru proiectele Vercel Hobby existente. vercel.json păstrează cronul zilnic; preflight-ul cere atestarea explicită RECOVERY_DISPATCH_EVERY_MINUTE_CONFIGURED=true după verificarea programării reale. Scheduler-ul hosted rămâne un pas de deploy documentat. Tracking-ul domeniului Resend trebuie dezactivat.
 - Testele de livrare folosesc exclusiv furnizorul HTTP simulat și adrese example.invalid. Acceptarea furnizorului nu dovedește ajungerea în inbox; la bounce nu există fallback cu parolă, iar linkul/cooldown-ul respectă expirarea normală. Nu s-au trimis emailuri reale.
 - URL-urile Storage deja semnate păstrează limita TTL acceptată în #105.
-- După teste, recovery local este din nou **enabled=false**, schema fixture și conturile issue107.impl sunt eliminate, iar containerele Auth și serverele de probă au fost oprite. Migrația este în istoricul local. Auditul istoric este păstrat.
+- La încheierea validării inițiale din 7 octombrie, recovery local era din nou **enabled=false**, schema fixture și conturile issue107.impl sunt eliminate, iar containerele Auth și serverele de probă au fost oprite. Migrația este în istoricul local. Auditul istoric este păstrat.
 - Serverul utilizatorului de pe 3000 și serviciul Auth principal nu au fost restartate; configurația Auth runtime principală necesită aplicarea setărilor noi înainte de activare. Modificările utilizatorului din checkout-ul D: sunt păstrate.
 
-## Reproducere
+## Reproducere locală
 
-Folosește un Supabase local dedicat, configurația din rollout și fișierul explicit .env.e2e.localdb cu E2E_WRITES=1/E2E_TEST_PROJECT=1. .env.issue107.local este ignorat de Git și trebuie să declare cheia recovery/cron locale, originea serverului, expeditorul, override-ul example.invalid, tracking disabled și furnizorul de test:
+Folosește un checkout și un Supabase Docker dedicate testelor, cu configurația Auth din [rollout](issue-107-rollout.md). Instalează versiunile din lockfile și browserul, apoi aplică inclusiv migrația de corecție:
+
+```powershell
+npm ci
+npx playwright install chromium
+npx supabase start
+npx supabase migration up --local
+```
+
+În fișierul ignorat `.env.issue107.local` configurează valorile stack-ului local:
 
 ```dotenv
-NEXT_PUBLIC_APP_URL=http://127.0.0.1:3107
+NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+SUPABASE_URL=http://127.0.0.1:54321
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key local>
+SUPABASE_SERVICE_ROLE_KEY=<service role key local>
+NEXT_PUBLIC_APP_URL=http://127.0.0.1:6107
+RECOVERY_SECRET=<32 bytes aleatorii, base64 canonic>
+CRON_SECRET=<secret local separat>
 RESEND_API_KEY=re_test_local_issue107
 RESEND_BASE_URL=http://127.0.0.1:4017
 RESEND_FROM_EMAIL=onboarding@resend.dev
 REMINDER_EMAIL_OVERRIDE_TO=recovery-test@example.invalid
 RESEND_LINK_TRACKING_DISABLED=true
+RECOVERY_DISPATCH_EVERY_MINUTE_CONFIGURED=true
 ```
 
-RECOVERY_SECRET trebuie generat separat, ca 32 bytes aleatorii în base64 canonic; CRON_SECRET este separat. Pornește Next dev pe 3107 cu aceste valori și cu URL-ul/cheile stack-ului local. Construiește separat aplicația cu aceleași variabile și pornește Next start pe 3117 pentru headerele production. După preflight și activarea explicită pe acest proiect de test:
+În checkout-ul de test, copiază aceleași valori în `.env.local`, încărcat automat de Next. Generează separat cheia recovery și secretul cron; păstrează-le numai în fișierele ignorate. În harness, atestarea dispatch este controlată pentru testarea gate-ului; nu creează și nu validează scheduler-ul hosted.
+
+Fișierul ignorat `.env.e2e.localdb` declară explicit `E2E_BASE_URL=http://127.0.0.1:6107`, `E2E_SUPABASE_URL`, `E2E_SUPABASE_ANON_KEY`, `E2E_SUPABASE_SERVICE_ROLE_KEY`, `E2E_WRITES=1`, `E2E_TEST_PROJECT=1`, precum și perechile email/parolă `E2E_STAFF_*` (admin activ), `E2E_CLIENT_*` și `E2E_CLIENT2_*` (doi clienți activi). Folosește conturi fixture `test.local` sau `example.invalid` și verifică autentificarea fiecăruia. Pe o bază nouă, `npm run seed:local` pregătește conturile demo cu aplicația pornită și `SEED_APP_URL=http://127.0.0.1:6107`; rerularea seed-ului păstrează parolele conturilor existente.
+
+Pornește aplicația de test și build-ul production în terminale separate:
+
+```powershell
+npm run dev -- --hostname 127.0.0.1 --port 6107
+npm run build
+npm run start -- --hostname 127.0.0.1 --port 6109
+```
+
+După preflight și activarea explicită pe proiectul local, rulează harness-ul:
 
 ```powershell
 $env:E2E_ENV_FILE='.env.e2e.localdb'
-$env:ISSUE107_BASE_URL='http://127.0.0.1:3107'
-$env:ISSUE107_PUBLIC_HEADERS_BASE_URL='http://127.0.0.1:3117'
+$env:ISSUE107_BASE_URL='http://127.0.0.1:6107'
+$env:ISSUE107_PUBLIC_HEADERS_BASE_URL='http://127.0.0.1:6109'
+$env:ISSUE107_AUTH_PORT='6108'
+$env:ISSUE107_PREFLIGHT_PORT='6111'
 node scripts/issue-107-check.mjs
 ```
 
-Verificarea refuză hosturi nelocale, pornește singură furnizorul simulat pe 4017 și clona Auth configurată pe 3108, apoi le elimină. Filtrul ISSUE107_CHECK_ONLY permite rerularea unui grup. Pentru rerularea exclusivă a headerelor păstrează ISSUE107_PUBLIC_HEADERS_BASE_URL pe serverul production și folosește filtrul public_page_headers. Probele phase0 sunt istorice, anterioare implementării; ele refuză rularea cu recovery activ și nu înlocuiesc verificarea finală.
+Porturile 6107–6111 evită intervalele 3107–3117 rezervate pe Windows în mediul verificat. Override-urile Auth/preflight păstrează binding-ul pe loopback; implicit rămân 3108/3111. Verificarea refuză hosturi nelocale, pornește singură furnizorul simulat pe 4017 și clona Auth, apoi le elimină. Proba AMR folosește o conexiune DB cu rolul nativ `supabase_auth_admin`, prin parola din Dockerul local transmisă pe stdin; nu o afișează. Probele de activare revocă sesiunile locale. Filtrul `ISSUE107_CHECK_ONLY` permite rerularea unui grup; pentru headere folosește `public_page_headers` și serverul production. Probele phase0 sunt istorice și refuză recovery activ.
+
+Pentru suitele E2E, după încheierea harness-ului, pornește separat furnizorul simulat și apoi testele:
+
+```powershell
+node tests/e2e/helpers/resend-mock.mjs 4017 playwright-report/resend-local.jsonl
+```
+
+```powershell
+$env:E2E_ENV_FILE='.env.e2e.localdb'
+$env:E2E_RESEND_LOG=(Join-Path (Get-Location) 'playwright-report/resend-local.jsonl')
+npx playwright test tests/e2e/recovery-fixtures.spec.ts tests/e2e/conturi-lifecycle.spec.ts tests/e2e/drepturi.spec.ts tests/e2e/drepturi-interfata.spec.ts tests/e2e/regresii-senior.spec.ts tests/e2e/verificare-modificari.spec.ts tests/e2e/matricea-acces.spec.ts
+```
+
+Mock-ul și harness-ul folosesc același port 4017 și se rulează succesiv. Testele păstrează auditul append-only; fixture-urile cu referințe istorice pot rămâne inactive după curățare.
 
 ## Verificarea configurației locale — 8 octombrie 2026
 
@@ -129,4 +173,39 @@ Regresia SQL se rulează pe stack-ul local dedicat, după aplicarea ambelor migr
 
 Suitele de drepturi și regresii pregătesc acum parolele prin `setLocalFixturePassword`, într-o tranzacție pe containerul DB local. Helper-ul cere configurația E2E explicită, `E2E_WRITES=1`, `E2E_TEST_PROJECT=1`, URL Supabase loopback și cont fixture cu domeniul `test.local` sau `example.invalid`. Nu citește parola conexiunii Auth. `npx playwright test tests/e2e/recovery-fixtures.spec.ts` verifică reutilizarea contului, parola temporară, revocarea sesiunii vechi și păstrarea blocării native, folosind același `E2E_ENV_FILE` dedicat.
 
-Validare pentru aceste corecții: 270/270 teste unitare, TypeScript, ESLint pe fișierele modificate, regresia SQL și testul E2E dedicat au trecut. Toate cele 93 de teste din cele cinci suite modificate se încarcă; nu au fost rerulate integral. Regresia SQL eșuează cu definițiile vechi și trece cu migrația nouă într-o tranzacție anulată. DB local a rămas cu aceeași activare și fără conturi fixture rămase; migrația nouă nu a fost aplicată persistent local sau hosted. Advisorii locali nu raportează erori de securitate; avertismentele existente sunt în alte funcții și în extensia pg_net.
+Validarea de după review a aplicat persistent migrația nouă numai în stack-ul local. Testele UI au fost aliniate cu parola temporară generată automat și denumirile actuale ale dialogului de ștergere; importul unei atribuiri neeligibile verifică acum HTTP 409 `INACTIVE_ASSIGNMENT`, păstrând verificarea că refuzul nu importă faze și nu schimbă echipa.
+
+## Verificare locală după review — 8 octombrie 2026
+
+Rulare într-o copie izolată a PR-ului, cu `npm ci` din lockfile: Next.js 16.3.5, Playwright 1.62.1/Chromium și Supabase SDK 2.90.0; Auth Docker v2.197.0 și PostgreSQL 17.6. Server dev pe 6107, build production pe 6109, emailuri exclusiv simulate pe 4017.
+
+| Verificare | Rezultat |
+| --- | --- |
+| Teste unitare | 270/270 |
+| Cinci suite E2E modificate + fixture recovery + lifecycle | 103/103 teste unice trecute; ultimele rulări ale fiecărei suite, inclusiv 37/37 după corectarea așteptărilor vechi |
+| Matrice API de drepturi | 278/278 verificări |
+| Matrice UI de drepturi | 161/161 verificări; 6 observații preexistente de interfață |
+| Verificarea modificărilor | 65/65 verificări, inclusiv emailurile simulate |
+| Migrație nouă | Aplicată local prin `supabase migration up --local`; RPC preflight `compatible=true`, `enabled=true`, aceeași activare ca la început |
+| TypeScript și build production | Trecute cu dependențele exacte din lockfile |
+| ESLint | 0 erori; cele 3 avertismente preexistente |
+| audit:check | Contractul read-only valid, fără tipuri de audit necunoscute |
+| SQL lint account_recovery | 0 erori; un avertisment intenționat pentru parametrul nefolosit `event` din hook |
+| Advisorii de securitate Studio local | 0 erori; 22 avertismente pe obiecte existente din public; 0 avertismente pe account_recovery |
+| Headere production | Forgot/reset: HTTP 200, `no-store`, `no-referrer` |
+
+Cele 22 avertismente de securitate provin din funcții existente cu search_path mutable (11), extensia pg_net din public (1) și funcții SECURITY DEFINER existente apelabile de authenticated (10); niciuna dintre aceste funcții nu este introdusă sau modificată de #119. Cele patru notificări INFO account_recovery despre RLS fără policy descriu interdicția intenționată de acces direct; privilegiile și RLS FORCE au fost probate în grupa de instalare proaspătă.
+
+Cinci grupe din harness au fost rerulate separat și au trecut:
+
+- `fresh_migration_disabled_activation_and_rollback`: instalarea ambelor migrări de la zero, privilegiile/RLS, activarea și păstrarea parolelor, cu rollback.
+- `retry_exhaustion_preserves_possibly_delivered_proof`: retry 8, pierderea ultimului lease, generație veche, refuz cert și expirare normală.
+- `lease_fencing_frozen_bytes_and_stale_generation`: fencing, bytes înghețați și generații vechi.
+- `api_email_delivery_retry_uniformity_and_postcommit_fallback`: livrare simulată, rezultat necunoscut/retry și recuperare după commit.
+- `public_page_headers`: headere pe build production.
+
+Rularea completă a harness-ului rămâne neexecutată în această validare: verificarea automată de aprobare a respins extragerea parolei Auth locale și folosirea ei pentru conexiunea `supabase_auth_admin` din proba AMR, cerând autorizare explicită. Grupele de mai sus exclud integral acea conexiune. Raportul JSON principal păstrează dovezile rulării inițiale; nu este prezentat ca o rerulare completă după review.
+
+Matricea de acces păstrează două abateri deja marcate drept cunoscute: citirea publică a unui status individual și retrogradarea propriului rol de admin când există alt administrator activ. Nu au apărut abateri noi; protecția ultimului administrator a trecut în suita lifecycle.
+
+După teste: schema și trigger-ele `issue107_check` sunt eliminate, nu există fixture-uri recovery active sau clonă Auth de test, iar cei doi clienți creați pentru validare au fost curățați prin API-ul canonic (unul șters, unul dezactivat pentru păstrarea auditului). Loginul adminului și `/api/me` HTTP 200 au fost verificate. Recovery local rămâne activ și compatibil. Checkout-ul principal și serverul existent pe 3000 au fost păstrate. Nu s-au făcut scrieri hosted.

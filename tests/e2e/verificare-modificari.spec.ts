@@ -446,11 +446,11 @@ test('4. Importul unui șablon: refuzurile nu lasă urme; reușita aduce colegul
   raspuns(zona, 'junior', 'juniorul din echipă importă și aduce un coleg', await call(JA, 'POST', `/api/projects/${projectId}/import-template`, { template_id: TPL, assignments: { [forB]: JB.id } }), 403)
   raspuns(zona, 'junior', 'un consultant din afara echipei importă și se adaugă singur', await call(JB, 'POST', `/api/projects/${projectId}/import-template`, { template_id: TPL, assignments: { [forB]: JB.id } }), 403)
   raspuns(zona, 'client', 'clientul proiectului importă un șablon', await call(client, 'POST', `/api/projects/${projectId}/import-template`, { template_id: TPL }), 403)
-  raspuns(zona, 'admin', 'o activitate dată unui client', await call(admin, 'POST', `/api/projects/${projectId}/import-template`, { template_id: TPL, assignments: { [forB]: client.id } }), 400)
+  raspuns(zona, 'admin', 'o activitate dată unui client', await call(admin, 'POST', `/api/projects/${projectId}/import-template`, { template_id: TPL, assignments: { [forB]: client.id } }), 409)
   raspuns(zona, 'admin', 'atribuiri într-o formă greșită (listă în loc de obiect)', await call(admin, 'POST', `/api/projects/${projectId}/import-template`, { template_id: TPL, assignments: [JB.id] }), 400)
   await service.from('profiles').update({ is_active: false }).eq('id', JC.id)
   try {
-    raspuns(zona, 'admin', 'o activitate dată unui consultant dezactivat', await call(admin, 'POST', `/api/projects/${projectId}/import-template`, { template_id: TPL, assignments: { [forB]: JC.id } }), 400)
+    raspuns(zona, 'admin', 'o activitate dată unui consultant dezactivat', await call(admin, 'POST', `/api/projects/${projectId}/import-template`, { template_id: TPL, assignments: { [forB]: JC.id } }), 409)
   } finally {
     await service.from('profiles').update({ is_active: true }).eq('id', JC.id)
   }

@@ -1167,7 +1167,7 @@ test('Conturi — adminul creează, schimbă rolul și șterge din „Utilizator
     await panel.getByRole('radio', { name: 'Consultant' }).check()
     await panel.getByLabel('Email').fill(email)
     await panel.getByLabel('Nume complet').fill(name)
-    await panel.getByLabel('Parolă temporară').fill(PASSWORD)
+    await expect(panel.getByLabel('Parolă temporară')).toHaveCount(0)
     await panel.getByLabel('Specializare').fill('PNRR')
     await panel.getByRole('button', { name: 'Creează' }).click()
     let userId = ''
@@ -1199,8 +1199,8 @@ test('Conturi — adminul creează, schimbă rolul și șterge din „Utilizator
       return data?.role as string
     }, v => v === 'client', v => String(v))
 
-    await page.getByRole('button', { name: `Șterge utilizatorul ${email}` }).click()
-    await confirmWithWord(page, 'Șterge utilizator', 'sterge', 'Șterge utilizator')
+    await page.getByRole('button', { name: `Șterge definitiv utilizatorul ${email}` }).click()
+    await confirmWithWord(page, 'Șterge definitiv utilizatorul', 'sterge', 'Șterge definitiv')
     await stored('a-conturi', 'admin', 'șterge contul din listă', 'șters', async () => {
       const { data } = await service.from('profiles').select('id').eq('id', userId).maybeSingle()
       return data
@@ -1220,7 +1220,7 @@ test('Conturi — adminul creează, schimbă rolul și șterge din „Utilizator
       }
     })
   }
-  observe('a-conturi', 'Parola se stabilește doar la creare („Parolă temporară”), de admin', 'nu există resetare separată de parolă în interfață')
+  observe('a-conturi', 'Parola temporară este generată automat la creare', 'nu există resetare separată de parolă în interfață')
 })
 
 test('Statusurile de proiect — adminul adaugă un status din pagină; consultanții sunt trimiși înapoi', async ({ browser }) => {
