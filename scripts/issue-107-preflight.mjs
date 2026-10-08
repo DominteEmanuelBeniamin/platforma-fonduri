@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const checks = Object.fromEntries([
   'arguments', 'envFile', 'appOrigin', 'supabaseUrlsMatch', 'anonKeyPresent', 'serviceKeyPresent',
-  'sdkVersion', 'authHealth', 'authVersion', 'authSettings', 'settingsSignupDisabled',
+  'sdkVersion', 'authHealth', 'authVersion', 'authSettings', 'settingsSignupDisabled', 'settingsEmailProviderEnabled',
   'settingsProvidersDisabled', 'authConfigAvailable', 'authDbRole', 'minimumPasswordLength',
   'passwordRequirements', 'dbEncryptionDisabled', 'otpExpiry', 'authSignupDisabled',
   'sendEmailHook', 'alternativeProvidersDisabled', 'recoverySecret', 'cronSecret',
@@ -301,6 +301,7 @@ async function main() {
     checks.authSettings = !!settings && typeof settings === 'object' && !Array.isArray(settings)
     checks.settingsSignupDisabled = settings?.disable_signup === true
     checks.settingsProvidersDisabled = providersDisabled(settings)
+    checks.settingsEmailProviderEnabled = settings?.external?.email === true
   }
 
   if (safeToContact && checks.serviceKeyPresent) {

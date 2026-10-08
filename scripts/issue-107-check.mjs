@@ -269,12 +269,16 @@ try {
     assert.equal((await(await fetch('http://127.0.0.1:54324/api/v1/messages')).json()).total,before,'Hook suppresses SMTP delivery')
     assert.equal(snapshot(person).nativeFlows,0,'Native PKCE requests cannot persist flow_state')
     assert.equal((await fetch('http://127.0.0.1:3108/token?grant_type=password',{method:'POST',headers,body:JSON.stringify({email:person.email,password})})).status,200,'Configured Auth password login intact')
+    let preflightDisableEmail=false
     const proxy=http.createServer(async(req,res)=>{
       try {
         let body='';for await(const chunk of req)body+=chunk
         const target=req.url.startsWith('/auth/v1/')?'http://127.0.0.1:3108'+req.url.slice('/auth/v1'.length):env.E2E_SUPABASE_URL+req.url
         const forwarded=await fetch(target,{method:req.method,headers:{apikey:req.headers.apikey||'',Authorization:req.headers.authorization||'','Content-Type':req.headers['content-type']||'application/json'},...(req.method==='GET'?{}:{body}),signal:AbortSignal.timeout(5000)})
-        res.writeHead(forwarded.status,{'Content-Type':'application/json'});res.end(await forwarded.text())
+        res.writeHead(forwarded.status,{'Content-Type':'application/json'})
+        if(preflightDisableEmail&&req.url==='/auth/v1/settings'){
+          const body=await forwarded.json();body.external.email=false;res.end(JSON.stringify(body))
+        }else res.end(await forwarded.text())
       }catch{res.writeHead(503);res.end('{}')}
     })
     await new Promise(resolve=>proxy.listen(3111,'127.0.0.1',resolve))
@@ -295,6 +299,12 @@ try {
       assert.equal(positive.code,0,'Configured real Auth preflight passes')
       assert.equal(positive.report.status,'already_enabled','Preflight sees enabled database read-only')
       assert.equal(positive.report.checks.authDbRole,true,'Actual native database role attested')
+      assert.equal(positive.report.checks.settingsEmailProviderEnabled,true,'Email/password provider remains enabled')
+      preflightDisableEmail=true
+      const noEmailProvider=await runPreflight()
+      assert.equal(noEmailProvider.report.status,'blocked','Disabled email provider blocks deployment despite disabled signup')
+      assert.equal(noEmailProvider.report.checks.settingsEmailProviderEnabled,false,'Password sign-in availability cannot bypass gate')
+      preflightDisableEmail=false
       const noDispatch=await runPreflight({},{RECOVERY_DISPATCH_EVERY_MINUTE_CONFIGURED:''})
       assert.equal(noDispatch.report.status,'blocked','Missing actual minute-scheduler attestation blocks deployment')
       assert.equal(noDispatch.report.checks.dispatchCron,false,'Daily Vercel cron cannot certify recovery dispatch')

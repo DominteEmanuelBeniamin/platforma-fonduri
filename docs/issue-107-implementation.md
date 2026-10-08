@@ -115,3 +115,9 @@ node scripts/issue-107-check.mjs
 ```
 
 Verificarea refuză hosturi nelocale, pornește singură furnizorul simulat pe 4017 și clona Auth configurată pe 3108, apoi le elimină. Filtrul ISSUE107_CHECK_ONLY permite rerularea unui grup. Pentru rerularea exclusivă a headerelor păstrează ISSUE107_PUBLIC_HEADERS_BASE_URL pe serverul production și folosește filtrul public_page_headers. Probele phase0 sunt istorice, anterioare implementării; ele refuză rularea cu recovery activ și nu înlocuiesc verificarea finală.
+
+## Verificarea configurației locale — 8 octombrie 2026
+
+La aplicarea configurației reale prin CLI 2.118.0, auth.email.enable_signup=false dezactiva și providerul email/parolă: un cont confirmat și activ primea email_provider_disabled la login. Configurația păstrează acum auth.enable_signup=false și auth.email.enable_signup=true. Preflight-ul cere explicit settings.external.email=true; regresia negativă este inclusă în harness-ul existent.
+
+Orchestratorul a verificat separat loginul cu parolă, /api/me HTTP 200 și refuzul înscrierii publice cu signup_disabled. Proba preflight pozitivă/negativă acceptă providerul activ și refuză numai settingsEmailProviderEnabled când acesta este dezactivat; credentialele tuturor conturilor sunt păstrate. Sintaxa, ESLint pentru cele două scripturi și git diff --check au trecut. Aceste probe se adaugă validării din 7 octombrie; suita completă nu a fost rerulată pentru această corecție de configurație.
