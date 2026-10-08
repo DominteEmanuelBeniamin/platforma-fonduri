@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { test, expect, type Browser, type Locator, type Page } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { e2eEnv, requireE2EConfig, serviceClient } from './helpers/project-state'
+import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
 import { createDovezi, type Strat } from './helpers/dovezi'
 
 /**
@@ -95,7 +95,7 @@ async function fixedConsultant(tag: string, level: 'junior' | 'senior', label: s
   if (!id) {
     const { data: existing } = await service.from('profiles').select('id').eq('email', email).single()
     id = existing!.id as string
-    await service.auth.admin.updateUserById(id, { password: PASSWORD })
+    setLocalFixturePassword(id, PASSWORD)
   }
   accounts.add(id)
   await service.from('profiles').upsert({ id, email, role: 'consultant', consultant_level: level, full_name: name })
@@ -113,8 +113,7 @@ async function fixturePassword(creation: Json): Promise<string> {
   expect(created.users.has(creation.userId)).toBe(true)
   if (typeof creation.temporaryPassword === 'string') return creation.temporaryPassword
   expect(creation.emailSent).toBe(true)
-  const reset = await service.auth.admin.updateUserById(creation.userId, { password: PASSWORD })
-  expect(reset.error).toBeNull()
+  setLocalFixturePassword(creation.userId, PASSWORD)
   return PASSWORD
 }
 

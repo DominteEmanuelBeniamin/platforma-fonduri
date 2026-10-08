@@ -3,7 +3,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { test, expect, type Page, type Browser } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { e2eEnv, requireE2EConfig, serviceClient } from './helpers/project-state'
+import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
 import { ROW, ROWS } from './helpers/matricea-drepturilor'
 
 /**
@@ -143,8 +143,7 @@ async function makeConsultant(tag: 'sa' | 'sb' | 'ja' | 'jb', level: 'junior' | 
     const { data: existing } = await service.from('profiles').select('id').eq('email', email).maybeSingle()
     if (!existing) throw new Error(`Nu am putut crea ${email}: ${error?.message}`)
     id = existing.id
-    const { error: resetError } = await service.auth.admin.updateUserById(existing.id, { password: PASSWORD })
-    if (resetError) throw new Error(`Parola pentru ${email}: ${resetError.message}`)
+    setLocalFixturePassword(existing.id, PASSWORD)
   }
   testAccounts.add(id!)
   const { error: profileError } = await service.from('profiles').upsert({

@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type Locator, type Page } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { e2eEnv, requireE2EConfig, serviceClient } from './helpers/project-state'
+import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
 import { createDovezi, emailuriPrimite, type EmailCapturat, type Strat } from './helpers/dovezi'
 
 /**
@@ -67,7 +67,7 @@ async function fixedConsultant(tag: 'sa' | 'ja' | 'jb' | 'jc', level: 'junior' |
   if (!id) {
     const { data: existing } = await service.from('profiles').select('id').eq('email', email).single()
     id = existing!.id as string
-    await service.auth.admin.updateUserById(id, { password: PASSWORD })
+    setLocalFixturePassword(id, PASSWORD)
   }
   accounts.add(id)
   await service.from('profiles').upsert({ id, email, role: 'consultant', consultant_level: level, full_name: name, is_active: true })

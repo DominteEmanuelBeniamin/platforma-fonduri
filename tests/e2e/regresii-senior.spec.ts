@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { test, expect, type Browser } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { e2eEnv, requireE2EConfig, serviceClient } from './helpers/project-state'
+import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
 
 /**
  * Regresii în jurul lucrului pentru consultantul senior: ce a atins schimbarea
@@ -55,7 +55,7 @@ async function consultantAccount(email: string, name: string, level: 'junior' | 
   if (!id) {
     const { data: existing } = await service.from('profiles').select('id').eq('email', email).single()
     id = existing!.id as string
-    await service.auth.admin.updateUserById(id, { password: PASSWORD })
+    setLocalFixturePassword(id, PASSWORD)
   }
   accounts.add(id)
   await service.from('profiles').upsert({ id, email, role: 'consultant', consultant_level: level, full_name: name, is_active: true })

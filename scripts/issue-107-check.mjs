@@ -174,7 +174,7 @@ try {
   sql('create schema issue107_check; revoke all on schema issue107_check from public,anon,authenticated;')
   actor=await fixture('admin')
   await probe('fresh_migration_disabled_activation_and_rollback',['R26','R30','R33'],async()=>{
-    const before=snapshot(actor),migration=fs.readFileSync('supabase/migrations/20261007123438_issue_107_account_recovery.sql','utf8')
+    const before=snapshot(actor),migration=fs.readFileSync('supabase/migrations/20261007123438_issue_107_account_recovery.sql','utf8')+'\n'+fs.readFileSync('supabase/migrations/20261008095956_preserve_recovery_proofs_after_retry_exhaustion.sql','utf8')
     const wrappers=['recovery_preflight','recovery_enqueue','recovery_take_delivery','recovery_freeze_delivery','recovery_prepare_delivery','recovery_delivery_ready','recovery_finish_delivery','recovery_inspect','recovery_complete','invalidate_account_recovery','activate_account_recovery']
     const assertion=`do $check$ begin
       if (select count(*) from account_recovery.settings)<>1 or (select enabled from account_recovery.settings) then raise exception 'Installation must initialize disabled';end if;
@@ -617,6 +617,9 @@ try {
     }
     sql('update auth.users set encrypted_password=extensions.crypt('+q(password)+',extensions.gen_salt('+q('bf')+',10)) where id='+q(cost.id))
     assert.equal((await rpc('recovery_preflight')).compatible,true,'Compatible hashes restored')
+  })
+  await probe('retry_exhaustion_preserves_possibly_delivered_proof',['R10','R24','R35'],async()=>{
+    sql(fs.readFileSync('scripts/issue-107-retry-check.sql','utf8'))
   })
   await probe('lease_fencing_frozen_bytes_and_stale_generation',['R05','R06','R24','R35'],async()=>{
     const person=await fixture(),old=await enqueue(person),first=await takeFor(old)
