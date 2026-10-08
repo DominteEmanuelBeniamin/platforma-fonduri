@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { isClientVisibleActivity, isClientVisiblePhase } from '@/lib/client-visibility'
+import { STATUS_PATCH_MESSAGE } from '@/lib/completion'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -42,10 +43,17 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     if (error) throw error
 
+    if (auth.access.role !== 'client') return NextResponse.json({ activities: activities || [] })
+
+    // Clientul vede ce e finalizat, dar nu și cine a marcat (#109).
     return NextResponse.json({
-      activities: auth.access.role === 'client'
-        ? (activities || []).filter(activity => isClientVisibleActivity({ ...activity, phase }))
-        : activities || [],
+      activities: (activities || [])
+        .filter(activity => isClientVisibleActivity({ ...activity, phase }))
+        .map(activity => {
+          const visible = { ...activity }
+          delete visible.completed_by
+          return visible
+        }),
     })
   } catch (error: any) {
     console.error('GET activities error:', error)
@@ -58,9 +66,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     const { id: projectId, phaseId } = await params
     
-    const auth = await requireProjectAccess(req, projectId)
+    const auth = await requireProjectAccess(req, projectId, { write: true })
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status })
+      return NextResponse.json({ error: auth.error, message: auth.message }, { status: auth.status })
     }
 
     if (auth.access.role === 'client') {
@@ -80,6 +88,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     if (!name) {
       return NextResponse.json({ error: 'Numele este obligatoriu' }, { status: 400 })
+    }
+
+    // O activitate nouă pornește mereu „pending": finalizarea trece doar prin
+    // /complete, cu gardă de manager (D1) și audit (#109).
+    if (status !== undefined) {
+      return NextResponse.json({ error: 'status is not accepted on create', message: STATUS_PATCH_MESSAGE }, { status: 400 })
     }
 
     let finalOrderIndex = order_index
@@ -102,7 +116,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         name,
         description: description || null,
         order_index: finalOrderIndex,
-        status: status || 'pending',
+        status: 'pending',
         visibility: 'draft',
       })
       .select()

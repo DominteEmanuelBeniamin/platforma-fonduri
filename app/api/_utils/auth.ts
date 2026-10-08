@@ -2,6 +2,7 @@
 import type { User } from '@supabase/supabase-js'
 import { createSupabaseServerClient, createSupabaseServiceClient } from './supabase'
 import type { ProjectPermissions } from '@/lib/project-permissions'
+import { isProjectActive, PROJECT_CLOSED_READ_ONLY_MESSAGE } from '@/lib/project-lifecycle'
 
 export type AppRole = 'admin' | 'consultant' | 'client'
 export type TemplateStatus = 'draft' | 'published'
@@ -15,7 +16,8 @@ export type AppProfile = {
 }
 
 type Ok<T> = { ok: true } & T
-type Err = { ok: false; status: number; error: string }
+// `message` ajunge la utilizator (apiFetch rescrie `error`, convenția din #70).
+type Err = { ok: false; status: number; error: string; message?: string }
 export type Result<T> = Ok<T> | Err
 
 function getBearerToken(request: Request) {
@@ -214,8 +216,21 @@ export function projectPermissions(access: ProjectAccess): ProjectPermissions {
     remove_any_member: access.role === 'admin',
     moderate_chat: manage,
     edit_others_messages: access.role === 'admin',
+    // Juniorul și clientul nu încheie proiectul și nu marchează nimic ca
+    // finalizat (#109, D1); aprobarea unui document rămâne la orice membru.
+    close_project: manage,
+    complete_items: manage,
   }
 }
+
+/**
+ * `write: true` pe tot ce modifică un proiect. Un proiect încheiat se poate
+ * doar consulta, de oricine, adminul inclusiv, până la redeschidere: răspunsul
+ * e 409 (decizia din 8 octombrie 2026). Nu trec pe aici redeschiderea,
+ * ștergerea proiectului de către admin și ce doar citește: descărcări,
+ * marcarea chatului sau a notificărilor ca citite.
+ */
+export type ProjectAccessOptions = { write?: boolean }
 
 /**
  * Verifică accesul la proiect conform regulilor tale:
@@ -224,6 +239,30 @@ export function projectPermissions(access: ProjectAccess): ProjectPermissions {
  * - client: doar dacă projects.client_id == user.id
  */
 export async function requireProjectAccess(
+  request: Request,
+  projectId: string,
+  options: ProjectAccessOptions = {},
+) {
+  const ctx = await resolveProjectAccess(request, projectId)
+  if (!ctx.ok || !options.write) return ctx
+  return (await closedProjectRefusal(projectId)) ?? ctx
+}
+
+async function closedProjectRefusal(projectId: string): Promise<Err | null> {
+  const { data, error } = await createSupabaseServiceClient()
+    .from('projects')
+    .select('lifecycle_status')
+    .eq('id', projectId)
+    .maybeSingle()
+  if (error) return { ok: false, status: 500, error: 'Failed to verify project state' }
+  if (!data) return { ok: false, status: 404, error: 'Project not found' }
+  if (!isProjectActive(data)) {
+    return { ok: false, status: 409, error: 'Project is closed', message: PROJECT_CLOSED_READ_ONLY_MESSAGE }
+  }
+  return null
+}
+
+async function resolveProjectAccess(
   request: Request,
   projectId: string
 ): Promise<
@@ -300,12 +339,18 @@ export async function requireProjectAccess(
 
 /**
  * requireProjectAccess + canManageProject: admin sau senior membru, altfel 403.
+ * Cu `write`, refuzul pentru proiectul încheiat vine după 403, ca juniorul să
+ * primească 403 indiferent de starea proiectului.
  */
-export async function requireProjectManager(request: Request, projectId: string) {
+export async function requireProjectManager(request: Request, projectId: string, options: ProjectAccessOptions = {}) {
   const ctx = await requireProjectAccess(request, projectId)
   if (!ctx.ok) return ctx
   if (!canManageProject(ctx.access)) {
-    return { ok: false as const, status: 403, error: 'Forbidden: project management denied' }
+    return { ok: false, status: 403, error: 'Forbidden: project management denied' } as Err
+  }
+  if (options.write) {
+    const refusal = await closedProjectRefusal(projectId)
+    if (refusal) return refusal
   }
   return ctx
 }
@@ -313,6 +358,6 @@ export async function requireProjectManager(request: Request, projectId: string)
 /**
  * Helper: cum răspunzi consistent din route.ts când un guard dă eroare
  */
-export function guardToResponse(err: { status: number; error: string }) {
-  return Response.json({ error: err.error }, { status: err.status })
+export function guardToResponse(err: { status: number; error: string; message?: string }) {
+  return Response.json(err.message ? { error: err.error, message: err.message } : { error: err.error }, { status: err.status })
 }

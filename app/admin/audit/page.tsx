@@ -39,6 +39,9 @@ import {
   Shield,
   LogIn,
   Activity,
+  Archive,
+  RotateCcw,
+  CheckCircle2,
 } from 'lucide-react'
 import SelectFilter from '@/components/SelectFilter'
 import { AUDIT_ACTION_LABELS, AUDIT_ENTITY_LABELS } from '@/lib/audit-catalog'
@@ -99,6 +102,11 @@ const ACTION_CONFIG: Record<string, ActionConfig> = {
   download: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: Download },
   notify: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: Mail },
   deadline_reminder_digest: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: Mail },
+  // #109: aceleași iconițe ca în meniurile care fac acțiunile; încheierea are
+  // tonul closed (arhiva), nu verdele, ca să nu se citească „aprobat”.
+  close: { color: 'text-ink-soft', bgColor: 'bg-paper-sunk', borderColor: 'border-rule', icon: Archive },
+  reopen: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: RotateCcw },
+  complete: { color: 'text-[var(--sg-ok)]', bgColor: 'bg-[var(--sg-ok-soft)]', borderColor: 'border-[var(--sg-ok)]', icon: CheckCircle2 },
 }
 
 const DEFAULT_ACTION: ActionConfig = {
@@ -150,8 +158,13 @@ const getEntityConfig = (key: string): EntityConfig =>
 
 const formatUnknownKey = (key: string) =>
   key.replace(/_/g, ' ').replace(/^./, char => char.toUpperCase())
-const getActionLabel = (key: string) =>
-  AUDIT_ACTION_LABELS[key as keyof typeof AUDIT_ACTION_LABELS] ?? formatUnknownKey(key)
+// `close` e și încheierea unui proiect, și închiderea unei cereri (#109): pe
+// rând eticheta urmează entitatea, iar în filtru le acoperă pe amândouă.
+const getActionLabel = (key: string, entityType?: string) => {
+  if (key === 'close' && entityType === undefined) return 'Încheiere / închidere'
+  if (key === 'close' && entityType !== 'project') return 'Închidere'
+  return AUDIT_ACTION_LABELS[key as keyof typeof AUDIT_ACTION_LABELS] ?? formatUnknownKey(key)
+}
 const getEntityLabel = (key: string) =>
   AUDIT_ENTITY_LABELS[key as keyof typeof AUDIT_ENTITY_LABELS] ?? formatUnknownKey(key)
 
@@ -808,7 +821,7 @@ function LogRow({
                 onClick={e => { e.stopPropagation(); onToggle() }}
                 aria-expanded={isExpanded}
                 aria-controls={isExpanded ? detailsId : undefined}
-                aria-label={`${isExpanded ? 'Ascunde' : 'Arată'} detaliile — ${getActionLabel(log.action_type)} · ${getEntityLabel(log.entity_type)}`}
+                aria-label={`${isExpanded ? 'Ascunde' : 'Arată'} detaliile — ${getActionLabel(log.action_type, log.entity_type)} · ${getEntityLabel(log.entity_type)}`}
                 className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:text-ink"
               >
                 <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} aria-hidden />
@@ -846,7 +859,7 @@ function LogRow({
             className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-[var(--radius-plate)] border px-2.5 py-1 text-xs font-semibold ${action.bgColor} ${action.borderColor} ${action.color}`}
           >
             <ActionIcon className="h-3.5 w-3.5" />
-            {getActionLabel(log.action_type)}
+            {getActionLabel(log.action_type, log.entity_type)}
           </span>
         </td>
 

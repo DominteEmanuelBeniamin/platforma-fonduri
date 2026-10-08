@@ -2,6 +2,7 @@
 
 import { useRef } from 'react'
 import { bandVar, TONE, type SignalTone } from '@/lib/signage'
+import { isRequestFinal } from '@/lib/completion'
 import { ToneIcon } from './ui/ToneIcon'
 
 export type BoardItem = {
@@ -27,6 +28,9 @@ export type BoardRow = {
  *  întâi. */
 export function itemTone(item: BoardItem, todayTs: number): SignalTone {
   if (item.status === 'approved') return 'ok'
+  // Închisă = finalizată (D4), deci un termen trecut nu mai arde. Are semnul
+  // ei: altfel s-ar fi citit drept una care așteaptă clientul.
+  if (item.status === 'closed') return 'closed'
   const d = item.deadline_at ? new Date(item.deadline_at) : null
   if (d) d.setHours(0, 0, 0, 0)
   if (d && !Number.isNaN(d.getTime()) && d.getTime() < todayTs) return 'danger'
@@ -41,6 +45,7 @@ const TONE_CUVANT: Record<SignalTone, string> = {
   neutral: 'la client',
   ok: 'aprobat',
   draft: 'în lucru',
+  closed: 'închisă',
 }
 
 const MAX_VIZIBILE = 24
@@ -86,7 +91,7 @@ export function ProjectBoard({
       {rows.map((row) => {
         const vizibile = row.items.slice(0, MAX_VIZIBILE)
         const ascunse = row.items.length - vizibile.length
-        const gata = row.items.filter((i) => i.status === 'approved').length
+        const gata = row.items.filter((i) => isRequestFinal(i)).length
 
         return (
           <div

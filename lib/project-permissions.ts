@@ -15,6 +15,14 @@ export type ProjectPermissions = {
   moderate_chat: boolean
   /** Modifică textul mesajelor altora. Doar adminul. */
   edit_others_messages: boolean
+  /** Încheie și redeschide proiectul (#109). */
+  close_project: boolean
+  /**
+   * Marchează faze, activități și cereri ca finalizate și le redeschide (#109,
+   * D1). Azi are aceeași valoare ca `close_project`, dar e alt rând în matricea
+   * de drepturi și se poate despărți fără să atingem interfața.
+   */
+  complete_items: boolean
 }
 
 /**
@@ -37,4 +45,6 @@ export const NO_PROJECT_PERMISSIONS: ProjectPermissions = {
   remove_any_member: false,
   moderate_chat: false,
   edit_others_messages: false,
+  close_project: false,
+  complete_items: false,
 }

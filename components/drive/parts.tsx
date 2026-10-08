@@ -7,7 +7,8 @@
 import { FileText, FileSpreadsheet, Image as ImageIcon } from 'lucide-react'
 import type { DriveRow, DriveAsset } from './types'
 import { Signal } from '@/components/ui/Signal'
-import type { SignalTone } from '@/lib/signage'
+import { useAuth } from '@/app/providers/AuthProvider'
+import { requestStatusInfo } from '@/lib/request-status'
 
 export function getExt(path: string) {
   const p = path.split('.')
@@ -72,18 +73,14 @@ export function FilePreview({ path, previewUrl, size = 'md' }: { path: string; p
 }
 
 export function StatusPill({ status, label }: { status: DriveRow['docStatus']; label?: string }) {
+  const { profile } = useAuth()
   if (!status) return null
-  // Culorile erau scrise hexa, dintr-o altă paletă. Acum vin din semnalele
-  // sistemului, iar semnul e desenat, nu o bulină colorată.
-  const map: Record<string, { label: string; tone: SignalTone }> = {
-    approved: { label: 'Aprobat',            tone: 'ok' },
-    rejected: { label: 'Respins',            tone: 'danger' },
-    review:   { label: 'În verificare',      tone: 'warn' },
-    pending:  { label: 'În așteptare',       tone: 'neutral' },
-    sent:     { label: 'Trimis clientului',  tone: 'neutral' },
-  }
-  const c = map[status as string] ?? map.pending
-  return <Signal tone={c.tone}>{label ?? c.label}</Signal>
+  // Starea cererii vine din dicționarul comun (`lib/request-status`, #109),
+  // ca o cerere închisă să nu mai apară drept „În așteptare". Documentul
+  // trimis clientului nu e o stare de cerere, deci rămâne aici.
+  if (status === 'sent') return <Signal tone="neutral">{label ?? 'Trimis clientului'}</Signal>
+  const info = requestStatusInfo(status)
+  return <Signal tone={info.tone}>{label ?? (profile?.role === 'client' ? info.clientLabel : info.label)}</Signal>
 }
 
 export function PublicationPill({ reason }: { reason?: string }) {

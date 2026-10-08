@@ -11,6 +11,8 @@ interface PhaseAccordionSectionProps {
   id: string
   title: string
   subtitle?: string | null
+  /** Semnul de stare de lângă titlu (#109: „Finalizată"). */
+  badge?: ReactNode
   /** Banda fazei, 1–6. Poartă identitatea aripii, aceeași ca în panou. */
   band?: number
   /** Faza nepublicată se desenează ca plăcuță nemontată: contur întrerupt. */
@@ -34,6 +36,7 @@ export default function PhaseAccordionSection({
   id,
   title,
   subtitle,
+  badge,
   band,
   draft,
   icon,
@@ -78,7 +81,10 @@ export default function PhaseAccordionSection({
                 onCancel={onRenameCancel}
               />
             ) : (
-              <h2 className="break-words text-lg font-bold tracking-tight text-ink">{title}</h2>
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                <h2 className="break-words text-lg font-bold tracking-tight text-ink">{title}</h2>
+                {badge}
+              </div>
             )}
             {subtitle && <p className="mt-0.5 break-words text-sm text-ink-soft">{subtitle}</p>}
           </div>

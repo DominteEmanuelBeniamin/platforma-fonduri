@@ -25,9 +25,12 @@ function initials(name: string | null | undefined, email: string | null | undefi
 /** Motivul pentru care baza a refuzat scoaterea, spus pe românește. */
 function removalError(reason: string | undefined) {
   if (reason === 'general_consultant') return 'Consultantul răspunde de cererile generale. Alege altă persoană pentru ele, apoi încearcă din nou.'
-  if (reason === 'assigned_activity') return 'Consultantul are activități atribuite în proiect. Atribuie-le altcuiva, apoi încearcă din nou.'
-  if (reason === 'assigned_request') return 'Consultantul are cereri de documente active. Atribuie-le altcuiva, apoi încearcă din nou.'
-  if (reason === 'blocked') return 'Consultantul are încă lucruri atribuite în proiect. Atribuie-le altcuiva, apoi încearcă din nou.'
+  // Atribuirile pe elemente finalizate blochează și ele (issue separat, D15), iar
+  // acelea pot fi ascunse în pagină: mesajul spune unde să le cauți (#109).
+  if (reason === 'assigned_activity') return 'Consultantul are activități atribuite în proiect, poate și finalizate (ascunse implicit). Atribuie-le altcuiva, apoi încearcă din nou.'
+  // O cerere închisă nu se poate reatribui (D13): mesajul spune ocolul din plan.
+  if (reason === 'assigned_request') return 'Consultantul are cereri de documente atribuite, poate și închise sau aprobate (ascunse implicit). Atribuie-le altcuiva (o cerere închisă se redeschide întâi), apoi încearcă din nou.'
+  if (reason === 'blocked') return 'Consultantul are încă lucruri atribuite în proiect, poate și finalizate (ascunse implicit). Atribuie-le altcuiva, apoi încearcă din nou.'
   if (reason === 'senior') return 'Un consultant senior nu poate scoate alt senior. Cere unui administrator.'
   if (reason === 'self') return 'Nu te poți scoate singur din echipă. Cere unui administrator.'
   return 'Nu am putut scoate membrul din echipă. Reîncearcă.'
@@ -43,6 +46,7 @@ export default function ProjectTeam({
   members,
   canManage,
   canRemoveAny,
+  closed = false,
   onChange,
 }: {
   projectId: string
@@ -51,6 +55,8 @@ export default function ProjectTeam({
   canManage: boolean
   /** Adminul scoate pe oricine; seniorul doar juniori, și nu pe el însuși. */
   canRemoveAny: boolean
+  /** Proiectul e încheiat: echipa se vede, dar nu se schimbă până la redeschidere. */
+  closed?: boolean
   onChange: () => void
 }) {
   const { apiFetch, userId } = useAuth()
@@ -285,7 +291,11 @@ export default function ProjectTeam({
                 {addError && <p role="alert" className="mt-2 text-sm font-semibold text-[var(--sg-danger)]">{addError}</p>}
               </>
             ) : (
-              <p className="text-sm text-ink-soft">Echipa o schimbă un administrator sau un consultant senior din echipă.</p>
+              <p className="text-sm text-ink-soft">
+                {closed
+                  ? 'Proiectul e încheiat; echipa se poate schimba după redeschidere.'
+                  : 'Echipa o schimbă un administrator sau un consultant senior din echipă.'}
+              </p>
             )}
           </div>
         </Dialog.Content>

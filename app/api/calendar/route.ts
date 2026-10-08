@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server'
 import { guardToResponse, requireProfile, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
+import { displayedRequestStatus } from '@/lib/request-status'
 import {
   GENERAL_PHASE_ID,
   isActivityDone,
@@ -153,7 +154,7 @@ export async function GET(request: Request) {
           scoped(
             admin
               .from('document_requirements')
-              .select('id, name, status, deadline_at, visibility, assigned_to, activity_id, project_id, activity:activity_id(id, name, phase_id, visibility, assigned_to, phase:phase_id(id, name, visibility))'),
+              .select('id, name, status, status_before_close, deadline_at, visibility, assigned_to, activity_id, project_id, activity:activity_id(id, name, phase_id, visibility, assigned_to, phase:phase_id(id, name, visibility))'),
             'project_id',
           )
             .is('deleted_at', null)
@@ -268,7 +269,8 @@ export async function GET(request: Request) {
         done: isRequestDone(req),
         // Statusul întreg, nu doar `done`: tabloul de bord (#81) desparte după
         // el munca aflată la echipă de cea aflată la client. Vezi `eventWaitingOn`.
-        status: req.status ?? null,
+        // Închisă din „Aprobat”, se arată „Aprobat” / „Finalizat”, nu „Închisă”.
+        status: displayedRequestStatus(req),
         visibility: req.visibility === 'published' ? 'published' : 'draft',
         project_id: req.project_id,
         project_title: project?.title ?? '',

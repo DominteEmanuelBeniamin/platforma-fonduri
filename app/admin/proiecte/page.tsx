@@ -59,6 +59,7 @@ import {
 import EventRow from '@/components/calendar/EventRow'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { Spinner } from '@/components/ui/Spinner'
+import { Signal } from '@/components/ui/Signal'
 
 interface Column<K extends string> {
   key: K
@@ -107,7 +108,7 @@ const PROJECT_COLUMNS: Column<ProjectColumnKey>[] = [
     key: 'done',
     label: 'Finalizate',
     numeric: true,
-    hint: 'Activități încheiate și documente aprobate, din total',
+    hint: 'Activități încheiate și documente aprobate sau închise, din total',
     hide: HIDE.done,
   },
   { key: 'waiting', label: 'De rezolvat', numeric: true, hint: WAITING_HINT, hide: HIDE.waiting },
@@ -448,7 +449,7 @@ function ProjectDashboardContent() {
           />
           <tbody>
             {consultantRows.map(row => (
-              <ConsultantRow key={row.id} row={row} open={open === row.id} onToggle={() => toggle(row.id)} />
+              <ConsultantRow key={row.id} row={row} open={open === row.id} onToggle={() => toggle(row.id)} ended={showEnded} />
             ))}
           </tbody>
         </TableFrame>
@@ -781,11 +782,7 @@ function ProjectRow({
               {row.label}
             </Link>
 
-            {!row.active && (
-              <span className={`ml-1 rounded-full border border-[var(--p-border-strong)] px-1.5 text-[10px] uppercase tracking-wide ${FAINT}`}>
-                Încheiat
-              </span>
-            )}
+            {!row.active && <Signal tone="closed" className="ml-1">Încheiat</Signal>}
 
             {/* Doar starea oprită se arată, și doar ca semn: un proiect care nu
                 mai trimite nimic automat își ține termenele din memoria cuiva.
@@ -830,14 +827,14 @@ function ProjectRow({
           <td colSpan={PROJECT_COLUMNS.length} className="py-4 pl-4 pr-4 sm:pl-11">
             <DetailPanel
               row={row}
-              overdueHref={projectCalendarHref(row.id, { overdueOnly: true })}
-              upcomingHref={projectCalendarHref(row.id)}
+              overdueHref={projectCalendarHref(row.id, { overdueOnly: true, ended: !row.active })}
+              upcomingHref={projectCalendarHref(row.id, { ended: !row.active })}
               links={
                 <>
                   <Link href={`/projects/${row.id}`} className={PANEL_ACTION}>
                     Deschide proiectul
                   </Link>
-                  <Link href={projectCalendarHref(row.id)} className={PANEL_ACTION}>
+                  <Link href={projectCalendarHref(row.id, { ended: !row.active })} className={PANEL_ACTION}>
                     Vezi în calendar
                   </Link>
                 </>
@@ -856,10 +853,13 @@ function ConsultantRow({
   row,
   open,
   onToggle,
+  ended,
 }: {
   row: ConsultantDashboardRow
   open: boolean
   onToggle: () => void
+  /** Tabloul numără și proiectele încheiate: calendarul le arată și el (#109). */
+  ended: boolean
 }) {
   const detailsId = `detalii-${row.id}`
 
@@ -909,10 +909,10 @@ function ConsultantRow({
             <DetailPanel
               row={row}
               withProject
-              overdueHref={consultantCalendarHref(row.id, { overdueOnly: true })}
-              upcomingHref={consultantCalendarHref(row.id)}
+              overdueHref={consultantCalendarHref(row.id, { overdueOnly: true, ended })}
+              upcomingHref={consultantCalendarHref(row.id, { ended })}
               links={
-                <Link href={consultantCalendarHref(row.id)} className={PANEL_ACTION}>
+                <Link href={consultantCalendarHref(row.id, { ended })} className={PANEL_ACTION}>
                   Vezi în calendar
                 </Link>
               }

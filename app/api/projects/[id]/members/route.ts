@@ -75,7 +75,7 @@ export async function POST(
       return NextResponse.json({ error: 'Project ID lipsește din URL' }, { status: 400 })
     }
 
-    const ctx = await requireProjectManager(request, projectId)
+    const ctx = await requireProjectManager(request, projectId, { write: true })
     if (!ctx.ok) return guardToResponse(ctx)
 
     const body = await request.json().catch(() => null)

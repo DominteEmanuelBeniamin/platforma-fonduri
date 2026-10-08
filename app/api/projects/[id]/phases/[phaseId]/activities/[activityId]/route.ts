@@ -6,6 +6,7 @@ import { logAction } from '@/app/api/_utils/audit'
 import { sendActivityAssignedEmail } from '@/app/api/_utils/activity-assignment-email'
 import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
 import { buildAssignmentEmailIdempotencyKey, isRealAssignmentChange } from '@/lib/notification-utils'
+import { STATUS_PATCH_MESSAGE } from '@/lib/completion'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,9 +32,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   try {
     const { id: projectId, phaseId, activityId } = await params
     
-    const auth = await requireProjectAccess(req, projectId)
+    const auth = await requireProjectAccess(req, projectId, { write: true })
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status })
+      return NextResponse.json({ error: auth.error, message: auth.message }, { status: auth.status })
     }
 
     if (auth.access.role === 'client') {
@@ -46,6 +47,13 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     if (visibility !== undefined && visibility !== 'published') {
       return NextResponse.json({ error: 'Invalid visibility transition' }, { status: 400 })
+    }
+
+    // Finalizarea are rute proprii (/complete, /reopen), cu gardă de manager
+    // (D1), update condiționat și audit (#109). PATCH-ul nu mai e un al doilea
+    // drum spre ea.
+    if (status !== undefined) {
+      return NextResponse.json({ error: 'status is changed only via /complete and /reopen', message: STATUS_PATCH_MESSAGE }, { status: 400 })
     }
 
     // assigned_to trebuie să fie string (UUID), null sau omis — ca la document-requests.
@@ -66,7 +74,6 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (name !== undefined) updateData.name = name
     if (description !== undefined) updateData.description = description
     if (order_index !== undefined) updateData.order_index = order_index
-    if (status !== undefined) updateData.status = status
     if (assigned_to !== undefined) updateData.assigned_to = assigned_to
     if (deadline_at !== undefined) updateData.deadline_at = deadline_at || null
 
@@ -213,9 +220,9 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
     const { id: projectId, phaseId, activityId } = await params
     
-    const auth = await requireProjectAccess(req, projectId)
+    const auth = await requireProjectAccess(req, projectId, { write: true })
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status })
+      return NextResponse.json({ error: auth.error, message: auth.message }, { status: auth.status })
     }
 
     if (!canManageProject(auth.access)) {

@@ -18,7 +18,9 @@ import {
   Files,
   Trash2,
   UserRound,
-  Check
+  Check,
+  Archive,
+  RotateCcw,
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
@@ -34,6 +36,10 @@ import {
 import type { ReminderEntityState } from '@/lib/reminder-state'
 import ReminderStatus, { getReminderDisplayStatus } from '@/components/ReminderStatus'
 import { REQUIREMENT_LABELS, type RequirementType } from '@/lib/requirement-type'
+import { Signal } from '@/components/ui/Signal'
+import { canCloseRequest as isClosable, requestCloseConfirm, requestReopenConfirm } from '@/lib/completion'
+import { closedRequestClientNote, displayedRequestStatus, requestStatusInfo, type RequestStatus } from '@/lib/request-status'
+import { formatClosedDate, PROJECT_CLOSED_CLIENT_NOTE, PROJECT_CLOSED_READ_ONLY_MESSAGE } from '@/lib/project-lifecycle'
 import {
   formatFileSize,
   isAllowedUploadFile,
@@ -49,7 +55,11 @@ interface DocumentRequest {
   name: string
   description: string | null
   requirement_type?: RequirementType
-  status: 'pending' | 'review' | 'approved' | 'rejected'
+  status: RequestStatus
+  /** Starea la care revine o cerere închisă (#109). */
+  status_before_close?: 'pending' | 'rejected' | 'approved' | null
+  closed_at?: string | null
+  closer?: { id: string; full_name: string | null } | null
   is_outgoing?: boolean
   attachment_path: string | null
   attachment_missing_at?: string | null
@@ -113,8 +123,14 @@ export default function DocumentModal({
   reminderState,
   reminderStateLoading = false,
   projectMembers = [],
+  canCloseRequest = false,
+  readOnly = false,
 }: {
   request: DocumentRequest
+  /** Închide și redeschide cererea: adminul și seniorul membru (#109, D1). */
+  canCloseRequest?: boolean
+  /** Proiectul e încheiat: fișa se poate doar citi, de oricine (8 octombrie 2026). */
+  readOnly?: boolean
   projectId: string
   /** Consultanții proiectului, pentru atribuirea cererii */
   projectMembers?: { id: string; full_name: string | null; email: string }[]
@@ -161,6 +177,11 @@ export default function DocumentModal({
   const sendingReminderLock = useRef(false)
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
+  // O cerere închisă se citește, dar nu se modifică până la redeschidere (D13):
+  // termenul, responsabilul și modelul își pierd butoanele.
+  const isClosed = request.status === 'closed'
+  const canEdit = isAdminOrConsultant && !isClosed && !readOnly
+  const canReview = isAdminOrConsultant && request.status === 'review' && !readOnly
   const canUploadFolder =
     typeof window !== 'undefined' &&
     'webkitdirectory' in HTMLInputElement.prototype &&
@@ -272,54 +293,53 @@ export default function DocumentModal({
     }
   }
 
-  // Status configuration
-  const statusConfig = useMemo(() => {
-    const configs = {
-      pending: {
-        bg: 'bg-[var(--sg-warn-soft)]',
-        text: 'text-[var(--sg-warn)]',
-        icon: Clock,
-        label: isAdminOrConsultant ? 'Așteaptă răspuns' : 'De încărcat',
-      },
-      review: {
-        bg: 'bg-[var(--sg-accent-soft)]',
-        text: 'text-[var(--sg-accent)]',
-        icon: Eye,
-        label: 'În verificare',
-      },
-      approved: {
-        bg: 'bg-[var(--sg-ok-soft)]',
-        text: 'text-[var(--sg-ok)]',
-        icon: CheckCircle2,
-        label: 'Aprobat',
-      },
-      rejected: {
-        bg: 'bg-[var(--sg-danger-soft)]',
-        text: 'text-[var(--sg-danger)]',
-        icon: XCircle,
-        label: 'Respins',
-      }
-    }
-    if (isOutgoing) {
-      return {
-        bg: 'bg-[var(--sg-ok-soft)]',
-        text: 'text-[var(--sg-ok)]',
-        icon: FileCheck,
-        label: 'Trimis clientului',
-      }
-    }
-    return configs[request.status] || configs.pending
-  }, [isAdminOrConsultant, isOutgoing, request.status])
+  // Starea, din dicționarul comun (#109). Documentul trimis clientului nu e o
+  // stare de cerere, deci are cuvântul lui. Închisă din „Aprobat”, cererea se
+  // arată tot „Aprobat”.
+  const statusInfo = requestStatusInfo(displayedRequestStatus(request))
+  const statusSignal = isOutgoing
+    ? { tone: 'ok' as const, label: 'Trimis clientului' }
+    : { tone: statusInfo.tone, label: isAdminOrConsultant ? statusInfo.label : statusInfo.clientLabel }
 
-  // Check if deadline is overdue
+  const [closureLoading, setClosureLoading] = useState(false)
+
+  /** Închide sau redeschide cererea (#109, D14), cu confirmare. Fișa rămâne deschisă. */
+  const handleClosure = async (action: 'close' | 'reopen') => {
+    const dialog = action === 'close'
+      ? requestCloseConfirm(request.name, request.status)
+      : requestReopenConfirm(request.name, request.status_before_close)
+    if (!(await confirm(dialog))) return
+    const fallback = action === 'close'
+      ? 'Nu am putut închide cererea. Reîncearcă.'
+      : 'Nu am putut redeschide cererea. Reîncearcă.'
+    setClosureLoading(true)
+    try {
+      const res = await apiFetch(`/api/document-requests/${request.id}/${action}`, { method: 'POST' })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        showToast(data?.message || fallback, 'error')
+        await onUpdate()
+        return
+      }
+      showToast(action === 'close' ? 'Cererea a fost închisă.' : 'Cererea a fost redeschisă.', 'success')
+      await onUpdate()
+    } catch {
+      showToast(fallback, 'error')
+    } finally {
+      setClosureLoading(false)
+    }
+  }
+
+  // Check if deadline is overdue — dar nu pe o cerere aprobată sau închisă:
+  // termenul ei nu mai arde (#109).
   const isOverdue = useMemo(() => {
-    if (!localDeadline) return false
+    if (!localDeadline || request.status === 'approved' || request.status === 'closed') return false
     const deadline = new Date(localDeadline)
     const today = new Date()
     deadline.setHours(0, 0, 0, 0)
     today.setHours(0, 0, 0, 0)
     return deadline < today
-  }, [localDeadline])
+  }, [localDeadline, request.status])
 
   useEffect(() => {
     setMounted(true)
@@ -331,7 +351,7 @@ export default function DocumentModal({
     // Keyboard shortcuts
     const handleKeyboard = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
-      if (e.key === 'Enter' && e.ctrlKey && isAdminOrConsultant && request.status === 'review') {
+      if (e.key === 'Enter' && e.ctrlKey && canReview) {
         void handleApproveRef.current?.()
       }
     }
@@ -343,7 +363,7 @@ export default function DocumentModal({
       requestAnimationFrame(() => window.scrollTo(0, scrollY))
       window.removeEventListener('keydown', handleKeyboard)
     }
-  }, [request.status, isAdminOrConsultant, onClose])
+  }, [canReview, onClose])
 
   /** `''` ca nume: descarcă, dar păstrează numele trimis de server. */
   const forceDownload = (url: string) => downloadUrl(url, '')
@@ -396,10 +416,13 @@ export default function DocumentModal({
       .sort((a, b) => b.version - a.version)
   }, [request.files])
 
+  // O cerere închisă din „Respins” își păstrează motivul la vedere (#109):
+  // clientul și echipa trebuie să știe de ce a fost respinsă ultima oară.
+  const showsRejection = request.status === 'rejected' || (request.status === 'closed' && request.status_before_close === 'rejected')
   const latestRejectionReason = useMemo(() => {
-    if (request.status !== 'rejected') return null
+    if (!showsRejection) return null
     return request.latest_rejection?.reason ?? null
-  }, [request.latest_rejection?.reason, request.status])
+  }, [request.latest_rejection?.reason, showsRejection])
 
 
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
@@ -707,7 +730,6 @@ export default function DocumentModal({
 
   if (!mounted) return null
 
-  const StatusIcon = statusConfig.icon
   const requirementType = request.requirement_type ?? 'obligatoriu'
   const requirementStyle = requirementType === 'obligatoriu'
     ? 'bg-[var(--sg-danger-soft)] text-[var(--sg-danger)]'
@@ -736,10 +758,7 @@ export default function DocumentModal({
               <h2 className="min-w-0 break-words text-xl font-bold leading-tight text-ink">
                 {request.name}
               </h2>
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${statusConfig.bg} ${statusConfig.text}`}>
-                <StatusIcon className="w-3.5 h-3.5" />
-                {statusConfig.label}
-              </span>
+              <Signal tone={statusSignal.tone}>{statusSignal.label}</Signal>
               <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${requirementStyle}`}>
                 {REQUIREMENT_LABELS[requirementType]}
               </span>
@@ -761,6 +780,22 @@ export default function DocumentModal({
               {request.description}
             </p>
           )}
+          {readOnly && (
+            <div className="flex items-start gap-2 rounded-[var(--radius-plate)] bg-paper-sunk px-4 py-3 text-sm text-ink-soft">
+              <Archive className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+              <p>{isAdminOrConsultant ? PROJECT_CLOSED_READ_ONLY_MESSAGE : PROJECT_CLOSED_CLIENT_NOTE}</p>
+            </div>
+          )}
+          {isClosed && (
+            <div className="flex items-start gap-2 rounded-[var(--radius-plate)] bg-paper-sunk px-4 py-3 text-sm text-ink-soft">
+              <Archive className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+              <p>
+                {isAdminOrConsultant
+                  ? `Cererea e ${request.status_before_close === 'approved' ? 'aprobată și ' : ''}închisă${formatClosedDate(request.closed_at) ? ` din ${formatClosedDate(request.closed_at)}` : ''}${request.closer?.full_name ? `, de ${request.closer.full_name}` : ''}. Nu mai primește fișiere și nu se mai modifică până o redeschizi.`
+                  : closedRequestClientNote(request)}
+              </p>
+            </div>
+          )}
           {/* Acțiuni rapide, atunci când nu există încă termen și/sau model — pe același rând.
               Termenul și reminderul n-au sens la un document trimis clientului, dar
               reatașarea da: altfel, odată eliminat documentul, cererea rămâne fără
@@ -769,7 +804,7 @@ export default function DocumentModal({
             (!isOutgoing && !localDeadline && !editingDeadline) ||
             (!localAttachmentPath && !attachmentMissing) ||
             (!isOutgoing && (request.status === 'pending' || request.status === 'rejected'))
-          ) && isAdminOrConsultant && (
+          ) && canEdit && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               {!isOutgoing && !localDeadline && !editingDeadline && (
                 <button
@@ -865,7 +900,7 @@ export default function DocumentModal({
           {/* Bara de termen. Fără termen, cei care pot edita văd în locul ei
               cum se adaugă unul — altfel un termen șters n-ar mai avea drum
               înapoi. */}
-          {!localDeadline && !editingDeadline && isAdminOrConsultant && !isOutgoing && (
+          {!localDeadline && !editingDeadline && canEdit && !isOutgoing && (
             <div className="flex items-center gap-2 text-sm text-ink-soft">
               <Clock className="w-4 h-4 flex-shrink-0 text-ink-faint" />
               <span>Fără termen limită</span>
@@ -902,7 +937,7 @@ export default function DocumentModal({
                   })}
                 </strong>
               </span>
-              {isAdminOrConsultant && (
+              {canEdit && (
                 <button
                   onClick={() => setEditingDeadline(true)}
                   className="text-xs font-semibold text-[var(--sg-accent)] hover:underline flex-shrink-0"
@@ -920,7 +955,7 @@ export default function DocumentModal({
 
           {/* Responsabilul cererii — condiție de publicare (#70) */}
           {isAdminOrConsultant && !isOutgoing && (
-            editingAssignee ? (
+            editingAssignee && canEdit ? (
               <div className="flex items-center gap-2">
                 <UserRound className="w-4 h-4 flex-shrink-0 text-ink-faint" />
                 <select
@@ -963,12 +998,14 @@ export default function DocumentModal({
                   Responsabil:{' '}
                   <strong>{assigneeLabel ?? 'neatribuit'}</strong>
                 </span>
-                <button
-                  onClick={() => { setAssigneeDraft(localAssignee ?? ''); setEditingAssignee(true) }}
-                  className="text-xs font-semibold text-[var(--sg-accent)] hover:underline flex-shrink-0"
-                >
-                  {localAssignee ? 'Modifică' : 'Atribuie'}
-                </button>
+                {canEdit && (
+                  <button
+                    onClick={() => { setAssigneeDraft(localAssignee ?? ''); setEditingAssignee(true) }}
+                    className="text-xs font-semibold text-[var(--sg-accent)] hover:underline flex-shrink-0"
+                  >
+                    {localAssignee ? 'Modifică' : 'Atribuie'}
+                  </button>
+                )}
               </div>
             )
           )}
@@ -1057,7 +1094,7 @@ export default function DocumentModal({
                           ? 'Fișierul model nu mai există în storage. Reîncarcă modelul sau elimină-l din cerere.'
                           : 'Modelul pentru această cerere este momentan indisponibil. Echipa îl va atașa când este disponibil; așteaptă actualizarea cererii înainte de completare.'}
                       </p>
-                      {isAdminOrConsultant && (
+                      {canEdit && (
                         <div className="mt-3 flex flex-col sm:flex-row gap-2">
                           <input
                             ref={attachmentInputRef}
@@ -1092,7 +1129,7 @@ export default function DocumentModal({
                 </div>
               )}
 
-              {!isAdminOrConsultant && clientVisible && !isOutgoing && (request.status === 'pending' || request.status === 'rejected') && (
+              {!isAdminOrConsultant && !readOnly && clientVisible && !isOutgoing && (request.status === 'pending' || request.status === 'rejected') && (
                 <div className="rounded-xl border-t border-rule pt-4" onClick={(event) => event.stopPropagation()}>
                   <h3 className="mb-2 text-sm font-semibold text-ink">
                     {request.status === 'rejected' ? 'Reîncarcă documentele' : 'Încarcă documentele'}
@@ -1301,7 +1338,7 @@ export default function DocumentModal({
           </div>
 
           {/* Motivul respingerii anterioare */}
-          {request.status === 'rejected' && (
+          {showsRejection && (
             <div className="rounded-xl bg-[var(--sg-danger-soft)] px-4 py-3">
               <p className="text-xs font-semibold text-[var(--sg-danger)] mb-1">Motivul respingerii</p>
               <p className="text-sm text-[var(--sg-danger)] leading-relaxed">
@@ -1311,7 +1348,7 @@ export default function DocumentModal({
           )}
 
           {/* Mesaj pentru client - doar la verificare, doar pentru echipă */}
-          {isAdminOrConsultant && request.status === 'review' && (
+          {canReview && (
             <div>
               <label className="block text-sm font-semibold text-ink mb-2">
                 Mesaj pentru client
@@ -1327,8 +1364,35 @@ export default function DocumentModal({
           )}
         </div>
 
+        {/* Închiderea și redeschiderea (D14). Doar pe „De încărcat" și „Respins"
+            (D3) și doar pentru admin și seniorul membru (D1); o cerere în
+            verificare se verifică întâi, deci acolo subsolul rămâne al verificării. */}
+        {canCloseRequest && !readOnly && !isOutgoing && (isClosable(request) || isClosed) && (
+          <div className="px-5 sm:px-6 py-4 border-t border-rule flex flex-col sm:flex-row sm:justify-end gap-2.5">
+            {isClosed ? (
+              <button
+                onClick={() => { void handleClosure('reopen') }}
+                disabled={closureLoading}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-plate)] border border-rule-strong bg-plate px-4 text-sm font-semibold text-ink hover:bg-paper-sunk disabled:opacity-50 pointer-fine:min-h-10"
+              >
+                {closureLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RotateCcw className="h-4 w-4" aria-hidden="true" />}
+                Redeschide cererea
+              </button>
+            ) : (
+              <button
+                onClick={() => { void handleClosure('close') }}
+                disabled={closureLoading}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-plate)] border border-rule-strong bg-plate px-4 text-sm font-semibold text-ink hover:bg-paper-sunk disabled:opacity-50 pointer-fine:min-h-10"
+              >
+                {closureLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Archive className="h-4 w-4" aria-hidden="true" />}
+                Închide cererea
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Footer - doar când există acțiuni de făcut */}
-        {isAdminOrConsultant && request.status === 'review' && (
+        {canReview && (
           <div className="px-5 sm:px-6 py-4 border-t border-rule flex flex-col sm:flex-row gap-2.5">
             <button
               onClick={confirmReject}

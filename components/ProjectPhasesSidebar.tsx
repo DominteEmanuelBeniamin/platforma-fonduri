@@ -15,6 +15,7 @@ import {
   Calendar,
   Copy,
   Pencil,
+  Check,
 } from 'lucide-react'
 
 import InlineDateEditor from '@/components/InlineDateEditor'
@@ -30,6 +31,7 @@ import {
   phaseDeletionImpact,
 } from '@/lib/deletion-impact'
 import type { ProjectPermissions } from '@/lib/project-permissions'
+import { isActivityFinal, isPhaseFinal } from '@/lib/completion'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -70,6 +72,8 @@ interface ProjectPhasesSidebarProps {
   activePhaseId: string | null
   expandedPhases: Set<string>
   canEdit: boolean
+  /** Proiectul e încheiat: se vede ca pentru echipă, dar nu se mai modifică (8 octombrie 2026). */
+  readOnly?: boolean
   permissions: ProjectPermissions
   projectId: string
   documentRequests: DocumentRequestPreview[]
@@ -94,6 +98,7 @@ export default function ProjectPhasesSidebar({
   activePhaseId,
   expandedPhases,
   canEdit,
+  readOnly = false,
   permissions,
   projectId,
   documentRequests,
@@ -108,6 +113,8 @@ export default function ProjectPhasesSidebar({
   mobileOpen,
   onMobileClose,
 }: ProjectPhasesSidebarProps) {
+  // `canEdit` ține de ce vede echipa (ciorne, benzi); `canChange`, de ce poate modifica.
+  const canChange = canEdit && !readOnly
   const { showToast, confirm } = useToast()
   const [showAddPhase, setShowAddPhase] = useState(false)
   const [addingPhase, setAddingPhase] = useState(false)
@@ -481,7 +488,7 @@ export default function ProjectPhasesSidebar({
                         „a trece peste”, deci mânerul rămâne invizibil și reordonarea nu
                         există. Pragul e lipsa mausului, nu lățimea — un iPad de 768px
                         n-are maus, dar trece de `md:`. */}
-                    {canEdit && renamingId !== phase.id && (
+                    {canChange && renamingId !== phase.id && (
                       <span
                         draggable
                         onDragStart={e => handlePhaseDragStart(e, phase.id)}
@@ -504,8 +511,16 @@ export default function ProjectPhasesSidebar({
                         />
                       </div>
                     ) : (
-                      <span className={`min-w-0 flex-1 break-words text-sm leading-snug ${isActive ? 'font-semibold text-[var(--sg-accent-ink)]' : 'font-medium text-ink'}`}>
+                      // Panoul arată tot, inclusiv ce e finalizat (D10): aici se
+                      // reordonează, deci nimic nu se ascunde, doar se marchează.
+                      <span className={`min-w-0 flex-1 break-words text-sm leading-snug ${
+                        isActive ? 'font-semibold text-[var(--sg-accent-ink)]' : isPhaseFinal(phase) ? 'font-medium text-ink-faint' : 'font-medium text-ink'
+                      }`}>
+                        {isPhaseFinal(phase) && (
+                          <Check className="mr-1 inline h-3.5 w-3.5 -translate-y-px text-[var(--sg-ok)]" strokeWidth={2.5} aria-hidden="true" />
+                        )}
                         {phase.name}
+                        {isPhaseFinal(phase) && <span className="sr-only"> (finalizată)</span>}
                       </span>
                     )}
                     {renamingId !== phase.id && (
@@ -522,7 +537,7 @@ export default function ProjectPhasesSidebar({
                         </button>
                       </Collapsible.Trigger>
                     )}
-                    {canEdit && renamingId !== phase.id && (
+                    {canChange && renamingId !== phase.id && (
                       <RowActionsMenu
                         label={`Acțiuni pentru faza ${phase.name}`}
                         busy={duplicatingPhase === phase.id || deletingPhase === phase.id}
@@ -568,7 +583,9 @@ export default function ProjectPhasesSidebar({
                     today.setHours(0, 0, 0, 0)
                     const deadlineDate = act.deadline_at ? new Date(act.deadline_at) : null
                     deadlineDate?.setHours(0, 0, 0, 0)
-                    const isOverdue = deadlineDate && deadlineDate < today
+                    const actFinal = isActivityFinal(act)
+                    // Pe o activitate finalizată, un termen trecut nu mai arde.
+                    const isOverdue = !actFinal && deadlineDate && deadlineDate < today
 
                     return (
                       <div
@@ -579,7 +596,7 @@ export default function ProjectPhasesSidebar({
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          {canEdit && renamingId !== act.id && (
+                          {canChange && renamingId !== act.id && (
                             <span
                               draggable
                               onDragStart={e => handleActivityDragStart(e, phase, act.id)}
@@ -602,11 +619,17 @@ export default function ProjectPhasesSidebar({
                               />
                             </div>
                           ) : (
-                            <span className="min-w-0 flex-1 break-words text-xs leading-snug text-ink-soft">{act.name}</span>
+                            <span className={`min-w-0 flex-1 break-words text-xs leading-snug ${actFinal ? 'text-ink-faint' : 'text-ink-soft'}`}>
+                              {actFinal && (
+                                <Check className="mr-1 inline h-3 w-3 -translate-y-px text-[var(--sg-ok)]" strokeWidth={2.5} aria-hidden="true" />
+                              )}
+                              {act.name}
+                              {actFinal && <span className="sr-only"> (finalizată)</span>}
+                            </span>
                           )}
 
                           {/* Buton calendar — pentru admin/consultant */}
-                          {canEdit && renamingId !== act.id && (
+                          {canChange && renamingId !== act.id && (
                             <button
                               onClick={e => {
                                 e.stopPropagation()
@@ -615,7 +638,9 @@ export default function ProjectPhasesSidebar({
                               title={act.deadline_at ? 'Modifică termen limită' : 'Setează termen limită'}
                               className={`flex h-6 w-6 shrink-0 items-center justify-center rounded transition-all ${
                                 act.deadline_at
-                                  ? isOverdue
+                                  ? actFinal
+                                    ? 'text-ink-faint hover:opacity-80'
+                                    : isOverdue
                                     ? 'text-[var(--p-danger)] hover:opacity-80'
                                     : 'text-[var(--p-warning)] hover:opacity-80'
                                   : 'text-[var(--p-ink-faint)] hover:text-[var(--p-accent)] opacity-0 group-hover/act:opacity-100 pointer-coarse:opacity-100'
@@ -625,7 +650,7 @@ export default function ProjectPhasesSidebar({
                             </button>
                           )}
 
-                          {canEdit && renamingId !== act.id && (
+                          {canChange && renamingId !== act.id && (
                             <RowActionsMenu
                               label={`Acțiuni pentru activitatea ${act.name}`}
                               size="sm"
@@ -658,7 +683,7 @@ export default function ProjectPhasesSidebar({
                         {deadlineLabel && !isEditingThisDeadline && (
                           <span
                             className={`text-[10px] font-medium ml-0 ${
-                              isOverdue ? 'text-[var(--p-danger)]' : 'text-[var(--p-warning)]'
+                              actFinal ? 'text-ink-faint' : isOverdue ? 'text-[var(--p-danger)]' : 'text-[var(--p-warning)]'
                             }`}
                           >
                             {isOverdue ? '⚠ ' : ''}{deadlineLabel}
@@ -666,7 +691,7 @@ export default function ProjectPhasesSidebar({
                         )}
 
                         {/* Date picker inline */}
-                        {isEditingThisDeadline && canEdit && (
+                        {isEditingThisDeadline && canChange && (
                           <div className="mt-0.5">
                             <InlineDateEditor
                               size="sm"
@@ -685,7 +710,7 @@ export default function ProjectPhasesSidebar({
                   })}
 
                   {/* Add activity */}
-                  {canEdit && (
+                  {canChange && (
                     showAddActivity[phase.id] ? (
                       <div className="px-2">
                         <InlineInput
@@ -713,7 +738,7 @@ export default function ProjectPhasesSidebar({
         })}
 
         {/* Add phase */}
-        {canEdit && (
+        {canChange && (
           <div className="pt-1">
             {showAddPhase ? (
               <div className="px-2">

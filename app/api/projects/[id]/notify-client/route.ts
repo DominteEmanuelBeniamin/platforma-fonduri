@@ -44,7 +44,7 @@ export async function POST(
   try {
     const { id: projectId } = await params
 
-    const access = await requireProjectAccess(request, projectId)
+    const access = await requireProjectAccess(request, projectId, { write: true })
     if (!access.ok) return guardToResponse(access)
     if (access.profile.role === 'client') {
       return NextResponse.json({ error: 'Nu ai permisiunea' }, { status: 403 })
@@ -140,8 +140,15 @@ export async function POST(
     const candidateActivityIds = activitiesWithPhase
       .filter(a => isClientVisibleActivity(a) && !a.client_notified_at)
       .map(a => a.id)
+    // O cerere publicată și apoi închisă, înainte de a fi anunțată, nu e o
+    // noutate pentru client (#109). Recenziile cererilor închise ies singure:
+    // `selectReviewNotificationCandidates` ia doar `approved`/`rejected`.
     const candidateDocumentIds = documentRows
-      .filter(d => isClientVisibleDocument({ ...d, activity: d.activity_id ? activityById.get(d.activity_id) : null }) && !d.client_notified_at)
+      .filter(d =>
+        d.status !== 'closed' &&
+        isClientVisibleDocument({ ...d, activity: d.activity_id ? activityById.get(d.activity_id) : null }) &&
+        !d.client_notified_at
+      )
       .map(d => d.id)
 
     if (candidatePhaseIds.length + candidateActivityIds.length + candidateDocumentIds.length + reviewCandidates.length === 0) {

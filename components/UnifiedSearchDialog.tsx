@@ -3,6 +3,9 @@
 import { useMemo, useState, type KeyboardEvent } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Search, X, Layers, ListChecks, FileText } from 'lucide-react'
+import { Signal } from '@/components/ui/Signal'
+import { requestStatusInfo } from '@/lib/request-status'
+import type { SignalTone } from '@/lib/signage'
 import { filterSearchIndex, type SearchResult, type SearchResultType } from '@/lib/projectSearch'
 
 interface UnifiedSearchDialogProps {
@@ -54,6 +57,16 @@ function matchSnippet(text: string | null, query: string, radius = 44) {
   const start = Math.max(0, idx - radius)
   const end = Math.min(text.length, idx + q.length + radius)
   return `${start > 0 ? '...' : ''}${text.slice(start, end)}${end < text.length ? '...' : ''}`
+}
+
+/** Semnul unui rezultat finalizat: fază sau activitate gata, cerere aprobată sau închisă. */
+function finalMark(result: SearchResult): { tone: SignalTone; label: string } | null {
+  if (result.type === 'document_request') {
+    if (result.status !== 'approved' && result.status !== 'closed') return null
+    const info = requestStatusInfo(result.status)
+    return { tone: info.tone, label: info.label }
+  }
+  return result.status === 'completed' ? { tone: 'ok', label: 'Finalizată' } : null
 }
 
 export default function UnifiedSearchDialog({
@@ -173,6 +186,11 @@ export default function UnifiedSearchDialog({
                           )}
                           {context && <p className="text-xs text-[var(--p-ink-faint)] truncate">{context}</p>}
                         </div>
+                        {/* Ce e finalizat se găsește la fel, dar se spune (#109): în
+                            pagină poate fi ascuns, iar selecția îl dezvăluie. */}
+                        {finalMark(r) && (
+                          <Signal tone={finalMark(r)!.tone} className="flex-shrink-0">{finalMark(r)!.label}</Signal>
+                        )}
                         <span className="text-[10px] font-semibold text-[var(--p-ink-faint)] uppercase tracking-wide flex-shrink-0">
                           {TYPE_LABEL[r.type]}
                         </span>

@@ -10,6 +10,9 @@ export const AUDIT_ACTION_LABELS = {
   download: 'Descărcare',
   notify: 'Notificare',
   deadline_reminder_digest: 'Digest de remindere',
+  close: 'Încheiere',
+  reopen: 'Redeschidere',
+  complete: 'Finalizare',
 } as const
 
 export const AUDIT_ENTITY_LABELS = {
