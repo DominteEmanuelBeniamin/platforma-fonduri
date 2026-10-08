@@ -40,9 +40,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // Importul face parte din deschiderea dosarului și poate aduce consultanți
     // în echipă: doar adminul și seniorul membru, ca la gestionarea echipei.
     // Juniorul nu deschide dosare, iar clientul nu are acces la șabloane.
-    const auth = await requireProjectManager(req, projectId)
+    const auth = await requireProjectManager(req, projectId, { write: true })
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status })
+      return NextResponse.json({ error: auth.error, message: auth.message }, { status: auth.status })
     }
 
     const body = await req.json()

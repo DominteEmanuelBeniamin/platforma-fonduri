@@ -295,10 +295,8 @@ test('Proiectul: se încheie și se redeschide doar de admin și de seniorul mem
   expect.soft(asJunior.permissions?.close_project).toBe(false)
   expect.soft(asJunior.permissions?.complete_items).toBe(false)
 
-  // PATCH-ul nu e un al doilea drum spre încheiere.
-  const patched = await call(admin, 'PATCH', `/api/projects/${projectId}`, { lifecycle_status: 'active' })
-  expectStatus(patched, 400, 'PATCH cu lifecycle_status')
-  expect.soft(patched.json.message).toMatch(/Mai multe acțiuni/)
+  // Încheiat, proiectul nu primește niciun PATCH (8 octombrie 2026).
+  expectStatus(await call(admin, 'PATCH', `/api/projects/${projectId}`, { lifecycle_status: 'active' }), 409, 'PATCH pe proiectul încheiat')
 
   await refusedFor('POST', reopen, 'redeschide proiectul')
   const reopened = await call(admin, 'POST', reopen)
@@ -307,6 +305,11 @@ test('Proiectul: se încheie și se redeschide doar de admin și de seniorul mem
   expect.soft(reopened.json.project?.closed_at).toBeNull()
   expect.soft(reopened.json.project?.closed_by).toBeNull()
   expectStatus(await call(admin, 'POST', reopen), 409, 'redeschiderea unui proiect activ')
+
+  // PATCH-ul nu e un al doilea drum spre încheiere.
+  const patched = await call(admin, 'PATCH', `/api/projects/${projectId}`, { lifecycle_status: 'completed' })
+  expectStatus(patched, 400, 'PATCH cu lifecycle_status')
+  expect.soft(patched.json.message).toMatch(/Mai multe acțiuni/)
 
   expectStatus(await call(senior, 'POST', close), 200, 'seniorul membru încheie proiectul')
   expectStatus(await call(senior, 'POST', reopen), 200, 'seniorul membru îl redeschide')
@@ -321,6 +324,82 @@ test('Proiectul: se încheie și se redeschide doar de admin și de seniorul mem
   expect.soft(audit.map(row => `${row.action_type}:${row.user_id === admin.id ? 'admin' : row.user_id === senior.id ? 'senior' : '?'}`))
     .toEqual(['close:admin', 'reopen:admin', 'close:senior', 'reopen:senior', 'close:admin'])
   expect.soft(audit.every(row => row.entity_type === 'project')).toBe(true)
+})
+
+test('Un proiect încheiat se poate doar consulta, de oricine; se încheie doar fără documente în verificare (8 octombrie 2026)', async () => {
+  const projectId = await createProject('doar de citit')
+  const phaseId = await addPhase(projectId, 'Pregătire')
+  const activityId = await addActivity(projectId, phaseId, 'Acte constitutive')
+  const pending = await addRequest(projectId, activityId, 'Statut actualizat')
+  const inReview = await addRequest(projectId, activityId, 'Certificat constatator')
+  await publishEverything(projectId)
+  await putInReview(inReview)
+
+  // Cât un document așteaptă verificarea, proiectul nu se încheie.
+  const early = await call(admin, 'POST', `/api/projects/${projectId}/close`)
+  expectStatus(early, 409, 'încheierea cu un document în verificare')
+  expect.soft(early.json.message).toBe('Un document așteaptă verificarea. Aprobă-l sau respinge-l, apoi încheie proiectul.')
+  await must(admin, 'POST', `/api/document-requests/${inReview}/review`, { action: 'approved' })
+  await must(senior, 'POST', `/api/projects/${projectId}/close`)
+
+  const READ_ONLY = 'Proiectul e încheiat, deci se poate doar consulta. Se poate modifica din nou după redeschidere.'
+  const base = `/api/projects/${projectId}`
+  const writes: [string, string, unknown?][] = [
+    ['PATCH', base, { title: 'Titlu nou' }],
+    ['POST', `${base}/phases`, { name: 'Fază nouă' }],
+    ['PATCH', `${base}/phases/${phaseId}`, { name: 'Pregătire, redenumită' }],
+    ['POST', `${base}/phases/${phaseId}/duplicate`],
+    ['POST', `${base}/phases/${phaseId}/complete`],
+    ['POST', `${base}/phases/${phaseId}/activities`, { name: 'Activitate nouă' }],
+    ['PATCH', `${base}/phases/${phaseId}/activities/${activityId}`, { name: 'Acte, redenumite' }],
+    ['DELETE', `${base}/phases/${phaseId}/activities/${activityId}`],
+    ['POST', `${base}/document-requests`, { name: 'Cerere nouă', activity_id: activityId, deadline_at: '2030-01-03T00:00:00.000Z' }],
+    ['PATCH', `/api/document-requests/${pending}`, { name: 'Statut, redenumit' }],
+    ['DELETE', `/api/document-requests/${pending}`],
+    ['POST', `/api/document-requests/${pending}/close`],
+    ['POST', `/api/document-requests/${pending}/reminder`],
+    ['POST', `${base}/members`, { consultant_id: outsider.id }],
+    ['DELETE', `${base}/members/${junior.id}`],
+    ['POST', `${base}/chat/messages`, { body: 'Mesaj în proiectul încheiat' }],
+    ['POST', `${base}/notify-client`],
+  ]
+  for (const person of [admin, senior]) {
+    for (const [method, url, body] of writes) {
+      const res = await call(person, method, url, body)
+      expectStatus(res, 409, `${person.label}: ${method} ${url}`)
+      expect.soft(res.json.message, `${person.label}: ${method} ${url}`).toBe(READ_ONLY)
+    }
+  }
+  // Juniorul: ce i-ar fi permis (o fază nouă) e refuzat la fel; ce nu i-ar fi permis rămâne 403.
+  expectStatus(await call(junior, 'POST', `${base}/phases`, { name: 'Fază nouă' }), 409, 'juniorul adaugă o fază')
+  expectStatus(await call(junior, 'POST', `${base}/phases/${phaseId}/complete`), 403, 'juniorul finalizează faza')
+  // Clientul nu mai încarcă.
+  const upload = await call(client, 'POST', `/api/document-requests/${pending}/uploads/init`, {
+    files: [{ name: 'statut.pdf', size: 10, type: 'application/pdf' }],
+  })
+  expectStatus(upload, 409, 'clientul încarcă')
+  expect.soft(upload.json.message).toBe(READ_ONLY)
+
+  // Nimic nu s-a schimbat.
+  expect.soft((await requestRow(pending)).status).toBe('pending')
+  expect.soft((await requestRow(pending)).name).toBe('Statut actualizat')
+  const { count: phaseCount } = await service.from('project_phases').select('id', { count: 'exact', head: true }).eq('project_id', projectId)
+  expect.soft(phaseCount).toBe(1)
+  const { count: messages } = await service.from('project_chat_messages').select('id', { count: 'exact', head: true }).eq('project_id', projectId)
+  expect.soft(messages).toBe(0)
+
+  // Consultarea merge: proiectul, cererile, chatul, marcarea ca citit.
+  for (const person of [admin, senior, junior, client]) {
+    expectStatus(await call(person, 'GET', base), 200, `${person.label} deschide proiectul`)
+    expectStatus(await call(person, 'GET', `${base}/document-requests`), 200, `${person.label} vede cererile`)
+  }
+  expectStatus(await call(admin, 'GET', `${base}/chat/messages`), 200, 'adminul citește chatul')
+  expectStatus(await call(senior, 'POST', `${base}/chat/read`, {}), 200, 'seniorul marchează chatul ca citit')
+
+  // Redeschis, se lucrează din nou.
+  await must(senior, 'POST', `${base}/reopen`)
+  expectStatus(await call(admin, 'PATCH', `/api/document-requests/${pending}`, { name: 'Statut, redenumit' }), 200, 'modificare după redeschidere')
+  expectStatus(await call(junior, 'POST', `${base}/chat/messages`, { body: 'Din nou în lucru' }), 201, 'chat după redeschidere')
 })
 
 // ═══ FAZE ȘI ACTIVITĂȚI ══════════════════════════════════════════════════════
@@ -666,6 +745,20 @@ test('Interfața: meniul „⋯” încheie și redeschide proiectul; badge, rem
     await expect.soft(bell, 'comutatorul de remindere e oprit').toBeDisabled()
     await expect.soft(bell).toHaveAttribute('title', 'Proiectul e încheiat; reminderele automate sunt oprite.')
     await expect.soft(calendarTab, 'insigna tabului e 0 pe proiect încheiat').not.toContainText('termene depășite')
+
+    // Doar de citit (8 octombrie 2026): nicio unealtă de modificare, iar chatul doar se citește.
+    await expect.soft(page.getByText('Se poate doar consulta. Ca să modifici ceva, redeschide-l din „Mai multe acțiuni”.')).toBeVisible()
+    await expect.soft(page.getByRole('button', { name: 'Anunță clientul despre actualizări' })).toHaveCount(0)
+    await expect.soft(page.getByRole('button', { name: 'Redenumește proiectul' })).toHaveCount(0)
+    await page.goto(`/projects/${projectId}?phase=${phaseId}&activity=${activityId}`)
+    await expect(page.locator(`#activity-${activityId}`)).toBeVisible({ timeout: 30_000 })
+    await expect.soft(page.getByRole('button', { name: /^Acțiuni pentru (faza|activitatea)/ }), 'fără meniuri pe faze și activități').toHaveCount(0)
+    await expect.soft(page.getByRole('button', { name: 'Adaugă activitate' })).toHaveCount(0)
+    await expect.soft(page.getByRole('button', { name: 'Adaugă cerere de document nouă' })).toHaveCount(0)
+    await page.getByRole('button', { name: /^Chat/ }).click()
+    await expect.soft(page.getByText('Proiectul e încheiat, deci chatul se poate doar citi.')).toBeVisible()
+    await expect.soft(page.getByPlaceholder('Scrie un mesaj...')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Închide chatul' }).click()
 
     // Redeschiderea spune câte termene sunt deja depășite.
     await menu.click()

@@ -174,7 +174,7 @@ export async function POST(
 ) {
   try {
     const { id: projectId } = await params
-    const access = await requireProjectAccess(request, projectId)
+    const access = await requireProjectAccess(request, projectId, { write: true })
     if (!access.ok) return guardToResponse(access)
 
     const parsed = parseProjectChatMessageInput(await request.json().catch(() => null), projectId, access.user.id)

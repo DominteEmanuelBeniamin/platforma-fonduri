@@ -31,7 +31,7 @@ export async function changeItemCompletion(request: Request, target: Target, act
     if (!ids.every(isUuid)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     // Doar adminul și seniorul membru marchează și redeschid (D1): juniorul și
     // clientul primesc 403 înainte să afle ceva despre starea elementului.
-    const ctx = await requireProjectManager(request, target.projectId)
+    const ctx = await requireProjectManager(request, target.projectId, { write: true })
     if (!ctx.ok) return guardToResponse(ctx)
 
     const admin = createSupabaseServiceClient()

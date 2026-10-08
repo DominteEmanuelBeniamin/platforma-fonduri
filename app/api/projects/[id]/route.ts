@@ -65,7 +65,7 @@ export async function PATCH(
 
     // Adminul și consultantul senior membru pot edita proiectul; reasignarea
     // clientului/consultantului general rămâne la admin (verificat mai jos).
-    const ctx = await requireProjectManager(request, projectId)
+    const ctx = await requireProjectManager(request, projectId, { write: true })
     if (!ctx.ok) return guardToResponse(ctx)
 
     const admin = createSupabaseServiceClient()

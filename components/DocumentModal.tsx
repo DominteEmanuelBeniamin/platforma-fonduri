@@ -39,7 +39,7 @@ import { REQUIREMENT_LABELS, type RequirementType } from '@/lib/requirement-type
 import { Signal } from '@/components/ui/Signal'
 import { canCloseRequest as isClosable, requestCloseConfirm, requestReopenConfirm } from '@/lib/completion'
 import { closedRequestClientNote, displayedRequestStatus, requestStatusInfo, type RequestStatus } from '@/lib/request-status'
-import { formatClosedDate } from '@/lib/project-lifecycle'
+import { formatClosedDate, PROJECT_CLOSED_CLIENT_NOTE, PROJECT_CLOSED_READ_ONLY_MESSAGE } from '@/lib/project-lifecycle'
 import {
   formatFileSize,
   isAllowedUploadFile,
@@ -124,10 +124,13 @@ export default function DocumentModal({
   reminderStateLoading = false,
   projectMembers = [],
   canCloseRequest = false,
+  readOnly = false,
 }: {
   request: DocumentRequest
   /** Închide și redeschide cererea: adminul și seniorul membru (#109, D1). */
   canCloseRequest?: boolean
+  /** Proiectul e încheiat: fișa se poate doar citi, de oricine (8 octombrie 2026). */
+  readOnly?: boolean
   projectId: string
   /** Consultanții proiectului, pentru atribuirea cererii */
   projectMembers?: { id: string; full_name: string | null; email: string }[]
@@ -177,7 +180,8 @@ export default function DocumentModal({
   // O cerere închisă se citește, dar nu se modifică până la redeschidere (D13):
   // termenul, responsabilul și modelul își pierd butoanele.
   const isClosed = request.status === 'closed'
-  const canEdit = isAdminOrConsultant && !isClosed
+  const canEdit = isAdminOrConsultant && !isClosed && !readOnly
+  const canReview = isAdminOrConsultant && request.status === 'review' && !readOnly
   const canUploadFolder =
     typeof window !== 'undefined' &&
     'webkitdirectory' in HTMLInputElement.prototype &&
@@ -347,7 +351,7 @@ export default function DocumentModal({
     // Keyboard shortcuts
     const handleKeyboard = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
-      if (e.key === 'Enter' && e.ctrlKey && isAdminOrConsultant && request.status === 'review') {
+      if (e.key === 'Enter' && e.ctrlKey && canReview) {
         void handleApproveRef.current?.()
       }
     }
@@ -359,7 +363,7 @@ export default function DocumentModal({
       requestAnimationFrame(() => window.scrollTo(0, scrollY))
       window.removeEventListener('keydown', handleKeyboard)
     }
-  }, [request.status, isAdminOrConsultant, onClose])
+  }, [canReview, onClose])
 
   /** `''` ca nume: descarcă, dar păstrează numele trimis de server. */
   const forceDownload = (url: string) => downloadUrl(url, '')
@@ -776,6 +780,12 @@ export default function DocumentModal({
               {request.description}
             </p>
           )}
+          {readOnly && (
+            <div className="flex items-start gap-2 rounded-[var(--radius-plate)] bg-paper-sunk px-4 py-3 text-sm text-ink-soft">
+              <Archive className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+              <p>{isAdminOrConsultant ? PROJECT_CLOSED_READ_ONLY_MESSAGE : PROJECT_CLOSED_CLIENT_NOTE}</p>
+            </div>
+          )}
           {isClosed && (
             <div className="flex items-start gap-2 rounded-[var(--radius-plate)] bg-paper-sunk px-4 py-3 text-sm text-ink-soft">
               <Archive className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
@@ -1119,7 +1129,7 @@ export default function DocumentModal({
                 </div>
               )}
 
-              {!isAdminOrConsultant && clientVisible && !isOutgoing && (request.status === 'pending' || request.status === 'rejected') && (
+              {!isAdminOrConsultant && !readOnly && clientVisible && !isOutgoing && (request.status === 'pending' || request.status === 'rejected') && (
                 <div className="rounded-xl border-t border-rule pt-4" onClick={(event) => event.stopPropagation()}>
                   <h3 className="mb-2 text-sm font-semibold text-ink">
                     {request.status === 'rejected' ? 'Reîncarcă documentele' : 'Încarcă documentele'}
@@ -1338,7 +1348,7 @@ export default function DocumentModal({
           )}
 
           {/* Mesaj pentru client - doar la verificare, doar pentru echipă */}
-          {isAdminOrConsultant && request.status === 'review' && (
+          {canReview && (
             <div>
               <label className="block text-sm font-semibold text-ink mb-2">
                 Mesaj pentru client
@@ -1357,7 +1367,7 @@ export default function DocumentModal({
         {/* Închiderea și redeschiderea (D14). Doar pe „De încărcat" și „Respins"
             (D3) și doar pentru admin și seniorul membru (D1); o cerere în
             verificare se verifică întâi, deci acolo subsolul rămâne al verificării. */}
-        {canCloseRequest && !isOutgoing && (isClosable(request) || isClosed) && (
+        {canCloseRequest && !readOnly && !isOutgoing && (isClosable(request) || isClosed) && (
           <div className="px-5 sm:px-6 py-4 border-t border-rule flex flex-col sm:flex-row sm:justify-end gap-2.5">
             {isClosed ? (
               <button
@@ -1382,7 +1392,7 @@ export default function DocumentModal({
         )}
 
         {/* Footer - doar când există acțiuni de făcut */}
-        {isAdminOrConsultant && request.status === 'review' && (
+        {canReview && (
           <div className="px-5 sm:px-6 py-4 border-t border-rule flex flex-col sm:flex-row gap-2.5">
             <button
               onClick={confirmReject}

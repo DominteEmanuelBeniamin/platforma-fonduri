@@ -151,7 +151,7 @@ export async function POST(
   try {
     const { id: projectId } = await params
 
-    const access = await requireProjectAccess(request, projectId)
+    const access = await requireProjectAccess(request, projectId, { write: true })
     if (!access.ok) return guardToResponse(access)
 
     if (access.profile.role !== 'admin' && access.profile.role !== 'consultant') {

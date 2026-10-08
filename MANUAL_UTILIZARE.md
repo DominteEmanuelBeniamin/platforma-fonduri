@@ -116,7 +116,8 @@ Pe pagina unui proiect administratorul poate:
 **Încheierea proiectului:**
 - Adminul și consultantul senior din echipă încheie proiectul din meniul **⋯ Mai multe acțiuni** al paginii lui → **Încheie proiectul** → confirmare.
 - Lângă titlu apare semnul **Încheiat pe <dată>** (echipa vede și cine l-a încheiat). Reminderele automate se opresc, iar cererile deschise ale proiectului ies din „Ce ai de făcut”, din **Cereri de documente** și din calendarul general (le poți vedea cu **Și proiectele încheiate**).
-- Proiectul rămâne de consultat și de lucrat în el: se pot adăuga cereri, se pot verifica documente, chatul merge.
+- Un proiect încheiat **se poate doar consulta**, de oricine, adminul inclus: nu se mai adaugă și nu se mai modifică nimic, documentele nu se mai verifică, clientul nu mai încarcă, iar chatul se poate doar citi. Ca să schimbi ceva, îl redeschizi.
+- Proiectul nu se poate încheia cât timp un document așteaptă verificarea: îl aprobi sau îl respingi întâi.
 - Se redeschide din același meniu → **Redeschide proiectul**. Confirmarea spune câte termene sunt deja depășite: la următoarea rulare a reminderelor, pentru ele pleacă „Termen depășit”.
 
 **Faze și activități finalizate:**
@@ -278,7 +279,7 @@ Clientul poate **vizualiza** progresul proiectului:
 - Dacă documentul este **Respins** → consultantul lasă o notă explicativă → clientul poate încărca o versiune nouă
 
 **Proiecte încheiate și cereri închise:**
-- Un proiect încheiat are semnul **Încheiat pe <dată>** și nu mai apare la „Ce ai de făcut”.
+- Un proiect încheiat are semnul **Încheiat pe <dată>** și nu mai apare la „Ce ai de făcut”. În el nu mai încarci nimic: pe cererile rămase scrie „Proiectul e încheiat; nu mai e nevoie să încarci nimic aici.”
 - O cerere **Închisă** nu mai așteaptă nimic de la tine: în locul zonei de încărcare scrie „Consultantul a închis cererea; nu mai e nevoie să încarci nimic aici.” Dacă documentul fusese aprobat, cererea rămâne „Aprobat”, iar mesajul spune că documentul e aprobat și cererea închisă.
 - Ce e finalizat se ascunde din pagina proiectului; **Arată și ce e finalizat** sau **Arată** le aduce la vedere.
 
@@ -333,7 +334,7 @@ Consultant verifică
 | **Audit Log** | Jurnal complet al tuturor acțiunilor efectuate în platformă |
 | **CIF** | Codul de identificare fiscală al firmei clientului |
 | **Cod intern** | Identificator unic generat automat pentru fiecare proiect |
-| **Proiect încheiat** | Proiect terminat: fără remindere automate, scos din listele „de făcut”; se poate redeschide |
+| **Proiect încheiat** | Proiect terminat: se poate doar consulta, fără remindere automate, scos din listele „de făcut”; se poate redeschide |
 | **Finalizat** | Fază sau activitate marcată ca terminată; cererile aprobate sau închise se numără și ele ca finalizate |
 
 ---

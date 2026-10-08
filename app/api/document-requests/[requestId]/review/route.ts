@@ -38,7 +38,7 @@ export async function POST(
       return NextResponse.json({ error: 'Documentele trimise clientului nu intră în fluxul de review.' }, { status: 400 })
     }
 
-    const access = await requireProjectAccess(request, reqRow.project_id)
+    const access = await requireProjectAccess(request, reqRow.project_id, { write: true })
     if (!access.ok) return guardToResponse(access)
     if (access.profile.role === 'client') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })

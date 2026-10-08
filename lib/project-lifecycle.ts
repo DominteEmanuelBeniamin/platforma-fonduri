@@ -45,6 +45,14 @@ export function projectClosedLabel(closedAt: string | null | undefined, closerNa
 // `error`, deci doar `message` ajunge la utilizator (convenția din #70).
 export const PROJECT_ALREADY_CLOSED_MESSAGE = 'Proiectul e deja încheiat.'
 export const PROJECT_NOT_CLOSED_MESSAGE = 'Proiectul nu e încheiat, deci nu are ce să se redeschidă.'
+export const PROJECT_CLOSED_READ_ONLY_MESSAGE =
+  'Proiectul e încheiat, deci se poate doar consulta. Se poate modifica din nou după redeschidere.'
+/** Ce vede clientul pe o cerere dintr-un proiect încheiat, în locul încărcării. */
+export const PROJECT_CLOSED_CLIENT_NOTE = 'Proiectul e încheiat; nu mai e nevoie să încarci nimic aici.'
+export const PROJECT_CLOSE_REVIEW_FIRST_MESSAGE = (count: number) =>
+  count === 1
+    ? 'Un document așteaptă verificarea. Aprobă-l sau respinge-l, apoi încheie proiectul.'
+    : `${countLabel(count, 'document așteaptă', 'documente așteaptă')} verificarea. Aprobă-le sau respinge-le, apoi încheie proiectul.`
 export const PROJECT_LIFECYCLE_PATCH_MESSAGE =
   'Proiectul se încheie și se redeschide din meniul „Mai multe acțiuni” al paginii lui.'
 
@@ -56,7 +64,7 @@ export function projectCloseConfirm(projectTitle: string) {
     title: `Închei proiectul „${projectTitle}”?`,
     description:
       'Reminderele automate se opresc, iar ce a rămas deschis iese din listele de lucru ale echipei și ale clientului. ' +
-      'Proiectul rămâne de consultat și se poate redeschide oricând.',
+      'Proiectul se va putea doar consulta: nimeni nu mai modifică nimic în el, nici în chat, până îl redeschizi.',
     confirmText: 'Încheie proiectul',
   }
 }

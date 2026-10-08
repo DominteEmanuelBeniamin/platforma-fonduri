@@ -124,7 +124,7 @@ export async function PATCH(
     }
 
     const currentRequest = req
-    const access = await requireProjectAccess(request, req.project_id)
+    const access = await requireProjectAccess(request, req.project_id, { write: true })
     if (!access.ok) return guardToResponse(access)
     if (access.profile.role === 'client') {
       return NextResponse.json({ error: 'Nu ai permisiunea să modifici cereri' }, { status: 403 })
@@ -495,7 +495,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Cererea nu a fost găsită' }, { status: 404 })
     }
 
-    const access = await requireProjectAccess(request, req.project_id)
+    const access = await requireProjectAccess(request, req.project_id, { write: true })
     if (!access.ok) return guardToResponse(access)
 
     if (access.profile.role === 'client') {

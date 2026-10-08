@@ -24,7 +24,7 @@ export const ROWS: Row[] = [
   { id: 'p-aproba', section: 'Proiecte', title: 'Aprobă sau respinge documentele trimise de client', admin: 'Da', senior: 'Da*', junior: 'Da*' },
   { id: 'p-editeaza', section: 'Proiecte', title: 'Schimbă titlul, statusul și reminderele automate', admin: 'Da', senior: 'Da*', junior: 'Nu', isNew: true },
   // #109, decizia D1 (5 octombrie 2026): juniorul nu încheie și nu marchează nimic ca finalizat.
-  { id: 'p-incheie', section: 'Proiecte', title: 'Încheie și redeschide proiectul', note: 'Doar din pagina proiectului. Cât e încheiat, reminderele automate sunt oprite', admin: 'Da', senior: 'Da*', junior: 'Nu', isNew: true },
+  { id: 'p-incheie', section: 'Proiecte', title: 'Încheie și redeschide proiectul', note: 'Doar din pagina proiectului și doar fără documente în verificare. Cât e încheiat, proiectul se poate doar consulta, de oricine, iar reminderele automate sunt oprite', admin: 'Da', senior: 'Da*', junior: 'Nu', isNew: true },
   { id: 'p-finalizeaza', section: 'Proiecte', title: 'Marchează faze, activități și cereri ca finalizate și le redeschide', note: 'Cererile se închid din „De încărcat”, „Respins” și „Aprobat”, niciodată din „În verificare”. Aprobarea documentelor rămâne la orice membru', admin: 'Da', senior: 'Da*', junior: 'Nu', isNew: true },
   { id: 'p-sterge-faze', section: 'Proiecte', title: 'Șterge faze și activități', note: 'Cu confirmare, ca azi. Cererile de documente din ele nu se pierd', admin: 'Da', senior: 'Da*', junior: 'Nu', isNew: true },
   { id: 'p-adauga-colegi', section: 'Proiecte', title: 'Adaugă colegi în echipa proiectului', admin: 'Da', senior: 'Da*', junior: 'Nu', isNew: true },

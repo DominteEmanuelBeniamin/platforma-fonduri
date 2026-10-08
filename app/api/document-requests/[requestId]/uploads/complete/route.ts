@@ -79,7 +79,7 @@ export async function POST(
       return NextResponse.json({ error: 'Document request is not linked to a project' }, { status: 500 })
     }
 
-    const access = await requireProjectAccess(request, reqRow.project_id)
+    const access = await requireProjectAccess(request, reqRow.project_id, { write: true })
     if (!access.ok) return guardToResponse(access)
     if (access.profile.role === 'client' && !isClientVisibleDocument(reqRow)) {
       return NextResponse.json({ error: 'Document request not found' }, { status: 404 })

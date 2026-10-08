@@ -103,6 +103,7 @@ import {
   countOverdueOpenItems,
   isProjectActive,
   projectCloseConfirm,
+  PROJECT_CLOSE_REVIEW_FIRST_MESSAGE,
   projectClosedLabel,
   projectReopenConfirm,
 } from '@/lib/project-lifecycle'
@@ -704,6 +705,13 @@ function ProjectDetailsContent() {
 
   const [changingLifecycle, setChangingLifecycle] = useState(false)
   const projectClosed = !!project && !isProjectActive(project)
+  // Un proiect încheiat se poate doar consulta, de oricine (decizia din 8
+  // octombrie 2026): dispar controalele de modificare, iar adminului și
+  // seniorului le rămâne doar „Redeschide proiectul". Serverul refuză oricum.
+  const canChange = canEdit && !projectClosed
+  const perms: ProjectPermissions = projectClosed
+    ? { ...NO_PROJECT_PERMISSIONS, close_project: permissions.close_project }
+    : permissions
 
   /** Proiectul și permisiunile, fără spinnerul de pagină al lui `fetchAll`. */
   const refreshProject = async () => {
@@ -724,6 +732,15 @@ function ProjectDetailsContent() {
    */
   const handleProjectLifecycle = async (action: 'close' | 'reopen') => {
     if (!project || changingLifecycle) return
+    // Încheiat, proiectul nu mai primește verificări: ce așteaptă verificarea se
+    // rezolvă întâi. Aceeași regulă ca pe server, spusă înainte de orice apel.
+    if (action === 'close') {
+      const inReview = allDocRequests.filter((r: any) => r.status === 'review' && !r.deleted_at).length
+      if (inReview > 0) {
+        showToast(PROJECT_CLOSE_REVIEW_FIRST_MESSAGE(inReview), 'warning')
+        return
+      }
+    }
     const dialog = action === 'close'
       ? projectCloseConfirm(project.title)
       : projectReopenConfirm(project.title, countOverdueOpenItems(phases, allDocRequests), automaticRemindersEnabled(project))
@@ -1224,7 +1241,7 @@ function ProjectDetailsContent() {
         segments={[{ label: 'Proiecte', href: '/' }, { label: project.title }]}
         action={
           <>
-            {permissions.edit_project && !isEditingTitle && (
+            {perms.edit_project && !isEditingTitle && (
               <IconButton label="Redenumește proiectul" onClick={() => { setEditTitle(project.title); setIsEditingTitle(true) }}>
                 <Pencil className="h-4 w-4" />
               </IconButton>
@@ -1239,8 +1256,9 @@ function ProjectDetailsContent() {
               <ProjectTeam
                 projectId={projectId}
                 members={projectMembers}
-                canManage={permissions.manage_team}
-                canRemoveAny={permissions.remove_any_member}
+                canManage={perms.manage_team}
+                canRemoveAny={perms.remove_any_member}
+                closed={projectClosed}
                 onChange={fetchProjectMembers}
               />
             )}
@@ -1249,7 +1267,7 @@ function ProjectDetailsContent() {
               Chat
               {unreadCount > 0 && <Counter n={unreadCount} label={`${unreadCount} mesaje necitite`} className="ml-1" />}
             </Button>
-            {canEdit && (
+            {canChange && (
               <Button
                 variant={hasUnnotifiedUpdates ? 'primary' : 'secondary'}
                 size="sm"
@@ -1333,6 +1351,15 @@ function ProjectDetailsContent() {
               {projectClosedLabel(project.closed_at, project.closer?.full_name)}
             </Signal>
           )}
+          {projectClosed && (
+            <p className="basis-full text-sm text-ink-soft">
+              {isClient
+                ? 'Proiectul e încheiat; nu mai e nevoie să încarci nimic.'
+                : permissions.close_project
+                  ? 'Se poate doar consulta. Ca să modifici ceva, redeschide-l din „Mai multe acțiuni”.'
+                  : 'Se poate doar consulta, până îl redeschide un administrator sau un consultant senior din echipă.'}
+            </p>
+          )}
         </div>
       )}
 
@@ -1368,6 +1395,7 @@ function ProjectDetailsContent() {
             activePhaseId={landingView === 'browse' ? activePhaseId : null}
             expandedPhases={expandedPhases}
             canEdit={canEdit}
+            readOnly={projectClosed}
             projectId={projectId}
             documentRequests={allDocRequests}
             isGeneralActive={landingView === 'browse' && activePhaseId === GENERAL_ID}
@@ -1378,7 +1406,7 @@ function ProjectDetailsContent() {
             onReorderRefresh={refreshPhases}
             onDuplicateRefresh={refreshContent}
             apiFetch={apiFetch}
-            permissions={permissions}
+            permissions={perms}
             mobileOpen={mobileSidebarOpen}
             onMobileClose={() => setMobileSidebarOpen(false)}
           />
@@ -1560,7 +1588,7 @@ function ProjectDetailsContent() {
                       headerRight={
                         <PublishStatusControl
                           status={phase.visibility ?? 'draft'}
-                          canPublish={canEdit}
+                          canPublish={canChange}
                           showPublishedStatus={canEdit}
                           onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}`, {
                             title: 'Publică faza?',
@@ -1568,7 +1596,7 @@ function ProjectDetailsContent() {
                           })}
                         />
                       }
-                      actions={canEdit ? (
+                      actions={canChange ? (
                         <RowActionsMenu
                           label={`Acțiuni pentru faza ${phase.name}`}
                           busy={duplicatingId === phase.id || deletingId === phase.id || completingId === phase.id}
@@ -1576,13 +1604,13 @@ function ProjectDetailsContent() {
                             {
                               label: 'Marchează faza ca finalizată',
                               icon: <CheckCircle2 className="w-3 h-3" />,
-                              hidden: !permissions.complete_items || isPhaseFinal(phase),
+                              hidden: !perms.complete_items || isPhaseFinal(phase),
                               onSelect: () => { void handleItemCompletion('complete', phase) },
                             },
                             {
                               label: 'Readu faza în lucru',
                               icon: <RotateCcw className="w-3 h-3" />,
-                              hidden: !permissions.complete_items || !isPhaseFinal(phase),
+                              hidden: !perms.complete_items || !isPhaseFinal(phase),
                               onSelect: () => { void handleItemCompletion('reopen', phase) },
                             },
                             {
@@ -1599,7 +1627,7 @@ function ProjectDetailsContent() {
                               label: 'Șterge',
                               icon: <Trash2 className="w-3 h-3" />,
                               danger: true,
-                              hidden: !permissions.delete_phases,
+                              hidden: !perms.delete_phases,
                               onSelect: () => { void askToDeletePhase(phase) },
                             },
                           ]}
@@ -1612,7 +1640,7 @@ function ProjectDetailsContent() {
                       open={expandedPhases.has(phase.id)}
                       onOpenChange={() => handleToggleExpand(phase.id)}
                     >
-                      {(phase.activities?.length ?? 0) === 0 && !canEdit ? (
+                      {(phase.activities?.length ?? 0) === 0 && !canChange ? (
                         <p className="text-sm text-[var(--p-ink-faint)]">Nicio activitate în această fază.</p>
                       ) : (
                         <>
@@ -1624,18 +1652,19 @@ function ProjectDetailsContent() {
                             completed={isActivityFinal(activity)}
                             open={expandedActivityIds.has(activity.id)}
                             onOpenChange={() => handleToggleActivity(activity.id)}
-                            canAssign={canEdit}
+                            canAssign={canChange}
                             projectMembers={projectMembers}
                             onAssign={assignedTo => { handleAssignActivity(phase.id, activity.id, assignedTo).catch(() => {}) }}
                             visibility={activity.visibility}
-                            canPublish={canEdit}
+                            canPublish={canChange}
+                            showPublishedStatus={canEdit}
                             publishBlockers={publishBlockers({
                               kind: 'activity',
                               currentDeadline: activity.deadline_at,
                               currentAssignee: activity.assigned_to,
                             })}
-                            onSetDeadline={date => saveActivityDeadline(phase.id, activity.id, date)}
-                            actions={canEdit ? (
+                            onSetDeadline={projectClosed ? undefined : date => saveActivityDeadline(phase.id, activity.id, date)}
+                            actions={canChange ? (
                               <RowActionsMenu
                                 label={`Acțiuni pentru activitatea ${activity.name}`}
                                 busy={duplicatingId === activity.id || deletingId === activity.id || completingId === activity.id}
@@ -1643,13 +1672,13 @@ function ProjectDetailsContent() {
                                   {
                                     label: 'Marchează activitatea ca finalizată',
                                     icon: <CheckCircle2 className="w-3 h-3" />,
-                                    hidden: !permissions.complete_items || isActivityFinal(activity),
+                                    hidden: !perms.complete_items || isActivityFinal(activity),
                                     onSelect: () => { void handleItemCompletion('complete', phase, activity) },
                                   },
                                   {
                                     label: 'Readu activitatea în lucru',
                                     icon: <RotateCcw className="w-3 h-3" />,
-                                    hidden: !permissions.complete_items || !isActivityFinal(activity),
+                                    hidden: !perms.complete_items || !isActivityFinal(activity),
                                     onSelect: () => { void handleItemCompletion('reopen', phase, activity) },
                                   },
                                   {
@@ -1666,7 +1695,7 @@ function ProjectDetailsContent() {
                                     label: 'Șterge',
                                     icon: <Trash2 className="w-3 h-3" />,
                                     danger: true,
-                                    hidden: !permissions.delete_phases,
+                                    hidden: !perms.delete_phases,
                                     onSelect: () => { void askToDeleteActivity(phase, activity) },
                                   },
                                 ]}
@@ -1698,7 +1727,8 @@ function ProjectDetailsContent() {
                               clientName={project?.profiles?.full_name ?? null}
                               projectTitle={project?.title}
                               autoOpenRequestId={autoOpenRequestId}
-                              canCloseRequests={permissions.complete_items}
+                              canCloseRequests={perms.complete_items}
+                              readOnly={projectClosed}
                               hiddenRequestIds={hidden.requests}
                               onRevealRequests={ids => reveal(...ids)}
                             />
@@ -1712,7 +1742,7 @@ function ProjectDetailsContent() {
                           onReveal={() => reveal(...hiddenActivities.map(activity => activity.id))}
                           focusTargetId={hiddenActivities[0] ? `activity-${hiddenActivities[0].id}` : undefined}
                         />
-                        {canEdit && (
+                        {canChange && (
                           showAddActivity[phase.id] ? (
                             <div className="flex items-center gap-1.5">
                               <input
@@ -1783,7 +1813,7 @@ function ProjectDetailsContent() {
                       subtitle="Documente care nu țin de o anumită fază a proiectului."
                       icon={<FolderOpen className="h-4 w-4 shrink-0 text-[var(--sg-accent)]" aria-hidden="true" />}
                       headerRight={
-                        permissions.reassign_project ? (
+                        perms.reassign_project ? (
                           <select
                             value={project?.general_consultant_id ?? ''}
                             onClick={e => e.stopPropagation()}
@@ -1826,7 +1856,8 @@ function ProjectDetailsContent() {
                       clientName={project?.profiles?.full_name ?? null}
                       projectTitle={project?.title}
                       autoOpenRequestId={autoOpenRequestId}
-                      canCloseRequests={permissions.complete_items}
+                      canCloseRequests={perms.complete_items}
+                              readOnly={projectClosed}
                       hiddenRequestIds={hidden.requests}
                       onRevealRequests={ids => reveal(...ids)}
                     />
@@ -1846,8 +1877,9 @@ function ProjectDetailsContent() {
           onClose={() => setChatOpen(false)}
           title="Chat proiect"
           projectId={projectId}
-          canModerate={permissions.moderate_chat}
-          canEditOthers={permissions.edit_others_messages}
+          canModerate={perms.moderate_chat}
+          canEditOthers={perms.edit_others_messages}
+          readOnly={projectClosed}
           onUnreadCountChange={setUnreadCount}
           searchIndex={searchIndex}
           onNavigate={handleChatNavigate}
@@ -1877,7 +1909,8 @@ function ProjectDetailsContent() {
           projectTitle={project?.title}
           clientVisible={isClientVisibleDocument(selectedDocumentRequest)}
           projectMembers={projectMembers}
-          canCloseRequest={permissions.complete_items}
+          canCloseRequest={perms.complete_items}
+          readOnly={projectClosed}
         />
       )}
 

@@ -29,6 +29,8 @@ interface ActivityFoldProps {
   onAssign: (assignedTo: string | null) => void
   visibility?: 'draft' | 'published'
   canPublish: boolean
+  /** Semnul „În pregătire / Vizibil clientului" fără butonul de publicare. Implicit, ca `canPublish`. */
+  showPublishedStatus?: boolean
   onPublish: () => void
   publishBlockers?: string[]
   onSetDeadline?: (value: string) => Promise<void> | void
@@ -60,6 +62,7 @@ export default function ActivityFold({
   onAssign,
   visibility,
   canPublish,
+  showPublishedStatus = canPublish,
   onPublish,
   publishBlockers,
   onSetDeadline,
@@ -179,7 +182,7 @@ export default function ActivityFold({
           <PublishStatusControl
             status={visibility ?? 'draft'}
             canPublish={canPublish}
-            showPublishedStatus={canPublish}
+            showPublishedStatus={showPublishedStatus}
             onPublish={onPublish}
             blockers={publishBlockers}
             onSetDeadline={onSetDeadline}

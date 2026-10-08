@@ -72,6 +72,8 @@ interface ProjectPhasesSidebarProps {
   activePhaseId: string | null
   expandedPhases: Set<string>
   canEdit: boolean
+  /** Proiectul e încheiat: se vede ca pentru echipă, dar nu se mai modifică (8 octombrie 2026). */
+  readOnly?: boolean
   permissions: ProjectPermissions
   projectId: string
   documentRequests: DocumentRequestPreview[]
@@ -96,6 +98,7 @@ export default function ProjectPhasesSidebar({
   activePhaseId,
   expandedPhases,
   canEdit,
+  readOnly = false,
   permissions,
   projectId,
   documentRequests,
@@ -110,6 +113,8 @@ export default function ProjectPhasesSidebar({
   mobileOpen,
   onMobileClose,
 }: ProjectPhasesSidebarProps) {
+  // `canEdit` ține de ce vede echipa (ciorne, benzi); `canChange`, de ce poate modifica.
+  const canChange = canEdit && !readOnly
   const { showToast, confirm } = useToast()
   const [showAddPhase, setShowAddPhase] = useState(false)
   const [addingPhase, setAddingPhase] = useState(false)
@@ -483,7 +488,7 @@ export default function ProjectPhasesSidebar({
                         „a trece peste”, deci mânerul rămâne invizibil și reordonarea nu
                         există. Pragul e lipsa mausului, nu lățimea — un iPad de 768px
                         n-are maus, dar trece de `md:`. */}
-                    {canEdit && renamingId !== phase.id && (
+                    {canChange && renamingId !== phase.id && (
                       <span
                         draggable
                         onDragStart={e => handlePhaseDragStart(e, phase.id)}
@@ -532,7 +537,7 @@ export default function ProjectPhasesSidebar({
                         </button>
                       </Collapsible.Trigger>
                     )}
-                    {canEdit && renamingId !== phase.id && (
+                    {canChange && renamingId !== phase.id && (
                       <RowActionsMenu
                         label={`Acțiuni pentru faza ${phase.name}`}
                         busy={duplicatingPhase === phase.id || deletingPhase === phase.id}
@@ -591,7 +596,7 @@ export default function ProjectPhasesSidebar({
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          {canEdit && renamingId !== act.id && (
+                          {canChange && renamingId !== act.id && (
                             <span
                               draggable
                               onDragStart={e => handleActivityDragStart(e, phase, act.id)}
@@ -624,7 +629,7 @@ export default function ProjectPhasesSidebar({
                           )}
 
                           {/* Buton calendar — pentru admin/consultant */}
-                          {canEdit && renamingId !== act.id && (
+                          {canChange && renamingId !== act.id && (
                             <button
                               onClick={e => {
                                 e.stopPropagation()
@@ -645,7 +650,7 @@ export default function ProjectPhasesSidebar({
                             </button>
                           )}
 
-                          {canEdit && renamingId !== act.id && (
+                          {canChange && renamingId !== act.id && (
                             <RowActionsMenu
                               label={`Acțiuni pentru activitatea ${act.name}`}
                               size="sm"
@@ -686,7 +691,7 @@ export default function ProjectPhasesSidebar({
                         )}
 
                         {/* Date picker inline */}
-                        {isEditingThisDeadline && canEdit && (
+                        {isEditingThisDeadline && canChange && (
                           <div className="mt-0.5">
                             <InlineDateEditor
                               size="sm"
@@ -705,7 +710,7 @@ export default function ProjectPhasesSidebar({
                   })}
 
                   {/* Add activity */}
-                  {canEdit && (
+                  {canChange && (
                     showAddActivity[phase.id] ? (
                       <div className="px-2">
                         <InlineInput
@@ -733,7 +738,7 @@ export default function ProjectPhasesSidebar({
         })}
 
         {/* Add phase */}
-        {canEdit && (
+        {canChange && (
           <div className="pt-1">
             {showAddPhase ? (
               <div className="px-2">

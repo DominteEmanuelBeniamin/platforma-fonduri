@@ -39,7 +39,7 @@ export async function changeRequestClosure(request: Request, requestId: string, 
     // Doar adminul și seniorul membru închid și redeschid (D1). Garda vine
     // înaintea refuzurilor de stare, ca juniorul să primească 403 indiferent
     // de starea cererii.
-    const ctx = await requireProjectManager(request, before.project_id)
+    const ctx = await requireProjectManager(request, before.project_id, { write: true })
     if (!ctx.ok) return guardToResponse(ctx)
 
     const refusal = action === 'close' ? requestCloseRefusal(before) : requestReopenRefusal(before)

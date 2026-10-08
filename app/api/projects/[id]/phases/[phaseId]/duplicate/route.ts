@@ -24,9 +24,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     const { id: projectId, phaseId } = await params
 
-    const auth = await requireProjectAccess(req, projectId)
+    const auth = await requireProjectAccess(req, projectId, { write: true })
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.error, message: auth.error }, { status: auth.status })
+      return NextResponse.json({ error: auth.error, message: auth.message ?? auth.error }, { status: auth.status })
     }
 
     // Duplicarea e o creare, deci merge după aceleași drepturi ca adăugarea (#10)

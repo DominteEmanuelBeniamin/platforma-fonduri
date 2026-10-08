@@ -46,6 +46,7 @@ export default function ProjectTeam({
   members,
   canManage,
   canRemoveAny,
+  closed = false,
   onChange,
 }: {
   projectId: string
@@ -54,6 +55,8 @@ export default function ProjectTeam({
   canManage: boolean
   /** Adminul scoate pe oricine; seniorul doar juniori, și nu pe el însuși. */
   canRemoveAny: boolean
+  /** Proiectul e încheiat: echipa se vede, dar nu se schimbă până la redeschidere. */
+  closed?: boolean
   onChange: () => void
 }) {
   const { apiFetch, userId } = useAuth()
@@ -288,7 +291,11 @@ export default function ProjectTeam({
                 {addError && <p role="alert" className="mt-2 text-sm font-semibold text-[var(--sg-danger)]">{addError}</p>}
               </>
             ) : (
-              <p className="text-sm text-ink-soft">Echipa o schimbă un administrator sau un consultant senior din echipă.</p>
+              <p className="text-sm text-ink-soft">
+                {closed
+                  ? 'Proiectul e încheiat; echipa se poate schimba după redeschidere.'
+                  : 'Echipa o schimbă un administrator sau un consultant senior din echipă.'}
+              </p>
             )}
           </div>
         </Dialog.Content>

@@ -66,9 +66,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     const { id: projectId, phaseId } = await params
     
-    const auth = await requireProjectAccess(req, projectId)
+    const auth = await requireProjectAccess(req, projectId, { write: true })
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status })
+      return NextResponse.json({ error: auth.error, message: auth.message }, { status: auth.status })
     }
 
     if (auth.access.role === 'client') {
