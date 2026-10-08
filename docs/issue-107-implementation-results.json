@@ -1,11 +1,10 @@
 {
-  "date": "2026-10-07T15:19:34.240Z",
+  "date": "2026-10-08T12:39:02.022Z",
   "environment": {
-    "baseUrl": "http://127.0.0.1:3107",
+    "baseUrl": "http://127.0.0.1:6107",
     "auth": "v2.197.0",
     "postgres": "17.6",
-    "sdk": "2.90.0",
-    "publicHeadersBaseUrl": "http://127.0.0.1:3117"
+    "sdk": "2.90.0"
   },
   "cases": [
     {
@@ -15,7 +14,17 @@
         "R30",
         "R33"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
+      "passed": true
+    },
+    {
+      "name": "public_page_headers",
+      "ids": [
+        "R09",
+        "R33",
+        "R34"
+      ],
+      "baseUrl": "http://127.0.0.1:6109",
       "passed": true
     },
     {
@@ -28,7 +37,17 @@
         "R30",
         "R34"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
+      "passed": true
+    },
+    {
+      "name": "native_recovery_and_magiclink_have_no_credentials",
+      "ids": [
+        "R09",
+        "R30",
+        "R33"
+      ],
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     },
     {
@@ -40,7 +59,7 @@
         "R30",
         "R33"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     },
     {
@@ -53,7 +72,7 @@
         "R16",
         "R22"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     },
     {
@@ -63,7 +82,7 @@
         "R15",
         "R27"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     },
     {
@@ -73,7 +92,7 @@
         "R25",
         "R26"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     },
     {
@@ -87,7 +106,7 @@
         "R23",
         "R35"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     },
     {
@@ -98,7 +117,7 @@
         "R28",
         "R35"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     },
     {
@@ -116,7 +135,7 @@
         "R34",
         "R35"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     },
     {
@@ -128,7 +147,17 @@
         "R23",
         "R32"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
+      "passed": true
+    },
+    {
+      "name": "retry_exhaustion_preserves_possibly_delivered_proof",
+      "ids": [
+        "R10",
+        "R24",
+        "R35"
+      ],
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     },
     {
@@ -139,7 +168,7 @@
         "R24",
         "R35"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     },
     {
@@ -150,12 +179,12 @@
         "R29",
         "R35"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     },
     {
       "name": "uniform_latency_measurements",
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
       "ids": [
         "R31"
       ],
@@ -163,9 +192,9 @@
       "samplesPerState": 8,
       "medianMs": [
         15,
-        14,
         15,
-        15
+        14,
+        14
       ]
     },
     {
@@ -174,7 +203,7 @@
         "R03",
         "R31"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     },
     {
@@ -184,7 +213,7 @@
         "R24",
         "R35"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     },
     {
@@ -194,7 +223,7 @@
         "R24",
         "R35"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     },
     {
@@ -205,7 +234,7 @@
         "R26",
         "R32"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     },
     {
@@ -219,7 +248,7 @@
         "R28",
         "R34"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     },
     {
@@ -231,70 +260,10 @@
         "R28",
         "R34"
       ],
-      "baseUrl": "http://127.0.0.1:3107",
-      "passed": true
-    },
-    {
-      "name": "public_page_headers",
-      "ids": [
-        "R09",
-        "R33",
-        "R34"
-      ],
-      "baseUrl": "http://127.0.0.1:3117",
-      "passed": true
-    },
-    {
-      "name": "native_recovery_and_magiclink_have_no_credentials",
-      "ids": [
-        "R09",
-        "R30",
-        "R33"
-      ],
-      "baseUrl": "http://127.0.0.1:3107",
+      "baseUrl": "http://127.0.0.1:6107",
       "passed": true
     }
   ],
-  "passed": 21,
-  "total": 21,
-  "validation": {
-    "unitTests": {
-      "passed": 269,
-      "total": 269
-    },
-    "lifecycleE2E": {
-      "passed": 9,
-      "total": 9
-    },
-    "integrationGroups": 20,
-    "latencyMeasurements": 1,
-    "eslintErrors": 0,
-    "existingEslintWarnings": 3,
-    "typeScript": true,
-    "productionBuild": true,
-    "productionPageHeaders": true,
-    "localDbLintErrors": 0,
-    "localDbLintNewWarnings": [
-      "send_email_hook: unused event parameter (intentional)"
-    ],
-    "remoteAdvisorsRun": false,
-    "nativePkceLegacyAndInflight": true,
-    "serviceRoleFirstActivation": true,
-    "supplementaryMfaAfterPassword": true,
-    "minuteSchedulerGate": true,
-    "hostedSchedulerValidated": false
-  },
-  "cleanup": {
-    "disabled": true,
-    "migration_recorded": true,
-    "private_rls_forced": true,
-    "probe_schema_absent": true,
-    "foreign_keys_indexed": true,
-    "service_rpc_boundary": true,
-    "private_schema_denied": true,
-    "fixture_accounts_removed": true,
-    "legacy_fixture_flows_removed": true,
-    "native_guard_private": true
-  },
-  "finalizedAt": "2026-10-07T15:25:48.720Z"
+  "passed": 22,
+  "total": 22
 }

@@ -31,7 +31,7 @@ Un rezultat deja finalizat poate fi recuperat timp de 24 ore, numai cu aceeași 
 | Securitate/performance locală | RLS FORCE, schema privată inaccesibilă, RPC-uri service-only, hook auth-only, FK-uri indexate |
 | Migrație nouă | Instalare de la zero și activare probate în tranzacție cu rollback; un singur rând settings inițial dezactivat, toate parolele păstrate |
 
-[Măsurătorile și rezultatele fără secrete](issue-107-implementation-results.json) sunt generate de [verificarea executabilă](../scripts/issue-107-check.mjs). Grupele DB/Auth/API/browser au folosit serverul dev separat pe 3107. Headerele no-store/no-referrer au fost verificate pe build-ul production pe 3117; Next dev suprascrie Cache-Control cu no-cache, must-revalidate. Regresiile #105 au fost rerulate după corecția adaptorului nativ.
+[Raportul JSON fără secrete](issue-107-implementation-results.json) conține acum rerularea completă după review, descrisă la final; rezultatele sunt generate de [verificarea executabilă](../scripts/issue-107-check.mjs). Grupele DB/Auth/API/browser au folosit serverul dev separat pe 3107. Headerele no-store/no-referrer au fost verificate pe build-ul production pe 3117; Next dev suprascrie Cache-Control cu no-cache, must-revalidate. Regresiile #105 au fost rerulate după corecția adaptorului nativ.
 
 R31 folosește opt probe pentru fiecare stare, în ordine rotită, cu furnizorul simulat întârziat 1,8 secunde. Medianele active/inexistente/inactive/cooldown au fost **15/14/15/15 ms**. Statusul, corpul și headerele sunt identice. Acestea sunt măsurători locale; distribuția și headerele CDN se verifică din nou în preview înainte de activarea hosted.
 
@@ -181,6 +181,7 @@ Rulare într-o copie izolată a PR-ului, cu `npm ci` din lockfile: Next.js 16.3.
 
 | Verificare | Rezultat |
 | --- | --- |
+| Integrare DB/Auth/API/browser după review | 22/22 rezultate; toate cazurile R01–R35 și cele 11 cazuri lifecycle |
 | Teste unitare | 270/270 |
 | Cinci suite E2E modificate + fixture recovery + lifecycle | 103/103 teste unice trecute; ultimele rulări ale fiecărei suite, inclusiv 37/37 după corectarea așteptărilor vechi |
 | Matrice API de drepturi | 278/278 verificări |
@@ -204,7 +205,7 @@ Cinci grupe din harness au fost rerulate separat și au trecut:
 - `api_email_delivery_retry_uniformity_and_postcommit_fallback`: livrare simulată, rezultat necunoscut/retry și recuperare după commit.
 - `public_page_headers`: headere pe build production.
 
-Rularea completă a harness-ului rămâne neexecutată în această validare: verificarea automată de aprobare a respins extragerea parolei Auth locale și folosirea ei pentru conexiunea `supabase_auth_admin` din proba AMR, cerând autorizare explicită. Grupele de mai sus exclud integral acea conexiune. Raportul JSON principal păstrează dovezile rulării inițiale; nu este prezentat ca o rerulare completă după review.
+Harness-ul complet a fost rerulat după aprobarea explicită a probei locale `supabase_auth_admin`: **22/22 rezultate trecute** (21 grupe și o înregistrare R31), cu acoperire R01–R35 și toate cele 11 cazuri lifecycle. Proba AMR folosește parola Docker locală exclusiv prin stdin, fără afișarea ei sau acces hosted. Raportul JSON principal conține această rerulare completă din 8 octombrie. Medianele R31 active/inexistente/inactive/cooldown au fost **15/15/14/14 ms**, cu opt probe per stare.
 
 Matricea de acces păstrează două abateri deja marcate drept cunoscute: citirea publică a unui status individual și retrogradarea propriului rol de admin când există alt administrator activ. Nu au apărut abateri noi; protecția ultimului administrator a trecut în suita lifecycle.
 
