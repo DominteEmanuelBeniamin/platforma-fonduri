@@ -417,6 +417,7 @@ export async function PATCH(
           const projectUrl = `${appUrl}/projects/${currentRequest.project_id}`
           const safeProjectTitle = escapeHtml(projectTitle)
           const safeRequestName = escapeHtml(updatedRequest.name ?? '')
+          const safeRecipientEmail = escapeHtml(consultant.email)
           const salut = consultant.full_name ? `Salut, ${escapeHtml(consultant.full_name)}!` : 'Salut!'
           const deadline = updatedRequest.deadline_at
             ? new Date(updatedRequest.deadline_at).toLocaleDateString('ro-RO', {
@@ -462,6 +463,9 @@ export async function PATCH(
     <div style="padding:20px 40px;border-top:1px solid #f1f5f9;">
       <p style="margin:0;color:#9ca3af;font-size:12px;">
         Acest email a fost generat automat de Platforma Fonduri EU. Nu răspunde la acest mesaj.
+      </p>
+      <p style="margin:8px 0 0;color:#9ca3af;font-size:12px;">
+        Acest mesaj privește contul <strong>${safeRecipientEmail}</strong>.
       </p>
     </div>
   </div>

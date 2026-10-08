@@ -22,6 +22,7 @@ function activityAssignedMessage(consultant: Recipient, params: ActivityAssigned
   const safeProjectTitle = escapeHtml(params.projectTitle)
   const safeActivityName = escapeHtml(params.activityName)
   const safePhaseName = escapeHtml(params.phaseName)
+  const safeRecipientEmail = escapeHtml(consultant.email)
   const salut = consultant.full_name ? `Salut, ${escapeHtml(consultant.full_name)}!` : 'Salut!'
   const deadline = params.deadlineAt
     ? new Date(params.deadlineAt).toLocaleDateString('ro-RO', {
@@ -67,6 +68,9 @@ function activityAssignedMessage(consultant: Recipient, params: ActivityAssigned
     <div style="padding:20px 40px;border-top:1px solid #f1f5f9;">
       <p style="margin:0;color:#9ca3af;font-size:12px;">
         Acest email a fost generat automat de Platforma Fonduri EU. Nu răspunde la acest mesaj.
+      </p>
+      <p style="margin:8px 0 0;color:#9ca3af;font-size:12px;">
+        Acest mesaj privește contul <strong>${safeRecipientEmail}</strong>.
       </p>
     </div>
   </div>

@@ -492,11 +492,13 @@ export async function completeRecovery(request: Request): Promise<Response> {
 function requestEmail(token: string, origin: string, recipient: string): ProviderEmail | null {
   const delivery = resolveReminderDelivery(recipient)
   if (!delivery.ok || (productionLike() && !process.env.RESEND_FROM_EMAIL?.trim())) return null
+  const accountMessage = 'Acest mesaj privește contul ' + delivery.data.intendedEmail + '.'
   const link = new URL('/reset-password', origin)
   link.hash = 'token=' + encodeURIComponent(token)
   const href = link.toString()
   const text = [
     'Am primit o solicitare de resetare a parolei pentru contul tău.',
+    accountMessage,
     '',
     'Deschide linkul pentru a alege o parolă nouă: ' + href,
     '',
@@ -506,6 +508,7 @@ function requestEmail(token: string, origin: string, recipient: string): Provide
   const html = '<!doctype html><html lang="ro"><meta charset="utf-8"><body>'
     + '<h1>Resetarea parolei</h1>'
     + '<p>Am primit o solicitare de resetare a parolei pentru contul tău.</p>'
+    + '<p>' + escapeHtml(accountMessage) + '</p>'
     + '<p><a href="' + escapeHtml(href) + '">Alege o parolă nouă</a></p>'
     + '<p>Linkul este valabil o oră și poate fi folosit o singură dată.</p>'
     + '<p>Dacă nu ai solicitat resetarea, poți ignora acest mesaj.</p>'
@@ -523,9 +526,11 @@ function requestEmail(token: string, origin: string, recipient: string): Provide
 function confirmationEmail(recipient: string): ProviderEmail | null {
   const delivery = resolveReminderDelivery(recipient)
   if (!delivery.ok || (productionLike() && !process.env.RESEND_FROM_EMAIL?.trim())) return null
-  const text = 'Parola ta a fost schimbată. Dacă nu ai fost tu, contactează-ne.'
+  const accountMessage = 'Acest mesaj privește contul ' + delivery.data.intendedEmail + '.'
+  const text = 'Parola ta a fost schimbată. Dacă nu ai fost tu, contactează-ne.\n\n' + accountMessage
   const html = '<!doctype html><html lang="ro"><meta charset="utf-8"><body>'
     + '<p>Parola ta a fost schimbată. Dacă nu ai fost tu, contactează-ne.</p>'
+    + '<p>' + escapeHtml(accountMessage) + '</p>'
     + '</body></html>'
   return {
     recipient: delivery.data.intendedEmail,
