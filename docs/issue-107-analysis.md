@@ -49,7 +49,7 @@ Butonul este „Solicită un link nou”, către formularul forgot. Pagina nu af
 
 Pentru forgot rămâne textul din #107:
 
-> Dacă există un cont cu această adresă, vei primi un email cu instrucțiuni.
+> Dacă există un cont cu această adresă, vei primi un email cu instrucțiuni. Verifică și folderul Spam. Pentru aceeași adresă, se poate solicita un email nou o dată la 15 minute.
 
 Nu raportăm public dacă emailul există, contul este activ, cooldown-ul s-a aplicat sau furnizorul a refuzat emailul. Validarea sintactică poate indica „Introdu o adresă de email validă”; aceasta nu depinde de existența contului. Indisponibilitatea serviciului la folosirea unui link se afișează separat ca eroare temporară, fără a declara tokenul invalid.
 

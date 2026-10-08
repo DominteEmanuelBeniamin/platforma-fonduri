@@ -5,7 +5,7 @@ import { redactAuditText } from './audit'
 import { createSupabaseServerClient, createSupabaseServiceClient } from './supabase'
 import { escapeHtml, resolveReminderDelivery, resendFromAddress, sanitizeHeaderText, isValidReminderEmail } from './email'
 
-export const RECOVERY_REQUEST_MESSAGE = 'Dacă există un cont cu această adresă, vei primi un email cu instrucțiuni.'
+export const RECOVERY_REQUEST_MESSAGE = 'Dacă există un cont cu această adresă, vei primi un email cu instrucțiuni. Verifică și folderul Spam. Pentru aceeași adresă, se poate solicita un email nou o dată la 15 minute.'
 export const RECOVERY_INVALID_MESSAGE = 'Linkul de resetare nu mai este valid. Solicită un link nou sau contactează administratorul.'
 export const RECOVERY_FALLBACK_MESSAGE = 'Parola a fost schimbată. Autentifică-te cu noua parolă.'
 export const RECOVERY_TEMPORARY_MESSAGE = 'Serviciul este temporar indisponibil. Încearcă din nou.'
