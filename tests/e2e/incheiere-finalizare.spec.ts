@@ -853,24 +853,17 @@ test('Interfața: faze, activități și cereri se finalizează din meniu și di
     await expect(phaseMenu).toBeVisible({ timeout: 30_000 })
     await expect.soft(phaseSection.getByText('0 din 1 activitate finalizată')).toBeVisible()
 
-    // Faza: confirmarea spune că cererea rămâne deschisă (D2).
+    // Regula din 7 octombrie 2026: cât timp ceva de dedesubt e deschis, faza și
+    // activitatea nu se finalizează; mesajul spune ce lipsește, fără confirmare.
+    const activityMenu = page.locator(`#activity-${activityId}`).getByRole('button', { name: `Acțiuni pentru activitatea ${activityName}` })
     await phaseMenu.click()
     await page.getByRole('menuitem', { name: 'Marchează faza ca finalizată' }).click()
-    const confirmPhase = page.getByRole('dialog', { name: /Marchezi faza/ })
-    await expect.soft(confirmPhase).toContainText('O activitate din ea nu e finalizată')
-    await expect.soft(confirmPhase).toContainText('O cerere de documente e încă deschisă')
-    await confirmPhase.getByRole('button', { name: 'Marchează ca finalizată' }).click()
-    await expect(page.getByText('Faza a fost marcată ca finalizată.')).toBeVisible()
-    await expect.soft(phaseSection.getByText('Finalizată', { exact: true }).first(), 'semnul pe faza finalizată').toBeVisible()
-    await expect.soft(page.getByText(`${phaseName} (finalizată)`), 'panoul lateral marchează faza').toHaveCount(1)
-
-    // Activitatea: semnul și contorul de cereri.
-    await page.locator(`#activity-${activityId}`).getByRole('button', { name: `Acțiuni pentru activitatea ${activityName}` }).click()
+    await expect.soft(page.getByText(`Faza nu se poate finaliza: activitatea „${activityName}” nu e încă finalizată.`)).toBeVisible()
+    await expect.soft(page.getByRole('dialog', { name: /Marchezi faza/ }), 'fără confirmare când faza nu se poate finaliza').toHaveCount(0)
+    await activityMenu.click()
     await page.getByRole('menuitem', { name: 'Marchează activitatea ca finalizată' }).click()
-    await page.getByRole('dialog', { name: /Marchezi activitatea/ }).getByRole('button', { name: 'Marchează ca finalizată' }).click()
-    await expect(page.getByText('Activitatea a fost marcată ca finalizată.')).toBeVisible()
-    await expect.soft(page.locator(`#activity-${activityId}`).getByText('Finalizată', { exact: true })).toBeVisible()
-    await expect.soft(page.locator(`#activity-${activityId}`).getByText('0 din 1 cerere finalizată')).toBeVisible()
+    await expect.soft(page.getByText(`Activitatea nu se poate finaliza: cererea „${requestName}” nu e încă aprobată sau închisă.`)).toBeVisible()
+    await expect.soft(page.getByRole('dialog', { name: /Marchezi activitatea/ }), 'fără confirmare când activitatea nu se poate finaliza').toHaveCount(0)
 
     // Cererea: „Închide cererea" din fișă (D14), apoi fișa devine doar de citit (D13).
     await page.getByText(requestName, { exact: true }).first().click()
@@ -889,6 +882,23 @@ test('Interfața: faze, activități și cereri se finalizează din meniu și di
     await expect.soft(requestRow.getByRole('button', { name: 'Modifică cererea' }), 'iconița „Modifică" dispare').toHaveCount(0)
     await expect.soft(requestRow.getByRole('button', { name: 'Șterge din proiect' }), 'ștergerea rămâne').toHaveCount(1)
     await expect.soft(page.locator(`#activity-${activityId}`).getByText('1 din 1 cerere finalizată')).toBeVisible()
+
+    // Activitatea, acum că singura ei cerere e gata: confirmare, semn, contor.
+    await activityMenu.click()
+    await page.getByRole('menuitem', { name: 'Marchează activitatea ca finalizată' }).click()
+    await page.getByRole('dialog', { name: /Marchezi activitatea/ }).getByRole('button', { name: 'Marchează ca finalizată' }).click()
+    await expect(page.getByText('Activitatea a fost marcată ca finalizată.')).toBeVisible()
+    await expect.soft(page.locator(`#activity-${activityId}`).getByText('Finalizată', { exact: true })).toBeVisible()
+
+    // Faza, acum că activitatea e finalizată: confirmarea spune că se va ascunde (D2).
+    await phaseMenu.click()
+    await page.getByRole('menuitem', { name: 'Marchează faza ca finalizată' }).click()
+    const confirmPhase = page.getByRole('dialog', { name: /Marchezi faza/ })
+    await expect.soft(confirmPhase).toContainText('faza nu mai apare în listă')
+    await confirmPhase.getByRole('button', { name: 'Marchează ca finalizată' }).click()
+    await expect(page.getByText('Faza a fost marcată ca finalizată.')).toBeVisible()
+    await expect.soft(phaseSection.getByText('Finalizată', { exact: true }).first(), 'semnul pe faza finalizată').toBeVisible()
+    await expect.soft(page.getByText(`${phaseName} (finalizată)`), 'panoul lateral marchează faza').toHaveCount(1)
   } finally {
     await asAdmin.context.close()
   }

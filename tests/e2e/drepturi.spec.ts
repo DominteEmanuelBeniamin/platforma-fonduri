@@ -476,12 +476,14 @@ test('Marchează faze, activități și cereri ca finalizate și le redeschide �
   const activity = `${phase}/activities/${activityId}`
   const request = `/api/document-requests/${requestId}`
 
+  // De jos în sus: o activitate se finalizează doar cu cererile gata, o fază doar
+  // cu activitățile finalizate (decizia din 7 octombrie 2026); înapoi, invers.
   for (const person of [admin, SA]) {
+    verify('p-finalizeaza', person, 'închide cererea', await call(person, 'POST', `${request}/close`), 'permis')
+    verify('p-finalizeaza', person, 'marchează activitatea ca finalizată', await call(person, 'POST', `${activity}/complete`), 'permis')
     verify('p-finalizeaza', person, 'marchează faza ca finalizată', await call(person, 'POST', `${phase}/complete`), 'permis')
     verify('p-finalizeaza', person, 'readuce faza în lucru', await call(person, 'POST', `${phase}/reopen`), 'permis')
-    verify('p-finalizeaza', person, 'marchează activitatea ca finalizată', await call(person, 'POST', `${activity}/complete`), 'permis')
     verify('p-finalizeaza', person, 'readuce activitatea în lucru', await call(person, 'POST', `${activity}/reopen`), 'permis')
-    verify('p-finalizeaza', person, 'închide cererea', await call(person, 'POST', `${request}/close`), 'permis')
     verify('p-finalizeaza', person, 'redeschide cererea', await call(person, 'POST', `${request}/reopen`), 'permis')
   }
   for (const [label, url] of [

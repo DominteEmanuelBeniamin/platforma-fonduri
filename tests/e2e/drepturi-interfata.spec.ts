@@ -699,6 +699,12 @@ test('Încheie proiectul și finalizează faze și cereri — adminul și senior
   const activityId = await addActivity(project, phaseId, `Activitate de finalizat ${STAMP}`)
   const requestName = `Cerere de închis ${STAMP}`
   await addRequest(project, activityId, requestName)
+  // O fază se finalizează doar cu activitățile ei finalizate (decizia din 7
+  // octombrie 2026). Activitatea e marcată direct, ca testul să rămână despre
+  // drepturi; cererea rămâne deschisă, pentru fișa de mai jos.
+  const { error: activityError } = await service.from('project_activities')
+    .update({ status: 'completed', completed_at: new Date().toISOString(), completed_by: admin.id }).eq('id', activityId)
+  if (activityError) throw new Error(`Activitatea finalizată: ${activityError.message}`)
   const lifecycle = async () => {
     const { data } = await service.from('projects').select('lifecycle_status').eq('id', project).single()
     return data?.lifecycle_status as string
