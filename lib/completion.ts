@@ -31,11 +31,20 @@ type PhaseLike = {
 
 /**
  * Cerere finalizată: aprobată sau închisă (D4). Un document trimis clientului
- * nu e niciodată finalizat, nici pentru numărătoare, nici pentru ascundere
- * (D12): rămâne `pending` pentru totdeauna și e mereu de văzut.
+ * nu e niciodată finalizat (D12): rămâne `pending`, nu intră la numărătoare și
+ * nu se ascunde singur. Se ascunde doar odată cu activitatea lui finalizată
+ * (vezi `waitsForNothing`).
  */
 export const isRequestFinal = (request: Pick<RequestLike, 'status' | 'is_outgoing'>): boolean =>
   !request.is_outgoing && (request.status === 'approved' || request.status === 'closed')
+
+/**
+ * Nu mai așteaptă nimic: e finalizată, sau e un document trimis clientului
+ * (care nu așteaptă nimic de la el). Asta decide dacă o activitate finalizată
+ * se ascunde cu totul.
+ */
+const waitsForNothing = (request: Pick<RequestLike, 'status' | 'is_outgoing'>): boolean =>
+  !!request.is_outgoing || isRequestFinal(request)
 
 /**
  * Pe `status`, nu și pe `completed_at`: după #109 baza ține cele două legate
@@ -149,8 +158,10 @@ export type HiddenItems = {
  * Regula subarborelui: un element se ascunde doar dacă el *și tot ce e în el*
  * sunt finalizate. Altfel rămâne vizibil, marcat „Finalizată", iar copiii lui
  * finalizați se ascund. Fără ea, o fază finalizată ar ascunde o cerere aflată
- * încă „În verificare". O activitate cu un document trimis clientului nu se
- * ascunde niciodată, fiindcă documentul nu e niciodată finalizat (D12).
+ * încă „În verificare". Un document trimis clientului nu se ascunde singur
+ * (D12), dar nici nu ține la vedere o activitate finalizată: nu așteaptă nimic
+ * de la client, deci se ascunde odată cu ea (decizia din 8 octombrie 2026,
+ * aceeași regulă ca la finalizare).
  *
  * `revealedIds` sunt țintele dezvăluite — deep-link, căutare, salt din panou:
  * rămân vizibile împreună cu strămoșii lor, altfel pagina ar derula spre nimic.
@@ -176,7 +187,7 @@ export function hiddenFinalItems(
     let everyActivityHidden = true
     for (const activity of phase.activities ?? []) {
       const own = byActivity.get(activity.id) ?? []
-      if (isActivityFinal(activity) && own.every(isRequestFinal)) hidden.activities.add(activity.id)
+      if (isActivityFinal(activity) && own.every(waitsForNothing)) hidden.activities.add(activity.id)
       else everyActivityHidden = false
     }
     if (isPhaseFinal(phase) && everyActivityHidden) hidden.phases.add(phase.id)
@@ -359,7 +370,7 @@ export function phaseCompletionConfirm(phase: PhaseLike, requests: readonly Requ
   const own = activities.map(activity => liveRequestsOf(activity.id, requests))
   const openRequests = own.reduce((sum, list) => sum + openRequestCount(list), 0)
   // Aceeași regulă ca `hiddenFinalItems`, pentru faza deja marcată.
-  const wouldHide = activities.every((activity, i) => isActivityFinal(activity) && own[i].every(isRequestFinal))
+  const wouldHide = activities.every((activity, i) => isActivityFinal(activity) && own[i].every(waitsForNothing))
 
   const parts = ['Faza va apărea ca finalizată.']
   if (openActivities > 0) {
@@ -384,7 +395,7 @@ export function activityCompletionConfirm(activity: ActivityLike, requests: read
   const requestsLine = openRequestsLine(openRequestCount(own))
   if (requestsLine) parts.push(requestsLine)
   // Aceeași regulă ca `hiddenFinalItems`, pentru activitatea deja marcată.
-  if (own.every(isRequestFinal)) {
+  if (own.every(waitsForNothing)) {
     parts.push('Cât timp elementele finalizate sunt ascunse, activitatea nu mai apare în listă.')
   }
   return {

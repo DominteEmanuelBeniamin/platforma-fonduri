@@ -132,7 +132,7 @@ Pe pagina unui proiect administratorul poate:
 - Cererea închisă nu mai primește fișiere, remindere sau modificări până o redeschizi din fișă → **Redeschide cererea**; revine exact la starea dinainte. Clientul vede „Închisă” sau, dacă documentul fusese aprobat, „Aprobat”.
 
 **Ce e finalizat se ascunde:**
-- Fazele, activitățile și cererile finalizate (aprobate sau închise) se ascund din lista proiectului, ca să rămână la vedere ce e de făcut. Bifează **Arată și ce e finalizat** (alegerea se ține minte în browser) sau apasă **Arată** pe rândul care le numără.
+- Fazele, activitățile și cererile finalizate (aprobate sau închise) se ascund din lista proiectului, ca să rămână la vedere ce e de făcut. O activitate finalizată se ascunde cu tot cu documentele trimise clientului din ea; cât e deschisă, documentele rămân la vedere. Bifează **Arată și ce e finalizat** (alegerea se ține minte în browser) sau apasă **Arată** pe rândul care le numără.
 - Panoul lateral, „Panoul proiectului”, documentele și calendarul arată tot. Căutarea și linkurile din notificări, emailuri și chat dezvăluie singure elementul ascuns.
 
 ---
