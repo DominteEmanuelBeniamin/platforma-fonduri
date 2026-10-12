@@ -150,6 +150,7 @@ export default function AdminUsersPage() {
   const [impactUnavailable, setImpactUnavailable] = useState(false)
   const [lifecycleActionError, setLifecycleActionError] = useState<string | null>(null)
   const [changingStateId, setChangingStateId] = useState<string | null>(null)
+  const [changingAction, setChangingAction] = useState<'deactivate' | 'reactivate' | null>(null)
   const lifecycleFocusReturnRef = useRef<HTMLElement | null>(null)
 
   const clearCreateForm = () => {
@@ -384,6 +385,7 @@ export default function AdminUsersPage() {
       confirmText: 'Reactivează',
     })) return
     setChangingStateId(user.id)
+    setChangingAction(action)
     if (deactivate) setLifecycleActionError(null)
     try {
       const res = await apiFetch('/api/users/' + user.id + '/' + action, { method: 'POST' })
@@ -391,7 +393,9 @@ export default function AdminUsersPage() {
       await fetchUsers(false)
       if (res.status === 503 && body?.code === 'AUTH_SYNC_INCOMPLETE') {
         setImpactUser(null)
-        showToast(lifecycleCodeMessage(body.code), 'error')
+        showToast(deactivate
+          ? lifecycleCodeMessage(body.code)
+          : 'Contul a rămas dezactivat: reactivarea nu s-a putut finaliza. Reîncearcă.', 'error')
       } else if (!res.ok) {
         const message = lifecycleCodeMessage(body?.code)
         if (deactivate) setLifecycleActionError(message)
@@ -406,6 +410,7 @@ export default function AdminUsersPage() {
       else showToast(message, 'error')
     } finally {
       setChangingStateId(null)
+      setChangingAction(null)
     }
   }
   const peRol = useMemo(() => {
@@ -611,7 +616,7 @@ export default function AdminUsersPage() {
                     </span>
                     {user.auth_sync_pending && (
                       <Signal tone="warn" className="mt-2 max-w-full">
-                        Acces blocat · reîncearcă dezactivarea
+                        Acces blocat · sincronizarea autentificării trebuie reîncercată
                       </Signal>
                     )}
                   </span>
@@ -641,13 +646,26 @@ export default function AdminUsersPage() {
                     {user.is_active === false ? 'Dezactivat' : 'Activ'}
                   </span>
                   {user.is_active === false ? (
-                    <IconButton
-                      label={user.auth_sync_pending ? 'Reîncearcă dezactivarea pentru ' + user.email : 'Reactivează ' + user.email}
-                      disabled={changingStateId !== null}
-                      onClick={() => { void changeLifecycle(user, user.auth_sync_pending ? 'deactivate' : 'reactivate') }}
-                    >
-                      {changingStateId === user.id ? <Loader2 className="h-4 w-4 animate-spin" /> : user.auth_sync_pending ? <RotateCcw className="h-4 w-4" /> : <Power className="h-4 w-4" />}
-                    </IconButton>
+                    <>
+                      {/* Sincronizarea neterminată (inclusiv conturile dezactivate înainte de #105)
+                          se poate finaliza ca dezactivare sau încheia direct cu reactivarea. */}
+                      {user.auth_sync_pending && (
+                        <IconButton
+                          label={'Reîncearcă dezactivarea pentru ' + user.email}
+                          disabled={changingStateId !== null}
+                          onClick={() => { void changeLifecycle(user, 'deactivate') }}
+                        >
+                          {changingStateId === user.id && changingAction === 'deactivate' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                        </IconButton>
+                      )}
+                      <IconButton
+                        label={'Reactivează ' + user.email}
+                        disabled={changingStateId !== null}
+                        onClick={() => { void changeLifecycle(user, 'reactivate') }}
+                      >
+                        {changingStateId === user.id && changingAction === 'reactivate' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
+                      </IconButton>
+                    </>
                   ) : (
                     <IconButton label={'Dezactivează ' + user.email} disabled={changingStateId !== null} onClick={(event) => { lifecycleFocusReturnRef.current = event.currentTarget; loadLifecycleImpact(user) }}>
                       <Power className="h-4 w-4" />
