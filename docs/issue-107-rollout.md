@@ -36,6 +36,7 @@ Migrațiile instalează mecanismul dezactivat. Activarea se face separat, numai 
    Preflight-ul citește doar fișierul trecut explicit; nu încarcă implicit `.env`. El face GET la Auth `/health` și `/settings` și apelează RPC-ul read-only `recovery_preflight()` cu service role. Raportul conține doar boolean-uri și stări, fără chei, adrese, URL-uri sau corpuri de răspuns. `ready` înseamnă că mediul este compatibil și încă dezactivat; `already_enabled` confirmă aceeași compatibilitate după activare; orice inconsecvență sau eroare este `blocked`. Scriptul nu activează funcția, nu trimite emailuri și nu modifică date sau config.
 6. Activează numai după `ready`, folosind explicit RPC-ul service role `activate_account_recovery('v2.197.0')` pe proiectul verificat. Nu automatiza acest apel în scriptul de preflight.
 7. Rulează din nou preflight-ul cu aceleași fișiere explicite; rezultatul așteptat este `already_enabled`. Confirmă apoi că dispatch-ul este programat și observă doar rezultatele operaționale redactate, fără linkuri sau parole.
+8. Confirmă că `GET /api/auth/recovery/availability` răspunde `{"available":true}` și că linkul „Ai uitat parola?” apare pe pagina de login. Linkul rămâne ascuns cât recovery e dezactivat sau lipsesc NEXT_PUBLIC_APP_URL, RECOVERY_SECRET, RESEND_API_KEY ori (în producție) RESEND_FROM_EMAIL. Cât lipsește configurarea Resend, joburile rămân în coadă fără să consume încercări și pleacă după reparare, cât linkul e încă valabil.
 
 ## Efecte și limite
 
