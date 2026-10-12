@@ -179,7 +179,7 @@ try {
   sql('create schema issue107_check; revoke all on schema issue107_check from public,anon,authenticated;')
   actor=await fixture('admin')
   await probe('fresh_migration_disabled_activation_and_rollback',['R26','R30','R33'],async()=>{
-    const before=snapshot(actor),migration=fs.readFileSync('supabase/migrations/20261007123438_issue_107_account_recovery.sql','utf8')+'\n'+fs.readFileSync('supabase/migrations/20261008095956_preserve_recovery_proofs_after_retry_exhaustion.sql','utf8')
+    const before=snapshot(actor),migration=fs.readFileSync('supabase/migrations/20261012100300_issue_107_account_recovery.sql','utf8')+'\n'+fs.readFileSync('supabase/migrations/20261012100400_preserve_recovery_proofs_after_retry_exhaustion.sql','utf8')
     const wrappers=['recovery_preflight','recovery_enqueue','recovery_take_delivery','recovery_freeze_delivery','recovery_prepare_delivery','recovery_delivery_ready','recovery_finish_delivery','recovery_inspect','recovery_complete','invalidate_account_recovery','activate_account_recovery']
     const assertion=`do $check$ begin
       if (select count(*) from account_recovery.settings)<>1 or (select enabled from account_recovery.settings) then raise exception 'Installation must initialize disabled';end if;
