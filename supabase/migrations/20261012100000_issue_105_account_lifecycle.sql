@@ -263,7 +263,8 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'ACTIVE_ADMIN_REQUIRED';
   END IF;
 
-  -- ponytail: global lock on account-sensitive writes; use ordered per-profile locks only if measured throughput needs it.
+  -- Exclusive account lock: business writes hold it shared, so this waits for
+  -- them to commit and blocks new ones until the account change commits.
   PERFORM pg_advisory_xact_lock(105, 1);
 
   FOR v_locked_id IN
@@ -767,10 +768,12 @@ DECLARE
   v_member record;
   v_updated_at timestamptz;
 BEGIN
-  PERFORM pg_advisory_xact_lock(105, 1);
+  PERFORM pg_advisory_xact_lock_shared(105, 1);
 
+  -- p_first_status_id may be NULL: template phases allow a missing status, and
+  -- the project then keeps no current status, as it did before #105.
   IF p_project_id IS NULL OR p_template_id IS NULL OR p_actor_id IS NULL
-     OR p_first_status_id IS NULL OR p_assignments IS NULL OR jsonb_typeof(p_assignments) IS DISTINCT FROM 'array' THEN
+     OR p_assignments IS NULL OR jsonb_typeof(p_assignments) IS DISTINCT FROM 'array' THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'INVALID_TEMPLATE_IMPORT';
   END IF;
 
@@ -855,7 +858,7 @@ BEGIN
   ) THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'TEMPLATE_NOT_AVAILABLE';
   END IF;
-  IF NOT EXISTS (
+  IF p_first_status_id IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM public.project_statuses AS status
     WHERE status.id = p_first_status_id
   ) THEN
@@ -1005,7 +1008,7 @@ DECLARE
   v_assigned_by uuid;
   v_assigned_at timestamptz;
 BEGIN
-  PERFORM pg_advisory_xact_lock(105, 1);
+  PERFORM pg_advisory_xact_lock_shared(105, 1);
 
   IF p_project_id IS NULL OR p_actor_id IS NULL
      OR p_activity_assignments IS NULL OR jsonb_typeof(p_activity_assignments) IS DISTINCT FROM 'array'
@@ -1231,6 +1234,9 @@ CREATE INDEX IF NOT EXISTS notifications_actor_id_idx
   ON public.notifications (actor_id)
   WHERE actor_id IS NOT NULL;
 
+-- Account and identity rows take the account lock exclusively. Every other
+-- write shares it: ordinary writes no longer wait on each other, while
+-- deactivation, deletion and role changes still wait for all of them to commit.
 CREATE OR REPLACE FUNCTION public.issue105_acquire_account_lock()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -1238,7 +1244,12 @@ SECURITY DEFINER
 SET search_path = pg_catalog
 AS $function$
 BEGIN
-  PERFORM pg_advisory_xact_lock(105, 1);
+  IF (TG_TABLE_SCHEMA = 'public' AND TG_TABLE_NAME = 'profiles')
+     OR (TG_TABLE_SCHEMA = 'auth' AND TG_TABLE_NAME = 'users') THEN
+    PERFORM pg_advisory_xact_lock(105, 1);
+  ELSE
+    PERFORM pg_advisory_xact_lock_shared(105, 1);
+  END IF;
   RETURN NULL;
 END
 $function$;
@@ -1585,11 +1596,13 @@ BEGIN
      AND NEW.owner_id IS NOT DISTINCT FROM OLD.owner_id THEN
     RETURN NEW;
   END IF;
-  IF NEW.owner IS NOT NULL AND nullif(NEW.owner_id, '') IS NOT NULL
-     AND NEW.owner IS DISTINCT FROM NEW.owner_id::uuid THEN
+  -- owner_id is free text; only a UUID can name a profile, as in user_account_blockers.
+  v_owner_id := CASE WHEN pg_input_is_valid(NEW.owner_id, 'uuid') THEN NEW.owner_id::uuid END;
+  IF NEW.owner IS NOT NULL AND v_owner_id IS NOT NULL
+     AND NEW.owner IS DISTINCT FROM v_owner_id THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'STORAGE_OWNER_MISMATCH';
   END IF;
-  v_owner_id := coalesce(NEW.owner, nullif(NEW.owner_id, '')::uuid);
+  v_owner_id := coalesce(NEW.owner, v_owner_id);
   IF v_owner_id IS NULL THEN
     RETURN NEW;
   END IF;
@@ -1660,7 +1673,7 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  PERFORM pg_advisory_xact_lock(105, 1);
+  PERFORM pg_advisory_xact_lock_shared(105, 1);
   v_actor_id := COALESCE(auth.uid(), NEW.assigned_by);
   v_previous_actor := current_setting('app.issue105_notification_actor_id', true);
   PERFORM set_config('app.issue105_notification_actor_id', COALESCE(v_actor_id::text, ''), true);
@@ -1716,7 +1729,7 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  PERFORM pg_advisory_xact_lock(105, 1);
+  PERFORM pg_advisory_xact_lock_shared(105, 1);
   SELECT phase.project_id
     INTO v_project_id
   FROM public.project_phases AS phase
@@ -1800,7 +1813,7 @@ DECLARE
   v_actor_id uuid;
   v_locked_actor uuid;
 BEGIN
-  PERFORM pg_advisory_xact_lock(105, 1);
+  PERFORM pg_advisory_xact_lock_shared(105, 1);
   v_actor_id := COALESCE(auth.uid(), p_actor_id);
   IF v_actor_id IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'ACCOUNT_SESSION_INACTIVE';
@@ -1843,7 +1856,7 @@ DECLARE
   v_actor_id uuid;
   v_locked_actor uuid;
 BEGIN
-  PERFORM pg_advisory_xact_lock(105, 1);
+  PERFORM pg_advisory_xact_lock_shared(105, 1);
   v_actor_id := COALESCE(auth.uid(), p_reviewed_by);
   IF v_actor_id IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'ACCOUNT_SESSION_INACTIVE';
@@ -1918,7 +1931,7 @@ DECLARE
   v_demoted_count integer;
   v_previous_suppressed text;
 BEGIN
-  PERFORM pg_advisory_xact_lock(105, 1);
+  PERFORM pg_advisory_xact_lock_shared(105, 1);
 
   SELECT phase.visibility INTO v_phase_visibility
   FROM public.project_phases AS phase
@@ -2013,7 +2026,7 @@ DECLARE
   v_demoted_count integer;
   v_previous_suppressed text;
 BEGIN
-  PERFORM pg_advisory_xact_lock(105, 1);
+  PERFORM pg_advisory_xact_lock_shared(105, 1);
 
   SELECT phase.visibility INTO v_phase_visibility
   FROM public.project_phases AS phase
@@ -2114,7 +2127,7 @@ DECLARE
   v_claim public.reminder_log%ROWTYPE;
   v_skipped integer := 0;
 BEGIN
-  PERFORM pg_advisory_xact_lock(105, 1);
+  PERFORM pg_advisory_xact_lock_shared(105, 1);
   SELECT * INTO v_claim
   FROM public.reminder_log
   WHERE id = p_log_id AND status = 'claimed' AND claim_token = p_claim_token
@@ -2165,7 +2178,7 @@ DECLARE
   v_project_general_consultant_id uuid;
   v_member_consultant_id uuid;
 BEGIN
-  PERFORM pg_advisory_xact_lock(105, 1);
+  PERFORM pg_advisory_xact_lock_shared(105, 1);
   SELECT project.general_consultant_id INTO v_project_general_consultant_id
   FROM public.projects AS project
   WHERE project.id = p_project_id
@@ -2269,7 +2282,7 @@ AS $function$
 DECLARE
   v_updated_count integer;
 BEGIN
-  PERFORM pg_advisory_xact_lock(105, 1);
+  PERFORM pg_advisory_xact_lock_shared(105, 1);
   IF NOT public.current_account_session_active() THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'ACCOUNT_SESSION_INACTIVE';
   END IF;
@@ -2298,7 +2311,7 @@ AS $function$
 DECLARE
   v_updated_count integer;
 BEGIN
-  PERFORM pg_advisory_xact_lock(105, 1);
+  PERFORM pg_advisory_xact_lock_shared(105, 1);
   IF NOT public.current_account_session_active() THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'ACCOUNT_SESSION_INACTIVE';
   END IF;
@@ -2330,7 +2343,7 @@ AS $function$
 DECLARE
   v_updated_count integer;
 BEGIN
-  PERFORM pg_advisory_xact_lock(105, 1);
+  PERFORM pg_advisory_xact_lock_shared(105, 1);
   IF NOT public.current_account_session_active() THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'ACCOUNT_SESSION_INACTIVE';
   END IF;
@@ -2410,13 +2423,15 @@ BEGIN
         OR has_table_privilege('authenticated', relation.oid, 'DELETE'))
     ORDER BY namespace.nspname, relation.relname
   LOOP
+    -- (SELECT ...) makes the planner evaluate the session check once per
+    -- statement instead of once per row.
     v_using_expression := CASE
       WHEN v_table.table_schema = 'public' AND v_table.table_name = 'profiles'
-        THEN 'public.current_account_session_active() OR (id = auth.uid())'
-      ELSE 'public.current_account_session_active()'
+        THEN '(SELECT public.current_account_session_active()) OR (id = (SELECT auth.uid()))'
+      ELSE '(SELECT public.current_account_session_active())'
     END;
     EXECUTE format(
-      'CREATE POLICY issue105_account_session ON %I.%I AS RESTRICTIVE FOR ALL TO authenticated USING (%s) WITH CHECK (public.current_account_session_active())',
+      'CREATE POLICY issue105_account_session ON %I.%I AS RESTRICTIVE FOR ALL TO authenticated USING (%s) WITH CHECK ((SELECT public.current_account_session_active()))',
       v_table.table_schema, v_table.table_name, v_using_expression
     );
   END LOOP;
