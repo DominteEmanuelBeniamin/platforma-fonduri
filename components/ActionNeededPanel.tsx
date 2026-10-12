@@ -17,10 +17,12 @@ interface ActionNeededPanelProps {
   items: PendingUpload[]
   waitingItems?: PendingUpload[]
   isClient: boolean
+  /** Proiect încheiat (#109, D5): nimic nu mai e de făcut, iar starea goală spune de ce. */
+  projectClosed?: boolean
   onJump: (phaseId: string | null, activityId: string | null, requestId?: string) => void
 }
 
-export default function ActionNeededPanel({ items, waitingItems = [], isClient, onJump }: ActionNeededPanelProps) {
+export default function ActionNeededPanel({ items, waitingItems = [], isClient, projectClosed = false, onJump }: ActionNeededPanelProps) {
   const todayMidnight = new Date()
   todayMidnight.setHours(0, 0, 0, 0)
 
@@ -94,9 +96,11 @@ export default function ActionNeededPanel({ items, waitingItems = [], isClient, 
         </div>
         <h2 className="font-display text-lg font-semibold text-[var(--p-ink)] mb-1">Nimic de făcut</h2>
         <p className="text-sm text-[var(--p-ink-soft)] max-w-xs">
-          {isClient
-            ? 'Nu ai niciun document de încărcat momentan.'
-            : 'Nu ai documente de verificat sau de urmărit la client.'}
+          {projectClosed
+            ? 'Proiectul e încheiat, deci nu mai are nimic de făcut. Cererile lui rămân de consultat în „Faze & Activități”.'
+            : isClient
+              ? 'Nu ai niciun document de încărcat momentan.'
+              : 'Nu ai documente de verificat sau de urmărit la client.'}
         </p>
       </div>
     )

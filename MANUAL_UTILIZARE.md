@@ -95,7 +95,7 @@ Pe pagina unui proiect administratorul poate:
 - Vizualizare faze și activități grupate pe status
 - Adăugare faze noi cu butonul **+**
 - Adăugare activități în cadrul unei faze
-- Schimbarea statusului unei activități: `De făcut → În lucru → Gata / Blocat / Sărit`
+- Marcarea unei faze sau activități ca finalizată, din meniul **⋯** al ei (vezi mai jos)
 - Asignarea unui consultant la o activitate
 - Setarea unui deadline pe activitate
 
@@ -112,6 +112,28 @@ Pe pagina unui proiect administratorul poate:
 - Butonul **mesaj** (colțul dreapta) deschide chatul intern al proiectului
 - Toți membrii proiectului (admin + consultanți) pot comunica în timp real
 - Numărul de mesaje necitite apare ca badge pe buton
+
+**Încheierea proiectului:**
+- Adminul și consultantul senior din echipă încheie proiectul din meniul **⋯ Mai multe acțiuni** al paginii lui → **Încheie proiectul** → confirmare.
+- Lângă titlu apare semnul **Încheiat pe <dată>** (echipa vede și cine l-a încheiat). Reminderele automate se opresc, iar cererile deschise ale proiectului ies din „Ce ai de făcut”, din **Cereri de documente** și din calendarul general (le poți vedea cu **Și proiectele încheiate**).
+- Un proiect încheiat **se poate doar consulta**, de oricine, adminul inclus: nu se mai adaugă și nu se mai modifică nimic, documentele nu se mai verifică, clientul nu mai încarcă, iar chatul se poate doar citi. Ca să schimbi ceva, îl redeschizi.
+- Proiectul nu se poate încheia cât timp un document așteaptă verificarea: îl aprobi sau îl respingi întâi.
+- Se redeschide din același meniu → **Redeschide proiectul**. Confirmarea spune câte termene sunt deja depășite: la următoarea rulare a reminderelor, pentru ele pleacă „Termen depășit”.
+
+**Faze și activități finalizate:**
+- Adminul și consultantul senior din echipă marchează o fază sau o activitate din meniul ei **⋯** → **Marchează ca finalizată**.
+- O activitate se poate finaliza doar când toate cererile ei sunt aprobate sau închise; o fază, doar când toate activitățile ei sunt finalizate. Altfel apare un mesaj care spune ce mai e deschis (documentele trimise clientului nu contează). Nimic nu se finalizează singur, iar ce redeschizi după aceea nu schimbă faza sau activitatea de deasupra.
+- Tot din meniu: **Readu în lucru**.
+- Contoarele arată progresul: „3 din 5 activități finalizate”, „2 din 4 cereri finalizate” (cererile aprobate sau închise).
+
+**Închiderea unei cereri de documente:**
+- O cerere pe care clientul nu o mai poate furniza se închide din fișa ei → **Închide cererea**, din „Așteaptă răspuns” sau „Respins”. O cerere „În verificare” se verifică întâi.
+- Și o cerere **aprobată** se poate închide, ca s-o faci finală: rămâne „Aprobat”, dar nu mai primește fișiere noi și nu se mai modifică. Fără închidere, o încărcare nouă peste o cerere aprobată o trimite înapoi la verificare.
+- Cererea închisă nu mai primește fișiere, remindere sau modificări până o redeschizi din fișă → **Redeschide cererea**; revine exact la starea dinainte. Clientul vede „Închisă” sau, dacă documentul fusese aprobat, „Aprobat”.
+
+**Ce e finalizat se ascunde:**
+- Fazele, activitățile și cererile finalizate (aprobate sau închise) se ascund din lista proiectului, ca să rămână la vedere ce e de făcut. O activitate finalizată se ascunde cu tot cu documentele trimise clientului din ea; cât e deschisă, documentele rămân la vedere. Bifează **Arată și ce e finalizat** (alegerea se ține minte în browser) sau apasă **Arată** pe rândul care le numără.
+- Panoul lateral, „Panoul proiectului”, documentele și calendarul arată tot. Căutarea și linkurile din notificări, emailuri și chat dezvăluie singure elementul ascuns.
 
 ---
 
@@ -221,6 +243,8 @@ Pe pagina unui proiect (`/projects/[id]`), consultantul poate:
 **Chat:**
 - Butonul de mesaj din colțul dreapta deschide chatul intern al proiectului
 
+**Încheiere și finalizare:** consultantul senior din echipă încheie și redeschide proiectul, marchează fazele și activitățile ca finalizate și închide cererile, ca adminul (secțiunea 3.3). Consultantul junior vede semnele și poate în continuare să aprobe sau să respingă documente, dar nu încheie și nu marchează.
+
 ---
 
 ## 5. Client
@@ -253,6 +277,11 @@ Clientul poate **vizualiza** progresul proiectului:
 - Consultantul primește notificare
 - Dacă documentul este **Aprobat** → statusul devine verde ✓
 - Dacă documentul este **Respins** → consultantul lasă o notă explicativă → clientul poate încărca o versiune nouă
+
+**Proiecte încheiate și cereri închise:**
+- Un proiect încheiat are semnul **Încheiat pe <dată>** și nu mai apare la „Ce ai de făcut”. În el nu mai încarci nimic: pe cererile rămase scrie „Proiectul e încheiat; nu mai e nevoie să încarci nimic aici.”
+- O cerere **Închisă** nu mai așteaptă nimic de la tine: în locul zonei de încărcare scrie „Consultantul a închis cererea; nu mai e nevoie să încarci nimic aici.” Dacă documentul fusese aprobat, cererea rămâne „Aprobat”, iar mesajul spune că documentul e aprobat și cererea închisă.
+- Ce e finalizat se ascunde din pagina proiectului; **Arată și ce e finalizat** sau **Arată** le aduce la vedere.
 
 > Clientul **nu poate** crea proiecte, adăuga cereri de documente sau modifica structura proiectului.
 
@@ -287,6 +316,7 @@ Consultant verifică
 | În verificare | Galben | Consultantul analizează documentul |
 | Aprobat | Verde | Documentul a fost acceptat |
 | Respins | Roșu | Documentul nu corespunde, clientul trebuie să reîncerce |
+| Închisă | Gri, cu cutie de arhivă | Consultantul a închis cererea; nu mai așteaptă nimic, până la o eventuală redeschidere. O cerere aprobată și apoi închisă se arată tot „Aprobat” |
 
 ---
 
@@ -304,5 +334,7 @@ Consultant verifică
 | **Audit Log** | Jurnal complet al tuturor acțiunilor efectuate în platformă |
 | **CIF** | Codul de identificare fiscală al firmei clientului |
 | **Cod intern** | Identificator unic generat automat pentru fiecare proiect |
+| **Proiect încheiat** | Proiect terminat: se poate doar consulta, fără remindere automate, scos din listele „de făcut”; se poate redeschide |
+| **Finalizat** | Fază sau activitate marcată ca terminată; cererile aprobate sau închise se numără și ele ca finalizate |
 
 ---

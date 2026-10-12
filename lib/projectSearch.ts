@@ -1,3 +1,4 @@
+import { displayedRequestStatus } from './request-status.ts'
 import type { ProjectPhase } from '@/components/ProjectPhasesSidebar'
 
 export type SearchResultType = 'phase' | 'activity' | 'document_request'
@@ -22,6 +23,7 @@ interface SearchDocumentRequest {
   deleted_at?: string | null
   activity_id?: string | null
   status?: string | null
+  status_before_close?: string | null
   activity?: {
     id?: string | null
     name?: string | null
@@ -79,7 +81,8 @@ export function buildSearchIndex(phases: ProjectPhase[], allDocRequests: SearchD
       phaseName: phaseId ? phaseNameById.get(phaseId) ?? null : null,
       activityId,
       activityName,
-      status: req.status ?? null,
+      // Închisă din „Aprobat”, se arată „Aprobat” (ca peste tot).
+      status: displayedRequestStatus(req),
     })
   }
 

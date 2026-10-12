@@ -13,6 +13,7 @@ import {
   Link2,
   EyeOff,
   ArrowUpRight,
+  Archive,
 } from "lucide-react";
 import { useAuth } from "@/app/providers/AuthProvider";
 import { useToast } from "@/app/providers/ToastProvider";
@@ -34,6 +35,8 @@ type Props = {
   canModerate?: boolean;
   /** Modifică textul mesajelor altora (doar adminul). */
   canEditOthers?: boolean;
+  /** Proiectul e încheiat: chatul se poate doar citi (8 octombrie 2026). */
+  readOnly?: boolean;
   onUnreadCountChange?: (count: number) => void;
   searchIndex?: SearchResult[];
   onNavigate?: (result: SearchResult) => void;
@@ -118,6 +121,7 @@ export default function ProjectChatDrawer({
   projectId,
   canModerate = false,
   canEditOthers = false,
+  readOnly = false,
   onUnreadCountChange,
   searchIndex = [],
   onNavigate,
@@ -876,7 +880,7 @@ export default function ProjectChatDrawer({
       <aside
         onDragEnter={(event) => {
           event.preventDefault();
-          if (!uploading && !sending) setDragActive(true);
+          if (!readOnly && !uploading && !sending) setDragActive(true);
         }}
         onDragOver={(event) => event.preventDefault()}
         onDragLeave={(event) => {
@@ -885,7 +889,7 @@ export default function ProjectChatDrawer({
         onDrop={(event) => {
           event.preventDefault();
           setDragActive(false);
-          addFiles(Array.from(event.dataTransfer.files));
+          if (!readOnly) addFiles(Array.from(event.dataTransfer.files));
         }}
         className="absolute right-0 top-0 h-full w-full sm:w-[min(520px,90vw)] bg-white shadow-2xl flex flex-col sm:rounded-l-2xl overflow-hidden animate-in slide-in-from-right duration-300"
       >
@@ -950,6 +954,7 @@ export default function ProjectChatDrawer({
             userId={userId}
             canModerate={canModerate}
             canEditOthers={canEditOthers}
+            readOnly={readOnly}
             firstUnreadMessageId={firstUnreadMessageId}
             projectReadReceipt={projectReadReceipt}
             renderBody={renderBody}
@@ -973,6 +978,12 @@ export default function ProjectChatDrawer({
           <div ref={bottomRef} className="h-2" />
         </div>
 
+        {readOnly ? (
+          <div className="z-10 flex items-center gap-2 border-t border-rule bg-paper-sunk p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-sm text-ink-soft sm:p-4">
+            <Archive className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+            <p>Proiectul e încheiat, deci chatul se poate doar citi.</p>
+          </div>
+        ) : (
         <div className="z-10 bg-white p-3 sm:p-4 border-t border-rule pb-[env(safe-area-inset-bottom)]">
           {!!attachments.length && (
             <div className="mb-2 flex gap-2 overflow-x-auto px-1">
@@ -1083,6 +1094,7 @@ export default function ProjectChatDrawer({
             </button>
           </div>
         </div>
+        )}
       </aside>
         <ImagePreviewDialog
           preview={preview}

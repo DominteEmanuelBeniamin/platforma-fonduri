@@ -11,7 +11,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id: projectId } = await params
-  const access = await requireProjectAccess(request, projectId)
+  const access = await requireProjectAccess(request, projectId, { write: true })
   if (!access.ok) return guardToResponse(access)
 
   const body = await request.json().catch(() => null)

@@ -19,7 +19,7 @@ export async function DELETE(
     }
 
     // 1) Admin sau consultant senior membru
-    const ctx = await requireProjectManager(request, projectId)
+    const ctx = await requireProjectManager(request, projectId, { write: true })
     if (!ctx.ok) return guardToResponse(ctx)
 
     const admin = createSupabaseServiceClient()

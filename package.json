@@ -19,6 +19,7 @@
     "test:e2e:regresii": "E2E_ENV_FILE=${E2E_ENV_FILE:-.env.e2e.localdb} playwright test tests/e2e/regresii-senior.spec.ts",
     "test:e2e:verificare": "E2E_ENV_FILE=${E2E_ENV_FILE:-.env.e2e.localdb} playwright test tests/e2e/verificare-modificari.spec.ts",
     "test:e2e:matricea-acces": "E2E_ENV_FILE=${E2E_ENV_FILE:-.env.e2e.localdb} playwright test tests/e2e/matricea-acces.spec.ts",
+    "test:e2e:incheiere": "E2E_ENV_FILE=${E2E_ENV_FILE:-.env.e2e.localdb} playwright test tests/e2e/incheiere-finalizare.spec.ts",
     "verifica": "npm run lint && tsc --noEmit && npm test && npm run build",
     "audit:check": "node --experimental-strip-types scripts/check-audit-contract.mjs",
     "test:ui": "playwright test --config playwright.ui.config.ts",

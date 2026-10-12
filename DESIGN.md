@@ -139,6 +139,11 @@ components:
     textColor: "{colors.draft}"
     rounded: "{rounded.plate}"
     padding: "2px 8px"
+  signal-closed:
+    backgroundColor: "{colors.paper-sunk}"
+    textColor: "{colors.ink-soft}"
+    rounded: "{rounded.plate}"
+    padding: "2px 8px"
 ---
 
 # Bonie — programul de semnalizare
@@ -164,6 +169,8 @@ Riscul asumat: un program instituțional poate aluneca în „portal guvernament
 **Cele șase benzi de fază** sunt fixe și ordonate: petrol, ocru, cărămidă, prună, măsliniu, ardezie. Se atribuie după **poziția fazei în proiect** (`bandFor(index)` în `lib/signage.ts`), ca într-un program de semnalizare adevărat, unde culorile aripilor sunt poziționale. Rotația pe șase dă distribuție egală și garantează că două faze vecine nu poartă niciodată aceeași culoare. Varianta pe id — un hash — a fost măsurată și respinsă: pe 14 faze dădea în medie 2,3 perechi de vecini identici și o distribuție strâmbă, adică exact opusul tezei. `bandFor(string)` rămâne pentru suprafețele care n-au poziția la îndemână. Fiecare bandă poartă text alb la ≥6,3:1 și se citește pe hârtie la ≥5,7:1.
 
 **Semnalele sunt rezervate.** `ok` verde pentru finalizat, `warn` chihlimbar pentru termen apropiat, `danger` roșu pentru depășit, respins sau eroare, `draft` gri pentru nepublicat. Niciuna nu se folosește vreodată ca accent de brand. Roșul înseamnă că ceva arde — mesajele necitite nu ard, ele primesc accentul.
+
+**`closed` e pentru ce s-a încheiat fără să mai aștepte nimic**: cererea de documente închisă, proiectul încheiat (#109). Are culorile lui `neutral` — nicio nuanță nouă, contrastul e cel deja măsurat — dar iconița proprie, cutia de arhivă. Cu ceasul lui `neutral`, care înseamnă „la client”, o cerere închisă s-ar fi citit pe „Panoul cu chei” drept una care încă așteaptă clientul. Nu e verde: o cerere închisă poate să nu fi primit niciodată documentul, iar verdele ar fi spus „aprobat”.
 
 **A doua regulă, la fel de tare: o clasificare nu e un semnal.** Rolul unui utilizator, tipul unei cerințe și pragul unui reminder sunt categorii, nu stări — nu ard nimic. Nu primesc verde, chihlimbar sau roșu; se disting prin greutate, muchie și cuvânt. Semnalele rămân rezervate pentru ce se întâmplă cu munca: termen depășit, document respins, fază finalizată. Trei locuri le încălcau (rolurile în pagina de utilizatori, „Obligatoriu” pe cereri, pragurile de reminder) și toate trei au fost aduse la regulă.
 
@@ -205,7 +212,7 @@ Plăcuța nemontată — starea „în lucru” — are contur întrerupt, fond 
 
 **Plăcuța** (`components/ui/Plate.tsx`) e unitatea de conținut. Acceptă `band` (faza) sau `rail` (un semnal, care are întâietate), `draft`, `interactive` și `selected`.
 
-**Semnalul** (`components/ui/Signal.tsx`) e plăcuța de stare: culoare, iconiță și cuvânt, întotdeauna toate trei. **ToneIcon** (`components/ui/ToneIcon.tsx`) ține corespondența: triunghi pentru depășit sau respins, ochi pentru „de verificat”, ceas pentru „la client”, bifă pentru aprobat, peniță pentru „în lucru”.
+**Semnalul** (`components/ui/Signal.tsx`) e plăcuța de stare: culoare, iconiță și cuvânt, întotdeauna toate trei. **ToneIcon** (`components/ui/ToneIcon.tsx`) ține corespondența: triunghi pentru depășit sau respins, ochi pentru „de verificat”, ceas pentru „la client”, bifă pentru aprobat, peniță pentru „în lucru”, cutie de arhivă pentru închis sau încheiat.
 
 **Butonul** (`components/ui/Button.tsx`) are patru variante — primary, secondary, quiet, danger — și două dimensiuni. Înălțimea minimă e 44px pe aparatele fără maus și 40px acolo unde există cursor: peste minimul de 24×24 al WCAG 2.5.8, pentru că acolo lucrează degetul. Pragul e `pointer: coarse`, nu o lățime — o tabletă de 768px n-are maus, dar trece de orice breakpoint pe care l-am folosi ca înlocuitor.
 

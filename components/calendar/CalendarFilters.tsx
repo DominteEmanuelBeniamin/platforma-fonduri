@@ -33,6 +33,8 @@ interface CalendarFiltersProps {
   scope: 'project' | 'global'
   phases: CalendarPhaseOption[]
   projects: CalendarProjectOption[]
+  /** Proiectele încheiate, ascunse implicit în calendarul general (#109, D5). */
+  endedProjectIds: ReadonlySet<string>
   /** Responsabilii care apar efectiv în evenimentele încărcate. */
   owners: OwnerOption[]
 }
@@ -56,6 +58,7 @@ export default function CalendarFilters({
   scope,
   phases,
   projects,
+  endedProjectIds,
   owners,
 }: CalendarFiltersProps) {
   const set = (patch: Partial<CalendarFilterState>) => onChange({ ...filters, ...patch })
@@ -74,11 +77,17 @@ export default function CalendarFilters({
     // Cererile fără activitate n-au fază; „General" le face filtrabile ca atare.
     { value: GENERAL_PHASE_ID, label: 'General' },
   ]
-  const projectOptions: FilterOption[] = projects.map(project => ({
-    value: project.id,
-    label: project.title,
-    group: project.client_name ?? 'Fără client',
-  }))
+  // Cât timp proiectele încheiate sunt ascunse, nici nu se oferă la filtru:
+  // alese, n-ar fi arătat niciun termen. Rămân doar cele deja alese (comutatorul
+  // oprit de mână, ce=0), ca selecția să se vadă și să poată fi scoasă.
+  const projectOptions: FilterOption[] = projects
+    .filter(project => filters.includeEnded || !endedProjectIds.has(project.id) || !!filters.projectIds?.includes(project.id))
+    .map(project => ({
+      value: project.id,
+      label: project.title,
+      group: project.client_name ?? 'Fără client',
+    }))
+  const endedCount = endedProjectIds.size
 
   // ── Stare: progres + publicare, sub același buton ──────────────────────────
   const progressOptions: FilterOption[] = PROGRESS_ORDER.map(value => ({ value, label: PROGRESS_LABELS[value] }))
@@ -234,6 +243,24 @@ export default function CalendarFilters({
             },
           ]}
         />
+      )}
+
+      {/* 5 — Proiectele încheiate. Comutatorul apare numai când chiar ascunde
+          ceva, ca în tabloul de bord: altfel ar fi un control care nu face
+          nimic vizibil. */}
+      {scope === 'global' && (endedCount > 0 || filters.includeEnded) && (
+        <button
+          type="button"
+          onClick={() => set({ includeEnded: !filters.includeEnded })}
+          aria-pressed={filters.includeEnded}
+          className={`flex items-center gap-1.5 rounded-full border border-[var(--p-border-strong)] px-2.5 py-1 text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent,#4A3F7A)] ${
+            filters.includeEnded ? 'bg-[var(--p-accent)] text-white' : 'bg-[var(--p-surface)] text-[var(--p-ink-faint)] hover:bg-[var(--p-surface-2)]'
+          }`}
+        >
+          Și proiectele încheiate
+          {!filters.includeEnded && endedCount > 0 && <span aria-hidden>({endedCount})</span>}
+          {!filters.includeEnded && endedCount > 0 && <span className="sr-only">, {endedCount} ascunse</span>}
+        </button>
       )}
 
       {resetCount > 0 && (

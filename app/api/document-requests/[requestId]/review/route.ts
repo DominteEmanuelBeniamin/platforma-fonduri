@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { describeDocumentActionFailure } from '@/lib/document-action-idempotency'
+import { REQUEST_CLOSED_EDIT_MESSAGE } from '@/lib/completion'
 
 type Action = 'approved' | 'rejected'
 
@@ -37,10 +38,17 @@ export async function POST(
       return NextResponse.json({ error: 'Documentele trimise clientului nu intră în fluxul de review.' }, { status: 400 })
     }
 
-    const access = await requireProjectAccess(request, reqRow.project_id)
+    const access = await requireProjectAccess(request, reqRow.project_id, { write: true })
     if (!access.ok) return guardToResponse(access)
     if (access.profile.role === 'client') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    // RPC-ul refuză o cerere care nu e „în verificare", dar abia după calea lui
+    // idempotentă: aceeași decizie pe aceeași versiune întoarce succes fără
+    // nicio schimbare. Pe o cerere închisă, răspunsul trebuie să fie clar (#109).
+    if (reqRow.status === 'closed') {
+      return NextResponse.json({ error: 'Document request is closed', message: REQUEST_CLOSED_EDIT_MESSAGE }, { status: 409 })
     }
 
     const ipAddress =

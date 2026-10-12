@@ -12,6 +12,9 @@ export const AUDIT_ACTION_LABELS = {
   deadline_reminder_digest: 'Digest de remindere',
   password_reset_requested: 'Cerere de resetare a parolei',
   password_reset_completed: 'Parolă resetată',
+  close: 'Încheiere',
+  reopen: 'Redeschidere',
+  complete: 'Finalizare',
 } as const
 
 export const AUDIT_ENTITY_LABELS = {

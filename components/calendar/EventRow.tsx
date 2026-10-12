@@ -2,13 +2,14 @@
 
 import Link from 'next/link'
 import {
-  PROGRESS_LABELS,
   VISIBILITY_LABELS,
   eventProgress,
   formatRelativeDeadline,
+  progressLabelFor,
   type CalendarEvent,
 } from '@/lib/calendar'
 import { KIND_ICONS, eventAriaLabel, eventSurfaceStyle } from '@/components/calendar/eventVisuals'
+import { ToneIcon } from '@/components/ui/ToneIcon'
 
 const CONTEXT_SEPARATOR = ' / '
 
@@ -55,6 +56,8 @@ export default function EventRow({
   plainIcon?: boolean
 }) {
   const progress = eventProgress(event)
+  // Cererea închisă: tonul `closed` (cutia de arhivă), nu verdele aprobării (#109).
+  const closed = progress === 'done' && event.kind === 'request' && event.status === 'closed'
   const Icon = KIND_ICONS[event.kind]
   const label = eventAriaLabel(event, progress, { withProject })
   const relative = formatRelativeDeadline(event.deadline_at)
@@ -99,15 +102,18 @@ export default function EventRow({
           )}
           {withProgress && (
             <span
-              className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+              className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
                 progress === 'overdue'
                   ? 'bg-[var(--p-danger-soft)] text-[var(--p-danger)]'
+                  : closed
+                  ? 'bg-[var(--sg-paper-sunk)] text-[var(--sg-ink-soft)]'
                   : progress === 'done'
                   ? 'bg-[var(--p-success-soft)] text-[var(--p-success)]'
                   : 'bg-[var(--p-surface-2)] text-[var(--p-ink-soft)]'
               }`}
             >
-              {PROGRESS_LABELS[progress]}
+              {closed && <ToneIcon tone="closed" className="h-2.5 w-2.5" />}
+              {progressLabelFor(event, progress)}
             </span>
           )}
           {/* Fără lățime fixă: cele 80px rezervate mâncau din linia de context,

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Loader2, MoreHorizontal } from 'lucide-react'
 
@@ -34,6 +34,7 @@ export default function RowActionsMenu({
   busy = false,
   size = 'md',
   className = '',
+  triggerClassName,
 }: {
   /** Ce apare în `aria-label`: „Acțiuni pentru faza X”. */
   label: string
@@ -42,6 +43,11 @@ export default function RowActionsMenu({
   /** Doar iconița e mai mică pe rândurile de activitate; ținta rămâne 32 px. */
   size?: 'sm' | 'md'
   className?: string
+  /**
+   * Înlocuiește aspectul butonului „⋯”. Folosit în fâșia de locație, unde stă
+   * lângă `IconButton`-uri și trebuie să aibă aceeași țintă (44px pe telefon).
+   */
+  triggerClassName?: string
 }) {
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState<MenuPosition | null>(null)
@@ -98,6 +104,22 @@ export default function RowActionsMenu({
     }
   }, [open, place])
 
+  // Ancorat la dreapta butonului, meniul poate ieși pe stânga ecranului când
+  // butonul stă în stânga (pe telefon, „⋯” din fâșia de locație trece pe al
+  // doilea rând). Măsurat după randare, se lipește atunci de marginea stângă.
+  // Stilul orizontal se pune aici, înainte de desenare, nu din `style`: e
+  // nevoie de lățimea reală a listei, cunoscută abia după randare.
+  useLayoutEffect(() => {
+    const menu = menuRef.current
+    if (!open || !position || !menu) return
+    menu.style.left = 'auto'
+    menu.style.right = `${position.right}px`
+    if (menu.getBoundingClientRect().left < 8) {
+      menu.style.right = 'auto'
+      menu.style.left = '8px'
+    }
+  }, [open, position])
+
   // La deschidere focusul trece pe primul item: altfel rămâne pe trigger, iar
   // săgețile n-au de unde porni.
   useEffect(() => {
@@ -124,7 +146,7 @@ export default function RowActionsMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         data-open={open}
-        className={`${size === 'sm' ? 'p-2.5' : 'p-2'} rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface-2)] disabled:opacity-60`}
+        className={triggerClassName ?? `${size === 'sm' ? 'p-2.5' : 'p-2'} rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface-2)] disabled:opacity-60`}
       >
         {busy
           ? <Loader2 className={`${iconSize} animate-spin`} />
@@ -135,7 +157,7 @@ export default function RowActionsMenu({
         <div
           ref={menuRef}
           role="menu"
-          style={{ position: 'fixed', right: position.right, top: position.top, bottom: position.bottom }}
+          style={{ position: 'fixed', top: position.top, bottom: position.bottom }}
           className="z-50 min-w-[11rem] py-1 rounded-lg border border-[var(--p-border)] bg-[var(--p-surface)] shadow-[0_8px_24px_-8px_rgba(15,23,42,0.25)]"
         >
           {visible.map(action => (

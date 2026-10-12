@@ -51,3 +51,6 @@ next-env.d.ts
 
 # supabase local state
 supabase/.temp/
+
+# planuri locale, netrimise pe git
+docs/plan-conturi-cif-contracte-retentie.md

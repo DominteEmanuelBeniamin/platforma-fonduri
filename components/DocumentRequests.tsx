@@ -24,6 +24,7 @@ import {
   File,
   Trash2,
   Pencil,
+  Archive,
 } from 'lucide-react'
 import DocumentModal from './DocumentModal'
 import ConfirmDeleteModal from './ConfirmDeleteModal'
@@ -48,13 +49,23 @@ import {
 } from '@/lib/client-upload'
 import { RequirementType } from '@/lib/requirement-type'
 import { Spinner } from '@/components/ui/Spinner'
+import { Signal } from '@/components/ui/Signal'
+import { TONE } from '@/lib/signage'
+import { isRequestFinal, mergeVisibleOrder } from '@/lib/completion'
+import HiddenFinalRow from './HiddenFinalRow'
+import { closedRequestClientNote, displayedRequestStatus, requestStatusInfo, type RequestStatus } from '@/lib/request-status'
+import { PROJECT_CLOSED_CLIENT_NOTE } from '@/lib/project-lifecycle'
 
 interface DocumentRequest {
   id: string
   name: string
   description: string | null
   requirement_type?: RequirementType
-  status: 'pending' | 'review' | 'approved' | 'rejected'
+  status: RequestStatus
+  /** Starea la care revine o cerere închisă (#109). */
+  status_before_close?: 'pending' | 'rejected' | 'approved' | null
+  closed_at?: string | null
+  closer?: { id: string; full_name: string | null } | null
   visibility?: 'draft' | 'published'
   is_outgoing?: boolean
   activity_id?: string | null
@@ -178,7 +189,22 @@ interface DocumentRequestsProps {
   projectTitle?: string
   /** Id-ul unei cereri de deschis automat din panoul „Ce ai de făcut”. */
   autoOpenRequestId?: string | null
+  /** Închide și redeschide cereri: adminul și seniorul membru (#109, D1). */
+  canCloseRequests?: boolean
+  /**
+   * Cererile finalizate ascunse acum (#109, A9). Ascunderea e doar la randare:
+   * lista completă rămâne pentru reordonare, contoare și fișa deschisă.
+   */
+  hiddenRequestIds?: ReadonlySet<string>
+  /** Arată cererile ascunse din lista asta. */
+  onRevealRequests?: (ids: string[]) => void
+  /** Proiectul e încheiat: lista se poate doar citi, de oricine (8 octombrie 2026). */
+  readOnly?: boolean
 }
+
+/** Respinsă acum sau închisă din „Respins” (#109): motivul respingerii rămâne la vedere. */
+const wasRejected = (req: { status?: string | null; status_before_close?: string | null }) =>
+  req.status === 'rejected' || (req.status === 'closed' && req.status_before_close === 'rejected')
 
 export default function DocumentRequests({
   projectId,
@@ -196,6 +222,10 @@ export default function DocumentRequests({
   clientName,
   projectTitle,
   autoOpenRequestId,
+  canCloseRequests = false,
+  hiddenRequestIds,
+  onRevealRequests,
+  readOnly = false,
 }: DocumentRequestsProps) {
   const { loading: authLoading, token, profile, apiFetch } = useAuth()
   const { showToast, confirm } = useToast()
@@ -252,11 +282,12 @@ export default function DocumentRequests({
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [missingAttachments, setMissingAttachments] = useState<Set<string>>(() => new Set())
 
-  // Pliere per-cerere — set de „închise" (implicit deschis), ca cererile nou create
-  // să nu aibă nevoie de sincronizare specială.
-  const [closedRequestIds, setClosedRequestIds] = useState<Set<string>>(() => new Set())
+  // Pliere per-cerere — set de cereri pliate (implicit desfăcute), ca cererile
+  // nou create să nu aibă nevoie de sincronizare specială. „Pliată" e altceva
+  // decât o cerere închisă (#109): aceea are starea `closed` în bază.
+  const [foldedRequestIds, setFoldedRequestIds] = useState<Set<string>>(() => new Set())
   const toggleRequestFold = (id: string) => {
-    setClosedRequestIds(prev => {
+    setFoldedRequestIds(prev => {
       const s = new Set(prev)
       if (s.has(id)) s.delete(id)
       else s.add(id)
@@ -393,7 +424,7 @@ export default function DocumentRequests({
     const request = requests.find(r => r.id === autoOpenRequestId)
     if (request) {
       setSelectedRequest(request)
-      setClosedRequestIds(prev => {
+      setFoldedRequestIds(prev => {
         if (!prev.has(request.id)) return prev
         const next = new Set(prev)
         next.delete(request.id)
@@ -404,6 +435,18 @@ export default function DocumentRequests({
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
   const isClient = profile?.role === 'client'
+  // Echipa vede tot, dar într-un proiect încheiat nu mai adaugă, nu mai
+  // modifică și nu mai reordonează nimic; clientul nu mai încarcă.
+  const canChange = isAdminOrConsultant && !readOnly
+
+  // Cererile de afișat: fără cele finalizate ascunse (#109). `requests` rămâne
+  // lista completă — din ea se trimite ordinea, ca cele ascunse să-și păstreze
+  // locul (`mergeVisibleOrder`).
+  const visibleRequests = useMemo(
+    () => (hiddenRequestIds ? requests.filter(r => !hiddenRequestIds.has(r.id)) : requests),
+    [requests, hiddenRequestIds],
+  )
+  const hiddenHere = requests.length - visibleRequests.length
 
   // Drag & drop reorder — override temporar peste ordinea din API până la refresh
   const [draggedReqId, setDraggedReqId] = useState<string | null>(null)
@@ -411,13 +454,13 @@ export default function DocumentRequests({
 
   const displayRequests = reqOrder
     ? reqOrder
-        .map(id => requests.find((r: any) => r.id === id))
+        .map(id => visibleRequests.find((r: any) => r.id === id))
         .filter((r): r is DocumentRequest => !!r)
-    : requests
+    : visibleRequests
 
   const handleReqDragStart = (e: React.DragEvent, reqId: string) => {
     setDraggedReqId(reqId)
-    setReqOrder(requests.map((r: any) => r.id))
+    setReqOrder(visibleRequests.map((r: any) => r.id))
     e.dataTransfer.effectAllowed = 'move'
   }
 
@@ -438,14 +481,17 @@ export default function DocumentRequests({
     const order = reqOrder
     setDraggedReqId(null)
     if (!order) return
-    const original = requests.map((r: any) => r.id)
+    const original = visibleRequests.map((r: any) => r.id)
     const unchanged = order.length === original.length && original.every((id, i) => id === order[i])
     if (unchanged) { setReqOrder(null); return }
+    // Ruta scrie exact `1..n` primit; cu cereri ascunse, lista afișată nu e
+    // toată lista, deci se trimite ordinea completă, cu cele ascunse pe loc.
+    const fullOrder = mergeVisibleOrder(requests.map((r: any) => r.id), order)
     try {
       const res = await apiFetch(`/api/projects/${projectId}/document-requests/reorder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orders: order.map((id, i) => ({ id, order_index: i + 1 })) }),
+        body: JSON.stringify({ orders: fullOrder.map((id, i) => ({ id, order_index: i + 1 })) }),
       })
       if (res.ok) await Promise.resolve(onRefresh ? onRefresh() : fetchRequests())
       else { showToast('Nu am putut salva ordinea. Reîncearcă.', 'error') }
@@ -952,7 +998,7 @@ export default function DocumentRequests({
           latestVersion: null,
           latestFiles: [],
           latestFile: null,
-          rejectionReason: req.status === 'rejected' ? req.latest_rejection?.reason ?? null : null
+          rejectionReason: wasRejected(req) ? req.latest_rejection?.reason ?? null : null
         })
         continue
       }
@@ -979,7 +1025,7 @@ export default function DocumentRequests({
         latestVersion,
         latestFiles,
         latestFile: latestFiles[0] ?? null,
-        rejectionReason: req.status === 'rejected' ? req.latest_rejection?.reason ?? null : null
+        rejectionReason: wasRejected(req) ? req.latest_rejection?.reason ?? null : null
       })
     }
 
@@ -987,11 +1033,12 @@ export default function DocumentRequests({
   }, [requests])
 
 
-  const statusConfig: Record<string, { label: string; dot: string; icon: string }> = {
-    pending: { label: isClient ? 'De încărcat' : 'Așteaptă răspuns', dot: 'bg-[var(--sg-warn)]', icon: 'bg-[var(--sg-warn-soft)] text-[var(--sg-warn)]' },
-    review: { label: 'În verificare', dot: 'bg-[var(--sg-accent)]', icon: 'bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]' },
-    approved: { label: 'Aprobat', dot: 'bg-[var(--sg-ok)]', icon: 'bg-[var(--sg-ok-soft)] text-[var(--sg-ok)]' },
-    rejected: { label: 'Respins', dot: 'bg-[var(--sg-danger)]', icon: 'bg-[var(--sg-danger-soft)] text-[var(--sg-danger)]' },
+  // Starea vine din dicționarul comun (#109): o valoare necunoscută nu mai cade
+  // pe „De încărcat", iar o cerere închisă are cuvântul și semnul ei — în afară
+  // de cea închisă din „Aprobat”, care se arată tot „Aprobat”.
+  const statusLabel = (req: { status: string; status_before_close?: string | null }) => {
+    const info = requestStatusInfo(displayedRequestStatus(req))
+    return isClient ? info.clientLabel : info.label
   }
   const isEmbedded = activityId !== undefined
 
@@ -1009,7 +1056,7 @@ export default function DocumentRequests({
   return (
     <>
       <div className={`bg-white ${isEmbedded ? '' : 'rounded-2xl border border-rule shadow-sm overflow-hidden'}`}>
-        {(!isEmbedded || (activityId === null && isAdminOrConsultant)) && (
+        {(!isEmbedded || (activityId === null && canChange)) && (
         <div className={`${isEmbedded ? 'flex items-center justify-between px-4 pb-5 sm:pb-6 border-b border-rule' : 'p-4 sm:p-5 border-b border-rule'}`}>
           <div className={`flex items-center ${isEmbedded ? 'w-full justify-between' : 'flex-col gap-3 xl:flex-row xl:items-start xl:justify-between'}`}>
             {!isEmbedded && <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -1026,7 +1073,7 @@ export default function DocumentRequests({
               </div>
             </div>}
 
-            {isAdminOrConsultant && (
+            {canChange && (
               <div className={`flex flex-wrap items-center gap-2 ${isEmbedded ? 'order-first' : 'w-full xl:w-auto xl:flex-shrink-0'}`}>
                 {!activityId && (
                   <button
@@ -1051,7 +1098,7 @@ export default function DocumentRequests({
         )}
 
       <RequestFormDialog
-        open={showForm && isAdminOrConsultant}
+        open={showForm && canChange}
         editing={editingRequest}
         submitting={submitting}
         name={name} onNameChange={setName}
@@ -1067,7 +1114,7 @@ export default function DocumentRequests({
         onSubmit={handleSubmit}
       />
 
-        {!activityId && (outgoingDocs.length > 0 || isAdminOrConsultant) && (
+        {!activityId && (outgoingDocs.length > 0 || canChange) && (
           <div className="border-b border-rule bg-[var(--sg-ok-soft)]">
             <div className="px-4 sm:px-5 py-3 flex items-center gap-2">
               <FolderUp className="w-4 h-4 text-[var(--sg-ok)]" />
@@ -1075,7 +1122,7 @@ export default function DocumentRequests({
               <span className="text-xs text-ink-soft">({outgoingDocs.length})</span>
             </div>
             {outgoingDocs.length === 0 ? (
-              isAdminOrConsultant && (
+              canChange && (
                 <p className="px-4 sm:px-5 pb-4 text-xs text-ink-soft">
                   Trimite documente către client cu butonul „Trimite documente”.
                 </p>
@@ -1128,9 +1175,12 @@ export default function DocumentRequests({
             </div>
           ) : (
             displayRequests.map((req) => {
-              const status = statusConfig[req.status] || statusConfig.pending
-              const isOverdue = req.deadline_at && new Date(req.deadline_at) < new Date()
-              const isFolded = closedRequestIds.has(req.id)
+              const statusInfo = requestStatusInfo(displayedRequestStatus(req))
+              const statusTone = TONE[statusInfo.tone]
+              const isClosed = req.status === 'closed'
+              // O cerere aprobată sau închisă nu mai are un termen care să ardă.
+              const isOverdue = !isRequestFinal(req) && req.deadline_at && new Date(req.deadline_at) < new Date()
+              const isFolded = foldedRequestIds.has(req.id)
 
               return (
                 <div
@@ -1143,7 +1193,7 @@ export default function DocumentRequests({
                   onClick={() => setSelectedRequest(req)}
                 >
                   <div className="flex items-start gap-3 sm:gap-4">
-                    {isAdminOrConsultant && (
+                    {canChange && (
                       <span
                         draggable
                         onDragStart={e => handleReqDragStart(e, req.id)}
@@ -1155,25 +1205,32 @@ export default function DocumentRequests({
                         <GripVertical className="w-4 h-4" />
                       </span>
                     )}
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${status.icon}`}>
-                      <FileText className="w-4 h-4" />
+                    <div
+                      className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                      style={{ background: statusTone.bg, color: statusTone.fg }}
+                    >
+                      {isClosed ? <Archive className="w-4 h-4" aria-hidden="true" /> : <FileText className="w-4 h-4" aria-hidden="true" />}
                     </div>
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start gap-2">
                         <h3 className="flex-1 min-w-0 font-semibold text-ink text-sm sm:text-base leading-snug break-words">{req.name}</h3>
                         <div className="flex items-center gap-0.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                          {!isFolded && isAdminOrConsultant && (
+                          {!isFolded && canChange && (
                             <>
-                              <button
-                                type="button"
-                                onClick={() => openEditForm(req)}
-                                className="p-1.5 rounded-lg text-ink-faint hover:text-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] transition-colors"
-                                title="Modifică cererea"
-                                aria-label="Modifică cererea"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
+                              {/* O cerere închisă nu se modifică până la redeschidere (D13);
+                                  ștergerea rămâne. */}
+                              {!isClosed && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditForm(req)}
+                                  className="p-1.5 rounded-lg text-ink-faint hover:text-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] transition-colors"
+                                  title="Modifică cererea"
+                                  aria-label="Modifică cererea"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => setRequestToDelete(req)}
@@ -1198,18 +1255,15 @@ export default function DocumentRequests({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 mt-2">
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-paper-sunk px-2 py-1 text-xs text-ink-soft">
-                          <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
-                          {status.label}
-                        </span>
+                        <Signal tone={statusInfo.tone}>{statusLabel(req)}</Signal>
                         {!isFolded && (
                           <PublishStatusControl
                             status={req.visibility ?? 'draft'}
-                            canPublish={isAdminOrConsultant}
+                            canPublish={canChange && !isClosed}
                             showPublishedStatus={isAdminOrConsultant}
                             onPublish={() => publishRequest(req.id)}
                             blockers={requestBlockers(req)}
-                            onSetDeadline={date => saveRequestDeadline(req.id, date)}
+                            onSetDeadline={isClosed || readOnly ? undefined : date => saveRequestDeadline(req.id, date)}
                             size="sm"
                           />
                         )}
@@ -1246,7 +1300,16 @@ export default function DocumentRequests({
                     </div>
                   )}
 
-                  {isClient && (req.status === 'pending' || req.status === 'rejected') && (
+                  {isClient && readOnly && (req.status === 'pending' || req.status === 'rejected') && (
+                    <div className="mt-4 pt-4 border-t border-rule">
+                      <div className="flex items-center gap-2 bg-paper-sunk px-4 py-2.5 rounded-xl text-ink-soft">
+                        <Archive className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+                        <span className="text-sm">{PROJECT_CLOSED_CLIENT_NOTE}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {isClient && !readOnly && (req.status === 'pending' || req.status === 'rejected') && (
                     <div className="mt-4 pt-4 border-t border-rule" onClick={(e) => e.stopPropagation()}>
                       {uploadingFor === req.id && showFilePreview && clientFiles.length > 0 ? (
                         // PREVIEW ȘI GESTIONARE FIȘIERE
@@ -1514,7 +1577,7 @@ export default function DocumentRequests({
                         </div>
                       )}
 
-                      {req.status === 'rejected' && (
+                      {wasRejected(req) && (
                         <div className="mt-3 p-3 bg-[var(--sg-danger-soft)] border border-[var(--sg-danger)] rounded-xl">
                           <div className="flex items-start gap-2">
                             <MessageSquare className="w-4 h-4 text-[var(--sg-danger)] flex-shrink-0 mt-0.5" />
@@ -1527,6 +1590,15 @@ export default function DocumentRequests({
                           </div>
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {isClient && isClosed && (
+                    <div className="mt-4 pt-4 border-t border-rule">
+                      <div className="flex items-center gap-2 bg-paper-sunk px-4 py-2.5 rounded-xl text-ink-soft">
+                        <Archive className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+                        <span className="text-sm">{closedRequestClientNote(req)}</span>
+                      </div>
                     </div>
                   )}
 
@@ -1563,7 +1635,18 @@ export default function DocumentRequests({
               )
             })
           )}
-          {isEmbedded && isAdminOrConsultant && (
+          {hiddenHere > 0 && onRevealRequests && (
+            <HiddenFinalRow
+              className="px-4 py-2 sm:px-5"
+              hiddenCount={hiddenHere}
+              total={requests.length}
+              singular="cerere"
+              plural="cereri"
+              onReveal={() => onRevealRequests(requests.filter(r => hiddenRequestIds?.has(r.id)).map(r => r.id))}
+              focusTargetId={(() => { const first = requests.find(r => hiddenRequestIds?.has(r.id)); return first ? `request-${first.id}` : undefined })()}
+            />
+          )}
+          {isEmbedded && canChange && (
             <button
               type="button"
               onClick={openCreateForm}
@@ -1594,6 +1677,8 @@ export default function DocumentRequests({
           reminderState={reminderStates[selectedRequest.id]}
           reminderStateLoading={reminderStatesLoading}
           projectMembers={projectMembers}
+          canCloseRequest={canCloseRequests}
+          readOnly={readOnly}
         />
       )}
 
@@ -1611,7 +1696,7 @@ export default function DocumentRequests({
                   {isAdminOrConsultant && (
                     <PublishStatusControl
                       status={selectedOutgoingDoc.visibility ?? 'draft'}
-                      canPublish
+                      canPublish={canChange}
                       showPublishedStatus={isAdminOrConsultant}
                       onPublish={() => publishRequest(selectedOutgoingDoc.id)}
                     />
@@ -1686,7 +1771,7 @@ export default function DocumentRequests({
               </div>
             </div>
 
-            {isAdminOrConsultant && (
+            {canChange && (
               <div className="flex justify-center gap-2 border-t border-rule bg-paper-sunk px-6 py-4">
                 <button
                   type="button"
@@ -1727,7 +1812,7 @@ export default function DocumentRequests({
                     : `Se vor șterge automat și ${responseCount} răspunsuri încărcate. `
                   : ''
 
-                return `Status curent: ${statusConfig[requestToDelete.status]?.label || requestToDelete.status}. ` +
+                return `Status curent: ${statusLabel(requestToDelete)}. ` +
                   responseWarning +
                   'Template-ul nu va fi modificat. Istoricul cererii rămâne păstrat.'
               })()

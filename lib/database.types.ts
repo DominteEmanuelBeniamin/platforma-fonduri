@@ -12,7 +12,9 @@ export type UserRole = 'admin' | 'consultant' | 'client';
 export type PhaseStatus = 'pending' | 'in_progress' | 'completed' | 'skipped';
 export type ActivityStatus = 'pending' | 'in_progress' | 'completed' | 'skipped' | 'blocked';
 export type SessionStatus = 'upcoming' | 'open' | 'closed' | 'evaluation' | 'completed';
-export type DocumentRequirementStatus = 'pending' | 'uploaded' | 'review' | 'approved' | 'rejected';
+// `closed` (#109): cerere închisă, separată de „Aprobat". `uploaded` nu mai
+// există în bază: CHECK-ul permite doar valorile de mai jos.
+export type DocumentRequirementStatus = 'pending' | 'review' | 'approved' | 'rejected' | 'closed';
 export type ProjectItemVisibility = 'draft' | 'published';
 export type FileReviewStatus = 'pending' | 'approved' | 'rejected';
 export type ReminderLogStatus = 'claimed' | 'sent' | 'skipped';
@@ -421,6 +423,12 @@ export interface Project {
   preluat_detalii: string | null;
   general_consultant_id: string | null;
   automatic_reminders_enabled: boolean;
+  /** `active` = în lucru; `completed` = încheiat (#109). `not null` din #109. */
+  lifecycle_status: 'active' | 'completed';
+  /** Data încheierii; setată doar cât `lifecycle_status = 'completed'`. */
+  closed_at: string | null;
+  /** Cine a încheiat proiectul. Nu ajunge la client. */
+  closed_by: string | null;
   created_at: string;
   updated_at: string;
   // Relații
@@ -873,10 +881,10 @@ export const ACTIVITY_STATUS_CONFIG: Record<ActivityStatus, StatusConfig> = {
 
 export const DOCUMENT_STATUS_CONFIG: Record<DocumentRequirementStatus, StatusConfig> = {
   pending: { bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', icon: 'FileQuestion', label: 'De încărcat' },
-  uploaded: { bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200', icon: 'FileUp', label: 'Încărcat' },
   review: { bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', icon: 'FileSearch', label: 'În verificare' },
   approved: { bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-200', icon: 'FileCheck', label: 'Aprobat' },
-  rejected: { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', icon: 'FileX', label: 'Respins' }
+  rejected: { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', icon: 'FileX', label: 'Respins' },
+  closed: { bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', icon: 'Archive', label: 'Închisă' }
 };
 
 export const PROGRAM_COLORS: Record<string, string> = {
@@ -1049,8 +1057,6 @@ export interface Database {
         Returns: unknown;
       };
       advance_project_status: { Args: { p_project_id: string }; Returns: { previous_status: string; new_status: string; success: boolean }[] }; // NOU
-      advance_project_phase: { Args: { p_project_id: string; p_complete_current?: boolean }; Returns: { previous_phase: string; current_phase: string; success: boolean }[] };
-      revert_project_phase: { Args: { p_project_id: string; p_target_phase_slug: string }; Returns: boolean };
       get_upcoming_deadlines: { Args: { p_days?: number; p_user_id?: string }; Returns: UpcomingDeadline[] };
       log_audit: { Args: { p_action_type: string; p_entity_type: string; p_entity_id: string; p_entity_name?: string; p_old_values?: Record<string, unknown>; p_new_values?: Record<string, unknown>; p_description?: string }; Returns: string };
       is_admin: { Args: Record<string, never>; Returns: boolean };

@@ -7,7 +7,10 @@
 // Cale relativă, cu extensie: fișierul are teste rulate direct cu `node --test`
 // (vezi `calendar.test.mjs`), iar Node nu cunoaște aliasul `@/` și cere
 // specificatorul complet.
+import { countLabel } from './count-label.ts'
+import { isActivityFinal, isRequestFinal } from './completion.ts'
 import { getDaysUntilDeadline } from './document-reminder.ts'
+import { isProjectActive } from './project-lifecycle.ts'
 
 // ─── Tipuri ───────────────────────────────────────────────────────────────────
 
@@ -27,7 +30,7 @@ export interface CalendarEvent {
   name: string
   /** `timestamptz` în bază, dar folosit ca dată calendaristică. Vezi `deadlineKey`. */
   deadline_at: string | null
-  /** Activitate încheiată, respectiv cerere aprobată. Calculat pe server. */
+  /** Activitate finalizată, respectiv cerere aprobată sau închisă (#109). Calculat pe server. */
   done: boolean
   /**
    * Statusul din bază, neinterpretat. `done` îl colapsează la da/nu, ceea ce
@@ -132,10 +135,9 @@ export const WAITING_LABELS: Record<CalendarWaitingOn, string> = {
  * consultantul la `review`. Activitățile sunt muncă internă, deci una
  * nefinalizată e mereu la noi, indiferent de status.
  *
- * Gardă pe egalitate cu `review`, nu pe lista celorlalte stări: `status` e
- * `text` liber în bază, iar o valoare nouă apărută acolo trebuie să cadă în „la
- * client", nu să fie numărată tăcut ca muncă a echipei. Aceeași alegere ca la
- * `isProjectActive`.
+ * Gardă pe egalitate cu `review`, nu pe lista celorlalte stări: o stare nouă
+ * adăugată în CHECK-ul din bază trebuie să cadă în „la client”, nu să fie
+ * numărată tăcut ca muncă a echipei. Aceeași alegere ca la `isProjectActive`.
  */
 export function eventWaitingOn(
   event: Pick<CalendarEvent, 'kind' | 'status' | 'done'>,
@@ -146,13 +148,19 @@ export function eventWaitingOn(
 }
 
 /**
- * Ce înseamnă „finalizat" pe fiecare sursă. Scris o singură dată, fiindcă îl
- * folosesc și ruta de calendar, și indicatorul numeric din pagina proiectului.
+ * Ce înseamnă „finalizat" pe fiecare sursă. Îl folosesc ruta de calendar,
+ * indicatorul numeric din pagina proiectului și tabloul de bord; definiția
+ * însăși stă în `lib/completion`, alături de ascunderea din #109, ca toate
+ * ecranele să numere la fel.
+ *
+ * Activitatea: doar `status`. După #109 baza ține `completed_at` legat de
+ * `completed` printr-un CHECK, deci data nu mai e o a doua cale spre „gata".
+ * Cererea: aprobată sau închisă (D4).
  */
-export const isActivityDone = (row: { status?: string | null; completed_at?: string | null }): boolean =>
-  row.status === 'completed' || !!row.completed_at
+export const isActivityDone = (row: { status?: string | null }): boolean => isActivityFinal(row)
 
-export const isRequestDone = (row: { status?: string | null }): boolean => row.status === 'approved'
+export const isRequestDone = (row: { status?: string | null; is_outgoing?: boolean | null }): boolean =>
+  isRequestFinal(row)
 
 /**
  * Responsabilul efectiv al unei cereri: al ei, cu revenire la consultantul
@@ -196,6 +204,15 @@ export const PROGRESS_LABELS: Record<CalendarProgress, string> = {
   open: 'În lucru',
   done: 'Finalizat',
   overdue: 'Depășit',
+}
+
+/**
+ * Cuvântul progresului unui eveniment. O cerere închisă e „finalizată” pentru
+ * numărătoare și filtre (D4), dar nu se citește „Finalizat”: n-a primit
+ * neapărat documentul, iar verdele ar fi spus „aprobat” (#109, DESIGN.md).
+ */
+export function progressLabelFor(event: { kind: CalendarEventKind; status: string | null }, progress: CalendarProgress): string {
+  return progress === 'done' && event.kind === 'request' && event.status === 'closed' ? 'Închisă' : PROGRESS_LABELS[progress]
 }
 
 export const VISIBILITY_LABELS: Record<CalendarVisibility, string> = {
@@ -316,6 +333,12 @@ export interface CalendarFilterState {
   visibility: CalendarVisibility[] | null
   /** Id-uri de responsabil, plus `UNASSIGNED_OWNER_ID`. */
   owners: string[] | null
+  /**
+   * Și proiectele încheiate (#109, D5). Implicit oprit: termenele unui proiect
+   * încheiat nu mai trimit remindere, deci nici nu mai stau în vederea de lucru.
+   * Contează doar în calendarul general — cel al unui proiect îl arată mereu.
+   */
+  includeEnded: boolean
 }
 
 /**
@@ -330,6 +353,7 @@ export function defaultFilters(role: CalendarPayload['role'], userId: string): C
     progress: null,
     visibility: null,
     owners: role === 'consultant' ? [userId] : null,
+    includeEnded: false,
   }
 }
 
@@ -338,8 +362,50 @@ function matchesSelection(value: string | null, selection: string[] | null, null
   return selection.includes(value ?? nullToken)
 }
 
-export function filterEvents(events: CalendarEvent[], filters: CalendarFilterState): CalendarEvent[] {
+/** Proiectele care nu mai sunt în lucru, pentru filtrul „Și proiectele încheiate". */
+export function endedProjectIds(projects: readonly Pick<CalendarProjectOption, 'id' | 'lifecycle_status'>[]): Set<string> {
+  return new Set(projects.filter(project => !isProjectActive(project)).map(project => project.id))
+}
+
+/**
+ * Un link vechi (sau un semn de carte) filtrat pe un proiect încheiat, fără
+ * `ce` în adresă, pornește singur „Și proiectele încheiate" (#109): altfel
+ * calendarul ar fi gol, iar proiectul filtrat n-ar apărea nici în lista
+ * filtrului. Un `ce=0` scris explicit rămâne respectat.
+ */
+export function includeEndedForSelection(
+  params: URLSearchParams,
+  filters: CalendarFilterState,
+  endedIds: ReadonlySet<string>,
+): CalendarFilterState {
+  if (filters.includeEnded || params.has(PARAM.ended) || !filters.projectIds) return filters
+  return filters.projectIds.some(id => endedIds.has(id)) ? { ...filters, includeEnded: true } : filters
+}
+
+/**
+ * Perechea regulii de mai sus: oprit de mână, cu un proiect încheiat în filtru,
+ * comutatorul rămâne oprit (`ce=0` explicit), altfel s-ar reporni singur.
+ */
+export function pinEndedOff(
+  params: URLSearchParams,
+  filters: CalendarFilterState,
+  endedIds: ReadonlySet<string>,
+): void {
+  if (!filters.includeEnded && filters.projectIds?.some(id => endedIds.has(id))) params.set(PARAM.ended, '0')
+}
+
+/**
+ * `endedIds` vine doar din calendarul general: acolo un proiect încheiat se
+ * ascunde cât timp „Și proiectele încheiate" e oprit. Calendarul unui proiect
+ * nu-l trimite, deci își arată termenele chiar dacă proiectul e încheiat.
+ */
+export function filterEvents(
+  events: CalendarEvent[],
+  filters: CalendarFilterState,
+  endedIds?: ReadonlySet<string>,
+): CalendarEvent[] {
   return events.filter(event => {
+    if (endedIds && !filters.includeEnded && endedIds.has(event.project_id)) return false
     if (!filters.kinds.includes(event.kind)) return false
     if (!matchesSelection(event.phase_id, filters.phaseIds, GENERAL_PHASE_ID)) return false
     if (filters.projectIds !== null && !filters.projectIds.includes(event.project_id)) return false
@@ -359,7 +425,8 @@ export function activeFilterCount(filters: CalendarFilterState, defaults: Calend
     [filters.progress, defaults.progress],
     [filters.visibility, defaults.visibility],
     [filters.owners, defaults.owners],
-  ].filter(([value, fallback]) => !sameSelection(value, fallback)).length
+  ].filter(([value, fallback]) => !sameSelection(value, fallback)).length +
+    (filters.includeEnded !== defaults.includeEnded ? 1 : 0)
 }
 
 // ─── Filtre în URL ────────────────────────────────────────────────────────────
@@ -376,6 +443,7 @@ const PARAM = {
   progress: 'cs',
   visibility: 'cb',
   owners: 'co',
+  ended: 'ce',
 } as const
 
 export type CalendarViewMode = 'month' | 'list'
@@ -449,6 +517,7 @@ export function readFiltersFromParams(
       fallback.visibility,
     ),
     owners: rawOwners === undefined ? fallback.owners : rawOwners,
+    includeEnded: params.has(PARAM.ended) ? params.get(PARAM.ended) === '1' : fallback.includeEnded,
   }
 }
 
@@ -473,6 +542,9 @@ export function writeFiltersToParams(
   put(PARAM.progress, filters.progress, defaults.progress)
   put(PARAM.visibility, filters.visibility, defaults.visibility)
   put(PARAM.owners, filters.owners, defaults.owners)
+  const includeEnded = filters.includeEnded === true
+  if (includeEnded === (defaults.includeEnded === true)) params.delete(PARAM.ended)
+  else params.set(PARAM.ended, includeEnded ? '1' : '0')
 }
 
 /**
@@ -517,14 +589,10 @@ export function writeMonth(params: URLSearchParams, month: Date): void {
 // sutelor, funcțiile de mai jos sunt exact ce se mută pe server: primesc un
 // `CalendarPayload` și nu ating nici React, nici URL-ul.
 
-/**
- * Proiect „în lucru". Gardă pe egalitate cu `active`, nu pe o listă de valori
- * încheiate: `lifecycle_status` e `text` liber în bază, fără enum, deci o valoare
- * nouă apărută acolo trebuie să cadă în „încheiat" și să se ascundă implicit, nu
- * să se strecoare tăcut în lista pe care adminul o crede curentă.
- */
-export const isProjectActive = (project: Pick<CalendarProjectOption, 'lifecycle_status'>): boolean =>
-  project.lifecycle_status === 'active'
+// „Proiect în lucru" stă în `lib/project-lifecycle`, ca s-o poată folosi și
+// cronul de remindere fără tot calendarul; reexportată aici pentru apelanții
+// de dinainte de #109.
+export { isProjectActive }
 
 /**
  * Numerele unui rând de tablou, oricare ar fi capul lui de rând.
@@ -803,17 +871,9 @@ export function summarizeRows(rows: DashboardTotals[]): DashboardSummary {
   )
 }
 
-/**
- * Numeralul românesc cere „de" peste 20, dar nu la 101–119: „3 termene", „21 de
- * termene", „118 termene". Fără regula asta, linia de rezumat ar fi scris „21
- * termene" de fiecare dată când platforma crește.
- */
-export function countLabel(count: number, singular: string, plural: string): string {
-  if (count === 1) return `1 ${singular}`
-  const lastTwo = Math.abs(count) % 100
-  const needsDe = Math.abs(count) >= 20 && !(lastTwo >= 1 && lastTwo <= 19)
-  return `${count} ${needsDe ? 'de ' : ''}${plural}`
-}
+// Regula „de" peste 20 stă în `count-label`; o reexportăm pentru apelanții de
+// aici, care o luau dintotdeauna din calendar.
+export { countLabel }
 
 // ─── Sortarea tabelelor ───────────────────────────────────────────────────────
 //
@@ -1135,12 +1195,15 @@ export function filterConsultantRows(rows: ConsultantDashboardRow[], query: stri
  */
 export function projectCalendarHref(
   projectId: string,
-  options: { overdueOnly?: boolean } = {},
+  options: { overdueOnly?: boolean; ended?: boolean } = {},
 ): string {
   const params = new URLSearchParams()
   writeViewMode(params, 'list')
   params.set(PARAM.projects, projectId)
   if (options.overdueOnly) params.set(PARAM.progress, 'overdue')
+  // Calendarul general ascunde implicit proiectele încheiate (#109): fără
+  // comutator, linkul către unul dintre ele ar fi deschis o vedere goală.
+  if (options.ended) params.set(PARAM.ended, '1')
   return `/calendar?${params.toString()}`
 }
 
@@ -1151,11 +1214,14 @@ export function projectCalendarHref(
  */
 export function consultantCalendarHref(
   assigneeId: string,
-  options: { overdueOnly?: boolean } = {},
+  options: { overdueOnly?: boolean; ended?: boolean } = {},
 ): string {
   const params = new URLSearchParams()
   writeViewMode(params, 'list')
   params.set(PARAM.owners, assigneeId)
   if (options.overdueOnly) params.set(PARAM.progress, 'overdue')
+  // Când tabloul numără și proiectele încheiate (#109), calendarul trebuie să
+  // le arate și el, altfel numerele din rând nu se regăsesc acolo.
+  if (options.ended) params.set(PARAM.ended, '1')
   return `/calendar?${params.toString()}`
 }

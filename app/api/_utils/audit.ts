@@ -13,6 +13,11 @@ type AuditActionType =
   | 'download'
   | 'password_reset_requested'
   | 'password_reset_completed'
+  // #109: încheierea și redeschiderea proiectului, închiderea și redeschiderea
+  // cererilor, finalizarea fazelor și activităților.
+  | 'close'
+  | 'reopen'
+  | 'complete'
 
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true

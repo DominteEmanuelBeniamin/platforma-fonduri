@@ -67,7 +67,7 @@ export async function POST(
     const admin = createSupabaseServiceClient()
     const { data: reqRow, error: reqErr } = await admin
       .from('document_requirements')
-      .select('id, project_id, name, activity_id, assigned_to, visibility, is_outgoing, deleted_at, activity:activity_id(assigned_to, visibility, phase:phase_id(visibility))')
+      .select('id, project_id, name, activity_id, assigned_to, visibility, status, is_outgoing, deleted_at, activity:activity_id(assigned_to, visibility, phase:phase_id(visibility))')
       .eq('id', requestId)
       .is('deleted_at', null)
       .single()
@@ -79,7 +79,7 @@ export async function POST(
       return NextResponse.json({ error: 'Document request is not linked to a project' }, { status: 500 })
     }
 
-    const access = await requireProjectAccess(request, reqRow.project_id)
+    const access = await requireProjectAccess(request, reqRow.project_id, { write: true })
     if (!access.ok) return guardToResponse(access)
     if (access.profile.role === 'client' && !isClientVisibleDocument(reqRow)) {
       return NextResponse.json({ error: 'Document request not found' }, { status: 404 })
@@ -129,6 +129,14 @@ export async function POST(
         return NextResponse.json({ error: 'Upload batch already completed with a different file set' }, { status: 409 })
       }
       return NextResponse.json({ ok: true, created: false, versionNumber: batch.version_number })
+    }
+
+    // După reluarea idempotentă: o încărcare deja salvată rămâne un succes, dar
+    // una nouă într-o cerere închisă între timp se refuză înainte de orice
+    // scriere (#109). Triggerul din bază o oprește oricum, cu tot cu `files`.
+    if (reqRow.status === 'closed') {
+      const failure = describeDocumentActionFailure('Document request is closed', 'P0001')
+      return NextResponse.json({ error: 'Document request is closed', message: failure.message }, { status: failure.status })
     }
 
     const storageResults = await Promise.all((selectedFiles as ExpectedFile[]).map(async file => {

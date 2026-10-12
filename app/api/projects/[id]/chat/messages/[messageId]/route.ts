@@ -151,7 +151,7 @@ export async function PATCH(
 ) {
   try {
     const { id: projectId, messageId } = await params
-    const access = await requireProjectAccess(request, projectId)
+    const access = await requireProjectAccess(request, projectId, { write: true })
     if (!access.ok) return guardToResponse(access)
 
     const parsed = parsePatchBody(await request.json().catch(() => null))
@@ -252,7 +252,7 @@ export async function DELETE(
 ) {
   try {
     const { id: projectId, messageId } = await params
-    const access = await requireProjectAccess(request, projectId)
+    const access = await requireProjectAccess(request, projectId, { write: true })
     if (!access.ok) return guardToResponse(access)
 
     const admin = createSupabaseServiceClient()
