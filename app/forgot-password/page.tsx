@@ -3,9 +3,7 @@
 import { useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
-
-const TEMPORARY_MESSAGE = 'Serviciul este temporar indisponibil. Încearcă din nou.'
-const SENT_MESSAGE = 'Dacă există un cont cu această adresă, vei primi un email cu instrucțiuni. Verifică și folderul Spam. Pentru aceeași adresă, se poate solicita un email nou o dată la 15 minute.'
+import { RECOVERY_REQUEST_MESSAGE as SENT_MESSAGE, RECOVERY_TEMPORARY_MESSAGE as TEMPORARY_MESSAGE } from '@/lib/recovery-messages'
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('')

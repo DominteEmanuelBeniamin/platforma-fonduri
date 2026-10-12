@@ -7,10 +7,13 @@ import { useAuth } from '@/app/providers/AuthProvider'
 import { Eye, EyeOff } from 'lucide-react'
 import { Button, ButtonLink } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
+import {
+  RECOVERY_FALLBACK_MESSAGE as FALLBACK_MESSAGE,
+  RECOVERY_INVALID_MESSAGE as INVALID_MESSAGE,
+  RECOVERY_PASSWORD_RULE_MESSAGE,
+  RECOVERY_TEMPORARY_MESSAGE as TEMPORARY_MESSAGE,
+} from '@/lib/recovery-messages'
 
-const INVALID_MESSAGE = 'Linkul de resetare nu mai este valid. Solicită un link nou sau contactează administratorul.'
-const FALLBACK_MESSAGE = 'Parola a fost schimbată. Autentifică-te cu noua parolă.'
-const TEMPORARY_MESSAGE = 'Serviciul este temporar indisponibil. Încearcă din nou.'
 const ATTEMPT_STORAGE_KEY = 'bonie:recovery-attempt'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[A-Za-z0-9_-]{43}$/i
@@ -237,7 +240,7 @@ export default function ResetPasswordPage() {
         return
       }
       if (body?.status === 'password_invalid') {
-        setError(typeof body.message === 'string' ? body.message : 'Parola trebuie să aibă cel puțin 6 caractere și cel mult 72 de bytes UTF-8.')
+        setError(typeof body.message === 'string' ? body.message : RECOVERY_PASSWORD_RULE_MESSAGE)
         return
       }
       if (body?.status === 'same_password') {

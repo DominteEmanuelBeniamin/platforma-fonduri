@@ -126,7 +126,7 @@ export function redactAuditText(value: string) {
     .replace(/([?&#](?:token|access_token|refresh_token|hashed_token|token_hash|secret|password|action_?link)=)[^&#\s"'<>]+/gi, '$1[redacted]')
 }
 
-function auditErrorCode(error: unknown) {
+export function auditErrorCode(error: unknown) {
   if (!error || typeof error !== 'object' || !('code' in error) || typeof error.code !== 'string') return undefined
   return /^[A-Z0-9_]+$/.test(error.code) ? error.code : undefined
 }

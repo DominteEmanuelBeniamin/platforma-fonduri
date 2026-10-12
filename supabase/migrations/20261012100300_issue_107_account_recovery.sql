@@ -965,6 +965,14 @@ BEGIN
 END
 $fn$;
 
+-- Cheap global flag for the login and forgot-password pages; unlike the
+-- preflight it reads only the settings row and reveals nothing per account.
+CREATE OR REPLACE FUNCTION public.recovery_available()
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog
+AS $fn$
+  SELECT account_recovery.recovery_enabled()
+$fn$;
+
 CREATE OR REPLACE FUNCTION public.recovery_enqueue(
   p_job_id uuid, p_payload_cipher text, p_ip_hash text, p_ip text DEFAULT NULL, p_user_agent text DEFAULT NULL
 )
@@ -1228,6 +1236,7 @@ REVOKE ALL ON FUNCTION account_recovery.send_email_hook(jsonb) FROM PUBLIC, anon
 GRANT EXECUTE ON FUNCTION account_recovery.send_email_hook(jsonb) TO supabase_auth_admin;
 
 REVOKE ALL ON FUNCTION public.recovery_preflight() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.recovery_available() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.recovery_enqueue(uuid, text, text, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.recovery_take_delivery(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.recovery_freeze_delivery(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
@@ -1240,6 +1249,7 @@ REVOKE ALL ON FUNCTION public.invalidate_account_recovery(uuid) FROM PUBLIC, ano
 REVOKE ALL ON FUNCTION public.activate_account_recovery(text) FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION public.recovery_preflight() TO service_role;
+GRANT EXECUTE ON FUNCTION public.recovery_available() TO service_role;
 GRANT EXECUTE ON FUNCTION public.recovery_enqueue(uuid, text, text, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.recovery_take_delivery(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.recovery_freeze_delivery(uuid, uuid, text) TO service_role;

@@ -1,14 +1,16 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { isIP } from 'node:net'
 import { requireProfile } from './auth'
-import { redactAuditText } from './audit'
+import { auditErrorCode, redactAuditText } from './audit'
 import { createSupabaseServerClient, createSupabaseServiceClient } from './supabase'
 import { escapeHtml, resolveReminderDelivery, resendFromAddress, sanitizeHeaderText, isValidReminderEmail } from './email'
-
-export const RECOVERY_REQUEST_MESSAGE = 'Dacă există un cont cu această adresă, vei primi un email cu instrucțiuni. Verifică și folderul Spam. Pentru aceeași adresă, se poate solicita un email nou o dată la 15 minute.'
-export const RECOVERY_INVALID_MESSAGE = 'Linkul de resetare nu mai este valid. Solicită un link nou sau contactează administratorul.'
-export const RECOVERY_FALLBACK_MESSAGE = 'Parola a fost schimbată. Autentifică-te cu noua parolă.'
-export const RECOVERY_TEMPORARY_MESSAGE = 'Serviciul este temporar indisponibil. Încearcă din nou.'
+import {
+  RECOVERY_FALLBACK_MESSAGE,
+  RECOVERY_INVALID_MESSAGE,
+  RECOVERY_PASSWORD_RULE_MESSAGE,
+  RECOVERY_REQUEST_MESSAGE,
+  RECOVERY_TEMPORARY_MESSAGE,
+} from '@/lib/recovery-messages'
 
 const JSON_LIMIT = 4096
 const RPC_TIMEOUT_MS = 5_000
@@ -20,6 +22,7 @@ const RECEIPT_COOKIE_SECONDS = 24 * 60 * 60
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const TOKEN_PATTERN = /^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.([A-Za-z0-9_-]{43})$/
 const TRUSTED_IP_HEADERS = new Set(['x-vercel-forwarded-for', 'x-forwarded-for', 'x-real-ip', 'cf-connecting-ip'])
+const RESEND_API_ORIGIN = 'https://api.resend.com'
 
 type AppOrigin = { origin: string; secure: boolean }
 type Config = AppOrigin & { secret: Buffer }
@@ -77,8 +80,12 @@ function getConfig(): Config | null {
 
 function getResendBaseUrl(): string | null {
   const configured = process.env.RESEND_BASE_URL
-  if (configured === undefined) return 'https://api.resend.com'
-  if (!configured || configured.trim() !== configured || productionLike()) return null
+  // Lipsa, valoarea goală sau chiar adresa Resend înseamnă API-ul public. Altă
+  // adresă e doar mock-ul local și nu se acceptă în producție sau preview.
+  if (configured === undefined || configured === '' || configured.replace(/\/$/, '') === RESEND_API_ORIGIN) {
+    return RESEND_API_ORIGIN
+  }
+  if (configured.trim() !== configured || productionLike()) return null
   try {
     const url = new URL(configured)
     if (url.protocol !== 'http:' || !localLoopback(url.hostname)
@@ -89,13 +96,18 @@ function getResendBaseUrl(): string | null {
   }
 }
 
-function secureErrorCode(error: unknown): string | undefined {
-  if (!isObject(error) || typeof error.code !== 'string') return undefined
-  return /^[A-Z0-9_]+$/.test(error.code) ? error.code : undefined
+// Fără cheie, adresă sau expeditor nu se poate trimite nimic. E o problemă de
+// configurare, nu un refuz: jobul rămâne în coadă până se repară, în loc să
+// fie marcat `failed` și să invalideze linkul pe care userul îl așteaptă.
+function getProviderConfig(): { apiKey: string; baseUrl: string } | null {
+  const apiKey = process.env.RESEND_API_KEY?.trim()
+  const baseUrl = getResendBaseUrl()
+  if (!apiKey || !baseUrl || (productionLike() && !process.env.RESEND_FROM_EMAIL?.trim())) return null
+  return { apiKey, baseUrl }
 }
 
 function logFailure(event: string, error?: unknown) {
-  const code = secureErrorCode(error)
+  const code = auditErrorCode(error)
   console.error('[recovery]', code ? { event, code } : { event })
 }
 
@@ -344,6 +356,24 @@ export async function exchangeRecoveryToken(request: Request): Promise<Response>
   }
 }
 
+// Pentru paginile de login și forgot-password: linkul de resetare apare doar
+// când recovery e activat și are tot ce-i trebuie ca să trimită emailul.
+// Starea e globală, deci nu spune nimic despre vreun cont anume.
+export async function recoveryAvailability(): Promise<Response> {
+  if (!getConfig() || !getProviderConfig()) return apiResponse({ available: false })
+  try {
+    const result = await callRpc(createSupabaseServiceClient(), 'recovery_available', {})
+    if (result.error) {
+      logFailure('availability_rpc', result.error)
+      return apiResponse({ available: false })
+    }
+    return apiResponse({ available: result.data === true })
+  } catch (error) {
+    logFailure('availability_exception', error)
+    return apiResponse({ available: false })
+  }
+}
+
 function queryValue(request: Request, name: string): string | null {
   const values = new URL(request.url).searchParams.getAll(name)
   return values.length === 1 ? values[0] : null
@@ -401,7 +431,7 @@ function passwordValidation(password: unknown, confirmation: unknown): string | 
     return 'Parolele nu coincid.'
   }
   if (!validPasswordText(password) || [...password].length < 6 || Buffer.byteLength(password, 'utf8') > 72 || password.includes('\0')) {
-    return 'Parola trebuie să aibă cel puțin 6 caractere și cel mult 72 de octeți UTF-8.'
+    return RECOVERY_PASSWORD_RULE_MESSAGE
   }
   return null
 }
@@ -466,7 +496,7 @@ export async function completeRecovery(request: Request): Promise<Response> {
     if (result.data.status === 'password_invalid') {
       return apiResponse({
         status: 'password_invalid',
-        message: 'Parola trebuie să aibă cel puțin 6 caractere și cel mult 72 de octeți UTF-8.',
+        message: RECOVERY_PASSWORD_RULE_MESSAGE,
       }, 400)
     }
     if (result.data.status === 'same_password') {
@@ -615,11 +645,10 @@ async function processDelivery(client: ServiceClient, job: JsonObject, config: C
       outcome = 'skipped'
       return
     }
-    const resendApiKey = process.env.RESEND_API_KEY?.trim()
-    const resendBaseUrl = getResendBaseUrl()
-    if (!resendApiKey || !resendBaseUrl) {
+    const provider = getProviderConfig()
+    if (!provider) {
       logFailure('provider_config')
-      outcome = 'failed'
+      outcome = 'retry'
       return
     }
     let body = parseProviderEmail(decryptPayload(job.frozen_payload_cipher, config.secret))
@@ -672,7 +701,7 @@ async function processDelivery(client: ServiceClient, job: JsonObject, config: C
       }
       if (!body) {
         logFailure('email_configuration')
-        outcome = 'failed'
+        outcome = 'retry'
         return
       }
       body = await freezeProviderEmail(client, jobId, leaseId, body, config.secret)
@@ -698,10 +727,10 @@ async function processDelivery(client: ServiceClient, job: JsonObject, config: C
       return
     }
 
-    const providerResponse = await fetch(resendBaseUrl + '/emails', {
+    const providerResponse = await fetch(provider.baseUrl + '/emails', {
       method: 'POST',
       headers: {
-        Authorization: 'Bearer ' + resendApiKey,
+        Authorization: 'Bearer ' + provider.apiKey,
         'Content-Type': 'application/json',
         'Idempotency-Key': 'recovery/' + jobId,
       },
@@ -746,6 +775,11 @@ export async function drainRecoveryDeliveries(limit = DELIVERY_LIMIT): Promise<n
   const config = getConfig()
   if (!config) {
     logFailure('drain_config')
+    return 0
+  }
+  if (!getProviderConfig()) {
+    // Nu se iau joburi: fiecare preluare consumă o încercare din cele 8.
+    logFailure('provider_config')
     return 0
   }
   let client: ServiceClient
