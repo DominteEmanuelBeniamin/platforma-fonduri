@@ -29,7 +29,7 @@ type AuthCtx = {
 }
 
 const Ctx = createContext<AuthCtx | null>(null)
-const PUBLIC_PATHS = new Set(['/login', '/forgot-password', '/reset-password'])
+export const PUBLIC_PATHS = new Set(['/login', '/forgot-password', '/reset-password'])
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -61,7 +61,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (identityRef.current !== nextUserId) {
       identityRef.current = nextUserId
       setProfile(null)
-      void supabase.removeAllChannels().catch(() => undefined)
+      // Doar canalele de acum, ale identității vechi. removeAllChannels() golea
+      // la final lista și închidea socketul, inclusiv canalele pe care providerii
+      // remontați le deschideau între timp pentru noua identitate.
+      const staleChannels = [...supabase.getChannels()]
+      void Promise.all(staleChannels.map((channel) => supabase.removeChannel(channel))).catch(() => undefined)
       if (identityInitializedRef.current) setIdentityRevision((revision) => revision + 1)
     }
 
