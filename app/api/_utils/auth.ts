@@ -91,11 +91,15 @@ export async function requireProfile(
   }
 
   const { data: sessionActive, error: sessionError } = await supabase.rpc('current_account_session_active')
-  if (sessionError) {
+  if (sessionError?.code === 'PGRST202') {
+    // Funcția lipsește doar cât Vercel publică codul înaintea migrației #105.
+    // Până atunci nicio sesiune n-a fost revocată prin ea, deci rămâne
+    // verificarea is_active de mai sus, în loc de 500 la fiecare cerere.
+    console.error('current_account_session_active is missing; the #105 migration is not applied yet:', { userId: auth.user.id })
+  } else if (sessionError) {
     console.error('Failed to verify authenticated account state:', { userId: auth.user.id, error: sessionError })
     return { ok: false, status: 500, error: 'Failed to verify account state', code: 'ACCOUNT_STATE_LOOKUP_FAILED' }
-  }
-  if (sessionActive !== true) {
+  } else if (sessionActive !== true) {
     return {
       ok: false,
       status: 401,
