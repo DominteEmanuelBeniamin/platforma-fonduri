@@ -880,11 +880,11 @@ export const ACTIVITY_STATUS_CONFIG: Record<ActivityStatus, StatusConfig> = {
 };
 
 export const DOCUMENT_STATUS_CONFIG: Record<DocumentRequirementStatus, StatusConfig> = {
-  pending: { bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', icon: 'FileQuestion', label: 'De încărcat' },
-  review: { bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', icon: 'FileSearch', label: 'În verificare' },
+  pending: { bg: 'bg-[var(--sg-pending-soft)]', text: 'text-[var(--sg-pending)]', border: 'border-[var(--sg-pending)]', icon: 'FileQuestion', label: 'De încărcat' },
+  review: { bg: 'bg-[var(--sg-review-soft)]', text: 'text-[var(--sg-review)]', border: 'border-[var(--sg-review)]', icon: 'FileSearch', label: 'În verificare' },
   approved: { bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-200', icon: 'FileCheck', label: 'Aprobat' },
   rejected: { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', icon: 'FileX', label: 'Respins' },
-  closed: { bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', icon: 'Archive', label: 'Închisă' }
+  closed: { bg: 'bg-[var(--sg-closed-soft)]', text: 'text-[var(--sg-closed)]', border: 'border-[var(--sg-closed)]', icon: 'Archive', label: 'Închisă' }
 };
 
 export const PROGRAM_COLORS: Record<string, string> = {

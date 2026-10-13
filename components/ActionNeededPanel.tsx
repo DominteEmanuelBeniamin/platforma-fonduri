@@ -1,6 +1,7 @@
 'use client'
 
 import { AlertTriangle, Clock, FileText, ListChecks } from 'lucide-react'
+import { TONE } from '@/lib/signage'
 
 export interface PendingUpload {
   id: string
@@ -41,6 +42,7 @@ export default function ActionNeededPanel({ items, waitingItems = [], isClient, 
     const overdue = deadline && deadline < todayMidnight
     const isRejected = !waiting && req.status === 'rejected'
     const danger = overdue || isRejected
+    const statusTone = TONE[danger ? 'danger' : waiting || isClient ? 'pending' : 'review']
     const pill = waiting
       ? (overdue ? 'Termen depășit' : 'La client')
       : (isRejected ? 'Respins' : isClient ? 'De încărcat' : 'De revizuit')
@@ -53,12 +55,10 @@ export default function ActionNeededPanel({ items, waitingItems = [], isClient, 
           waiting ? 'hover:bg-[var(--p-bg)]' : 'hover:bg-[var(--p-surface)]/70'
         }`}
       >
-        <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
-          danger ? 'bg-[var(--p-danger-soft)]' : 'bg-[var(--p-warning-soft)]'
-        }`}>
+        <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: statusTone.bg, color: statusTone.fg }}>
           {danger
-            ? <AlertTriangle className="w-3.5 h-3.5 text-[var(--p-danger)]" />
-            : <FileText className="w-3.5 h-3.5 text-[var(--p-warning)]" />}
+            ? <AlertTriangle className="w-3.5 h-3.5" />
+            : <FileText className="w-3.5 h-3.5" />}
         </div>
         <div className="flex-1 min-w-0">
           <p className={`text-sm font-semibold truncate leading-snug ${overdue ? 'text-[var(--p-danger)]' : 'text-[var(--p-ink)]'}`}>
@@ -78,9 +78,7 @@ export default function ActionNeededPanel({ items, waitingItems = [], isClient, 
             {deadline.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })}
           </div>
         )}
-        <span className={`hidden md:inline-flex flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-md ${
-          danger ? 'bg-[var(--p-danger-soft)] text-[var(--p-danger)]' : 'bg-[var(--p-warning-soft)] text-[var(--p-warning)]'
-        }`}>
+        <span className="hidden md:inline-flex flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-md" style={{ background: statusTone.bg, color: statusTone.fg }}>
           {pill}
         </span>
         <span className="flex-shrink-0 text-xs font-semibold text-[var(--p-accent)] group-hover:opacity-80 transition-opacity" aria-hidden>→</span>
@@ -111,8 +109,8 @@ export default function ActionNeededPanel({ items, waitingItems = [], isClient, 
       {items.length > 0 && (
       <div className="border border-[var(--p-border)] bg-[var(--p-surface)] rounded-2xl overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--p-border)]">
-          <div className="w-8 h-8 rounded-lg bg-[var(--p-accent-soft)] flex items-center justify-center flex-shrink-0">
-            <ListChecks className="w-4 h-4 text-[var(--p-accent)]" />
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: TONE[isClient ? 'pending' : 'review'].bg, color: TONE[isClient ? 'pending' : 'review'].fg }}>
+            <ListChecks className="w-4 h-4" />
           </div>
           <div className="min-w-0">
             <h3 className="text-sm font-bold text-[var(--p-ink)]">
@@ -135,8 +133,8 @@ export default function ActionNeededPanel({ items, waitingItems = [], isClient, 
       {!isClient && waitingItems.length > 0 && (
       <div className="border border-[var(--p-border)] bg-[var(--p-surface)] rounded-2xl overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--p-border)]">
-          <div className="w-8 h-8 rounded-lg bg-[var(--p-warning-soft)] flex items-center justify-center flex-shrink-0">
-            <Clock className="w-4 h-4 text-[var(--p-warning)]" />
+          <div className="w-8 h-8 rounded-lg bg-[var(--sg-pending-soft)] flex items-center justify-center flex-shrink-0">
+            <Clock className="w-4 h-4 text-[var(--sg-pending)]" />
           </div>
           <div className="min-w-0">
             <h3 className="text-sm font-bold text-[var(--p-ink)]">Așteptăm documente de la client</h3>

@@ -425,7 +425,7 @@ export default function ProjectPhasesSidebar({
 
       <aside
         className={`fixed inset-y-0 left-0 z-[999999] w-80 max-w-[85vw] min-h-0 flex-shrink-0 flex-col overflow-hidden border-r border-rule bg-plate
-        md:sticky md:top-16 md:inset-auto md:z-auto md:w-72 md:max-w-none md:self-start md:overflow-visible lg:w-80
+        md:static md:inset-auto md:z-auto md:w-72 md:max-w-none md:self-start md:overflow-visible lg:w-80
         ${mobileOpen ? 'flex translate-x-0' : 'hidden md:flex md:translate-x-0'}`}
         style={{ boxShadow: mobileOpen ? 'var(--sg-lift)' : undefined }}
       >

@@ -436,10 +436,10 @@ export default function FlatDriveFilesView({
             {[
               { label: 'Aprobate',           val: stats.approved, text: 'text-[var(--sg-ok)]', dot: 'bg-[var(--sg-ok)]' },
               { label: 'Trimise clientului', val: stats.sent,     text: 'text-[var(--sg-ok)]', dot: 'bg-[var(--sg-ok)]' },
-              { label: 'În verificare',      val: stats.review,   text: 'text-[var(--sg-accent)]',  dot: 'bg-[var(--sg-accent)]' },
-              { label: 'În așteptare',       val: stats.pending,  text: 'text-[var(--sg-warn)]',   dot: 'bg-[var(--sg-warn)]' },
+              { label: 'În verificare',      val: stats.review,   text: 'text-[var(--sg-review)]',  dot: 'bg-[var(--sg-review)]' },
+              { label: 'În așteptare',       val: stats.pending,  text: 'text-[var(--sg-pending)]', dot: 'bg-[var(--sg-pending)]' },
               { label: 'Respinse',           val: stats.rejected, text: 'text-[var(--sg-danger)]',     dot: 'bg-[var(--sg-danger)]' },
-              { label: 'Închise',            val: stats.closed,   text: 'text-ink-soft',               dot: 'bg-[var(--sg-ink-soft)]' },
+              { label: 'Închise',            val: stats.closed,   text: 'text-[var(--sg-closed)]',       dot: 'bg-[var(--sg-closed)]' },
             ].filter(s => s.val > 0).map(s => (
               <span key={s.label} className={`flex items-center gap-1.5 text-xs ${s.text}`}>
                 <span className={`h-2 w-2 rounded-full ${s.dot}`} />

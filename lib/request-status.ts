@@ -22,9 +22,9 @@ export type RequestStatusInfo = {
 
 export const REQUEST_STATUS_INFO: Record<RequestStatus, RequestStatusInfo> = {
   // Ceasul: mingea e la client.
-  pending: { label: 'Așteaptă răspuns', clientLabel: 'De încărcat', tone: 'neutral' },
+  pending: { label: 'Așteaptă răspuns', clientLabel: 'De încărcat', tone: 'pending' },
   // Ochiul: e rândul echipei să se uite.
-  review: { label: 'În verificare', clientLabel: 'În verificare', tone: 'warn' },
+  review: { label: 'În verificare', clientLabel: 'În verificare', tone: 'review' },
   approved: { label: 'Aprobat', clientLabel: 'Aprobat', tone: 'ok' },
   rejected: { label: 'Respins', clientLabel: 'Respins', tone: 'danger' },
   // Separată de „Aprobat": cererea s-a încheiat fără să mai aștepte nimic.

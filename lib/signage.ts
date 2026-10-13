@@ -41,11 +41,10 @@ export function bandSoftVar(band: number): string {
  * cuvânt — culoarea nu poartă niciodată singură informația (WCAG 1.4.1).
  *
  * `closed` (#109) e pentru ce s-a încheiat fără să mai aștepte nimic: cererea
- * închisă, proiectul încheiat. Are culorile lui `neutral`, deci nicio nuanță
- * nouă, dar iconița proprie: cu ceasul lui `neutral` („la client"), o cerere
- * închisă s-ar fi citit pe „Panoul cu chei" drept una care așteaptă clientul.
+ * închisă, proiectul încheiat. Griul cald și arhiva îl separă de portocaliul
+ * și ceasul lui `pending` („așteaptă răspuns”).
  */
-export type SignalTone = 'ok' | 'warn' | 'danger' | 'draft' | 'neutral' | 'closed'
+export type SignalTone = 'ok' | 'warn' | 'danger' | 'draft' | 'neutral' | 'review' | 'pending' | 'closed'
 
 export const TONE: Record<SignalTone, { fg: string; bg: string }> = {
   ok:      { fg: 'var(--sg-ok)',       bg: 'var(--sg-ok-soft)' },
@@ -53,7 +52,9 @@ export const TONE: Record<SignalTone, { fg: string; bg: string }> = {
   danger:  { fg: 'var(--sg-danger)',   bg: 'var(--sg-danger-soft)' },
   draft:   { fg: 'var(--sg-draft)',    bg: 'var(--sg-draft-soft)' },
   neutral: { fg: 'var(--sg-ink-soft)', bg: 'var(--sg-paper-sunk)' },
-  closed:  { fg: 'var(--sg-ink-soft)', bg: 'var(--sg-paper-sunk)' },
+  review:  { fg: 'var(--sg-review)',  bg: 'var(--sg-review-soft)' },
+  pending: { fg: 'var(--sg-pending)', bg: 'var(--sg-pending-soft)' },
+  closed:  { fg: 'var(--sg-closed)',  bg: 'var(--sg-closed-soft)' },
 }
 
 /**

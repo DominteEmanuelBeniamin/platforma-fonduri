@@ -779,7 +779,7 @@ export default function DocumentModal({
             </p>
           )}
           {readOnly && (
-            <div className="flex items-start gap-2 rounded-[var(--radius-plate)] bg-paper-sunk px-4 py-3 text-sm text-ink-soft">
+            <div className="flex items-start gap-2 rounded-[var(--radius-plate)] bg-[var(--sg-closed-soft)] px-4 py-3 text-sm text-[var(--sg-closed)]">
               <Archive className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
               <p>{isAdminOrConsultant ? PROJECT_CLOSED_READ_ONLY_MESSAGE : PROJECT_CLOSED_CLIENT_NOTE}</p>
             </div>

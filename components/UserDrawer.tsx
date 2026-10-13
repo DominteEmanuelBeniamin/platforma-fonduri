@@ -307,8 +307,8 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
               {[
                 { label: `${stats.total} fișiere`, dot: '#64748b' },
                 stats.approved > 0 && { label: `${stats.approved} aprobate`, dot: '#22c55e' },
-                stats.review   > 0 && { label: `${stats.review} în verificare`, dot: '#3b82f6' },
-                stats.pending  > 0 && { label: `${stats.pending} în așteptare`, dot: '#f59e0b' },
+                stats.review   > 0 && { label: `${stats.review} în verificare`, dot: 'var(--sg-review)' },
+                stats.pending  > 0 && { label: `${stats.pending} în așteptare`, dot: 'var(--sg-pending)' },
                 stats.rejected > 0 && { label: `${stats.rejected} respinse`, dot: '#ef4444' },
                 stats.closed   > 0 && { label: `${stats.closed} închise`, dot: 'var(--sg-ink-soft)' },
               ].filter(Boolean).map((s: any) => (
@@ -557,8 +557,8 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
             <div className="flex items-center gap-3">
               {[
                 { label: 'Aprobate', val: stats.approved, color: '#15803d' },
-                { label: 'Verificare', val: stats.review, color: '#2563eb' },
-                { label: 'Așteptare', val: stats.pending, color: '#d97706' },
+                { label: 'Verificare', val: stats.review, color: 'var(--sg-review)' },
+                { label: 'Așteptare', val: stats.pending, color: 'var(--sg-pending)' },
                 { label: 'Respinse', val: stats.rejected, color: '#dc2626' },
               ].filter(s => s.val > 0).map(s => (
                 <span key={s.label} className="flex items-center gap-1.5" style={{ fontSize: '11px', color: s.color }}>

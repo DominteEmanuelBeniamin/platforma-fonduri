@@ -1302,7 +1302,7 @@ export default function DocumentRequests({
 
                   {isClient && readOnly && (req.status === 'pending' || req.status === 'rejected') && (
                     <div className="mt-4 pt-4 border-t border-rule">
-                      <div className="flex items-center gap-2 bg-paper-sunk px-4 py-2.5 rounded-xl text-ink-soft">
+                      <div className="flex items-center gap-2 bg-[var(--sg-closed-soft)] px-4 py-2.5 rounded-xl text-[var(--sg-closed)]">
                         <Archive className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
                         <span className="text-sm">{PROJECT_CLOSED_CLIENT_NOTE}</span>
                       </div>
@@ -1613,7 +1613,7 @@ export default function DocumentRequests({
 
                   {isClient && req.status === 'review' && (
                     <div className="mt-4 pt-4 border-t border-rule">
-                      <div className="flex items-center gap-2 text-[var(--sg-accent)] bg-[var(--sg-accent-soft)] px-4 py-2.5 rounded-xl">
+                      <div className="flex items-center gap-2 text-[var(--sg-review)] bg-[var(--sg-review-soft)] px-4 py-2.5 rounded-xl">
                         <Eye className="w-4 h-4" />
                         <span className="text-sm font-medium">Documentul este în curs de verificare</span>
                       </div>

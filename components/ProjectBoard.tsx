@@ -35,14 +35,17 @@ export function itemTone(item: BoardItem, todayTs: number): SignalTone {
   if (d) d.setHours(0, 0, 0, 0)
   if (d && !Number.isNaN(d.getTime()) && d.getTime() < todayTs) return 'danger'
   if (item.status === 'rejected') return 'danger'
-  if (item.status === 'review') return 'warn'
+  if (item.status === 'review') return 'review'
+  if (item.status === 'pending') return 'pending'
   return 'neutral'
 }
 
 const TONE_CUVANT: Record<SignalTone, string> = {
   danger: 'termen depășit sau respins',
-  warn: 'de verificat',
+  warn: 'termen apropiat',
+  review: 'de verificat',
   neutral: 'la client',
+  pending: 'la client',
   ok: 'aprobat',
   draft: 'în lucru',
   closed: 'închisă',

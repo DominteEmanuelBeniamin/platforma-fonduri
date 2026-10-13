@@ -1420,7 +1420,7 @@ function ProjectDetailsContent() {
         <main className="flex-1 min-w-0">
 
           {/* ── Tab switcher ── */}
-          <div className="sticky top-14 z-10 h-12 bg-[var(--p-surface)] border-b border-[var(--p-border)] px-4 sm:px-6">
+          <div className="relative z-10 h-12 bg-[var(--p-surface)] border-b border-[var(--p-border)] px-4 sm:px-6">
             <div className="flex h-full gap-1 -mb-px overflow-x-auto">
               {([
                 { view: 'phases', label: 'Faze & Activități', Icon: Layers, count: 0, urgent: false, hint: '' },

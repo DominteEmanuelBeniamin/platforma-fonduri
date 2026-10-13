@@ -56,6 +56,12 @@
   --sg-warn-soft:    #F4EBDC;
   --sg-danger:       #9B2C21;  /* depășit, respins, eroare */
   --sg-danger-soft:  #F5E4E1;
+  --sg-review:       #3E6488;  /* în verificare */
+  --sg-review-soft:  #E7EDF3;
+  --sg-pending:      #8F5D3B;  /* așteaptă răspuns, de încărcat */
+  --sg-pending-soft: #F3EAE2;
+  --sg-closed:       #625E59;  /* închis, arhivat */
+  --sg-closed-soft:  #EAE7E2;
   --sg-draft:        #6B7079;  /* în lucru, nepublicat */
   --sg-draft-soft:   #EAE9E5;
 

@@ -16,7 +16,9 @@ import type { SignalTone } from '@/lib/signage'
 const ICOANE: Record<SignalTone, typeof Check> = {
   danger: AlertTriangle,
   warn: Eye,
+  review: Eye,
   neutral: Clock,
+  pending: Clock,
   ok: Check,
   draft: PenLine,
   closed: Archive,

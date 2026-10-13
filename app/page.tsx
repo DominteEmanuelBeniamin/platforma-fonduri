@@ -123,10 +123,10 @@ function buildBadges(att: Att, isClient: boolean): { key: string; tone: SignalTo
     badges.push({ key: 'overdue', tone: 'danger', icon: <AlertTriangle className="h-3 w-3" />, label: `${att.overdue} depășite`, title: `${att.overdue} cereri cu termen depășit` })
   }
   if (isClient) {
-    if (att.total > 0) badges.push({ key: 'todo', tone: 'warn', icon: <FileText className="h-3 w-3" />, label: `${att.total} de încărcat`, title: `${att.total} documente de încărcat` })
+    if (att.total > 0) badges.push({ key: 'todo', tone: 'pending', icon: <FileText className="h-3 w-3" />, label: `${att.total} de încărcat`, title: `${att.total} documente de încărcat` })
   } else {
-    if (att.review > 0) badges.push({ key: 'review', tone: 'warn', icon: <FileText className="h-3 w-3" />, label: `${att.review} de verificat`, title: `${att.review} cereri care așteaptă verificarea ta` })
-    if (att.pending > 0) badges.push({ key: 'pending', tone: 'neutral', icon: <FileText className="h-3 w-3" />, label: `${att.pending} la client`, title: `${att.pending} cereri așteaptă documente de la client` })
+    if (att.review > 0) badges.push({ key: 'review', tone: 'review', icon: <FileText className="h-3 w-3" />, label: `${att.review} de verificat`, title: `${att.review} cereri care așteaptă verificarea ta` })
+    if (att.pending > 0) badges.push({ key: 'pending', tone: 'pending', icon: <FileText className="h-3 w-3" />, label: `${att.pending} la client`, title: `${att.pending} cereri așteaptă documente de la client` })
   }
   if (att.unreadChat > 0) {
     badges.push({ key: 'chat', tone: 'neutral', icon: <MessageSquare className="h-3 w-3" />, label: `${att.unreadChat > 99 ? '99+' : att.unreadChat} mesaje`, title: `${att.unreadChat} mesaje necitite în chat` })
@@ -143,7 +143,7 @@ function buildBadges(att: Att, isClient: boolean): { key: string; tone: SignalTo
 /** Semnalul cel mai urgent al unui proiect decide culoarea railului plăcuței. */
 function railFor(att: Att): string | undefined {
   if (att.overdue > 0) return 'var(--sg-danger)'
-  if (att.todo) return 'var(--sg-warn)'
+  if (att.todo) return att.review > 0 ? 'var(--sg-review)' : 'var(--sg-pending)'
   if (att.unreadChat > 0 || att.unreadNotifications > 0) return 'var(--sg-accent)'
   if (att.clean) return 'var(--sg-ok)'
   return 'var(--sg-rule-strong)'
@@ -380,7 +380,7 @@ function TaskRow({ req, todayTs, mode }: { req: any; todayTs: number; mode: 'cli
   const isRejected = req.status === 'rejected'
   const isReview = req.status === 'review'
 
-  const tone: SignalTone = isOverdue || isRejected ? 'danger' : isReview ? 'warn' : 'warn'
+  const tone: SignalTone = isOverdue || isRejected ? 'danger' : isReview ? 'review' : 'pending'
   const label = mode === 'client'
     ? (isRejected ? 'Respins' : 'De încărcat')
     : (isReview ? 'De verificat' : 'La client')
@@ -799,9 +799,9 @@ export default function Dashboard() {
   const legendItems: { tone: SignalTone; label: string; desc: string }[] = [
     { tone: 'danger', label: 'Depășite', desc: 'termenul a trecut' },
     isClient
-      ? { tone: 'warn', label: 'De încărcat', desc: 'documente cerute de la tine' }
-      : { tone: 'warn', label: 'De verificat', desc: 'așteaptă verificarea ta' },
-    ...(!isClient ? [{ tone: 'neutral' as SignalTone, label: 'La client', desc: 'așteaptă document de la client' }] : []),
+      ? { tone: 'pending', label: 'De încărcat', desc: 'documente cerute de la tine' }
+      : { tone: 'review', label: 'De verificat', desc: 'așteaptă verificarea ta' },
+    ...(!isClient ? [{ tone: 'pending' as SignalTone, label: 'La client', desc: 'așteaptă document de la client' }] : []),
     { tone: 'neutral', label: 'Necitite', desc: 'mesaje sau notificări noi' },
     { tone: 'ok', label: 'La zi', desc: 'nimic de făcut' },
     { tone: 'closed', label: 'Încheiat', desc: 'proiect încheiat; reminderele automate sunt oprite' },
