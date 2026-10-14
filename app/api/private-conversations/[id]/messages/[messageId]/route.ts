@@ -50,7 +50,8 @@ export async function GET(
         profiles:created_by (
           id,
           full_name,
-          email
+          email,
+          is_active
         )
       `)
       .eq('id', messageId)
@@ -130,7 +131,8 @@ export async function PATCH(
         profiles:created_by (
           id,
           full_name,
-          email
+          email,
+          is_active
         )
       `)
       .single()

@@ -16,8 +16,8 @@ import { getAvatarColor } from '@/lib/avatar'
 import { LIGHT_INK, readableInk } from '@/lib/contrast'
 import {
   KIND_LABELS,
-  PROGRESS_LABELS,
   VISIBILITY_LABELS,
+  progressLabelFor,
   eventProgress,
   formatShortDate,
   type CalendarEvent,
@@ -83,7 +83,7 @@ export function eventAriaLabel(
     options.withProject && event.project_title ? `proiect ${event.project_title}` : null,
     context,
     event.deadline_at ? `termen ${formatShortDate(event.deadline_at)}` : 'fără termen',
-    PROGRESS_LABELS[progress],
+    progressLabelFor(event, progress),
     VISIBILITY_LABELS[event.visibility],
     event.assignee_name ? `responsabil ${event.assignee_name}` : 'fără responsabil',
   ]

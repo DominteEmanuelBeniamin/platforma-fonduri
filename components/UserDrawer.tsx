@@ -4,8 +4,8 @@
 import { useCallback, useEffect, useState, useMemo, useRef } from 'react'
 import {
   X, FolderOpen, FileText, FileSpreadsheet,
-  Image as ImageIcon, File, CheckCircle2, XCircle,
-  Clock, Eye, Download, Layers, Building2, Briefcase,
+  Image as ImageIcon, File,
+  Eye, Download, Layers, Building2, Briefcase,
   Shield, Search, ChevronDown, Loader2, AlertCircle,
   ExternalLink, ArrowLeft,
 } from 'lucide-react'
@@ -14,6 +14,9 @@ import { useToast } from '@/app/providers/ToastProvider'
 import { useRouter } from 'next/navigation'
 import { isPreviewableFile, buildPreviewPageUrl, openInNewTab, downloadUrl } from '@/lib/file-preview'
 import { formatDate } from '@/lib/signage'
+import { profileDisplayName } from '@/lib/profile-display'
+import { Signal } from '@/components/ui/Signal'
+import { displayedRequestStatus, requestStatusInfo } from '@/lib/request-status'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,6 +24,7 @@ interface UserDrawerUser {
   id: string
   email: string
   full_name: string | null
+  is_active?: boolean | null
   role: 'admin' | 'consultant' | 'client'
   created_at: string
   cif?: string | null
@@ -86,21 +90,10 @@ function TypeBadge({ path }: { path: string }) {
   )
 }
 
+/** Starea cererii, din dicționarul comun (#109): nimic nu mai cade pe „Așteptare". */
 function StatusPill({ status }: { status: string }) {
-  const map: Record<string, { Icon: any; label: string; bg: string; text: string; dot: string }> = {
-    approved: { Icon: CheckCircle2, label: 'Aprobat',    bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' },
-    rejected: { Icon: XCircle,      label: 'Respins',    bg: '#fef2f2', text: '#dc2626', dot: '#ef4444' },
-    review:   { Icon: Eye,          label: 'Verificare', bg: '#eff6ff', text: '#2563eb', dot: '#3b82f6' },
-    pending:  { Icon: Clock,        label: 'Așteptare',  bg: '#fffbeb', text: '#d97706', dot: '#f59e0b' },
-  }
-  const c = map[status] ?? map.pending
-  return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full whitespace-nowrap"
-      style={{ backgroundColor: c.bg, color: c.text }}>
-      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: c.dot }} />
-      {c.label}
-    </span>
-  )
+  const info = requestStatusInfo(status)
+  return <Signal tone={info.tone} className="whitespace-nowrap">{info.label}</Signal>
 }
 
 function RoleBadge({ role }: { role: string }) {
@@ -161,6 +154,8 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
             .filter((req: any) => req.files?.length > 0)
             .map((req: any) => ({
               ...req,
+              // Închisă din „Aprobat”, se numără și se arată „Aprobat” (#109).
+              status: displayedRequestStatus(req),
               _projectId: p.id,
               _projectTitle: p.title,
               _projectCodIntern: p.cod_intern,
@@ -256,6 +251,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
     review:   allDocs.filter(d => d.status === 'review').length,
     pending:  allDocs.filter(d => d.status === 'pending').length,
     rejected: allDocs.filter(d => d.status === 'rejected').length,
+    closed:   allDocs.filter(d => d.status === 'closed').length,
   }), [allDocs])
 
   if (!user) return null
@@ -282,7 +278,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                 {initials}
               </div>
               <div>
-                <h2 className="text-base font-bold text-ink leading-tight">{user.full_name || '—'}</h2>
+                <h2 className="text-base font-bold text-ink leading-tight">{profileDisplayName(user, user.full_name || '—')}</h2>
                 <p className="text-xs text-ink-faint mt-0.5">{user.email}</p>
                 <div className="mt-2 flex items-center gap-2 flex-wrap">
                   <RoleBadge role={user.role} />
@@ -311,9 +307,10 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
               {[
                 { label: `${stats.total} fișiere`, dot: '#64748b' },
                 stats.approved > 0 && { label: `${stats.approved} aprobate`, dot: '#22c55e' },
-                stats.review   > 0 && { label: `${stats.review} în verificare`, dot: '#3b82f6' },
-                stats.pending  > 0 && { label: `${stats.pending} în așteptare`, dot: '#f59e0b' },
+                stats.review   > 0 && { label: `${stats.review} în verificare`, dot: 'var(--sg-review)' },
+                stats.pending  > 0 && { label: `${stats.pending} în așteptare`, dot: 'var(--sg-pending)' },
                 stats.rejected > 0 && { label: `${stats.rejected} respinse`, dot: '#ef4444' },
+                stats.closed   > 0 && { label: `${stats.closed} închise`, dot: 'var(--sg-ink-soft)' },
               ].filter(Boolean).map((s: any) => (
                 <span key={s.label} className="inline-flex items-center gap-1.5 text-xs text-ink-soft">
                   <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: s.dot }} />
@@ -359,6 +356,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                 <option value="review">Verificare</option>
                 <option value="approved">Aprobate</option>
                 <option value="rejected">Respinse</option>
+                <option value="closed">Închise</option>
               </select>
               <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
                 style={{ color: filterStatus !== 'all' ? '#1a73e8' : '#5f6368' }} />
@@ -559,8 +557,8 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
             <div className="flex items-center gap-3">
               {[
                 { label: 'Aprobate', val: stats.approved, color: '#15803d' },
-                { label: 'Verificare', val: stats.review, color: '#2563eb' },
-                { label: 'Așteptare', val: stats.pending, color: '#d97706' },
+                { label: 'Verificare', val: stats.review, color: 'var(--sg-review)' },
+                { label: 'Așteptare', val: stats.pending, color: 'var(--sg-pending)' },
                 { label: 'Respinse', val: stats.rejected, color: '#dc2626' },
               ].filter(s => s.val > 0).map(s => (
                 <span key={s.label} className="flex items-center gap-1.5" style={{ fontSize: '11px', color: s.color }}>

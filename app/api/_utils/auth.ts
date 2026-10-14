@@ -1,7 +1,9 @@
 // app/api/_utils/auth.ts
 import type { User } from '@supabase/supabase-js'
+import { isAuthRetryableFetchError } from '@supabase/supabase-js'
 import { createSupabaseServerClient, createSupabaseServiceClient } from './supabase'
 import type { ProjectPermissions } from '@/lib/project-permissions'
+import { isProjectActive, PROJECT_CLOSED_READ_ONLY_MESSAGE } from '@/lib/project-lifecycle'
 
 export type AppRole = 'admin' | 'consultant' | 'client'
 export type TemplateStatus = 'draft' | 'published'
@@ -12,10 +14,12 @@ export type AppProfile = {
   role: AppRole
   email?: string | null
   consultant_level: ConsultantLevel
+  is_active: boolean
 }
 
 type Ok<T> = { ok: true } & T
-type Err = { ok: false; status: number; error: string }
+// `message` ajunge la utilizator (apiFetch rescrie `error`, convenția din #70).
+type Err = { ok: false; status: number; error: string; message?: string; code?: string; reason?: string; details?: unknown }
 export type Result<T> = Ok<T> | Err
 
 function getBearerToken(request: Request) {
@@ -32,13 +36,24 @@ export async function requireUser(request: Request): Promise<Result<{ user: User
 
   // IMPORTANT: validate token in user-context (anon + Authorization header)
   const supabase = createSupabaseServerClient(request)
-  const { data, error } = await supabase.auth.getUser()
-
-  if (error || !data?.user) {
-    return { ok: false, status: 401, error: 'Invalid or expired token' }
+  try {
+    const { data, error } = await supabase.auth.getUser()
+    if (error) {
+      const status = typeof error.status === 'number' ? error.status : 0
+      if (isAuthRetryableFetchError(error) || status >= 500) {
+        console.error('Supabase Auth unavailable while validating API session:', { status })
+        return { ok: false, status: 503, error: 'Authentication service unavailable', code: 'AUTH_SERVICE_UNAVAILABLE', reason: 'auth_unavailable' }
+      }
+      return { ok: false, status: 401, error: 'Invalid or expired token', code: 'INVALID_SESSION', reason: 'invalid_token' }
+    }
+    if (!data?.user) {
+      return { ok: false, status: 401, error: 'Invalid or expired token', code: 'INVALID_SESSION', reason: 'invalid_token' }
+    }
+    return { ok: true, user: data.user }
+  } catch (error) {
+    console.error('Supabase Auth request failed while validating API session:', error)
+    return { ok: false, status: 503, error: 'Authentication service unavailable', code: 'AUTH_SERVICE_UNAVAILABLE', reason: 'auth_unavailable' }
   }
-
-  return { ok: true, user: data.user }
 }
 
 export async function requireProfile(
@@ -48,17 +63,53 @@ export async function requireProfile(
   if (!auth.ok) return auth
 
   const supabase = createSupabaseServerClient(request)
-  // `*` și nu o listă de coloane: dacă deploy-ul ajunge înaintea migrației
-  // pentru consultant_level, nivelul lipsește (= junior) în loc să dea 500
-  // la fiecare cerere autentificată.
   const { data: profile, error } = await supabase
     .from('profiles')
-    .select('*')
+    .select('id, role, email, consultant_level, is_active')
     .eq('id', auth.user.id)
-    .single()
+    .maybeSingle()
 
-  if (error || !profile?.role) {
-    return { ok: false, status: 500, error: 'Failed to load user profile' }
+  if (error) {
+    console.error('Failed to load authenticated user profile:', error)
+    return { ok: false, status: 500, error: 'Failed to load user profile', code: 'PROFILE_LOOKUP_FAILED' }
+  }
+  if (!profile) {
+    return { ok: false, status: 401, error: 'Account profile not found', code: 'PROFILE_NOT_FOUND', reason: 'profile_missing' }
+  }
+  if (!profile.role) {
+    console.error('Authenticated profile has no role:', { userId: auth.user.id })
+    return { ok: false, status: 500, error: 'Failed to load user profile', code: 'PROFILE_LOOKUP_FAILED' }
+  }
+
+  if (profile.is_active === false) {
+    return {
+      ok: false,
+      status: 401,
+      error: 'Account session is inactive',
+      code: 'ACCOUNT_SESSION_INACTIVE',
+      reason: 'account_inactive',
+      details: { is_active: false },
+    }
+  }
+
+  const { data: sessionActive, error: sessionError } = await supabase.rpc('current_account_session_active')
+  if (sessionError?.code === 'PGRST202') {
+    // Funcția lipsește doar cât Vercel publică codul înaintea migrației #105.
+    // Până atunci nicio sesiune n-a fost revocată prin ea, deci rămâne
+    // verificarea is_active de mai sus, în loc de 500 la fiecare cerere.
+    console.error('current_account_session_active is missing; the #105 migration is not applied yet:', { userId: auth.user.id })
+  } else if (sessionError) {
+    console.error('Failed to verify authenticated account state:', { userId: auth.user.id, error: sessionError })
+    return { ok: false, status: 500, error: 'Failed to verify account state', code: 'ACCOUNT_STATE_LOOKUP_FAILED' }
+  } else if (sessionActive !== true) {
+    return {
+      ok: false,
+      status: 401,
+      error: 'Account session is inactive',
+      code: 'ACCOUNT_SESSION_INACTIVE',
+      reason: 'session_inactive',
+      details: { is_active: true },
+    }
   }
 
   return {
@@ -69,6 +120,7 @@ export async function requireProfile(
       role: profile.role as AppRole,
       email: profile.email,
       consultant_level: profile.consultant_level === 'senior' ? 'senior' : 'junior',
+      is_active: profile.is_active !== false,
     },
   }
 }
@@ -214,8 +266,21 @@ export function projectPermissions(access: ProjectAccess): ProjectPermissions {
     remove_any_member: access.role === 'admin',
     moderate_chat: manage,
     edit_others_messages: access.role === 'admin',
+    // Juniorul și clientul nu încheie proiectul și nu marchează nimic ca
+    // finalizat (#109, D1); aprobarea unui document rămâne la orice membru.
+    close_project: manage,
+    complete_items: manage,
   }
 }
+
+/**
+ * `write: true` pe tot ce modifică un proiect. Un proiect încheiat se poate
+ * doar consulta, de oricine, adminul inclusiv, până la redeschidere: răspunsul
+ * e 409 (decizia din 8 octombrie 2026). Nu trec pe aici redeschiderea,
+ * ștergerea proiectului de către admin și ce doar citește: descărcări,
+ * marcarea chatului sau a notificărilor ca citite.
+ */
+export type ProjectAccessOptions = { write?: boolean }
 
 /**
  * Verifică accesul la proiect conform regulilor tale:
@@ -224,6 +289,30 @@ export function projectPermissions(access: ProjectAccess): ProjectPermissions {
  * - client: doar dacă projects.client_id == user.id
  */
 export async function requireProjectAccess(
+  request: Request,
+  projectId: string,
+  options: ProjectAccessOptions = {},
+) {
+  const ctx = await resolveProjectAccess(request, projectId)
+  if (!ctx.ok || !options.write) return ctx
+  return (await closedProjectRefusal(projectId)) ?? ctx
+}
+
+async function closedProjectRefusal(projectId: string): Promise<Err | null> {
+  const { data, error } = await createSupabaseServiceClient()
+    .from('projects')
+    .select('lifecycle_status')
+    .eq('id', projectId)
+    .maybeSingle()
+  if (error) return { ok: false, status: 500, error: 'Failed to verify project state' }
+  if (!data) return { ok: false, status: 404, error: 'Project not found' }
+  if (!isProjectActive(data)) {
+    return { ok: false, status: 409, error: 'Project is closed', message: PROJECT_CLOSED_READ_ONLY_MESSAGE }
+  }
+  return null
+}
+
+async function resolveProjectAccess(
   request: Request,
   projectId: string
 ): Promise<
@@ -300,12 +389,18 @@ export async function requireProjectAccess(
 
 /**
  * requireProjectAccess + canManageProject: admin sau senior membru, altfel 403.
+ * Cu `write`, refuzul pentru proiectul încheiat vine după 403, ca juniorul să
+ * primească 403 indiferent de starea proiectului.
  */
-export async function requireProjectManager(request: Request, projectId: string) {
+export async function requireProjectManager(request: Request, projectId: string, options: ProjectAccessOptions = {}) {
   const ctx = await requireProjectAccess(request, projectId)
   if (!ctx.ok) return ctx
   if (!canManageProject(ctx.access)) {
-    return { ok: false as const, status: 403, error: 'Forbidden: project management denied' }
+    return { ok: false, status: 403, error: 'Forbidden: project management denied' } as Err
+  }
+  if (options.write) {
+    const refusal = await closedProjectRefusal(projectId)
+    if (refusal) return refusal
   }
   return ctx
 }
@@ -313,6 +408,11 @@ export async function requireProjectManager(request: Request, projectId: string)
 /**
  * Helper: cum răspunzi consistent din route.ts când un guard dă eroare
  */
-export function guardToResponse(err: { status: number; error: string }) {
-  return Response.json({ error: err.error }, { status: err.status })
+export function guardToResponse(err: { status: number; error: string; message?: string; code?: string; reason?: string; details?: unknown }) {
+  const body: { error: string; message?: string; code?: string; reason?: string; details?: unknown } = { error: err.error }
+  if (err.message) body.message = err.message
+  if (err.code !== undefined) body.code = err.code
+  if (err.reason !== undefined) body.reason = err.reason
+  if (err.details !== undefined) body.details = err.details
+  return Response.json(body, { status: err.status })
 }

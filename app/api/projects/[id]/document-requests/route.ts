@@ -36,6 +36,10 @@ export async function GET(
         name,
         description,
         status,
+        status_before_close,
+        closed_at,
+        closed_by,
+        closer:closed_by(id, full_name),
         visibility,
         client_notified_at,
         is_mandatory,
@@ -52,9 +56,9 @@ export async function GET(
         created_at,
         deleted_at,
         deleted_by,
-        creator:created_by(full_name, email),
+        creator:created_by(id, full_name, email, is_active),
         assigned_to,
-        assigned_consultant:assigned_to(id, full_name, email),
+        assigned_consultant:assigned_to(id, full_name, email, is_active),
         activity:activity_id(id, name, phase_id, visibility, assigned_to, phase:phase_id(id, name, visibility)),
         files(
           id,
@@ -88,7 +92,7 @@ export async function GET(
     const { data: reviewRows, error: reviewError } = requestIds.length
       ? await admin
           .from('document_request_reviews')
-          .select('id, requirement_id, action, reason, reviewed_at, reviewed_version_number, client_notified_at, reviewer:reviewed_by(id, full_name)')
+          .select('id, requirement_id, action, reason, reviewed_at, reviewed_version_number, client_notified_at, reviewer:reviewed_by(id, full_name, is_active)')
           .in('requirement_id', requestIds)
           .order('reviewed_at', { ascending: false })
           .order('id', { ascending: false })
@@ -124,6 +128,8 @@ export async function GET(
     const unnotifiedReviewRequestIds = new Set(reviewSelection.candidates.map(candidate => candidate.requestId))
     const requests = rows.map((row: any) => ({
       ...row,
+      // Clientul vede că cererea e închisă, nu și cine a închis-o (#109).
+      ...(access.profile.role === 'client' ? { closed_by: null, closer: null } : {}),
       latest_rejection: latestRejections.get(row.id) ?? null,
       has_unnotified_review: unnotifiedReviewRequestIds.has(row.id),
       files: access.profile.role === 'client'
@@ -145,7 +151,7 @@ export async function POST(
   try {
     const { id: projectId } = await params
 
-    const access = await requireProjectAccess(request, projectId)
+    const access = await requireProjectAccess(request, projectId, { write: true })
     if (!access.ok) return guardToResponse(access)
 
     if (access.profile.role !== 'admin' && access.profile.role !== 'consultant') {

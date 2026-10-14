@@ -5,6 +5,7 @@ import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { logAction } from '@/app/api/_utils/audit'
 import { sendDocumentReminder } from '@/app/api/_utils/document-reminder'
 import { REMINDER_LABELS } from '@/lib/document-reminder'
+import { isProjectActive, PROJECT_CLOSED_READ_ONLY_MESSAGE } from '@/lib/project-lifecycle'
 
 export async function POST(
   request: Request,
@@ -37,6 +38,16 @@ export async function POST(
         .eq('consultant_id', ctx.profile.id)
         .maybeSingle()
       if (!membership) return NextResponse.json({ error: 'Acces interzis' }, { status: 403 })
+    }
+
+    // Într-un proiect încheiat nu mai pleacă nimic către client.
+    const { data: project } = await admin
+      .from('projects')
+      .select('lifecycle_status')
+      .eq('id', reqRow.project_id)
+      .maybeSingle()
+    if (!project || !isProjectActive(project)) {
+      return NextResponse.json({ error: 'Project is closed', message: PROJECT_CLOSED_READ_ONLY_MESSAGE }, { status: 409 })
     }
 
     const result = await sendDocumentReminder(admin, requestId, { triggeredBy: ctx.user.id })

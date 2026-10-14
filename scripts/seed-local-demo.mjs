@@ -355,10 +355,13 @@ trailer<</Root 1 0 R>>
 
   // ---------- Proiecte, fiecare în alt stadiu ----------
   // `upTo`: câte faze sunt terminate; faza următoare e în lucru pe jumătate.
+  // `closeRequest`: o cerere din prima fază se închide (#109); `close`: proiectul
+  // se încheie la final, prin aceeași rută ca din interfață.
   const projects = [
-    { title: 'Brutăria Moldovei — extindere capacitate de producție', client: 'client.brutaria', members: [ana, mihai], upTo: 5 },
+    { title: 'Brutăria Moldovei — extindere capacitate de producție', client: 'client.brutaria', members: [ana, mihai], upTo: 5, closeRequest: true },
     { title: 'TechNord — centru de producție imprimare 3D', client: 'client.technord', members: [ana], upTo: 2 },
     { title: 'Agro Verde — linie de procesare legume', client: 'client.agroverde', members: [mihai, ana], upTo: 0 },
+    { title: 'Agro Verde — sistem de irigații (încheiat)', client: 'client.agroverde', members: [mihai], upTo: 99, close: true },
   ]
   const day = 24 * 3600 * 1000
   for (const p of projects) {
@@ -373,7 +376,11 @@ trailer<</Root 1 0 R>>
       const phaseStatus = done ? 'completed' : current ? 'in_progress' : 'pending'
       // Faze terminate și cea curentă sunt publicate pentru client; restul rămân ciornă.
       const visibility = done || current ? 'published' : 'draft'
-      sql(`update project_phases set status=${esc(phaseStatus)}, visibility=${esc(visibility)} where id=${esc(phaseId)}`)
+      // Din #109, `completed` cere data (și autorul) în același update: CHECK-ul
+      // din bază ține starea și data legate.
+      const phaseCompleted = done ? `'${new Date(startedAt + (i * 45 + 40) * day).toISOString()}'` : 'null'
+      sql(`update project_phases set status=${esc(phaseStatus)}, visibility=${esc(visibility)},
+           completed_at=${phaseCompleted}, completed_by=${done ? esc(mihai) : 'null'} where id=${esc(phaseId)}`)
       const acts = sql(`select id from project_activities where phase_id=${esc(phaseId)} order by order_index`).split('\n').filter(Boolean)
       for (const [j, actId] of acts.entries()) {
         const actDone = done || (current && j < Math.floor(acts.length / 2))
@@ -384,13 +391,22 @@ trailer<</Root 1 0 R>>
         const started = actDone || actNow ? `'${new Date(base).toISOString()}'` : 'null'
         const completed = actDone ? `'${new Date(base + 10 * day).toISOString()}'` : 'null'
         sql(`update project_activities set status=${esc(s)}, visibility=${esc(visibility)}, deadline_at='${deadline}', started_at=${started}, completed_at=${completed},
-             assigned_to=coalesce(assigned_to, ${esc(p.members[j % p.members.length])}) where id=${esc(actId)}`)
+             completed_by=${actDone ? esc(mihai) : 'null'}, assigned_to=coalesce(assigned_to, ${esc(p.members[j % p.members.length])}) where id=${esc(actId)}`)
         sql(`update document_requirements set visibility=${esc(visibility)}, deadline_at='${deadline}' where activity_id=${esc(actId)}`)
       }
     }
     const currentStatus = sql(`select project_status_id from project_phases where project_id=${esc(project.id)} and status='in_progress' limit 1`)
     sql(`update projects set general_consultant_id=${esc(p.members[0])}, current_status_id=${esc(currentStatus || null)}, created_at='${new Date(startedAt).toISOString()}' where id=${esc(project.id)}`)
-    console.log(`proiect: ${p.title} — ${p.upTo} faze terminate, faza ${p.upTo + 1} în lucru`)
+    if (p.closeRequest) {
+      const requestId = sql(`select r.id from document_requirements r join project_activities a on a.id = r.activity_id
+        join project_phases f on f.id = a.phase_id where f.project_id=${esc(project.id)} and r.status='pending' and not r.is_outgoing
+        order by f.order_index, a.order_index, r.order_index limit 1`)
+      if (requestId) await api('POST', `/api/document-requests/${requestId}/close`)
+    }
+    if (p.close) await api('POST', `/api/projects/${project.id}/close`)
+    console.log(p.close
+      ? `proiect: ${p.title} — toate fazele terminate, proiect încheiat`
+      : `proiect: ${p.title} — ${p.upTo} faze terminate, faza ${p.upTo + 1} în lucru${p.closeRequest ? ', o cerere închisă' : ''}`)
   }
 }
 

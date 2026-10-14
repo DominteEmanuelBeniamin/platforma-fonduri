@@ -16,6 +16,7 @@ import {
 import { useProjectChatUnread } from '@/app/providers/ProjectChatUnreadProvider'
 import { useNotifications } from '@/app/providers/NotificationsProvider'
 import { GENERAL_PHASE_ID } from '@/lib/calendar'
+import { PROJECT_CLOSED_REMINDERS_HINT, isProjectActive } from '@/lib/project-lifecycle'
 import { Plate } from '@/components/ui/Plate'
 import { FloatingSurface, Scrim } from '@/components/ui/Surface'
 import { IconButton } from '@/components/ui/IconButton'
@@ -28,6 +29,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { TONE, type SignalTone } from '@/lib/signage'
 import { canCreateProjects } from '@/lib/project-permissions'
 import { ToneIcon } from '@/components/ui/ToneIcon'
+import { profileDisplayName } from '@/lib/profile-display'
 import { Spinner } from '@/components/ui/Spinner'
 import {
   REMINDERS_ERROR_MESSAGE,
@@ -47,6 +49,8 @@ type Att = {
   unreadNotifications: number
   todo: boolean
   clean: boolean
+  /** Proiect încheiat (#109): n-are nimic de făcut, dar nici nu e „la zi". */
+  closed: boolean
 }
 
 type FilterOption = { key: string; name: string; count?: number }
@@ -64,6 +68,9 @@ const ATTENTION_OPTIONS: { key: string; label: string; tone: SignalTone }[] = [
   { key: 'todo', label: 'De rezolvat', tone: 'warn' },
   { key: 'unread', label: 'Necitite', tone: 'neutral' },
   { key: 'clean', label: 'La zi', tone: 'ok' },
+  // Un proiect încheiat nu intră în niciun filtru de mai sus (#109): fără el,
+  // orice filtru activ l-ar fi ascuns de tot.
+  { key: 'closed', label: 'Încheiate', tone: 'closed' },
 ]
 
 /** Pastila de ton: culoare, glifă și cuvânt, niciodată doar culoare. */
@@ -80,7 +87,7 @@ function ToneDot({ tone }: { tone: SignalTone }) {
 }
 
 const clientKey = (p: any) => p?.client_id || '__none__'
-const clientName = (p: any) => p?.profiles?.full_name || 'Fără client'
+const clientName = (p: any) => profileDisplayName(p?.profiles, undefined, 'Fără client')
 const templateKey = (p: any) => p?.template?.id || '__none__'
 const templateName = (p: any) => p?.template?.name || 'Fără șablon'
 
@@ -107,14 +114,19 @@ function Tick({ on }: { on: boolean }) {
 
 function buildBadges(att: Att, isClient: boolean): { key: string; tone: SignalTone; icon: React.ReactNode; label: string; title: string }[] {
   const badges: { key: string; tone: SignalTone; icon: React.ReactNode; label: string; title: string }[] = []
+  // Primul, fiindcă schimbă felul în care se citesc celelalte (D6). Fără iconiță
+  // proprie: tonul `closed` își aduce deja cutia de arhivă.
+  if (att.closed) {
+    badges.push({ key: 'closed', tone: 'closed', icon: null, label: 'Încheiat', title: 'Proiect încheiat: reminderele automate sunt oprite' })
+  }
   if (att.overdue > 0) {
     badges.push({ key: 'overdue', tone: 'danger', icon: <AlertTriangle className="h-3 w-3" />, label: `${att.overdue} depășite`, title: `${att.overdue} cereri cu termen depășit` })
   }
   if (isClient) {
-    if (att.total > 0) badges.push({ key: 'todo', tone: 'warn', icon: <FileText className="h-3 w-3" />, label: `${att.total} de încărcat`, title: `${att.total} documente de încărcat` })
+    if (att.total > 0) badges.push({ key: 'todo', tone: 'pending', icon: <FileText className="h-3 w-3" />, label: `${att.total} de încărcat`, title: `${att.total} documente de încărcat` })
   } else {
-    if (att.review > 0) badges.push({ key: 'review', tone: 'warn', icon: <FileText className="h-3 w-3" />, label: `${att.review} de verificat`, title: `${att.review} cereri care așteaptă verificarea ta` })
-    if (att.pending > 0) badges.push({ key: 'pending', tone: 'neutral', icon: <FileText className="h-3 w-3" />, label: `${att.pending} la client`, title: `${att.pending} cereri așteaptă documente de la client` })
+    if (att.review > 0) badges.push({ key: 'review', tone: 'review', icon: <FileText className="h-3 w-3" />, label: `${att.review} de verificat`, title: `${att.review} cereri care așteaptă verificarea ta` })
+    if (att.pending > 0) badges.push({ key: 'pending', tone: 'pending', icon: <FileText className="h-3 w-3" />, label: `${att.pending} la client`, title: `${att.pending} cereri așteaptă documente de la client` })
   }
   if (att.unreadChat > 0) {
     badges.push({ key: 'chat', tone: 'neutral', icon: <MessageSquare className="h-3 w-3" />, label: `${att.unreadChat > 99 ? '99+' : att.unreadChat} mesaje`, title: `${att.unreadChat} mesaje necitite în chat` })
@@ -131,7 +143,7 @@ function buildBadges(att: Att, isClient: boolean): { key: string; tone: SignalTo
 /** Semnalul cel mai urgent al unui proiect decide culoarea railului plăcuței. */
 function railFor(att: Att): string | undefined {
   if (att.overdue > 0) return 'var(--sg-danger)'
-  if (att.todo) return 'var(--sg-warn)'
+  if (att.todo) return att.review > 0 ? 'var(--sg-review)' : 'var(--sg-pending)'
   if (att.unreadChat > 0 || att.unreadNotifications > 0) return 'var(--sg-accent)'
   if (att.clean) return 'var(--sg-ok)'
   return 'var(--sg-rule-strong)'
@@ -169,6 +181,9 @@ function AdminMenu({
 }) {
   const remindersEnabled = automaticRemindersEnabled(project)
   const reminderToggleLoading = reminderToggleLoadingId === project.id
+  // Un proiect încheiat nu trimite remindere oricum (#109); comutatorul rămâne
+  // vizibil, dar oprit, iar valoarea lui nu se atinge.
+  const projectClosed = !isProjectActive(project)
 
   return (
     <div className={className}>
@@ -187,9 +202,10 @@ function AdminMenu({
           >
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpenMenuId(null); onToggleAutomaticReminders(project) }}
-              disabled={reminderToggleLoading}
-              className="flex min-h-11 w-full items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors duration-[120ms] hover:bg-paper-sunk disabled:opacity-60"
-              style={{ color: remindersEnabled ? 'var(--sg-warn)' : 'var(--sg-ok)' }}
+              disabled={reminderToggleLoading || projectClosed}
+              title={projectClosed ? PROJECT_CLOSED_REMINDERS_HINT : undefined}
+              className="flex min-h-11 w-full items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors duration-[120ms] hover:bg-paper-sunk disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ color: projectClosed ? 'var(--sg-ink-soft)' : remindersEnabled ? 'var(--sg-warn)' : 'var(--sg-ok)' }}
             >
               {reminderToggleLoading
                 ? <Loader2 className="w-4 h-4 animate-spin" />
@@ -364,7 +380,7 @@ function TaskRow({ req, todayTs, mode }: { req: any; todayTs: number; mode: 'cli
   const isRejected = req.status === 'rejected'
   const isReview = req.status === 'review'
 
-  const tone: SignalTone = isOverdue || isRejected ? 'danger' : isReview ? 'warn' : 'warn'
+  const tone: SignalTone = isOverdue || isRejected ? 'danger' : isReview ? 'review' : 'pending'
   const label = mode === 'client'
     ? (isRejected ? 'Respins' : 'De încărcat')
     : (isReview ? 'De verificat' : 'La client')
@@ -564,12 +580,16 @@ export default function Dashboard() {
       const c = counts.get(p.id) ?? { total: 0, overdue: 0, review: 0, pending: 0 }
       const unreadChat = unreadChatByProjectId.get(p.id) ?? 0
       const unreadNotifications = unreadNotificationsByProjectId.get(p.id) ?? 0
+      // Cererile unui proiect încheiat nu mai vin din API (D5), deci contoarele
+      // lui sunt zero; „La zi" ar fi spus însă altceva decât „încheiat".
+      const closed = !isProjectActive(p)
       map.set(p.id, {
         ...c,
         unreadChat,
         unreadNotifications,
         todo: isClient ? c.total > 0 : c.review > 0,
-        clean: docRequestsLoaded && c.total === 0 && unreadChat === 0 && unreadNotifications === 0,
+        clean: !closed && docRequestsLoaded && c.total === 0 && unreadChat === 0 && unreadNotifications === 0,
+        closed,
       })
     }
     return map
@@ -577,7 +597,7 @@ export default function Dashboard() {
 
   // Contoare pentru opțiunile de „atenție"
   const attentionCounts = useMemo(() => {
-    const c: Record<string, number> = { overdue: 0, todo: 0, unread: 0, clean: 0 }
+    const c: Record<string, number> = { overdue: 0, todo: 0, unread: 0, clean: 0, closed: 0 }
     for (const p of projects) {
       const a = attentionByProject.get(p.id)
       if (!a) continue
@@ -585,6 +605,7 @@ export default function Dashboard() {
       if (a.todo) c.todo += 1
       if (a.unreadChat > 0 || a.unreadNotifications > 0) c.unread += 1
       if (a.clean) c.clean += 1
+      if (a.closed) c.closed += 1
     }
     return c
   }, [projects, attentionByProject])
@@ -596,7 +617,8 @@ export default function Dashboard() {
     (attentionFilter.has('overdue') && att.overdue > 0) ||
     (attentionFilter.has('todo') && att.todo) ||
     (attentionFilter.has('unread') && (att.unreadChat > 0 || att.unreadNotifications > 0)) ||
-    (attentionFilter.has('clean') && att.clean)
+    (attentionFilter.has('clean') && att.clean) ||
+    (attentionFilter.has('closed') && att.closed)
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -777,11 +799,12 @@ export default function Dashboard() {
   const legendItems: { tone: SignalTone; label: string; desc: string }[] = [
     { tone: 'danger', label: 'Depășite', desc: 'termenul a trecut' },
     isClient
-      ? { tone: 'warn', label: 'De încărcat', desc: 'documente cerute de la tine' }
-      : { tone: 'warn', label: 'De verificat', desc: 'așteaptă verificarea ta' },
-    ...(!isClient ? [{ tone: 'neutral' as SignalTone, label: 'La client', desc: 'așteaptă document de la client' }] : []),
+      ? { tone: 'pending', label: 'De încărcat', desc: 'documente cerute de la tine' }
+      : { tone: 'review', label: 'De verificat', desc: 'așteaptă verificarea ta' },
+    ...(!isClient ? [{ tone: 'pending' as SignalTone, label: 'La client', desc: 'așteaptă document de la client' }] : []),
     { tone: 'neutral', label: 'Necitite', desc: 'mesaje sau notificări noi' },
     { tone: 'ok', label: 'La zi', desc: 'nimic de făcut' },
+    { tone: 'closed', label: 'Încheiat', desc: 'proiect încheiat; reminderele automate sunt oprite' },
   ]
 
   const activeChips: { key: string; name: string; tone?: SignalTone; remove: () => void }[] = [

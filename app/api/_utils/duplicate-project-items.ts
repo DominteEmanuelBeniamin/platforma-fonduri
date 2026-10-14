@@ -21,6 +21,7 @@ import { ATTACHMENT_BUCKET, copyStorageObject, projectAttachmentPath } from './a
 import { slugify } from '../../../lib/slug.ts'
 
 export type DuplicationCounts = { activities: number; documentRequests: number }
+type DuplicationWarning = { entity_type: 'activity' | 'document_request'; entity_id: string; consultant_id: string }
 
 export type DuplicationAuditPair = {
   copyId: string
@@ -38,6 +39,9 @@ export type DuplicationAuditNode = {
   phaseName: string | null
   activityId?: string
   activityName?: string
+  assignedTo?: string | null
+  assignedBy?: string | null
+  assignedAt?: string | null
   sourceActivityId?: string
   sourceActivityName?: string
 }
@@ -49,9 +53,30 @@ export type DuplicationAudit = {
 }
 
 /** Ce a creat duplicarea până acum — materialul de lucru al compensării. */
-type CopyLedger = { phaseId: string | null; activityIds: string[]; storagePaths: string[] }
+type CopyAssignment = { id: string; consultant_id: string }
+type CopyLedger = {
+  phaseId: string | null
+  activityIds: string[]
+  documentIds: string[]
+  storagePaths: string[]
+  activityAssignments: CopyAssignment[]
+  documentAssignments: CopyAssignment[]
+  activityCopies: any[]
+  documentCopies: any[]
+  auditNodes: DuplicationAuditNode[]
+}
 
-const newLedger = (): CopyLedger => ({ phaseId: null, activityIds: [], storagePaths: [] })
+const newLedger = (): CopyLedger => ({
+  phaseId: null,
+  activityIds: [],
+  documentIds: [],
+  storagePaths: [],
+  activityAssignments: [],
+  documentAssignments: [],
+  activityCopies: [],
+  documentCopies: [],
+  auditNodes: [],
+})
 
 /**
  * Ca `Promise.all`, dar așteaptă toate firele înainte să arunce: compensarea
@@ -96,34 +121,144 @@ async function shiftOrderAfter(
  * doilea, iar ce nu s-a putut curăța rămâne în log.
  */
 async function rollbackCopy(admin: SupabaseClient, ledger: CopyLedger) {
-  try {
-    // Faza copiată e nouă, deci tot ce atârnă de ea e tot copie.
-    const activityIds = ledger.phaseId
-      ? ((await admin.from('project_activities').select('id').eq('phase_id', ledger.phaseId)).data ?? [])
-          .map((activity: any) => activity.id)
-      : ledger.activityIds
-
-    if (activityIds.length > 0) {
-      const { data: requests } = await admin
-        .from('document_requirements').select('id').in('activity_id', activityIds)
-      const requestIds = (requests ?? []).map((request: any) => request.id)
-      if (requestIds.length > 0) {
-        await admin.from('document_requirement_attachments').delete().in('document_requirement_id', requestIds)
-        await admin.from('document_requirements').delete().in('id', requestIds)
-      }
-      await admin.from('project_activities').delete().in('id', activityIds)
+  const errors: Array<{ step: string; error: unknown }> = []
+  const run = async (step: string, operation: () => PromiseLike<any>) => {
+    try {
+      const result = await operation()
+      if (result?.error) errors.push({ step, error: result.error })
+      return result
+    } catch (error) {
+      errors.push({ step, error })
+      return null
     }
-
-    if (ledger.phaseId) await admin.from('project_phases').delete().eq('id', ledger.phaseId)
-
-    // Doar obiectele chiar create de copiere: căile moștenite de la un
-    // fișier-model lipsă nu ajung niciodată în registru.
-    if (ledger.storagePaths.length > 0) {
-      await admin.storage.from(ATTACHMENT_BUCKET).remove(ledger.storagePaths)
-    }
-  } catch (error) {
-    console.error('rollbackCopy error:', error)
   }
+
+  let activityIds = [...ledger.activityIds]
+  if (ledger.phaseId) {
+    const result = await run('load copied activities', () =>
+      admin.from('project_activities').select('id').eq('phase_id', ledger.phaseId!))
+    if (result && !result.error) {
+      activityIds = [...new Set([...activityIds, ...(result.data ?? []).map((row: any) => row.id)])]
+    }
+  }
+
+  let documentIds = [...ledger.documentIds]
+  if (activityIds.length > 0) {
+    const result = await run('load copied document requests', () =>
+      admin.from('document_requirements').select('id').in('activity_id', activityIds))
+    if (result && !result.error) {
+      documentIds = [...new Set([...documentIds, ...(result.data ?? []).map((row: any) => row.id)])]
+    }
+  }
+
+  if (documentIds.length > 0) {
+    await run('delete copied document attachments', () =>
+      admin.from('document_requirement_attachments').delete().in('document_requirement_id', documentIds))
+    await run('delete copied document requests', () =>
+      admin.from('document_requirements').delete().in('id', documentIds))
+  }
+  if (activityIds.length > 0) {
+    await run('delete copied activities', () =>
+      admin.from('project_activities').delete().in('id', activityIds))
+  }
+  if (ledger.phaseId) {
+    await run('delete copied phase', () =>
+      admin.from('project_phases').delete().eq('id', ledger.phaseId!))
+  }
+  if (ledger.storagePaths.length > 0) {
+    await run('remove copied storage objects', () =>
+      admin.storage.from(ATTACHMENT_BUCKET).remove(ledger.storagePaths))
+  }
+  return errors
+}
+
+async function applyDuplicateAssignments(
+  admin: SupabaseClient,
+  projectId: string,
+  actorId: string,
+  ledger: CopyLedger,
+): Promise<DuplicationWarning[]> {
+  const { data, error } = await admin.rpc('apply_duplicate_assignments', {
+    p_project_id: projectId,
+    p_actor_id: actorId,
+    p_activity_assignments: ledger.activityAssignments,
+    p_document_assignments: ledger.documentAssignments,
+  })
+  if (error) throw error
+  if (!data || !Array.isArray(data.activities) || !Array.isArray(data.documents) || !Array.isArray(data.omitted)) {
+    throw new Error('Contract invalid pentru atribuirea elementelor duplicate.')
+  }
+
+  const requested = {
+    activity: new Map(ledger.activityAssignments.map(item => [item.id, item.consultant_id])),
+    document_request: new Map(ledger.documentAssignments.map(item => [item.id, item.consultant_id])),
+  }
+  const assigned = {
+    activity: new Map<string, any>(),
+    document_request: new Map<string, any>(),
+  }
+  for (const row of data.activities) {
+    if (!row || typeof row.id !== 'string' || requested.activity.get(row.id) !== row.assigned_to
+      || typeof row.assigned_by !== 'string' || typeof row.updated_at !== 'string'
+      || assigned.activity.has(row.id)) {
+      throw new Error('Contract invalid pentru atribuirea activităților duplicate.')
+    }
+    assigned.activity.set(row.id, row)
+  }
+  for (const row of data.documents) {
+    if (!row || typeof row.id !== 'string' || requested.document_request.get(row.id) !== row.assigned_to
+      || typeof row.assigned_by !== 'string' || typeof row.assigned_at !== 'string'
+      || assigned.document_request.has(row.id)) {
+      throw new Error('Contract invalid pentru atribuirea cererilor duplicate.')
+    }
+    assigned.document_request.set(row.id, row)
+  }
+
+  const omitted = new Map<string, DuplicationWarning>()
+  for (const row of data.omitted) {
+    if (!row || (row.entity_type !== 'activity' && row.entity_type !== 'document_request')
+      || typeof row.entity_id !== 'string'
+      || requested[row.entity_type as DuplicationWarning['entity_type']].get(row.entity_id) !== row.consultant_id) {
+      throw new Error('Contract invalid pentru atribuirea omisă a elementelor duplicate.')
+    }
+    const key = row.entity_type + ':' + row.entity_id
+    if (omitted.has(key)) throw new Error('Contract duplicat pentru atribuirea omisă.')
+    omitted.set(key, {
+      entity_type: row.entity_type,
+      entity_id: row.entity_id,
+      consultant_id: row.consultant_id,
+    })
+  }
+
+  for (const [type, requestedRows] of Object.entries(requested) as Array<[keyof typeof requested, Map<string, string>]>) {
+    const assignedRows = assigned[type]
+    for (const [id] of requestedRows) {
+      if (assignedRows.has(id) === omitted.has(type + ':' + id)) {
+        throw new Error('Contract incomplet pentru atribuirea elementelor duplicate.')
+      }
+    }
+    if (assignedRows.size + [...omitted.keys()].filter(key => key.startsWith(type + ':')).length !== requestedRows.size) {
+      throw new Error('Contract incomplet pentru atribuirea elementelor duplicate.')
+    }
+  }
+
+  for (const copy of ledger.activityCopies) {
+    const row = assigned.activity.get(copy.id)
+    if (row) Object.assign(copy, { assigned_to: row.assigned_to, assigned_by: row.assigned_by, updated_at: row.updated_at })
+  }
+  for (const copy of ledger.documentCopies) {
+    const row = assigned.document_request.get(copy.id)
+    if (row) Object.assign(copy, { assigned_to: row.assigned_to, assigned_by: row.assigned_by, assigned_at: row.assigned_at })
+  }
+  for (const item of ledger.auditNodes) {
+    const row = assigned.activity.get(item.copyId) ?? assigned.document_request.get(item.copyId)
+    if (row) {
+      item.assignedTo = row.assigned_to
+      item.assignedBy = row.assigned_by
+      if (typeof row.assigned_at === 'string') item.assignedAt = row.assigned_at
+    }
+  }
+  return [...omitted.values()]
 }
 
 /**
@@ -213,9 +348,9 @@ async function duplicateDocumentRequests(
       attachment_original_name: first?.original_name ?? null,
       attachment_missing_at: first?.missing_at ?? null,
       attachment_missing_checked_at: first?.missing_checked_at ?? null,
-      assigned_to: request.assigned_to ?? null,
-      assigned_by: request.assigned_to ? options.actorId : null,
-      assigned_at: request.assigned_to ? now : null,
+      assigned_to: null,
+      assigned_by: null,
+      assigned_at: null,
       deadline_at: request.deadline_at ?? null,
       status: 'pending',
       visibility: 'draft',
@@ -226,6 +361,16 @@ async function duplicateDocumentRequests(
       source_template_document_requirement_id: null,
     }
   })
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index]
+    const request = prepared[index].request
+    options.ledger.documentIds.push(row.id)
+    options.ledger.documentCopies.push(row)
+    if (typeof request.assigned_to === 'string' && request.assigned_to) {
+      options.ledger.documentAssignments.push({ id: row.id, consultant_id: request.assigned_to })
+    }
+  }
 
   // UUID-urile sunt pregătite în payload, deci maparea nu depinde de ordinea
   // unui eventual RETURNING bulk.
@@ -258,9 +403,12 @@ async function duplicateDocumentRequests(
     if (attachmentError) throw attachmentError
   }
 
-  return rows.map((copy, index) => ({
+  const auditNodes = rows.map((copy, index) => ({
     copyId: copy.id,
     copyName: copy.name,
+    assignedTo: null,
+    assignedBy: null,
+    assignedAt: null,
     sourceId: prepared[index].request.id,
     sourceName: prepared[index].request.name,
     phaseId: options.targetPhaseId,
@@ -270,6 +418,8 @@ async function duplicateDocumentRequests(
     sourceActivityId: options.sourceActivityId,
     sourceActivityName: options.sourceActivityName,
   }))
+  options.ledger.auditNodes.push(...auditNodes)
+  return auditNodes
 }
 
 /**
@@ -300,8 +450,8 @@ async function duplicateActivity(
       order_index: options.orderIndex,
       status: 'pending',
       visibility: 'draft',
-      assigned_to: source.assigned_to ?? null,
-      assigned_by: source.assigned_to ? options.actorId : null,
+      assigned_to: null,
+      assigned_by: null,
       deadline_at: source.deadline_at ?? null,
       notes: null,
       source_template_activity_id: null,
@@ -311,6 +461,10 @@ async function duplicateActivity(
 
   if (error) throw error
   options.ledger.activityIds.push(activity.id)
+  options.ledger.activityCopies.push(activity)
+  if (typeof source.assigned_to === 'string' && source.assigned_to) {
+    options.ledger.activityAssignments.push({ id: activity.id, consultant_id: source.assigned_to })
+  }
 
   const documentRequests = await duplicateDocumentRequests(admin, {
     projectId: options.projectId,
@@ -331,7 +485,10 @@ async function duplicateActivity(
     sourceName: source.name,
     phaseId: options.targetPhaseId,
     phaseName: options.phaseName ?? null,
+    assignedTo: null,
+    assignedBy: null,
   }
+  options.ledger.auditNodes.push(activityAudit)
 
   return {
     activity,
@@ -352,7 +509,7 @@ export async function duplicatePhase(
     name: string
     actorId: string
   },
-): Promise<{ phase: any; counts: DuplicationCounts; audit: DuplicationAudit }> {
+): Promise<{ phase: any; counts: DuplicationCounts; audit: DuplicationAudit; warnings: DuplicationWarning[] }> {
   const source = options.sourcePhase
   const sourceOrderIndex = source.order_index ?? 0
   const ledger = newLedger()
@@ -401,6 +558,8 @@ export async function duplicatePhase(
         ledger,
       })))
 
+    const warnings = await applyDuplicateAssignments(admin, options.projectId, options.actorId, ledger)
+
     // Frații se mută abia acum, după ce copia e completă: până aici un eșec nu
     // atinge ordinea existentă, deci compensarea n-are ce reface acolo.
     await shiftOrderAfter(admin, 'project_phases', options.projectId, source.id, phase.id)
@@ -411,6 +570,7 @@ export async function duplicatePhase(
         activities: created.length,
         documentRequests: created.reduce((sum, item) => sum + item.documentRequests.length, 0),
       },
+      warnings,
       audit: {
         phase: {
           copyId: phase.id,
@@ -423,7 +583,11 @@ export async function duplicatePhase(
       },
     }
   } catch (error) {
-    await rollbackCopy(admin, ledger)
+    const cleanupErrors = await rollbackCopy(admin, ledger)
+    if (cleanupErrors.length > 0) {
+      console.error('duplicatePhase cleanup failed:', cleanupErrors)
+      throw new Error('Duplicarea a eșuat și copia nu a putut fi curățată complet.')
+    }
     throw error
   }
 }
@@ -439,7 +603,7 @@ export async function duplicateActivityAfterSource(
     actorId: string
     phaseName?: string | null
   },
-): Promise<{ activity: any; documentRequests: DuplicationAuditNode[]; audit: DuplicationAudit }> {
+): Promise<{ activity: any; documentRequests: DuplicationAuditNode[]; audit: DuplicationAudit; warnings: DuplicationWarning[] }> {
   const sourceOrderIndex = options.sourceActivity.order_index ?? 0
   const ledger = newLedger()
 
@@ -455,13 +619,18 @@ export async function duplicateActivityAfterSource(
       ledger,
     })
 
+    const warnings = await applyDuplicateAssignments(admin, options.projectId, options.actorId, ledger)
     await shiftOrderAfter(
       admin, 'project_activities', options.phaseId, options.sourceActivity.id, created.activity.id,
     )
 
-    return created
+    return { ...created, warnings }
   } catch (error) {
-    await rollbackCopy(admin, ledger)
+    const cleanupErrors = await rollbackCopy(admin, ledger)
+    if (cleanupErrors.length > 0) {
+      console.error('duplicateActivityAfterSource cleanup failed:', cleanupErrors)
+      throw new Error('Duplicarea a eșuat și copia nu a putut fi curățată complet.')
+    }
     throw error
   }
 }

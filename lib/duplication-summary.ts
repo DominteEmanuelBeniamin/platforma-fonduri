@@ -12,25 +12,36 @@ import { countLabel } from './calendar.ts'
 const CLIENT_FILES_NOTE = 'Fișierele încărcate de client nu se copiază.'
 const DRAFT_NOTE = 'Copia este în pregătire.'
 
+export function omittedAssignmentsMessage(count: number): string {
+  if (count <= 0) return ''
+  if (count === 1) {
+    return 'O atribuire implicită a fost omisă: consultantul nu mai este disponibil, iar elementul a rămas neatribuit.'
+  }
+  return `${countLabel(count, 'atribuire', 'atribuiri')} implicite au fost omise: consultanții nu mai sunt disponibili, iar elementele au rămas neatribuite.`
+}
+
 /** Toast-ul de succes după duplicarea unei faze. */
 export function phaseDuplicatedMessage(
   phaseName: string,
   counts: { activities: number; documentRequests: number },
+  omittedAssignments = 0,
 ): string {
   return [
     `Faza „${phaseName}” a fost duplicată: ${countLabel(counts.activities, 'activitate', 'activități')}`
       + `, ${countLabel(counts.documentRequests, 'cerere de documente', 'cereri de documente')}.`,
+    omittedAssignmentsMessage(omittedAssignments),
     CLIENT_FILES_NOTE,
     DRAFT_NOTE,
-  ].join(' ')
+  ].filter(Boolean).join(' ')
 }
 
 /** Toast-ul de succes după duplicarea unei activități. */
-export function activityDuplicatedMessage(activityName: string, documentRequests: number): string {
+export function activityDuplicatedMessage(activityName: string, documentRequests: number, omittedAssignments = 0): string {
   return [
     `Activitatea „${activityName}” a fost duplicată: `
       + `${countLabel(documentRequests, 'cerere de documente', 'cereri de documente')}.`,
+    omittedAssignmentsMessage(omittedAssignments),
     CLIENT_FILES_NOTE,
     DRAFT_NOTE,
-  ].join(' ')
+  ].filter(Boolean).join(' ')
 }

@@ -1,0 +1,527 @@
+{
+  "executedAt": "2026-10-07T10:14:36.633Z",
+  "baseUrl": "http://127.0.0.1:3107",
+  "supabaseUrl": "http://127.0.0.1:54321",
+  "environment": {
+    "authImage": "public.ecr.aws/supabase/gotrue:v2.197.0",
+    "postgres": "17.6",
+    "node": "22.13.1",
+    "supabaseJs": "2.90.0",
+    "authJs": "2.90.0",
+    "next": "16.3.5",
+    "apiCodeRef": "2471801629dbd444980f0f38b4493b6d89136a4e"
+  },
+  "existingE2E": {
+    "passed": 1,
+    "test": "deactivation keeps data, revokes API/REST/RPC/Storage and open realtime channels",
+    "pr": 117,
+    "trace": "off"
+  },
+  "results": [
+    {
+      "name": "native_recovery_grants_access_before_password_save",
+      "passed": true,
+      "apiStatus": 200,
+      "dataApiRows": 1,
+      "guard": true,
+      "amr": [
+        "otp"
+      ],
+      "repeatedVerifyRejected": true,
+      "contractSatisfied": false
+    },
+    {
+      "name": "pending_link_survives_deactivate_reactivate",
+      "passed": true,
+      "inactiveError": "user_banned",
+      "afterReactivationValid": true,
+      "contractSatisfied": false
+    },
+    {
+      "name": "opened_recovery_session_does_not_survive_lifecycle",
+      "passed": true,
+      "oldJwtApiStatus": 401,
+      "oldRefreshRejected": true,
+      "contractSatisfied": true
+    },
+    {
+      "name": "native_password_update_revokes_other_sessions_keeps_current",
+      "passed": true,
+      "nativeOtherSessionsRevoked": true,
+      "currentRetained": true,
+      "getUserAcceptsOldJwt": false,
+      "appRejectsOldJwt": true
+    },
+    {
+      "name": "unconsumed_native_link_expires_at_hour",
+      "passed": true,
+      "expiredPendingLinkRejected": true
+    },
+    {
+      "name": "new_native_link_invalidates_previous",
+      "passed": true,
+      "previousRejected": true,
+      "latestValid": true
+    },
+    {
+      "name": "native_admin_password_reset_revokes_pending_and_sessions",
+      "passed": true,
+      "pendingRejected": true,
+      "sessionsRevoked": true
+    },
+    {
+      "name": "check_then_admin_http_can_write_after_deactivation",
+      "passed": true,
+      "deactivationWonButPasswordStillChanged": true,
+      "contractSatisfied": false
+    },
+    {
+      "name": "native_email_a_b_a_can_restore_old_link",
+      "passed": true,
+      "invalidWhileChanged": true,
+      "validAfterRestoringEmail": false,
+      "contractSatisfied": true
+    },
+    {
+      "name": "native_public_recover_and_otp_are_open",
+      "passed": true,
+      "recoverAccepted": true,
+      "otpAccepted": true,
+      "mailDestination": "local Mailpit fixture only",
+      "configurationGateRequired": true
+    },
+    {
+      "name": "native_email_update_does_not_revoke_opened_session",
+      "passed": true,
+      "priorRecoverySessionActive": true,
+      "priorRecoveryCanChangePassword": true,
+      "contractSatisfied": false
+    },
+    {
+      "name": "auth_sync_pending_native_recovery_can_still_change_password",
+      "passed": true,
+      "profileInactive": true,
+      "authSyncPending": true,
+      "nativeVerificationCreatesSession": true,
+      "appGuard": false,
+      "nativePasswordChanged": true,
+      "contractSatisfied": false
+    },
+    {
+      "name": "same_password_and_bcrypt_byte_limit",
+      "passed": true,
+      "samePasswordError": "same_password",
+      "longAsciiError": "validation_failed",
+      "longUnicodeError": "validation_failed",
+      "bcryptMaxBytes": 72
+    },
+    {
+      "name": "self_reset_audit_currently_blocks_safe_deletion",
+      "passed": true,
+      "ownResetIsCurrentlyBlocker": true,
+      "contractSatisfied": false
+    },
+    {
+      "name": "atomic_opaque_proof_has_no_auth_session_before_save",
+      "passed": true,
+      "noSessionBeforeSave": true,
+      "nativeExchangeRejected": true,
+      "bcryptAcceptedByAuth": true,
+      "spacesAndUnicodePreserved": true,
+      "afterCommitApiStatus": 200
+    },
+    {
+      "name": "atomic_cooldown_latest_link_and_lifecycle_invalidation",
+      "passed": true,
+      "cooldownPreservesLink": true,
+      "latestOnly": true,
+      "reactivationRequiresNewLink": true,
+      "freshRequestImmediatelyAllowed": true
+    },
+    {
+      "name": "atomic_email_roundtrip_and_admin_reset_invalidate",
+      "passed": true,
+      "emailRoundtripRejected": true,
+      "adminInvalidatesEvenOpenFlow": true,
+      "freshRecoveryAfterAdminReset": true
+    },
+    {
+      "name": "atomic_one_hour_deadline_including_time_waiting_for_lock",
+      "passed": true,
+      "expirationCheckedAfterLock": true,
+      "expiredSaveRejected": true
+    },
+    {
+      "name": "atomic_double_submit_and_lost_response_retry",
+      "passed": true,
+      "oneCommit": true,
+      "oneAudit": true,
+      "idempotentReceiptOnly": true,
+      "noReplayLogin": true
+    },
+    {
+      "name": "atomic_deactivation_wins_before_finalize",
+      "passed": true,
+      "deactivationWins": true,
+      "passwordUnchanged": true,
+      "completionAuditAbsent": true
+    },
+    {
+      "name": "atomic_finalize_wins_before_deactivation",
+      "passed": true,
+      "resetCommittedFirst": true,
+      "subsequentDeactivationDeniesAccess": true
+    },
+    {
+      "name": "atomic_state_private_and_precise_self_auth_exemption",
+      "passed": true,
+      "privateStateDeniedToAuthenticated": true,
+      "exactSelfRecoveryExemptionWorks": true,
+      "deletionKeepsAudit": true,
+      "temporaryChangeRolledBack": true
+    },
+    {
+      "name": "atomic_password_validation_does_not_consume_proof",
+      "passed": true,
+      "samePasswordRejected": true,
+      "shortAndLongUtf8Rejected": true,
+      "nullRejected": true,
+      "proofUnconsumed": true
+    },
+    {
+      "name": "atomic_concurrent_reservations_allow_single_issue",
+      "passed": true,
+      "issued": 1,
+      "cooldown": 1
+    },
+    {
+      "name": "atomic_auth_sync_failure_keeps_old_flow_invalid",
+      "passed": true,
+      "authSyncPendingCovered": true,
+      "passwordUnchanged": true,
+      "reactivationRequiresNewFlow": true
+    },
+    {
+      "name": "atomic_delete_and_email_reuse_cannot_restore_flow",
+      "passed": true,
+      "deletionCleansPrivateState": true,
+      "deletedLinkRejected": true,
+      "reusedEmailOldProofRejected": true
+    },
+    {
+      "name": "native_hour_expiry_does_not_bound_opened_session",
+      "passed": true,
+      "openedSessionBeyondIssuanceHourCanSave": true,
+      "refreshBeyondHourAccepted": true,
+      "contractSatisfied": false
+    },
+    {
+      "name": "atomic_auto_login_must_recheck_inactive_profile_after_commit",
+      "passed": true,
+      "resetCompleted": true,
+      "authSyncPending": true,
+      "nativeLoginCanStillMint": true,
+      "postCommitAppCheckDeniesAccess": true,
+      "freshJwtApiStatus": 401
+    },
+    {
+      "name": "native_email_hook_suppresses_recovery_and_otp_credentials",
+      "passed": true,
+      "recoveryStatus": 200,
+      "otpStatus": 200,
+      "missingStatus": 200,
+      "inactiveStatus": 200,
+      "hookActions": [
+        "magiclink",
+        "recovery",
+        "recovery"
+      ],
+      "smtpEmailsAdded": 0,
+      "nativeCredentialsPersisted": 0,
+      "passwordLoginStatus": 200,
+      "existingAuthUntouched": true
+    },
+    {
+      "name": "atomic_audit_failure_rolls_back_entire_reset",
+      "passed": true,
+      "fullRollback": true,
+      "safeRetry": true,
+      "sessionsAndTokensRevokedOnCommit": true
+    },
+    {
+      "name": "native_token_persistence_gate_denies_recovery_and_magiclink",
+      "passed": true,
+      "nativeRecoveryRejected": true,
+      "nativeMagiclinkRejected": true,
+      "nativeEmailOtpRejected": true,
+      "legacyCredentialsEmpty": true,
+      "oneTimeTokens": 0,
+      "nativeSessions": 0,
+      "privateProofCompleted": true
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "52a8ae00-59b7-46cb-9e7c-b401ec53c816",
+      "deleted": true
+    },
+    {
+      "id": "fabe2cd0-0d69-4deb-bd8f-b8d4b40356d3",
+      "deleted": true
+    },
+    {
+      "id": "b8346ceb-2172-4281-bab0-89e015343029",
+      "deleted": true
+    },
+    {
+      "id": "38aed1d4-50ad-42e8-86df-10a619155e43",
+      "deleted": true
+    },
+    {
+      "id": "28b95ab0-c06f-485b-8d03-e642bd6ea7d8",
+      "deleted": true
+    },
+    {
+      "id": "4d7c974a-fff6-455d-9219-b02bf92beec1",
+      "deleted": true
+    },
+    {
+      "id": "89f2f345-80af-49d4-aa71-b128a1029c1c",
+      "deleted": true
+    },
+    {
+      "id": "9a38a539-1ed7-4507-ab38-eff13b788952",
+      "deleted": true
+    },
+    {
+      "id": "d7297635-69b6-4ae8-84db-0ddb546a3c63",
+      "deleted": true
+    },
+    {
+      "id": "ace7e3ef-59fa-444d-b710-fe31deabf4d2",
+      "deleted": true
+    },
+    {
+      "id": "3c6e1d34-dbd1-4ef5-8685-969c48a4923c",
+      "deleted": true
+    },
+    {
+      "id": "4901126c-f43d-4df2-a027-57dfc735ff0a",
+      "deleted": true
+    },
+    {
+      "id": "de8d5a2d-6b61-4b7f-af65-358fe98960b1",
+      "deleted": true
+    },
+    {
+      "id": "66210017-139a-4841-a037-5001480f2a82",
+      "deleted": true
+    },
+    {
+      "id": "294db0c8-b4e3-43f0-b501-c4506fc08554",
+      "deleted": true
+    },
+    {
+      "id": "14c71e64-309c-4465-aac9-574afe060039",
+      "deleted": true
+    },
+    {
+      "id": "6a44bc34-ac13-4ea1-a7fa-d0c98c17af7d",
+      "deleted": true
+    },
+    {
+      "id": "215d673c-9344-4d33-bcad-eed794f23959",
+      "deleted": true
+    },
+    {
+      "id": "e13694e9-ac32-41b6-af1b-a179098336d4",
+      "deleted": true
+    },
+    {
+      "id": "5a06d436-77de-4c46-9f97-b5c6b753520d",
+      "deleted": true
+    },
+    {
+      "id": "4f9212ae-e344-4b1f-aca1-ac5318350716",
+      "deleted": true
+    },
+    {
+      "id": "b5d46553-5dd7-4893-8905-f5bfcc771d9a",
+      "deleted": true
+    },
+    {
+      "id": "a1d6fa9a-a8eb-4c60-8d24-fee270722801",
+      "deleted": true
+    },
+    {
+      "id": "fe9049f2-3a4f-466d-9c84-c77f9ec27e96",
+      "deleted": true
+    },
+    {
+      "id": "f06b3c95-f32f-43ee-b08f-0df9adc908f5",
+      "deleted": true
+    },
+    {
+      "id": "8fc727ea-951e-40b1-b2e6-b1ef2c8a2a02",
+      "deleted": true
+    },
+    {
+      "id": "4c9fb346-59af-44da-be63-a22966fe0b6e",
+      "deleted": true
+    },
+    {
+      "id": "1ff57e27-f421-4778-a70a-9a68462a0519",
+      "deleted": true
+    },
+    {
+      "id": "5d52aa2f-bdee-4695-84d5-eb0afb9f2e73",
+      "deleted": true
+    },
+    {
+      "id": "e398b010-b1e5-4fa0-bbc5-8a091f5a2d4b",
+      "deleted": true
+    },
+    {
+      "id": "0dc11007-b02c-4e41-a288-a98d496eb7ba",
+      "deleted": true
+    },
+    {
+      "id": "ce7657ce-c117-4899-8cf8-36d82619ac5b",
+      "deleted": true
+    },
+    {
+      "id": "e88e5f53-7157-4d9f-8770-b45957c58fac",
+      "deleted": true
+    },
+    {
+      "id": "0ff52836-c5f8-4923-8abb-12bb1c12f908",
+      "deleted": true
+    },
+    {
+      "id": "521c7421-cbd8-4ea4-ba9e-bcf35d856127",
+      "deleted": true
+    },
+    {
+      "id": "7d4ac9f1-7496-424c-aa18-a0f88e92457d",
+      "deleted": true
+    },
+    {
+      "id": "74deaa37-3df7-4559-b93b-a5a24af4612d",
+      "deleted": true
+    },
+    {
+      "id": "9a8b0058-d2ca-4346-9af9-c1134bb4a795",
+      "deleted": true
+    },
+    {
+      "id": "083b8952-3b9e-41aa-a726-b645a96f47a4",
+      "deleted": true
+    },
+    {
+      "id": "d951a4ef-a019-47e0-bc7c-f3898505feba",
+      "deleted": true
+    },
+    {
+      "id": "e002ce62-03fa-4bf3-9ef2-9e7ff13b74f3",
+      "deleted": true
+    },
+    {
+      "id": "7853f7bb-1e39-4a97-b524-bc380dd4395c",
+      "deleted": true
+    },
+    {
+      "id": "fdc4be1e-ed23-41d6-be46-db182fe21e5c",
+      "deleted": true
+    },
+    {
+      "id": "0e71c29b-4ee5-438a-878e-1fabba857b05",
+      "deleted": true
+    },
+    {
+      "id": "eded6565-beb0-40da-a99d-02207e1007c9",
+      "deleted": true
+    },
+    {
+      "id": "e92ce0d8-f097-4812-a335-ccd945059cbd",
+      "deleted": true
+    },
+    {
+      "id": "3da2eaab-4298-478d-b7af-0952e89ea50a",
+      "deleted": true
+    },
+    {
+      "id": "7e1fec3a-1920-4c53-b62e-3578151a1927",
+      "deleted": true
+    },
+    {
+      "id": "65a3589c-6a84-4bf9-98de-db13f137c652",
+      "deleted": true
+    },
+    {
+      "id": "78f41841-a078-49bd-8c58-ee006bb34f2c",
+      "deleted": true
+    },
+    {
+      "id": "a97cd2a2-48c5-4e87-b027-9436095dcf6e",
+      "deleted": true
+    },
+    {
+      "id": "eb570768-73cf-43dd-aef9-954fa8befc48",
+      "deleted": true
+    },
+    {
+      "id": "b6f0d509-319d-4d75-b19d-60c9368b91d0",
+      "deleted": true
+    },
+    {
+      "id": "9a0594e5-97bb-4577-ab8e-b0742decac25",
+      "deleted": true
+    },
+    {
+      "id": "afd6f274-c7ae-4576-a593-ef6ba07801c3",
+      "deleted": true
+    },
+    {
+      "id": "690357f9-00a0-4711-a97f-e50ca38be3a3",
+      "deleted": true
+    },
+    {
+      "id": "369e64fd-d0d7-4e5e-a679-df3e1393b351",
+      "deleted": true
+    },
+    {
+      "id": "476e32ab-db55-4d65-9604-4eb9c2c33eff",
+      "deleted": true
+    },
+    {
+      "id": "055c79e5-4f2d-4200-baf0-afd2ae7edadd",
+      "deleted": true
+    },
+    {
+      "id": "6410d564-4786-4c75-a12d-da7c46cea886",
+      "deleted": true
+    },
+    {
+      "id": "1c16cb54-4e41-46ad-8f83-e00a1381d219",
+      "deleted": true
+    },
+    {
+      "id": "7c6c8db2-cbae-44ae-b3f8-a001cfa0fd83",
+      "deleted": true
+    },
+    {
+      "id": "c3c07856-58e6-4447-9d75-6dc3c6ab3604",
+      "deleted": true
+    },
+    {
+      "id": "ebae87cd-0094-477c-8185-0ee6b1ecd975",
+      "deleted": true
+    }
+  ],
+  "cleanupVerification": {
+    "proofTriggers": 0,
+    "proofFunctions": 0,
+    "fixtureAccounts": 0,
+    "proofSchemaAbsent": true
+  }
+}

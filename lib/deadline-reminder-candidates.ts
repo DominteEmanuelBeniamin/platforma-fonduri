@@ -1,12 +1,14 @@
 import { createHash } from 'node:crypto'
 import { isClientVisibleDocument } from './client-visibility.js'
 import { getDaysUntilDeadline, getReminderType, REMINDER_TIME_ZONE, type ReminderType } from './document-reminder.ts'
+import { isProjectActive } from './project-lifecycle.ts'
 import { isValidReminderEmail } from './reminder-email.ts'
 
 export type ReminderProfile = {
   id: string
   full_name: string | null
   email: string | null
+  is_active?: boolean | null
 }
 
 type Relation<T> = T | T[] | null | undefined
@@ -14,7 +16,12 @@ type Relation<T> = T | T[] | null | undefined
 export type ReminderProject = {
   id: string
   title: string
-  status: string
+  /**
+   * Doar proiectele `active` primesc remindere (#109). Coloana veche `status`
+   * (contractare/implementare/monitorizare) nu mai spune nimic despre asta: CHECK-ul
+   * ei permitea exact cele trei valori din vechiul filtru, deci nu excludea nimic.
+   */
+  lifecycle_status: string | null
   general_consultant_id: string | null
   automatic_reminders_enabled?: boolean
   client: Relation<ReminderProfile>
@@ -109,8 +116,6 @@ export type ReminderNotificationProjectGroup = {
   projectId: string
   items: ReminderCandidate[]
 }
-
-const ACTIVE_PROJECT_STATUSES = new Set(['contractare', 'implementare', 'monitorizare'])
 
 type CandidateDraft = Omit<ReminderCandidate, 'recipientEmail' | 'recipientName' | 'recipientId'> & {
   recipientId: string | null
@@ -264,6 +269,7 @@ export function selectDeadlineReminderCandidates(input: CandidateSelectionInput)
     profile: ReminderProfile | null,
   ) => {
     const recipientKind = candidate.recipientKind
+    if (profile?.is_active === false) return
     if (!profile?.id) {
       fail(candidate.entityType, candidate.entityId, recipientKind, candidate.recipientId, 'missing_recipient')
       return
@@ -284,8 +290,11 @@ export function selectDeadlineReminderCandidates(input: CandidateSelectionInput)
   for (const row of input.requests) {
     const project = projects.get(row.project_id)
     const activity = relation(row.activity)
-    if (!project || !ACTIVE_PROJECT_STATUSES.has(project.status)) continue
+    // Un proiect încheiat nu mai trimite remindere (#109); nici unul despre care
+    // nu știm nimic — `isProjectActive` cere explicit `active`.
+    if (!project || !isProjectActive(project)) continue
     if (project.automatic_reminders_enabled === false) continue
+    // O cerere închisă (`closed`) iese singură: lista e de stări permise.
     if (row.status !== 'pending' && row.status !== 'rejected') continue
     if (row.is_outgoing || row.deleted_at || !row.deadline_at || !isClientVisibleDocument(row)) continue
 
@@ -331,7 +340,7 @@ export function selectDeadlineReminderCandidates(input: CandidateSelectionInput)
   for (const row of input.activities) {
     const phase = phases.get(row.phase_id)
     const project = phase ? projects.get(phase.project_id) : null
-    if (!phase || !project || !ACTIVE_PROJECT_STATUSES.has(project.status)) continue
+    if (!phase || !project || !isProjectActive(project)) continue
     if (project.automatic_reminders_enabled === false) continue
     if (row.status !== 'pending' && row.status !== 'in_progress') continue
     if (phase.visibility !== 'published' || row.visibility !== 'published' || !row.deadline_at) continue

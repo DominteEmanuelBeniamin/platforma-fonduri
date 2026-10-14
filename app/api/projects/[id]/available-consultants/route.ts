@@ -51,8 +51,9 @@ export async function GET(
     // Consultants not already in this project
     let query = admin
       .from('profiles')
-      .select('id, email, full_name, role')
+      .select('id, email, full_name, role, is_active')
       .eq('role', 'consultant')
+      .or('is_active.is.null,is_active.eq.true')
       .order('full_name', { ascending: true })
 
 

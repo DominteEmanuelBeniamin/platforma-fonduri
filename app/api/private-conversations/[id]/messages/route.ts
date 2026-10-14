@@ -3,6 +3,7 @@ import { guardToResponse } from '@/app/api/_utils/auth'
 import { requirePrivateConversationParticipant } from '@/app/api/_utils/private-chat'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { logAction } from '@/app/api/_utils/audit'
+import { inactiveReferenceConflict } from '@/app/api/_utils/inactive-reference'
 
 const MAX_LIMIT = 200
 const DEFAULT_LIMIT = 50
@@ -101,7 +102,8 @@ export async function GET(
         profiles:created_by (
           id,
           full_name,
-          email
+          email,
+          is_active
         )
       `)
       .eq('conversation_id', conversationId)
@@ -153,6 +155,32 @@ export async function POST(
 
     const admin = createSupabaseServiceClient()
 
+    const { data: recipients, error: recipientsError } = await admin
+      .from('private_conversation_participants')
+      .select('user_id')
+      .eq('conversation_id', conversationId)
+      .neq('user_id', accessRes.user.id)
+
+    if (recipientsError) {
+      console.error('POST private message recipient lookup failed:', { conversationId, error: recipientsError })
+      return Response.json({ error: 'Failed to verify conversation recipient' }, { status: 500 })
+    }
+
+    const recipientIds = [...new Set((recipients ?? []).map(row => row.user_id))]
+    if (recipientIds.length > 0) {
+      const { data: profiles, error: profilesError } = await admin
+        .from('profiles')
+        .select('id, is_active')
+        .in('id', recipientIds)
+      if (profilesError) {
+        console.error('POST private message recipient status lookup failed:', { conversationId, error: profilesError })
+        return Response.json({ error: 'Failed to verify conversation recipient' }, { status: 500 })
+      }
+      if ((profiles ?? []).some(profile => profile.is_active === false)) {
+        return Response.json({ error: 'Nu poți trimite un mesaj unui cont dezactivat' }, { status: 409 })
+      }
+    }
+
     const insertPayload = {
       conversation_id: conversationId,
       created_by: accessRes.user.id,
@@ -173,12 +201,15 @@ export async function POST(
         profiles:created_by (
           id,
           full_name,
-          email
+          email,
+          is_active
         )
       `)
       .single()
 
     if (error || !data) {
+      const inactive = inactiveReferenceConflict(error, 'Nu poți trimite un mesaj folosind un cont dezactivat.')
+      if (inactive) return Response.json(inactive.body, { status: inactive.status })
       console.error('POST private message failed:', { conversationId, error })
       return Response.json({ error: 'Failed to create private message' }, { status: 500 })
     }

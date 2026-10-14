@@ -4,10 +4,12 @@ import { Resend } from 'resend'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { inactiveReferenceConflict } from '@/app/api/_utils/inactive-reference'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { isRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
 import { buildAssignmentEmailIdempotencyKey, isRealAssignmentChange } from '@/lib/notification-utils'
+import { REQUEST_CLOSED_EDIT_MESSAGE } from '@/lib/completion'
 
 // Inițializat în handler ca să preia env-ul la runtime, nu la cold-start
 
@@ -109,7 +111,7 @@ export async function PATCH(
     // Obține cererea pentru a afla project_id și detalii email
     const { data: req, error: reqError } = await admin
       .from('document_requirements')
-      .select('id, project_id, activity_id, name, description, deadline_at, requirement_type, is_mandatory, is_outgoing, visibility, assigned_to, attachment_path, attachment_original_name, attachment_missing_at, attachment_missing_checked_at, deleted_at, activity:activity_id(id, assigned_to), document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at, source_template_attachment_id, created_at)')
+      .select('id, project_id, activity_id, name, description, deadline_at, requirement_type, is_mandatory, is_outgoing, visibility, status, assigned_to, attachment_path, attachment_original_name, attachment_missing_at, attachment_missing_checked_at, deleted_at, activity:activity_id(id, assigned_to), document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at, source_template_attachment_id, created_at)')
       .eq('id', requestId)
       .is('deleted_at', null)
       .maybeSingle()
@@ -123,10 +125,18 @@ export async function PATCH(
     }
 
     const currentRequest = req
-    const access = await requireProjectAccess(request, req.project_id)
+    const assignmentChanged = assigned_to !== undefined && assigned_to !== req.assigned_to
+    const access = await requireProjectAccess(request, req.project_id, { write: true })
     if (!access.ok) return guardToResponse(access)
     if (access.profile.role === 'client') {
       return NextResponse.json({ error: 'Nu ai permisiunea să modifici cereri' }, { status: 403 })
+    }
+
+    // O cerere închisă nu se modifică până la redeschidere (#109, D13): nici
+    // nume, termen, atribuire, fișiere-model sau publicare. Reordonarea,
+    // duplicarea și ștergerea au rutele lor și rămân permise.
+    if (req.status === 'closed') {
+      return NextResponse.json({ error: 'Document request is closed', message: REQUEST_CLOSED_EDIT_MESSAGE }, { status: 409 })
     }
 
     if (isPublishing && req.visibility !== 'draft') {
@@ -181,6 +191,25 @@ export async function PATCH(
         : generalConsultantId,
     }
 
+    if (isPublishing && !req.is_outgoing) {
+      const directAssignee = assigned_to === undefined ? req.assigned_to : assigned_to
+      const publishingAssignee = directAssignee ?? publishState.parentAssignee
+      if (publishingAssignee) {
+        const { data: consultant, error: consultantError } = await admin
+          .from('profiles')
+          .select('is_active')
+          .eq('id', publishingAssignee)
+          .maybeSingle()
+        if (consultantError) throw consultantError
+        if (!consultant || consultant.is_active !== true) {
+          return NextResponse.json(
+            { error: 'Cererea trebuie să aibă un responsabil activ înainte de publicare.' },
+            { status: 400 },
+          )
+        }
+      }
+    }
+
     if (isPublishing) {
       const blockers = publishBlockers(publishState)
       if (blockers.length > 0) {
@@ -198,7 +227,27 @@ export async function PATCH(
       }
     }
 
-    // Dacă se atribuie cuiva, verifică că este consultant membru al proiectului
+    // Păstrează o atribuire veche chiar dacă profilul a fost dezactivat;
+    // eligibilitatea se verifică doar când se creează o relație nouă.
+    if (assignmentChanged && typeof assigned_to === 'string') {
+      const { data: consultant, error: consultantError } = await admin
+        .from('profiles')
+        .select('id, role, is_active')
+        .eq('id', assigned_to)
+        .maybeSingle()
+
+      if (consultantError) {
+        console.error('PATCH document-requests consultant lookup error:', consultantError)
+        return NextResponse.json({ error: 'Eroare la verificarea consultantului' }, { status: 500 })
+      }
+      if (!consultant || consultant.role !== 'consultant') {
+        return NextResponse.json({ error: 'Alege un consultant valid.' }, { status: 400 })
+      }
+      if (consultant.is_active === false) {
+        return NextResponse.json({ error: 'Alege un consultant activ pentru o atribuire nouă.' }, { status: 409 })
+      }
+    }
+
     if (assigned_to !== undefined && assigned_to !== null) {
       const { data: membership, error: memberError } = await admin
         .from('project_members')
@@ -262,7 +311,6 @@ export async function PATCH(
       diff.changedKeys.push('attachments')
     }
 
-    const assignmentChanged = assigned_to !== undefined && assigned_to !== req.assigned_to
     const assignmentEventAt = assignmentChanged ? new Date().toISOString() : null
     // Ca la activități: triggerul nu vede autorul, așa că îl scriem pe rând.
     // `assigned_at` se scrie în aceeași actualizare pentru că e versiunea pe
@@ -272,11 +320,13 @@ export async function PATCH(
       updatePayload.assigned_by = access.user.id
       updatePayload.assigned_at = assignmentEventAt
     }
+    // `neq('closed')`: o închidere apărută între citire și scriere câștigă.
     let requestUpdate = admin
       .from('document_requirements')
       .update(updatePayload)
       .eq('id', requestId)
       .is('deleted_at', null)
+      .neq('status', 'closed')
     if (assignmentChanged) {
       requestUpdate = req.assigned_to === null
         ? requestUpdate.is('assigned_to', null)
@@ -287,10 +337,20 @@ export async function PATCH(
       .maybeSingle()
 
     if (updateError) {
+      const inactive = inactiveReferenceConflict(updateError, 'Nu poți atribui cererea unui cont dezactivat.')
+      if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
       console.error('PATCH document-requests update error:', updateError)
       return NextResponse.json({ error: 'Eroare la actualizarea cererii' }, { status: 500 })
     }
     if (!updatedRequest) {
+      const { data: current } = await admin
+        .from('document_requirements')
+        .select('status, deleted_at')
+        .eq('id', requestId)
+        .maybeSingle()
+      if (current && !current.deleted_at && current.status === 'closed') {
+        return NextResponse.json({ error: 'Document request is closed', message: REQUEST_CLOSED_EDIT_MESSAGE }, { status: 409 })
+      }
       return NextResponse.json(
         { error: assignmentChanged ? 'Cererea a fost modificată între timp. Reîncarcă și încearcă din nou.' : 'Cererea nu mai există' },
         { status: assignmentChanged ? 409 : 404 },
@@ -367,14 +427,15 @@ export async function PATCH(
       try {
         // Proiectul e deja citit mai sus, în `projectRow`/`projectTitle`.
         const { data: consultant, error: consultantError } = await admin
-          .from('profiles').select('full_name, email').eq('id', assigned_to).maybeSingle()
+          .from('profiles').select('full_name, email, is_active').eq('id', assigned_to).maybeSingle()
         if (consultantError) throw consultantError
 
-        if (consultant?.email) {
+        if (consultant?.email && consultant.is_active !== false) {
           const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
           const projectUrl = `${appUrl}/projects/${currentRequest.project_id}`
           const safeProjectTitle = escapeHtml(projectTitle)
           const safeRequestName = escapeHtml(updatedRequest.name ?? '')
+          const safeRecipientEmail = escapeHtml(consultant.email)
           const salut = consultant.full_name ? `Salut, ${escapeHtml(consultant.full_name)}!` : 'Salut!'
           const deadline = updatedRequest.deadline_at
             ? new Date(updatedRequest.deadline_at).toLocaleDateString('ro-RO', {
@@ -420,6 +481,9 @@ export async function PATCH(
     <div style="padding:20px 40px;border-top:1px solid #f1f5f9;">
       <p style="margin:0;color:#9ca3af;font-size:12px;">
         Acest email a fost generat automat de Platforma Fonduri EU. Nu răspunde la acest mesaj.
+      </p>
+      <p style="margin:8px 0 0;color:#9ca3af;font-size:12px;">
+        Acest mesaj privește contul <strong>${safeRecipientEmail}</strong>.
       </p>
     </div>
   </div>
@@ -477,7 +541,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Cererea nu a fost găsită' }, { status: 404 })
     }
 
-    const access = await requireProjectAccess(request, req.project_id)
+    const access = await requireProjectAccess(request, req.project_id, { write: true })
     if (!access.ok) return guardToResponse(access)
 
     if (access.profile.role === 'client') {

@@ -10,6 +10,7 @@ export type ChatProfile = {
   id: string
   full_name: string | null
   email: string | null
+  is_active?: boolean | null
 }
 
 export type ChatMessage = {

@@ -17,6 +17,7 @@ import {
   type StoredChatImage,
 } from '@/lib/project-chat-contracts'
 import { insertProjectChatMessageWithCleanup } from '@/lib/project-chat-post'
+import { inactiveReferenceConflict } from '@/app/api/_utils/inactive-reference'
 
 const MAX_LIMIT = 200
 const DEFAULT_LIMIT = 50
@@ -32,7 +33,8 @@ const MESSAGE_SELECT = `
   profiles:created_by (
     id,
     full_name,
-    email
+    email,
+    is_active
   )
 `
 
@@ -174,7 +176,7 @@ export async function POST(
 ) {
   try {
     const { id: projectId } = await params
-    const access = await requireProjectAccess(request, projectId)
+    const access = await requireProjectAccess(request, projectId, { write: true })
     if (!access.ok) return guardToResponse(access)
 
     const parsed = parseProjectChatMessageInput(await request.json().catch(() => null), projectId, access.user.id)
@@ -226,6 +228,11 @@ export async function POST(
     }, () => cleanupUnreferencedPostImages(admin, projectId, access.user.id, imagePaths))
 
     if (!insertion.ok) {
+      if (insertion.kind === 'result') {
+        const inactive = inactiveReferenceConflict(insertion.error, 'Nu poți trimite un mesaj folosind un cont dezactivat.')
+        if (inactive) return Response.json(inactive.body, { status: inactive.status })
+      }
+
       console.error(
         insertion.kind === 'transport' ? 'POST chat message transport failed:' : 'POST chat message failed:',
         { projectId, error: insertion.error },

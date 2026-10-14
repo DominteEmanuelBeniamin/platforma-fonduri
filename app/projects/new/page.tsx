@@ -12,6 +12,8 @@ import { Spinner } from '@/components/ui/Spinner'
 import SupervisorPicker, { type SeniorConsultant } from '@/components/SupervisorPicker'
 import { canCreateProjects } from '@/lib/project-permissions'
 import { bandFor, bandVar } from '@/lib/signage'
+import { profileDisplayName } from '@/lib/profile-display'
+import { omittedAssignmentsMessage } from '@/lib/duplication-summary'
 
 interface ClientProfile {
   id: string
@@ -51,7 +53,20 @@ interface Consultant {
   is_active?: boolean | null
 }
 
+interface InvalidAssignment {
+  activity_id: string
+  consultant_id: string
+  reason: string
+}
+
 type Structure = 'empty' | 'template'
+function invalidAssignmentReason(reason: string) {
+  if (reason === 'inactive_consultant') return 'Consultantul ales a fost dezactivat.'
+  if (reason === 'consultant_not_found') return 'Consultantul ales nu mai este disponibil.'
+  if (reason === 'not_consultant') return 'Persoana aleasă nu mai are rol de consultant.'
+  return 'Alege un consultant activ sau „Fără consultant”.'
+}
+
 
 const TITLE_MAX = 120
 
@@ -155,6 +170,10 @@ export default function NewProjectPage() {
   const [loadingClients, setLoadingClients] = useState(true)
 
   const [consultants, setConsultants] = useState<Consultant[]>([])
+  const [consultantProfiles, setConsultantProfiles] = useState<Consultant[]>([])
+  const [createdProjectId, setCreatedProjectId] = useState<string | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+  const [invalidAssignments, setInvalidAssignments] = useState<InvalidAssignment[]>([])
   const [supervisorIds, setSupervisorIds] = useState<string[]>([])
   const [supervisorsTouched, setSupervisorsTouched] = useState(false)
 
@@ -183,7 +202,7 @@ export default function NewProjectPage() {
         const [clientsRes, templatesRes, usersRes] = await Promise.all([
           apiFetch('/api/clients'),
           apiFetch('/api/admin/templates'),
-          apiFetch('/api/users'),
+          apiFetch('/api/users?state=all'),
         ])
         if (cancelled) return
         if (clientsRes.ok) setClients((await clientsRes.json()).clients || [])
@@ -194,8 +213,10 @@ export default function NewProjectPage() {
         if (usersRes.ok) {
           // Doar consultanții activi: unui cont dezactivat serverul nu-i dă nici
           // activități, nici rolul de supervizor.
-          const list: Consultant[] = ((await usersRes.json()).users || [])
-            .filter((u: Consultant) => u.role === 'consultant' && u.is_active !== false)
+          const profiles: Consultant[] = ((await usersRes.json()).users || [])
+            .filter((u: Consultant) => u.role === 'consultant')
+          const list = profiles.filter(c => c.is_active !== false)
+          setConsultantProfiles(profiles)
           setConsultants(list)
           // Un consultant senior care deschide dosarul e propus ca supervizor.
           if (userId && list.some(c => c.id === userId && c.consultant_level === 'senior')) {
@@ -222,14 +243,14 @@ export default function NewProjectPage() {
   const selectedTemplate = templates.find(t => t.id === templateId) ?? null
   const selectedClient = clients.find(c => c.id === clientId) ?? null
 
-  // Consultantul implicit din șablon se propune doar dacă e în lista de mai sus.
-  // Unul dezactivat între timp ar face serverul să refuze tot importul, iar
-  // dosarul ar rămâne fără faze; activitatea pornește atunci „Fără consultant”.
-  const activeConsultantIds = useMemo(() => new Set(consultants.map(c => c.id)), [consultants])
   const consultantFor = (activity: TemplateActivity) => {
     if (activity.id in activityConsultants) return activityConsultants[activity.id]
-    const fallback = activity.default_consultant_id ?? ''
-    return activeConsultantIds.has(fallback) ? fallback : ''
+    return activity.default_consultant_id ?? ''
+  }
+
+  const invalidAssignmentMessage = (activityId: string) => {
+    const invalid = invalidAssignments.find(item => item.activity_id === activityId)
+    return invalid ? invalidAssignmentReason(invalid.reason) : null
   }
 
   const missing = [
@@ -251,15 +272,81 @@ export default function NewProjectPage() {
     setActivityConsultants({})
   }
 
+  const importIntoProject = async (projectId: string) => {
+    if (!selectedTemplate) return
+    setSubmitting(true)
+    setImportError(null)
+    setInvalidAssignments([])
+    try {
+      const assignments = Object.fromEntries(
+        Object.entries(activityConsultants).map(([activityId, consultantId]) => [activityId, consultantId || null])
+      )
+      const importRes = await apiFetch('/api/projects/' + projectId + '/import-template', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template_id: selectedTemplate.id, assignments }),
+      })
+      const body = await importRes.json().catch(() => null)
+      if (importRes.status === 409 && body?.code === 'INACTIVE_ASSIGNMENT') {
+        const invalid = Array.isArray(body?.details?.invalid_assignments) ? body.details.invalid_assignments : []
+        setInvalidAssignments(invalid)
+        const inactiveIds = new Set(invalid
+          .filter((item: InvalidAssignment) => item.reason === 'inactive_consultant')
+          .map((item: InvalidAssignment) => item.consultant_id))
+        if (inactiveIds.size > 0) {
+          setConsultantProfiles(previous => previous.map(consultant =>
+            inactiveIds.has(consultant.id) ? { ...consultant, is_active: false } : consultant
+          ))
+          setConsultants(previous => previous.filter(consultant => !inactiveIds.has(consultant.id)))
+        }
+        let consultantsRefreshFailed = false
+        try {
+          const usersRes = await apiFetch('/api/users?state=all')
+          if (usersRes.ok) {
+            const profiles: Consultant[] = ((await usersRes.json()).users || [])
+              .filter((user: Consultant) => user.role === 'consultant')
+            setConsultantProfiles(profiles)
+            setConsultants(profiles.filter(consultant => consultant.is_active !== false))
+          } else {
+            consultantsRefreshFailed = true
+          }
+        } catch {
+          consultantsRefreshFailed = true
+        }
+        const message = invalid.length
+          ? 'Unele activități au un consultant care nu mai este disponibil. Alege un consultant activ sau „Fără consultant”, apoi reîncearcă importul.'
+          : 'Un consultant din șablon nu mai este disponibil. Alege consultanți activi sau „Fără consultant”, apoi reîncearcă importul.'
+        setImportError(consultantsRefreshFailed
+          ? message + ' Lista consultanților nu s-a actualizat; proiectul este păstrat. Deschide-l pentru a evita crearea unui duplicat.'
+          : message)
+        return
+      }
+      if (!importRes.ok) {
+        setImportError('Dosarul a fost creat, dar șablonul nu s-a importat. Poți reîncerca importul sau poți deschide dosarul.')
+        return
+      }
+      const omittedAssignments = Array.isArray(body?.assignments_omitted) ? body.assignments_omitted.length : 0
+      if (omittedAssignments > 0) showToast(omittedAssignmentsMessage(omittedAssignments), 'warning')
+      router.push('/projects/' + projectId)
+    } catch {
+      setImportError('Dosarul a fost creat, dar șablonul nu s-a importat. Poți reîncerca importul sau poți deschide dosarul.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (createdProjectId) {
+      await importIntoProject(createdProjectId)
+      return
+    }
     if (!ready) {
       setSupervisorsTouched(true)
       return
     }
-    setSubmitting(true)
 
-    let projectId: string | null = null
+    setSubmitting(true)
     try {
       const projectRes = await apiFetch('/api/projects', {
         method: 'POST',
@@ -267,41 +354,23 @@ export default function NewProjectPage() {
         body: JSON.stringify({ title: title.trim(), client_id: clientId, supervisor_ids: supervisorIds }),
       })
       const projectData = await projectRes.json().catch(() => null)
-      if (!projectRes.ok || !projectData?.project?.id) throw new Error(projectData?.error || 'create')
-      projectId = projectData.project.id as string
-
-      if (structure === 'template' && selectedTemplate) {
-        // Consultantul fiecărei activități (alegerea din formular sau cel implicit
-        // din șablon) pleacă odată cu importul: serverul îl pune în echipă și îi
-        // atribuie activitatea în aceeași cerere.
-        const assignments = Object.fromEntries(
-          selectedTemplate.phases
-            .flatMap(p => p.activities || [])
-            .map(activity => [activity.id, consultantFor(activity)])
-            .filter(([, consultantId]) => consultantId)
-        )
-        const importRes = await apiFetch(`/api/projects/${projectId}/import-template`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ template_id: selectedTemplate.id, assignments }),
-        })
-        if (!importRes.ok) throw new Error('import')
-      }
-
-      router.push(`/projects/${projectId}`)
-    } catch {
-      if (projectId) {
-        // Dosarul există deja; un al doilea click ar crea un duplicat. Mergem în
-        // el și spunem ce a rămas de făcut.
-        showToast('Dosarul a fost deschis, dar șablonul nu s-a importat complet. Verifică fazele din proiect.', 'error')
-        router.push(`/projects/${projectId}`)
+      if (!projectRes.ok || !projectData?.project?.id) {
+        showToast('Nu am putut deschide dosarul. Verifică datele și reîncearcă.', 'error')
         return
       }
+      const projectId = projectData.project.id as string
+      if (structure === 'template' && selectedTemplate) {
+        setCreatedProjectId(projectId)
+        await importIntoProject(projectId)
+      } else {
+        router.push('/projects/' + projectId)
+      }
+    } catch {
       showToast('Nu am putut deschide dosarul. Verifică datele și reîncearcă.', 'error')
+    } finally {
       setSubmitting(false)
     }
   }
-
   const summary = [
     selectedClient ? `pentru ${clientLabel(selectedClient)}` : null,
     supervisorIds.length > 0 ? plural(supervisorIds.length, 'supervizor', 'supervizori') : null,
@@ -332,6 +401,12 @@ export default function NewProjectPage() {
       </p>
       </div>
 
+      {createdProjectId && (
+        <div className="mx-auto mt-4 max-w-3xl rounded-[var(--radius-plate)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] p-4" role="alert">
+          <p className="text-sm font-semibold text-ink">{importError || 'Dosarul a fost creat. Reîncearcă importul sau deschide dosarul.'}</p>
+          <Link className="mt-2 inline-block text-sm font-semibold text-[var(--sg-accent)] underline" href={'/projects/' + createdProjectId}>Deschide dosarul</Link>
+        </div>
+      )}
       <form onSubmit={handleCreate} noValidate className="mt-8">
         <div className="mx-auto max-w-3xl rounded-[var(--radius-plate)] border border-rule bg-plate">
         <FormSection title="Dosarul" description="Numele după care îl găsesc colegii și firma pentru care se depune.">
@@ -353,6 +428,7 @@ export default function NewProjectPage() {
                 required
                 placeholder="De exemplu: Agro Verde — dotare fermă legumicolă"
                 onChange={e => setTitle(e.target.value)}
+                disabled={!!createdProjectId}
                 className={`${fieldClass} mt-1.5`}
               />
             </div>
@@ -376,6 +452,7 @@ export default function NewProjectPage() {
                   value={clientId}
                   required
                   onChange={e => setClientId(e.target.value)}
+                  disabled={!!createdProjectId}
                   className={`${fieldClass} mt-1.5 ${clientId ? '' : 'text-ink-soft'}`}
                 >
                   <option value="">Alege firma beneficiară</option>
@@ -399,6 +476,7 @@ export default function NewProjectPage() {
             </span>
           }
         >
+          <fieldset disabled={!!createdProjectId} className="contents">
           <SupervisorPicker
             seniors={seniors}
             selected={supervisorIds}
@@ -408,6 +486,7 @@ export default function NewProjectPage() {
             isAdmin={profile?.role === 'admin'}
             showError={supervisorsTouched}
           />
+          </fieldset>
         </FormSection>
 
         <FormSection
@@ -424,6 +503,7 @@ export default function NewProjectPage() {
                 icon={<SquareDashed className="h-5 w-5" />}
                 title="Dosar gol"
                 detail="Fără faze. Le adaugi din proiect."
+                disabled={!!createdProjectId}
               />
               <ChoicePlate
                 name="structura"
@@ -436,7 +516,7 @@ export default function NewProjectPage() {
                   : templates.length === 0
                   ? 'Nu există șabloane publicate.'
                   : `${plural(templates.length, 'șablon publicat', 'șabloane publicate')}.`}
-                disabled={!loadingData && templates.length === 0}
+                disabled={(!loadingData && templates.length === 0) || !!createdProjectId}
               />
             </div>
           </fieldset>
@@ -455,7 +535,7 @@ export default function NewProjectPage() {
                             checked ? 'bg-[var(--sg-accent-soft)]' : 'hover:bg-paper-sunk/60'
                           }`}
                         >
-                          <input type="radio" name="sablon" className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed" checked={checked} onChange={() => chooseTemplate(template.id)} />
+                          <input type="radio" name="sablon" className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed" checked={checked} disabled={!!createdProjectId} onChange={() => chooseTemplate(template.id)} />
                           <span className="min-w-0 flex-1">
                             <span className="block text-sm font-semibold text-ink">{template.name}</span>
                             {template.description && (
@@ -506,14 +586,18 @@ export default function NewProjectPage() {
                                     <select
                                       id={selectId}
                                       value={consultantFor(activity)}
-                                      onChange={e => setActivityConsultants(prev => ({ ...prev, [activity.id]: e.target.value }))}
+                                      onChange={e => { setActivityConsultants(prev => ({ ...prev, [activity.id]: e.target.value })); setInvalidAssignments(prev => prev.filter(item => item.activity_id !== activity.id)) }}
                                       className={`${fieldClass} sm:w-56 sm:shrink-0 ${consultantFor(activity) ? '' : 'text-ink-soft'}`}
                                     >
                                       <option value="">Fără consultant</option>
+                                      {consultantProfiles.find(c => c.id === consultantFor(activity) && c.is_active === false) && (
+                                        <option value={consultantFor(activity)} disabled>{profileDisplayName(consultantProfiles.find(c => c.id === consultantFor(activity)), undefined)}</option>
+                                      )}
                                       {consultants.map(c => (
-                                        <option key={c.id} value={c.id}>{c.full_name || c.email}</option>
+                                        <option key={c.id} value={c.id}>{profileDisplayName(c)}</option>
                                       ))}
                                     </select>
+                                    {invalidAssignmentMessage(activity.id) && <span role="alert" className="text-xs font-semibold text-[var(--sg-danger)] sm:basis-full">{invalidAssignmentMessage(activity.id)}</span>}
                                   </li>
                                 )
                               })}
@@ -551,12 +635,12 @@ export default function NewProjectPage() {
               )}
             </p>
             <div className="flex shrink-0 gap-2">
-              <ButtonLink href="/" variant="quiet" className="flex-1 sm:flex-none">Anulează</ButtonLink>
-              <Button type="submit" variant="primary" disabled={!ready || submitting} className="flex-1 sm:flex-none">
+              {createdProjectId ? <ButtonLink href={'/projects/' + createdProjectId} variant="quiet" className="flex-1 sm:flex-none">Deschide dosarul</ButtonLink> : <ButtonLink href="/" variant="quiet" className="flex-1 sm:flex-none">Anulează</ButtonLink>}
+              <Button type="submit" variant="primary" disabled={submitting || (!createdProjectId && !ready)} className="flex-1 sm:flex-none">
                 {submitting
                   ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                   : <FolderPlus className="h-4 w-4" aria-hidden="true" />}
-                {submitting ? 'Se deschide…' : 'Deschide dosarul'}
+                {createdProjectId ? (submitting ? 'Se importă…' : 'Reîncearcă importul') : submitting ? 'Se deschide…' : 'Deschide dosarul'}
               </Button>
             </div>
           </div>

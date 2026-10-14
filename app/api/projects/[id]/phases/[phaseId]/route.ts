@@ -2,8 +2,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { canManageProject, requireProjectAccess } from '@/app/api/_utils/auth'
+import { inactiveReferenceConflict } from '@/app/api/_utils/inactive-reference'
 import { logAction } from '@/app/api/_utils/audit'
 import { isClientVisiblePhase } from '@/lib/client-visibility'
+import { STATUS_PATCH_MESSAGE } from '@/lib/completion'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -44,8 +46,12 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Fază negăsită' }, { status: 404 })
     }
 
-    if (auth.access.role === 'client' && !isClientVisiblePhase(phase)) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    if (auth.access.role === 'client') {
+      if (!isClientVisiblePhase(phase)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      // Clientul vede că faza e finalizată, dar nu și cine a marcat-o (#109).
+      const visible = { ...phase }
+      delete visible.completed_by
+      return NextResponse.json({ phase: visible })
     }
 
     return NextResponse.json({ phase })
@@ -60,9 +66,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   try {
     const { id: projectId, phaseId } = await params
     
-    const auth = await requireProjectAccess(req, projectId)
+    const auth = await requireProjectAccess(req, projectId, { write: true })
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status })
+      return NextResponse.json({ error: auth.error, message: auth.message }, { status: auth.status })
     }
 
     if (auth.access.role === 'client') {
@@ -77,6 +83,13 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Invalid visibility transition' }, { status: 400 })
     }
 
+    // Finalizarea are rute proprii (/complete, /reopen), cu gardă de manager
+    // (D1), update condiționat și audit (#109). PATCH-ul nu mai e un al doilea
+    // drum spre ea.
+    if (status !== undefined) {
+      return NextResponse.json({ error: 'status is changed only via /complete and /reopen', message: STATUS_PATCH_MESSAGE }, { status: 400 })
+    }
+
     const updateData: Record<string, any> = {}
     // Numele se schimbă singur, fără slug: `(project_id, slug)` e unic, iar două
     // nume care se deosebesc doar prin diacritice sau punctuație dau același
@@ -86,15 +99,6 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (description !== undefined) updateData.description = description
     if (project_status_id !== undefined) updateData.project_status_id = project_status_id
     if (order_index !== undefined) updateData.order_index = order_index
-    if (status !== undefined) {
-      updateData.status = status
-      if (status === 'in_progress' && !updateData.started_at) {
-        updateData.started_at = new Date().toISOString()
-      }
-      if (status === 'completed') {
-        updateData.completed_at = new Date().toISOString()
-      }
-    }
 
     const { data: before } = await supabaseAdmin
       .from('project_phases')
@@ -146,9 +150,9 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
     const { id: projectId, phaseId } = await params
     
-    const auth = await requireProjectAccess(req, projectId)
+    const auth = await requireProjectAccess(req, projectId, { write: true })
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status })
+      return NextResponse.json({ error: auth.error, message: auth.message }, { status: auth.status })
     }
 
     if (!canManageProject(auth.access)) {
@@ -174,6 +178,8 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       if (deletionError.code === 'P0002') {
         return NextResponse.json({ error: 'Not found' }, { status: 404 })
       }
+      const inactive = inactiveReferenceConflict(deletionError, 'Un cont dezactivat nu poate rămâne responsabil al cererii mutate.')
+      if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
       throw deletionError
     }
 
@@ -209,6 +215,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ success: true, deleted: deletion.deleted, ...deletionSummary })
   } catch (error: any) {
     console.error('DELETE /api/projects/[id]/phases/[phaseId] error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Operația de ștergere nu a putut fi finalizată.' }, { status: 500 })
   }
 }

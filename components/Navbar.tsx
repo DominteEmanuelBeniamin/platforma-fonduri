@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useRef } from "react"
 import { LogOut } from "lucide-react"
-import {useAuth} from "@/app/providers/AuthProvider"
+import { PUBLIC_PATHS, useAuth } from "@/app/providers/AuthProvider"
 import { usePrivateChatUnread } from "@/hooks/usePrivateChatUnread"
 import { useProjectChatUnread } from "@/app/providers/ProjectChatUnreadProvider"
 import NotificationsBell from "@/components/NotificationsBell"
@@ -54,6 +54,8 @@ export default function Navbar() {
   useEffect(() => {
     pillsRef.current?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
   }, [pathname, profile?.role])
+
+  if (PUBLIC_PATHS.has(pathname ?? '')) return null
 
   return (
     <nav

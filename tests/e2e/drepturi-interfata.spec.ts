@@ -3,7 +3,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { test, expect, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { e2eEnv, requireE2EConfig, serviceClient } from './helpers/project-state'
+import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
 import { ROW, ROWS } from './helpers/matricea-drepturilor'
 
 /**
@@ -205,8 +205,7 @@ async function fixedConsultant(tag: 'sa' | 'sb' | 'ja' | 'jb', level: 'junior' |
     const { data: existing } = await service.from('profiles').select('id').eq('email', email).maybeSingle()
     if (!existing) throw new Error(`Nu am putut crea ${email}`)
     id = existing.id as string
-    const { error } = await service.auth.admin.updateUserById(id, { password: PASSWORD })
-    if (error) throw new Error(`Parola pentru ${email}: ${error.message}`)
+    setLocalFixturePassword(id, PASSWORD)
   }
   fixedAccounts.add(id)
   const { error } = await service.from('profiles').upsert({ id, email, role: 'consultant', consultant_level: level, full_name: name, is_active: true })
@@ -690,6 +689,75 @@ test('Schimbă titlul, statusul și reminderele — adminul și seniorul din bar
   observe('p-editeaza', 'Statusul proiectului nu are control în interfață, pentru niciun rol (nici admin)', 'se schimbă doar prin API; drepturi.spec.ts verifică acolo admin/senior da, junior nu')
 })
 
+test('Încheie proiectul și finalizează faze și cereri — adminul și seniorul din meniuri și din fișă; juniorul nu le are (#109)', async ({ browser }) => {
+  // Proiect separat: încheierea nu trebuie să atingă proiectul pe care rulează restul matricei.
+  const project = await createProject(`Interfață ${STAMP} — de încheiat`, [SA.id])
+  await ensureMember(project, JA)
+  const phaseName = `Fază de finalizat ${STAMP}`
+  const phaseId = await addPhase(project, phaseName)
+  const activityId = await addActivity(project, phaseId, `Activitate de finalizat ${STAMP}`)
+  const requestName = `Cerere de închis ${STAMP}`
+  await addRequest(project, activityId, requestName)
+  // O fază se finalizează doar cu activitățile ei finalizate (decizia din 7
+  // octombrie 2026). Activitatea e marcată direct, ca testul să rămână despre
+  // drepturi; cererea rămâne deschisă, pentru fișa de mai jos.
+  const { error: activityError } = await service.from('project_activities')
+    .update({ status: 'completed', completed_at: new Date().toISOString(), completed_by: admin.id }).eq('id', activityId)
+  if (activityError) throw new Error(`Activitatea finalizată: ${activityError.message}`)
+  const lifecycle = async () => {
+    const { data } = await service.from('projects').select('lifecycle_status').eq('id', project).single()
+    return data?.lifecycle_status as string
+  }
+  const phaseStatus = async () => {
+    const { data } = await service.from('project_phases').select('status').eq('id', phaseId).single()
+    return data?.status as string
+  }
+
+  for (const person of [admin, SA]) {
+    await session(browser, person, 'p-incheie', async page => {
+      await openProject(page, project)
+      const menu = page.getByRole('button', { name: 'Mai multe acțiuni' })
+      await shows('p-incheie', person.who, 'are meniul „Mai multe acțiuni”', menu, true, page)
+      await menu.click()
+      await page.getByRole('menuitem', { name: 'Încheie proiectul' }).click()
+      await page.getByRole('dialog', { name: /Închei proiectul/ }).getByRole('button', { name: 'Încheie proiectul' }).click()
+      await stored('p-incheie', person.who, 'încheie proiectul din meniu', 'completed', lifecycle, v => v === 'completed', v => String(v))
+      await menu.click()
+      await page.getByRole('menuitem', { name: 'Redeschide proiectul' }).click()
+      await page.getByRole('dialog', { name: /Redeschizi proiectul/ }).getByRole('button', { name: 'Redeschide proiectul' }).click()
+      await stored('p-incheie', person.who, 'îl redeschide din meniu', 'active', lifecycle, v => v === 'active', v => String(v))
+    })
+
+    await session(browser, person, 'p-finalizeaza', async page => {
+      await openProject(page, project, deepLink(phaseId, activityId))
+      const phaseMenu = page.locator(`#phase-${phaseId}`).getByRole('button', { name: `Acțiuni pentru faza ${phaseName}` })
+      await phaseMenu.click()
+      await shows('p-finalizeaza', person.who, 'meniul fazei are „Marchează faza ca finalizată”', page.getByRole('menuitem', { name: 'Marchează faza ca finalizată' }), true, page)
+      await page.getByRole('menuitem', { name: 'Marchează faza ca finalizată' }).click()
+      await page.getByRole('dialog', { name: /Marchezi faza/ }).getByRole('button', { name: 'Marchează ca finalizată' }).click()
+      await stored('p-finalizeaza', person.who, 'marchează faza din meniu', 'completed', phaseStatus, v => v === 'completed', v => String(v))
+      await phaseMenu.click()
+      await page.getByRole('menuitem', { name: 'Readu faza în lucru' }).click()
+      await stored('p-finalizeaza', person.who, 'o readuce în lucru', 'in_progress', phaseStatus, v => v === 'in_progress', v => String(v))
+      await page.getByText(requestName, { exact: true }).first().click()
+      await shows('p-finalizeaza', person.who, 'fișa cererii are „Închide cererea”', page.getByRole('button', { name: 'Închide cererea' }), true, page)
+    })
+  }
+
+  await session(browser, JA, 'p-incheie', async page => {
+    await openProject(page, project)
+    await shows('p-incheie', 'junior', 'nu are meniul „Mai multe acțiuni”', page.getByRole('button', { name: 'Mai multe acțiuni' }), false, page)
+  })
+  await session(browser, JA, 'p-finalizeaza', async page => {
+    await openProject(page, project, deepLink(phaseId, activityId))
+    await page.locator(`#phase-${phaseId}`).getByRole('button', { name: `Acțiuni pentru faza ${phaseName}` }).click()
+    await shows('p-finalizeaza', 'junior', 'meniul fazei nu are „Marchează faza ca finalizată”', page.getByRole('menuitem', { name: /Marchează faza|Readu faza/ }), false, page)
+    await page.keyboard.press('Escape')
+    await page.getByText(requestName, { exact: true }).first().click()
+    await shows('p-finalizeaza', 'junior', 'fișa cererii nu are „Închide cererea”', page.getByRole('button', { name: 'Închide cererea' }), false, page)
+  })
+})
+
 test('Șterge faze și activități — „Șterge” apare la admin și senior, nu la junior; activitatea ștearsă își păstrează cererile', async ({ browser }) => {
   const phaseName = `Fază cu ștergeri ${STAMP}`
   const doomedName = `Activitate de șters ${STAMP}`
@@ -1168,7 +1236,7 @@ test('Conturi — adminul creează, schimbă rolul și șterge din „Utilizator
     await panel.getByRole('radio', { name: 'Consultant' }).check()
     await panel.getByLabel('Email').fill(email)
     await panel.getByLabel('Nume complet').fill(name)
-    await panel.getByLabel('Parolă temporară').fill(PASSWORD)
+    await expect(panel.getByLabel('Parolă temporară')).toHaveCount(0)
     await panel.getByLabel('Specializare').fill('PNRR')
     await panel.getByRole('button', { name: 'Creează' }).click()
     let userId = ''
@@ -1200,8 +1268,8 @@ test('Conturi — adminul creează, schimbă rolul și șterge din „Utilizator
       return data?.role as string
     }, v => v === 'client', v => String(v))
 
-    await page.getByRole('button', { name: `Șterge utilizatorul ${email}` }).click()
-    await confirmWithWord(page, 'Șterge utilizator', 'sterge', 'Șterge utilizator')
+    await page.getByRole('button', { name: `Șterge definitiv utilizatorul ${email}` }).click()
+    await confirmWithWord(page, 'Șterge definitiv utilizatorul', 'sterge', 'Șterge definitiv')
     await stored('a-conturi', 'admin', 'șterge contul din listă', 'șters', async () => {
       const { data } = await service.from('profiles').select('id').eq('id', userId).maybeSingle()
       return data
@@ -1221,7 +1289,7 @@ test('Conturi — adminul creează, schimbă rolul și șterge din „Utilizator
       }
     })
   }
-  observe('a-conturi', 'Parola se stabilește doar la creare („Parolă temporară”), de admin', 'nu există resetare separată de parolă în interfață')
+  observe('a-conturi', 'Parola temporară este generată automat la creare', 'nu există resetare separată de parolă în interfață')
 })
 
 test('Statusurile de proiect — adminul adaugă un status din pagină; consultanții sunt trimiși înapoi', async ({ browser }) => {

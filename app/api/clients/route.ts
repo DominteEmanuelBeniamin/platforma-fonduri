@@ -10,12 +10,22 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
+    const state = new URL(request.url).searchParams.get('state') ?? 'active'
+    if (!['active', 'inactive', 'all'].includes(state)) {
+      return NextResponse.json({ error: 'state trebuie să fie active, inactive sau all' }, { status: 400 })
+    }
+    if (ctx.profile.role !== 'admin' && state !== 'active') {
+      return NextResponse.json({ error: 'Doar adminii pot lista clienți inactivi' }, { status: 403 })
+    }
+
     const admin = createSupabaseServiceClient()
-    const { data, error } = await admin
+    let query = admin
       .from('profiles')
-      .select('id, email, full_name, nume_firma, cif')
+      .select('id, email, full_name, nume_firma, cif, is_active')
       .eq('role', 'client')
-      .order('full_name')
+    if (state === 'active') query = query.or('is_active.is.null,is_active.eq.true')
+    if (state === 'inactive') query = query.eq('is_active', false)
+    const { data, error } = await query.order('full_name')
     if (error) throw error
 
     return NextResponse.json({ clients: data })

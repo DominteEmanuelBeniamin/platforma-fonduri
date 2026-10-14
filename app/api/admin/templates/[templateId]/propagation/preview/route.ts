@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
 import { loadTemplateTree } from '@/app/api/_utils/template-tree'
 import { mapWithConcurrency } from '@/lib/template-tree'
+import { isProjectActive } from '@/lib/project-lifecycle'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -75,7 +76,7 @@ async function buildProjectPreview(project: any, template: any) {
 
   const { data: docs, error: docsError } = await supabaseAdmin
     .from('document_requirements')
-    .select('id, activity_id, name, source_template_document_requirement_id, attachment_path, attachment_original_name, is_outgoing, attachments:document_requirement_attachments(id, storage_path, original_name, order_index)')
+    .select('id, activity_id, name, status, source_template_document_requirement_id, attachment_path, attachment_original_name, is_outgoing, attachments:document_requirement_attachments(id, storage_path, original_name, order_index)')
     .eq('project_id', project.id)
     .is('deleted_at', null)
 
@@ -165,6 +166,9 @@ async function buildProjectPreview(project: any, template: any) {
             parent_activity_id: tActivity.id,
           })
         } else if (
+          // O cerere închisă nu se modifică până la redeschidere (D13), deci nici
+          // propagarea nu o atinge: aplicarea o sare, cu avertisment.
+          doc.status !== 'closed' &&
           activity &&
           (doc.activity_id !== activity.id ||
           Boolean(doc.is_outgoing) !== Boolean(tDoc.is_outgoing) ||
@@ -191,6 +195,19 @@ async function buildProjectPreview(project: any, template: any) {
     }
   }
 
+  const totals = {
+    phases: additions.phases.length + updates.phases.length,
+    activities: additions.activities.length + updates.activities.length,
+    document_requests: additions.document_requests.length + updates.document_requests.length,
+  }
+
+  // Un proiect încheiat nu primește nimic din șablon (D8). Apare ca blocat doar
+  // dacă ar fi avut ce primi: altfel dialogul s-ar deschide degeaba, pentru un
+  // proiect fără nicio modificare de propagat.
+  if (!isProjectActive(project) && (totals.phases + totals.activities + totals.document_requests > 0 || blocked.length > 0)) {
+    addBlockedReason(blocked, 'Proiectul e încheiat; nu primește modificări din șablon. Redeschide-l ca să le primească.')
+  }
+
   return {
     project_id: project.id,
     project_title: project.title,
@@ -198,11 +215,7 @@ async function buildProjectPreview(project: any, template: any) {
     blocked_reasons: blocked,
     additions,
     updates,
-    totals: {
-      phases: additions.phases.length + updates.phases.length,
-      activities: additions.activities.length + updates.activities.length,
-      document_requests: additions.document_requests.length + updates.document_requests.length,
-    },
+    totals,
   }
 }
 
@@ -225,7 +238,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const { data: projects, error: projectsError } = await supabaseAdmin
       .from('projects')
-      .select('id, title')
+      .select('id, title, lifecycle_status')
       .eq('template_id', templateId)
       .order('created_at', { ascending: false })
 

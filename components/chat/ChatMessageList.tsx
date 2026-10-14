@@ -3,6 +3,7 @@
 import { Pencil, Trash2, MoreHorizontal } from 'lucide-react'
 import type { ChatImage } from '@/lib/project-chat-contracts'
 import { getAvatarColor, getInitials } from '@/lib/avatar'
+import { profileDisplayName } from '@/lib/profile-display'
 import { toMs, isSameDay, formatDayLabel, formatTime } from './date-helpers'
 
 /**
@@ -38,7 +39,10 @@ export default function ChatMessageList({
   deleteImage,
   deleteMessage,
   confirm,
+  readOnly = false,
 }: {
+  /** Proiectul e încheiat: mesajele se citesc, nu se modifică și nu se șterg. */
+  readOnly?: boolean
   messages: any[]
   userId: string | null | undefined
   /** Șterge mesajele altora: adminul și seniorul membru. */
@@ -161,9 +165,7 @@ export default function ChatMessageList({
           {/* 1. Numele (apare doar la primul mesaj din grup) */}
           {!isMe && shouldShowHeader && (
             <span className="text-[11px] font-medium text-ink-soft mb-1 ml-10">
-              {m.profiles?.full_name ||
-                m.profiles?.email ||
-                "Necunoscut"}
+              {profileDisplayName(m.profiles, undefined, 'Necunoscut')}
             </span>
           )}
 
@@ -267,7 +269,7 @@ export default function ChatMessageList({
                               </p>
                             )}
                           </div>
-                          {!m.deleted_at && (canModerate || isMe) && (
+                          {!readOnly && !m.deleted_at && (canModerate || isMe) && (
                             <div className={`absolute top-1 transition-opacity ${isMe ? "-left-9" : "-right-9"} ${openMenuId === `message:${m.id}` ? "opacity-100" : "opacity-0 group-hover/message:opacity-100"}`}>
                               <button
                                 type="button"
@@ -326,7 +328,7 @@ export default function ChatMessageList({
                                   onError={() => { void requestImageRefresh(m.id, image); }}
                                 />
                               </button>
-                              {!m.deleted_at && (canModerate || isMe) && (
+                              {!readOnly && !m.deleted_at && (canModerate || isMe) && (
                                 <div className={`absolute top-1/2 -translate-y-1/2 transition-opacity ${isMe ? "-left-9" : "-right-9"} ${openMenuId === `image:${m.id}:${image.path}` ? "opacity-100" : "opacity-0 group-hover/image:opacity-100"}`}>
                                   <button
                                     type="button"

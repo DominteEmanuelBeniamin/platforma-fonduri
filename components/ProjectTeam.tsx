@@ -6,8 +6,9 @@ import { Loader2, UserMinus, UserPlus, Users, X } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
+import { profileDisplayName } from '@/lib/profile-display'
 
-type Person = { id: string; full_name: string | null; email: string }
+type Person = { id: string; full_name: string | null; email: string; is_active?: boolean | null }
 
 type Member = {
   id: string
@@ -25,9 +26,12 @@ function initials(name: string | null | undefined, email: string | null | undefi
 /** Motivul pentru care baza a refuzat scoaterea, spus pe românește. */
 function removalError(reason: string | undefined) {
   if (reason === 'general_consultant') return 'Consultantul răspunde de cererile generale. Alege altă persoană pentru ele, apoi încearcă din nou.'
-  if (reason === 'assigned_activity') return 'Consultantul are activități atribuite în proiect. Atribuie-le altcuiva, apoi încearcă din nou.'
-  if (reason === 'assigned_request') return 'Consultantul are cereri de documente active. Atribuie-le altcuiva, apoi încearcă din nou.'
-  if (reason === 'blocked') return 'Consultantul are încă lucruri atribuite în proiect. Atribuie-le altcuiva, apoi încearcă din nou.'
+  // Atribuirile pe elemente finalizate blochează și ele (issue separat, D15), iar
+  // acelea pot fi ascunse în pagină: mesajul spune unde să le cauți (#109).
+  if (reason === 'assigned_activity') return 'Consultantul are activități atribuite în proiect, poate și finalizate (ascunse implicit). Atribuie-le altcuiva, apoi încearcă din nou.'
+  // O cerere închisă nu se poate reatribui (D13): mesajul spune ocolul din plan.
+  if (reason === 'assigned_request') return 'Consultantul are cereri de documente atribuite, poate și închise sau aprobate (ascunse implicit). Atribuie-le altcuiva (o cerere închisă se redeschide întâi), apoi încearcă din nou.'
+  if (reason === 'blocked') return 'Consultantul are încă lucruri atribuite în proiect, poate și finalizate (ascunse implicit). Atribuie-le altcuiva, apoi încearcă din nou.'
   if (reason === 'senior') return 'Un consultant senior nu poate scoate alt senior. Cere unui administrator.'
   if (reason === 'self') return 'Nu te poți scoate singur din echipă. Cere unui administrator.'
   return 'Nu am putut scoate membrul din echipă. Reîncearcă.'
@@ -43,6 +47,7 @@ export default function ProjectTeam({
   members,
   canManage,
   canRemoveAny,
+  closed = false,
   onChange,
 }: {
   projectId: string
@@ -51,6 +56,8 @@ export default function ProjectTeam({
   canManage: boolean
   /** Adminul scoate pe oricine; seniorul doar juniori, și nu pe el însuși. */
   canRemoveAny: boolean
+  /** Proiectul e încheiat: echipa se vede, dar nu se schimbă până la redeschidere. */
+  closed?: boolean
   onChange: () => void
 }) {
   const { apiFetch, userId } = useAuth()
@@ -76,7 +83,7 @@ export default function ProjectTeam({
         canManage ? apiFetch(`/api/projects/${projectId}/available-consultants`) : Promise.resolve(null),
       ])
       if (membersRes.ok) setTeam((await membersRes.json()).members ?? [])
-      if (availRes?.ok) setAvailable((await availRes.json()).consultants ?? [])
+      if (availRes?.ok) setAvailable(((await availRes.json()).consultants ?? []).filter((person: Person) => person.is_active !== false))
     } catch (error) {
       console.error('Echipa proiectului nu s-a încărcat:', error)
     } finally {
@@ -127,7 +134,7 @@ export default function ProjectTeam({
         return
       }
       setTeam(prev => prev.filter(m => m.id !== member.id))
-      if (member.profiles) setAvailable(prev => [...prev, member.profiles!])
+      if (member.profiles?.is_active !== false && member.profiles) setAvailable(prev => [...prev, member.profiles!])
       onChange()
     } catch {
       setRowError({ id: member.id, message: 'Nu am putut scoate membrul din echipă. Reîncearcă.' })
@@ -197,7 +204,7 @@ export default function ProjectTeam({
                 {team.map(member => {
                   const person = member.profiles
                   const isSelf = member.consultant_id === userId
-                  const name = person?.full_name || person?.email || 'consultantul'
+                  const name = person ? profileDisplayName(person) : 'consultantul'
                   const confirming = confirmingId === member.id
                   const error = rowError?.id === member.id ? rowError.message : null
                   return (
@@ -211,7 +218,7 @@ export default function ProjectTeam({
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="flex items-center gap-2">
-                            <span className="truncate text-sm font-semibold text-ink">{person?.full_name || person?.email || 'Consultant'}</span>
+                            <span className="truncate text-sm font-semibold text-ink">{person ? profileDisplayName(person) : 'Consultant'}</span>
                             {person?.consultant_level === 'senior' && (
                               <span className="shrink-0 rounded-[var(--radius-plate)] border border-rule-strong px-1.5 text-[11px] font-semibold text-ink-soft">Senior</span>
                             )}
@@ -273,7 +280,7 @@ export default function ProjectTeam({
                     >
                       <option value="">{loading ? 'Se încarcă…' : 'Alege un consultant'}</option>
                       {available.map(c => (
-                        <option key={c.id} value={c.id}>{c.full_name || c.email}</option>
+                        <option key={c.id} value={c.id}>{profileDisplayName(c)}</option>
                       ))}
                     </select>
                     <Button variant="primary" disabled={!selectedId || adding} onClick={() => { void addMember() }}>
@@ -285,7 +292,11 @@ export default function ProjectTeam({
                 {addError && <p role="alert" className="mt-2 text-sm font-semibold text-[var(--sg-danger)]">{addError}</p>}
               </>
             ) : (
-              <p className="text-sm text-ink-soft">Echipa o schimbă un administrator sau un consultant senior din echipă.</p>
+              <p className="text-sm text-ink-soft">
+                {closed
+                  ? 'Proiectul e încheiat; echipa se poate schimba după redeschidere.'
+                  : 'Echipa o schimbă un administrator sau un consultant senior din echipă.'}
+              </p>
             )}
           </div>
         </Dialog.Content>

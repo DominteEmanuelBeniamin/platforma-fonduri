@@ -13,6 +13,7 @@ import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { type PrivateChatMessage, usePrivateChat } from '@/hooks/usePrivateChat'
 import { getAvatarColor, getInitials } from '@/lib/avatar'
+import { profileDisplayName } from '@/lib/profile-display'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { Spinner } from '@/components/ui/Spinner'
 
@@ -468,7 +469,7 @@ export default function PrivateChatView({
               >
                 {!isMe && shouldShowHeader && (
                   <span className="mb-1 ml-10 text-[11px] font-medium text-ink-soft">
-                    {m.profiles?.full_name || m.profiles?.email || 'Necunoscut'}
+                    {profileDisplayName(m.profiles, undefined, 'Necunoscut')}
                   </span>
                 )}
 

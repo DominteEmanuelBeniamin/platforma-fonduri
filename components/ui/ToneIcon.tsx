@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Clock, Eye, Minus, PenLine } from 'lucide-react'
+import { AlertTriangle, Archive, Check, Clock, Eye, Minus, PenLine } from 'lucide-react'
 import type { SignalTone } from '@/lib/signage'
 
 /**
@@ -11,13 +11,17 @@ import type { SignalTone } from '@/lib/signage'
  *   la client           → ceas, aștepți pe altcineva
  *   aprobat             → bifă
  *   în lucru            → peniță, încă se scrie
+ *   închis, încheiat    → cutie de arhivă, nu mai așteaptă nimic
  */
 const ICOANE: Record<SignalTone, typeof Check> = {
   danger: AlertTriangle,
   warn: Eye,
+  review: Eye,
   neutral: Clock,
+  pending: Clock,
   ok: Check,
   draft: PenLine,
+  closed: Archive,
 }
 
 export function ToneIcon({ tone, className = 'h-3 w-3' }: { tone: SignalTone; className?: string }) {

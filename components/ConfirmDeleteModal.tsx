@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, X } from 'lucide-react'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
@@ -20,6 +20,7 @@ interface ConfirmDeleteModalProps {
   confirmReadyText?: string
   loadingText?: string
   loading?: boolean
+  canConfirm?: boolean
   error?: string | null
   children?: React.ReactNode
 }
@@ -35,10 +36,16 @@ export default function ConfirmDeleteModal({
   confirmReadyText = 'Poți confirma ștergerea',
   loadingText = 'Se șterge...',
   loading = false,
+  canConfirm = true,
   error = null,
   children
 }: ConfirmDeleteModalProps) {
   const [inputValue, setInputValue] = useState('')
+  const modalRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (isOpen && !canConfirm) modalRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+  }, [isOpen, canConfirm, loading])
 
   const isConfirmEnabled = useMemo(() => {
     return inputValue.trim().toLowerCase() === confirmWord.trim().toLowerCase()
@@ -62,7 +69,7 @@ export default function ConfirmDeleteModal({
   }
 
   const handleConfirm = () => {
-    if (!isConfirmEnabled || loading) return
+    if (!canConfirm || !isConfirmEnabled || loading) return
     setInputValue('')
     onConfirm()
   }
@@ -73,18 +80,16 @@ export default function ConfirmDeleteModal({
       handleConfirm()
       return
     }
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      handleClose()
-    }
   }
 
   if (!isOpen || typeof document === 'undefined') return null
 
   const modalContent = (
     <div
+      ref={modalRef}
       className="fixed inset-0 flex items-center justify-center p-4"
       style={{ zIndex: 999999 }}
+      onKeyDown={(event) => { if (event.key === 'Escape' && !loading) { event.preventDefault(); event.stopPropagation(); handleClose() } }}
     >
       <Scrim onClick={handleClose} />
 
@@ -92,12 +97,13 @@ export default function ConfirmDeleteModal({
         role="dialog"
         ariaModal
         ariaLabel={title}
-        className="relative w-full max-w-md overflow-hidden rounded-[var(--radius-plate-lg)]"
+        className="relative max-h-[calc(100dvh_-_2rem)] w-full max-w-md overflow-y-auto rounded-[var(--radius-plate-lg)]"
       >
         {/* Close button ALWAYS top-right */}
         <IconButton
           label="Închide"
           onClick={handleClose}
+          autoFocus={!canConfirm}
           disabled={loading}
           className="absolute top-3 right-3 z-[60]"
         >
@@ -123,7 +129,7 @@ export default function ConfirmDeleteModal({
         {/* Body */}
         <div className="px-6 py-5 space-y-4">
           {children}
-          <div>
+          {canConfirm && <div>
             <label className="block text-sm font-medium text-ink mb-2">
               Pentru a confirma, scrie{' '}
               <span className="font-bold text-[var(--sg-danger)]">{confirmWord}</span> mai jos:
@@ -139,19 +145,19 @@ export default function ConfirmDeleteModal({
               disabled={loading}
               className="w-full px-4 py-3 rounded-[var(--radius-plate)] border border-rule text-sm focus:border-[var(--sg-danger)] focus:ring-4 focus:ring-[var(--sg-danger-soft)] outline-none transition-all bg-paper-sunk focus:bg-white disabled:opacity-60"
             />
-          </div>
+          </div>}
 
           {error && <FeedbackMessage variant="error">{error}</FeedbackMessage>}
 
           {/* Feedback */}
-          {inputValue.length > 0 && !isConfirmEnabled && (
+          {canConfirm && inputValue.length > 0 && !isConfirmEnabled && (
             <p className="text-xs text-[var(--sg-warn)] flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--sg-warn)]" />
               Textul introdus nu corespunde
             </p>
           )}
 
-          {isConfirmEnabled && (
+          {canConfirm && isConfirmEnabled && (
             <p className="text-xs text-[var(--sg-ok)] flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--sg-ok)]" />
               {confirmReadyText}
@@ -162,10 +168,10 @@ export default function ConfirmDeleteModal({
         {/* Footer */}
         <div className="px-6 py-4 border-t border-rule bg-paper-sunk flex gap-3">
           <Button variant="secondary" onClick={handleClose} disabled={loading} className="flex-1">
-            Anulează
+            {canConfirm ? 'Anulează' : 'Închide'}
           </Button>
 
-          <Button
+          {canConfirm && <Button
             variant="danger"
             onClick={handleConfirm}
             disabled={!isConfirmEnabled || loading}
@@ -179,7 +185,7 @@ export default function ConfirmDeleteModal({
             ) : (
               confirmText
             )}
-          </Button>
+          </Button>}
         </div>
       </FloatingSurface>
     </div>

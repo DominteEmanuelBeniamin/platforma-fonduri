@@ -9,6 +9,7 @@ import { useToast } from '@/app/providers/ToastProvider'
 import { LocationStrip } from '@/components/ui/LocationStrip'
 import DriveFilesView, { DriveRow } from '@/components/DriveFilesView'
 import { Spinner } from '@/components/ui/Spinner'
+import { profileDisplayName } from '@/lib/profile-display'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -197,7 +198,7 @@ export default function UserFilesPage() {
         segments={[
           { label: 'Bonie', href: '/' },
           { label: 'Utilizatori', href: '/admin/users' },
-          { label: user.full_name || user.email },
+          { label: profileDisplayName(user, user.full_name || user.email) },
         ]}
         action={
           <>
@@ -219,7 +220,7 @@ export default function UserFilesPage() {
       />
 
       <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">
-        {user.full_name || user.email}
+        {profileDisplayName(user, user.full_name || user.email)}
       </h1>
       <p className="mb-6 mt-2 text-sm text-ink-soft">
         Fișierele acestui utilizator, din toate proiectele lui.

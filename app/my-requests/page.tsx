@@ -224,7 +224,7 @@ export default function MyRequestsPage() {
 
                       {/* Status */}
                       <Signal
-                        tone={req.status === 'rejected' ? 'danger' : req.status === 'review' ? 'warn' : 'neutral'}
+                        tone={req.status === 'rejected' ? 'danger' : req.status === 'review' ? 'review' : 'pending'}
                         className="hidden shrink-0 md:inline-flex"
                       >
                         {req.status === 'review' ? 'De verificat' : req.status === 'rejected' ? 'Respins' : 'La client'}

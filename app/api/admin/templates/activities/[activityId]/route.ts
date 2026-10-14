@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
 import { markTemplateChanged } from '@/app/api/_utils/template-changes'
+import { inactiveReferenceConflict } from '@/app/api/_utils/inactive-reference'
 
 async function loadActivityChain(templatePhaseId: string | null | undefined) {
   if (!templatePhaseId) return { phaseName: '', templateName: '' }
@@ -50,19 +51,46 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const body = await req.json()
     const { name, description, order_index, estimated_days, is_active, default_consultant_id } = body
 
+    if (default_consultant_id !== undefined && default_consultant_id !== null && typeof default_consultant_id !== 'string') {
+      return NextResponse.json({ error: 'default_consultant_id trebuie să fie UUID sau null' }, { status: 400 })
+    }
+    const defaultConsultantId = default_consultant_id === undefined
+      ? undefined
+      : typeof default_consultant_id === 'string'
+      ? default_consultant_id.trim() || null
+      : null
+
     const updateData: Record<string, any> = {}
     if (name !== undefined) updateData.name = name
     if (description !== undefined) updateData.description = description
     if (order_index !== undefined) updateData.order_index = order_index
     if (estimated_days !== undefined) updateData.estimated_days = estimated_days
     if (is_active !== undefined) updateData.is_active = is_active
-    if (default_consultant_id !== undefined) updateData.default_consultant_id = default_consultant_id || null
+    if (defaultConsultantId !== undefined) updateData.default_consultant_id = defaultConsultantId
 
     const { data: before } = await supabaseAdmin
       .from('template_activities')
       .select('*')
       .eq('id', activityId)
       .maybeSingle()
+
+    if (
+      defaultConsultantId &&
+      defaultConsultantId !== before?.default_consultant_id
+    ) {
+      const { data: consultant, error: consultantError } = await supabaseAdmin
+        .from('profiles')
+        .select('role, is_active')
+        .eq('id', defaultConsultantId)
+        .maybeSingle()
+      if (consultantError) throw consultantError
+      if (!consultant || consultant.role !== 'consultant') {
+        return NextResponse.json({ error: 'Implicita de atribuire trebuie să fie un consultant valid.' }, { status: 400 })
+      }
+      if (consultant.is_active === false) {
+        return NextResponse.json({ error: 'Implicita de atribuire trebuie să fie un consultant activ.' }, { status: 409 })
+      }
+    }
 
     const { data: activity, error } = await supabaseAdmin
       .from('template_activities')
@@ -71,7 +99,11 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      const inactive = inactiveReferenceConflict(error, 'Nu poți seta un consultant implicit dezactivat.')
+      if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
+      throw error
+    }
 
     const diff = computeDiff(before, updateData)
     if (!diff.isEmpty) {

@@ -36,8 +36,9 @@ export async function GET(request: Request) {
     // 🔍 search profiles
     let query = admin
       .from('profiles')
-      .select('id, full_name, email, role')
+      .select('id, full_name, email, role, is_active')
       .neq('id', ctx.user.id)
+      .not('is_active', 'is', 'false')
 
     if (q) {
       query = query.or(

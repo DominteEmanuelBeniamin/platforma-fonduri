@@ -35,8 +35,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ro" className={`${signage.variable} h-full overflow-x-hidden`}>
-      <body className="h-full bg-paper text-ink antialiased overflow-x-hidden">
+    <html lang="ro" className={`${signage.variable} h-full overflow-x-clip`}>
+      <body className="h-full bg-paper text-ink antialiased overflow-x-clip">
         <ToastProvider>
         <AuthProvider>
           <NotificationsProvider>

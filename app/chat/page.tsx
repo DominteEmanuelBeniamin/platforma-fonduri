@@ -8,6 +8,7 @@ import { usePrivateConversations } from '@/hooks/usePrivateConversations'
 import { usePrivateChatUsers } from '@/hooks/usePrivateChatUsers'
 import PrivateChatView from '@/components/PrivateChatView'
 import { getAvatarColor, getInitials } from '@/lib/avatar'
+import { profileDisplayName } from '@/lib/profile-display'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 
 function formatConversationTime(iso: string | null) {
@@ -324,8 +325,7 @@ function ChatPageContent() {
                 const active = item.id === selectedConversationId
                 const unread = getIsUnread(item)
 
-                const displayName =
-                  item.other_user?.full_name || item.other_user?.email || 'Utilizator'
+                const displayName = profileDisplayName(item.other_user, undefined, 'Utilizator')
                 const email = item.other_user?.email
                 const preview = item.last_message?.body || 'Fără mesaje încă'
                 const color = getAvatarColor(displayName)
@@ -407,11 +407,7 @@ function ChatPageContent() {
             <PrivateChatView
               key={selectedConversation.id}
               conversationId={selectedConversation.id}
-              title={
-                selectedConversation.other_user?.full_name ||
-                selectedConversation.other_user?.email ||
-                'Conversație'
-              }
+              title={profileDisplayName(selectedConversation.other_user, undefined, 'Conversație')}
               subtitle={selectedConversation.other_user?.email ?? null}
               initialLastReadAt={selectedConversation.last_read_at}
               otherLastReadAt={selectedConversation.other_last_read_at}

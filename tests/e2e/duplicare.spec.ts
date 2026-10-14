@@ -37,7 +37,7 @@ async function login(page: Page) {
 async function openPhasesView(page: Page, projectId: string) {
   await page.goto(`/projects/${projectId}`, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(6000)
-  await page.getByRole('button', { name: 'Fazele proiectului' }).click()
+  await page.getByRole('button', { name: 'Faze & Activități' }).click()
   await page.waitForTimeout(1500)
 }
 
@@ -51,8 +51,7 @@ async function firstPhaseName(page: Page) {
 async function expandPhaseInCenter(page: Page, phaseName: string) {
   const row = page.getByRole('button', { name: `Acțiuni pentru faza ${phaseName}`, exact: true })
     .first().locator('xpath=../..')
-  const chevron = row.getByRole('button', { name: 'Extinde faza' })
-  if (await chevron.count()) await chevron.click()
+  await row.getByText(phaseName, { exact: true }).click()
   await expect(page.getByRole('heading', { name: phaseName, exact: true })).toBeVisible({ timeout: 20_000 })
 }
 

@@ -6,6 +6,7 @@ import { logAction } from '@/app/api/_utils/audit'
 import { parseTemplateDuplication } from '@/app/api/_utils/template-duplication'
 import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
 import { markTemplateChanged } from '@/app/api/_utils/template-changes'
+import { inactiveReferenceConflict } from '@/app/api/_utils/inactive-reference'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,6 +23,13 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json()
     const { template_phase_id, name, description, order_index, estimated_days, default_consultant_id } = body
+
+    if (default_consultant_id !== undefined && default_consultant_id !== null && typeof default_consultant_id !== 'string') {
+      return NextResponse.json({ error: 'default_consultant_id trebuie să fie UUID sau null' }, { status: 400 })
+    }
+    const defaultConsultantId = typeof default_consultant_id === 'string'
+      ? default_consultant_id.trim() || null
+      : null
 
     if (!template_phase_id || !name) {
       return NextResponse.json({ error: 'Faza și numele sunt obligatorii' }, { status: 400 })
@@ -61,6 +69,21 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (defaultConsultantId) {
+      const { data: consultant, error: consultantError } = await supabaseAdmin
+        .from('profiles')
+        .select('role, is_active')
+        .eq('id', defaultConsultantId)
+        .maybeSingle()
+      if (consultantError) throw consultantError
+      if (!consultant || consultant.role !== 'consultant') {
+        return NextResponse.json({ error: 'Implicita de atribuire trebuie să fie un consultant valid.' }, { status: 400 })
+      }
+      if (consultant.is_active === false) {
+        return NextResponse.json({ error: 'Implicita de atribuire trebuie să fie un consultant activ.' }, { status: 409 })
+      }
+    }
+
     let finalOrderIndex = order_index
     if (!finalOrderIndex) {
       const { data: maxOrder } = await supabaseAdmin
@@ -82,13 +105,17 @@ export async function POST(req: NextRequest) {
         description: description || null,
         order_index: finalOrderIndex,
         estimated_days: estimated_days || null,
-        default_consultant_id: default_consultant_id || null,
+        default_consultant_id: defaultConsultantId,
         is_active: true
       })
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      const inactive = inactiveReferenceConflict(error, 'Nu poți seta un consultant implicit dezactivat.')
+      if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
+      throw error
+    }
 
     const { data: phaseRow } = await supabaseAdmin
       .from('template_phases')

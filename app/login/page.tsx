@@ -8,6 +8,7 @@ import { Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
 import { useToast } from '@/app/providers/ToastProvider'
+import Link from 'next/link'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -18,11 +19,23 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [authLoading, setAuthLoading] = useState(false)
+  // Linkul de resetare apare doar când serverul chiar poate trimite emailul;
+  // altfel userul ar primi „vei primi un email” fără să plece nimic.
+  const [recoveryAvailable, setRecoveryAvailable] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/auth/recovery/availability', { cache: 'no-store' })
+      .then(response => response.ok ? response.json() : null)
+      .then(body => { if (!cancelled) setRecoveryAvailable(body?.available === true) })
+      .catch(() => undefined)
+    return () => { cancelled = true }
+  }, [])
 
   // Redirect dacă e deja logat
   useEffect(() => {
     if (authInitLoading) return
-    if (token) router.replace('/')
+    if (token && new URLSearchParams(window.location.search).get('recovery') !== 'complete') router.replace('/')
   }, [authInitLoading, token, router])
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -119,6 +132,13 @@ export default function LoginPage() {
             <Button type="submit" variant="primary" disabled={authLoading} className="w-full">
               {authLoading ? 'Se conectează…' : 'Intră în cont'}
             </Button>
+            {recoveryAvailable && (
+              <p className="text-center text-sm">
+                <Link href="/forgot-password" className="font-semibold text-[var(--sg-accent-ink)] underline underline-offset-4">
+                  Ai uitat parola?
+                </Link>
+              </p>
+            )}
           </form>
         </div>
       </div>

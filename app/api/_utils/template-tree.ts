@@ -23,7 +23,7 @@ async function selectAll(buildQuery: () => any) {
 }
 
 const PHASE_SELECT = '*, project_status:project_statuses(id, name, slug, color, icon)'
-const ACTIVITY_SELECT = '*, default_consultant:default_consultant_id(id, full_name, email)'
+const ACTIVITY_SELECT = '*, default_consultant:default_consultant_id(id, full_name, email, is_active)'
 const DOCUMENT_SELECT = '*, attachments:document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at, created_at)'
 
 /**
