@@ -5,8 +5,8 @@ import { useState, useEffect, useRef, useCallback, useMemo, Fragment, Suspense }
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createPortal } from 'react-dom'
 import {
-  Layers, Activity, FileText, Plus, Trash2, FolderOpen,
-  ChevronDown, ChevronRight, ChevronUp, Check, X, Paperclip, Upload,
+  Layers, FileText, Plus, Trash2,
+  ChevronDown, ChevronRight, ChevronUp, ChevronsDownUp, ChevronsUpDown, Check, X, Paperclip, Upload,
   Loader2, Edit2, AlertCircle, GripVertical, Copy,
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
@@ -25,7 +25,7 @@ import {
 import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
 import { Spinner } from '@/components/ui/Spinner'
 import { LocationStrip } from '@/components/ui/LocationStrip'
-import { Button, ButtonLink } from '@/components/ui/Button'
+import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -33,6 +33,7 @@ import { Plate } from '@/components/ui/Plate'
 import { Signal } from '@/components/ui/Signal'
 import { FloatingSurface, Scrim } from '@/components/ui/Surface'
 import { profileDisplayName } from '@/lib/profile-display'
+import { bandFor, bandVar } from '@/lib/signage'
 
 interface ProjectStatus {
   id: string
@@ -87,7 +88,7 @@ interface TemplateActivity {
 interface TemplatePhase {
   id: string
   name: string
-  project_status_id: string
+  project_status_id: string | null
   activities: TemplateActivity[]
   expanded: boolean
   duplication?: TemplateDuplication
@@ -104,7 +105,7 @@ interface Template {
   phases: {
     id: string
     name: string
-    project_status_id: string
+    project_status_id: string | null
     order_index: number
     activities?: {
       id: string
@@ -255,6 +256,12 @@ function hasMissingTemplateAttachment(doc: DocumentRequirement) {
   return Boolean(doc.templateFileMissingAt || doc.templateAttachments.some(attachment => attachment.missing_at))
 }
 
+/** Încărcarea stă lângă Modifică și Șterge, ca pictogramă; textul rămâne în tooltip și pentru cititoare. */
+function uploadLabel(doc: DocumentRequirement) {
+  const hasFiles = doc.templateAttachments.length > 0 || doc.templateFiles.length > 0
+  return `${hasFiles ? 'Adaugă' : 'Atașează'} ${doc.is_outgoing ? 'documente' : 'modele'}`
+}
+
 function getDeleteModalText(target: TemplateDeleteTarget | null) {
   if (!target) {
     return {
@@ -318,7 +325,7 @@ function Camp({
 }: { label: string; required?: boolean; hint?: string; error?: string | null; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-sm font-semibold text-ink">
+      <span className="mb-1 block text-sm font-semibold text-ink">
         {label}{required && <span className="ml-0.5 text-[var(--sg-danger)]" aria-hidden="true">*</span>}
       </span>
       {children}
@@ -338,18 +345,35 @@ const inputErrorClass =
   'h-11 w-full rounded-[var(--radius-plate)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-3 text-sm text-ink ' +
   'placeholder:text-ink-faint transition-colors duration-[120ms] focus:border-[var(--sg-danger)] sm:h-10'
 
+/** Butoanele-pictogramă ale rândurilor: 32px cu mausul, ca rândurile să rămână joase; 44px la atingere. */
+const compactIcon = 'pointer-fine:h-8! pointer-fine:w-8!'
+
+/** Numele fazei și al activității se citesc ca titluri și se editează pe loc; muchia apare la hover și la focus. */
+const titleInputClass =
+  'rounded-[var(--radius-plate)] border border-transparent bg-transparent px-2 text-ink placeholder:text-ink-faint ' +
+  'transition-colors duration-[120ms] hover:border-rule hover:bg-plate focus:border-[var(--sg-accent)] focus:bg-plate'
+const titleInputErrorClass = 'border-[var(--sg-danger)]! bg-[var(--sg-danger-soft)]!'
+
+/** Mânerul de tras e doar pentru maus: tragerea HTML nu merge la atingere, acolo rămân săgețile. */
+const dragHandleClass = 'hidden shrink-0 cursor-grab p-0.5 text-ink-faint hover:text-ink-soft active:cursor-grabbing pointer-fine:block'
+
+/* Săgețile de reordonare apar la hover sau la focus când există maus; la atingere stau mereu la vedere. */
+const revealOnPhaseHover = 'transition-opacity duration-[120ms] pointer-fine:opacity-0 group-hover/phase:opacity-100! focus-within:opacity-100!'
+const revealOnActivityHover = 'transition-opacity duration-[120ms] pointer-fine:opacity-0 group-hover/act:opacity-100! focus-within:opacity-100!'
+const revealOnDocHover = 'transition-opacity duration-[120ms] pointer-fine:opacity-0 group-hover/doc:opacity-100! focus-within:opacity-100!'
+
 /** Perechea sus/jos — alternativa la tastatură a tragerii cu mouse-ul, cerută de WCAG 2.1.1. */
 function ReorderButtons({
-  itemLabel, onUp, onDown, disableUp, disableDown,
-}: { itemLabel: string; onUp: () => void; onDown: () => void; disableUp: boolean; disableDown: boolean }) {
+  itemLabel, onUp, onDown, disableUp, disableDown, className = '',
+}: { itemLabel: string; onUp: () => void; onDown: () => void; disableUp: boolean; disableDown: boolean; className?: string }) {
   return (
-    <div className="flex flex-col" role="group" aria-label={`Reordonează ${itemLabel}`}>
+    <div className={`flex items-center ${className}`} role="group" aria-label={`Reordonează ${itemLabel}`}>
       <button
         type="button"
         onClick={onUp}
         disabled={disableUp}
         aria-label={`Mută ${itemLabel} mai sus`}
-        className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
+        className="flex h-11 w-10 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:text-ink disabled:cursor-not-allowed disabled:opacity-30 pointer-fine:h-8 pointer-fine:w-6"
       >
         <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
@@ -358,7 +382,7 @@ function ReorderButtons({
         onClick={onDown}
         disabled={disableDown}
         aria-label={`Mută ${itemLabel} mai jos`}
-        className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
+        className="flex h-11 w-10 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:text-ink disabled:cursor-not-allowed disabled:opacity-30 pointer-fine:h-8 pointer-fine:w-6"
       >
         <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
@@ -523,11 +547,13 @@ function AdminTemplatesContent() {
     fetchData()
   }, [authLoading, token, profile, router, fetchData])
 
+  // Statusul fazei nu se mai alege în editor; faza nouă îl primește pe primul,
+  // ca importul în proiect să meargă ca înainte.
   const addPhase = () => {
     setPhases([...phases, {
       id: generateId(),
       name: '',
-      project_status_id: statuses[0]?.id || '',
+      project_status_id: statuses[0]?.id || null,
       activities: [],
       expanded: true
     }])
@@ -539,6 +565,11 @@ function AdminTemplatesContent() {
 
   const removePhase = (phaseId: string) => {
     setPhases(phases.filter(p => p.id !== phaseId))
+  }
+
+  const allPhasesExpanded = phases.length > 0 && phases.every(p => p.expanded)
+  const setAllPhasesExpanded = (expanded: boolean) => {
+    setPhases(current => current.map(p => ({ ...p, expanded })))
   }
 
   // Duplicare (#15). Copia primește id-uri locale noi, deci salvarea o creează
@@ -777,8 +808,6 @@ function AdminTemplatesContent() {
     ))
   }
 
-  const getStatusColor = (statusId: string) => statuses.find(s => s.id === statusId)?.color || 'var(--sg-rule-strong)'
-
   const clearValidationError = (key: string) => {
     setValidationErrors(prev => {
       if (!prev.has(key)) return prev
@@ -808,11 +837,6 @@ function AdminTemplatesContent() {
         messages.push(`Faza ${phaseIdx + 1} nu are nume.`)
       }
 
-      if (!phase.project_status_id) {
-        errors.add(`phase:${phase.id}:project_status_id`)
-        messages.push(`Faza "${phaseLabel}" nu are status asociat.`)
-      }
-
       phase.activities.forEach((activity, activityIdx) => {
         const activityLabel = activity.name.trim() || `Activitatea ${activityIdx + 1}`
 
@@ -839,7 +863,6 @@ function AdminTemplatesContent() {
         current.map(phase => {
           const phaseHasErrors =
             errors.has(`phase:${phase.id}:name`) ||
-            errors.has(`phase:${phase.id}:project_status_id`) ||
             phase.activities.some(activity =>
               errors.has(`activity:${phase.id}:${activity.id}:name`) ||
               activity.document_requirements.some(doc =>
@@ -1056,7 +1079,7 @@ function AdminTemplatesContent() {
         phases: phases.map(phase => ({
           id: phase.id,
           name: phase.name,
-          project_status_id: phase.project_status_id,
+          project_status_id: phase.project_status_id || null,
           duplication: phase.duplication,
           source_local_id: phase.sourceLocalId,
           activities: phase.activities.map(activity => ({
@@ -1331,6 +1354,13 @@ function AdminTemplatesContent() {
     )
   }, [templates, templateSearch])
 
+  const formActivityCount = phases.reduce((sum, phase) => sum + phase.activities.length, 0)
+  const formSummary = [
+    countLabel(phases.length, 'fază', 'faze'),
+    countLabel(formActivityCount, 'activitate', 'activități'),
+    countLabel(phases.reduce((sum, phase) => sum + countPhaseDocuments(phase), 0), 'cerere de document', 'cereri de documente'),
+  ].join(' · ')
+
   const totalFaze = templates.reduce((sum, template) => sum + template.phases.length, 0)
   const totalActivitati = templates.reduce((sum, template) => sum + template.phases.reduce((count, phase) => count + (phase.activities?.length ?? 0), 0), 0)
 
@@ -1355,41 +1385,33 @@ function AdminTemplatesContent() {
         ]}
         action={
           !showForm ? (
-            <>
-              {isAdmin && (
-                <ButtonLink href="/projects/new" variant="secondary" label="Proiect nou">
-                  <FolderOpen className="h-4 w-4" aria-hidden="true" />
-                  <span className="hidden sm:inline">Proiect nou</span>
-                </ButtonLink>
-              )}
-              <Button variant="primary" onClick={openCreateForm} aria-label="Șablon nou">
-                <Plus className="h-4 w-4" aria-hidden="true" />
-                <span className="hidden sm:inline">Șablon nou</span>
-              </Button>
-            </>
-          ) : (
-            <Button variant="quiet" onClick={resetForm}>
-              <X className="h-4 w-4" aria-hidden="true" />
-              Renunță
+            <Button variant="primary" onClick={openCreateForm} aria-label="Șablon nou">
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Șablon nou</span>
             </Button>
-          )
+          ) : undefined
         }
       />
 
       {!showForm && (
         <>
-          <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Șabloane</h1>
-          <p className="mt-2 text-sm text-ink-soft">
-            {templates.length} {templates.length === 1 ? 'șablon' : 'șabloane'} · {totalFaze} {totalFaze === 1 ? 'fază' : 'faze'} · {totalActivitati} {totalActivitati === 1 ? 'activitate' : 'activități'}
-          </p>
-
-          {templates.length > 0 && (
-            <div className="mt-6 max-w-sm border-b border-rule pb-4">
-              <SearchInput value={templateSearch} onChange={setTemplateSearch} placeholder="Caută după nume sau descriere…" label="Caută șabloane" />
+          {/* Pagină de lucru, nu de prezentare: titlul, cifrele și căutarea
+              stau pe un singur rând, ca lista să înceapă cât mai sus. */}
+          <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-ink md:text-3xl">Șabloane</h1>
+              <p className="mt-1 text-sm text-ink-soft">
+                {countLabel(templates.length, 'șablon', 'șabloane')} · {countLabel(totalFaze, 'fază', 'faze')} · {countLabel(totalActivitati, 'activitate', 'activități')}
+              </p>
             </div>
-          )}
+            {templates.length > 0 && (
+              <div className="w-full sm:w-72">
+                <SearchInput value={templateSearch} onChange={setTemplateSearch} placeholder="Caută după nume sau descriere…" label="Caută șabloane" />
+              </div>
+            )}
+          </div>
 
-          <div className={templates.length > 0 ? 'mt-4 pb-10' : 'mt-6 pb-10'}>
+          <div className="mt-4 pb-10">
             {templates.length === 0 ? (
               <EmptyState
                 title="Niciun șablon creat"
@@ -1414,12 +1436,12 @@ function AdminTemplatesContent() {
                     <thead className="hidden lg:table-header-group">
                       <tr className="border-b border-rule bg-paper-sunk">
                         {/* Acțiunile au loc rezervat; numele se rupe în lățimea rămasă. */}
-                        <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Șablon</th>
-                        <th scope="col" className="w-40 px-4 py-2.5 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Status</th>
-                        <th scope="col" className="w-16 px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Faze</th>
-                        <th scope="col" className="w-24 px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Activități</th>
-                        <th scope="col" className="w-24 px-4 py-2.5 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Documente</th>
-                        <th scope="col" className="w-48 px-4 py-2.5"><span className="sr-only">Acțiuni</span></th>
+                        <th scope="col" className="px-3 py-2 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Șablon</th>
+                        <th scope="col" className="w-40 px-3 py-2 text-left text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Status</th>
+                        <th scope="col" className="w-16 px-3 py-2 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Faze</th>
+                        <th scope="col" className="w-24 px-3 py-2 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Activități</th>
+                        <th scope="col" className="w-24 px-3 py-2 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Documente</th>
+                        <th scope="col" className="w-44 px-3 py-2"><span className="sr-only">Acțiuni</span></th>
                       </tr>
                     </thead>
                     <tbody className="block lg:table-row-group">
@@ -1435,7 +1457,7 @@ function AdminTemplatesContent() {
                               onClick={() => phaseCount > 0 && toggleTemplateExpanded(template.id)}
                               className={`flex flex-wrap items-center border-b border-rule last:border-b-0 transition-colors lg:table-row ${phaseCount > 0 ? 'cursor-pointer hover:bg-paper-sunk' : ''} ${expanded ? 'bg-paper-sunk' : ''}`}
                             >
-                              <td className="w-full px-4 py-3 lg:w-auto">
+                              <td className="w-full px-3 pb-1 pt-2.5 lg:w-auto lg:py-2">
                                 <div className="flex items-center gap-1.5">
                                   {phaseCount > 0 ? (
                                     <button
@@ -1454,13 +1476,16 @@ function AdminTemplatesContent() {
                                   <div className="min-w-0 break-words">
                                     <span className="block font-medium text-ink">{template.name}</span>
                                     {template.description && (
-                                      <span className="mt-0.5 block text-xs leading-5 text-ink-soft line-clamp-1">{template.description}</span>
+                                      <span className="mt-0.5 text-xs leading-5 text-ink-soft line-clamp-1" title={template.description}>{template.description}</span>
                                     )}
+                                    <span className="mt-0.5 block text-xs text-ink-faint lg:hidden">
+                                      {countLabel(phaseCount, 'fază', 'faze')} · {countLabel(activityCount, 'activitate', 'activități')} · {countLabel(countTemplateDocuments(template), 'document', 'documente')}
+                                    </span>
                                   </div>
                                 </div>
                               </td>
-                              <td className="max-w-full px-4 pb-3 lg:py-3">
-                                <div className="flex flex-col items-start gap-1.5">
+                              <td className="max-w-full px-3 pb-2 lg:py-2">
+                                <div className="flex flex-col items-start gap-1">
                                   <Signal tone={template.status === 'draft' ? 'draft' : 'ok'}>
                                     {template.status === 'draft' ? 'Ciornă' : 'Publicat'}
                                   </Signal>
@@ -1478,23 +1503,24 @@ function AdminTemplatesContent() {
                                   )}
                                 </div>
                               </td>
-                              <td className="px-4 pb-3 tabular-nums text-ink-soft lg:py-3 lg:text-right"><span className="lg:hidden">Faze: </span>{phaseCount}</td>
-                              <td className="px-4 pb-3 tabular-nums text-ink-soft lg:py-3 lg:text-right"><span className="lg:hidden">Activități: </span>{activityCount}</td>
-                              <td className="px-4 pb-3 tabular-nums text-ink-soft lg:py-3 lg:text-right"><span className="lg:hidden">Documente: </span>{countTemplateDocuments(template)}</td>
-                              <td className="w-full px-4 pb-3 lg:w-auto lg:py-3">
+                              <td className="hidden px-3 py-2 text-right tabular-nums text-ink-soft lg:table-cell">{phaseCount}</td>
+                              <td className="hidden px-3 py-2 text-right tabular-nums text-ink-soft lg:table-cell">{activityCount}</td>
+                              <td className="hidden px-3 py-2 text-right tabular-nums text-ink-soft lg:table-cell">{countTemplateDocuments(template)}</td>
+                              <td className="ml-auto px-3 pb-2 lg:ml-0 lg:py-2">
                                 <div className="flex flex-wrap items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                                   {editable && (
-                                    <IconButton label={`Editează șablonul ${template.name}`} onClick={() => handleEdit(template)}>
+                                    <IconButton className={compactIcon} label={`Editează șablonul ${template.name}`} onClick={() => handleEdit(template)}>
                                       <Edit2 className="h-4 w-4" />
                                     </IconButton>
                                   )}
                                   {isAdmin && template.status === 'draft' && (
-                                    <IconButton label={`Publică șablonul ${template.name}`} onClick={() => requestPublishTemplate(template)}>
+                                    <IconButton className={compactIcon} label={`Publică șablonul ${template.name}`} onClick={() => requestPublishTemplate(template)}>
                                       <Check className="h-4 w-4" />
                                     </IconButton>
                                   )}
                                   {canManageTemplates && (
                                     <IconButton
+                                      className={compactIcon}
                                       label={`Duplică șablonul ${template.name}`}
                                       disabled={duplicatingId !== null}
                                       onClick={() => { void duplicateTemplate(template) }}
@@ -1503,7 +1529,7 @@ function AdminTemplatesContent() {
                                     </IconButton>
                                   )}
                                   {canManageTemplates && (
-                                    <IconButton label={`Șterge șablonul ${template.name}`} tone="danger" onClick={() => requestDeleteTemplate(template)}>
+                                    <IconButton className={compactIcon} label={`Șterge șablonul ${template.name}`} tone="danger" onClick={() => requestDeleteTemplate(template)}>
                                       <Trash2 className="h-4 w-4" />
                                     </IconButton>
                                   )}
@@ -1512,29 +1538,24 @@ function AdminTemplatesContent() {
                             </tr>
                             {expanded && phaseCount > 0 && (
                               <tr id={detailsId} className="block border-b border-rule bg-paper-sunk last:border-b-0 lg:table-row">
-                                <td colSpan={6} className="block break-words px-4 py-3 pl-11 lg:table-cell">
-                                  <ol className="flex flex-col gap-2">
-                                    {template.phases.map((phase, index) => {
-                                      const status = statuses.find(s => s.id === phase.project_status_id)
-                                      return (
-                                        <li key={phase.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
-                                          {/* Culoarea statusului e aleasă de administrator, deci nu poate
-                                              garanta contrast pe text alb — o purtăm ca semn de identitate
-                                              pe muchie, cu numele scris în cerneală. */}
-                                          <span
-                                            aria-hidden="true"
-                                            className="mt-1 h-3.5 w-[var(--sg-rail)] shrink-0 self-start rounded-[1px]"
-                                            style={{ background: status?.color || 'var(--sg-rule-strong)' }}
-                                          />
-                                          <span className="w-5 shrink-0 text-ink-faint">{index + 1}.</span>
-                                          <span className="min-w-0 flex-1 font-medium text-ink">{phase.name}</span>
-                                          {status && <span className="shrink-0 text-ink-soft">{status.name}</span>}
-                                          <span className="shrink-0 text-ink-faint">
-                                            {phase.activities?.length || 0} {phase.activities?.length === 1 ? 'activitate' : 'activități'}
-                                          </span>
-                                        </li>
-                                      )
-                                    })}
+                                <td colSpan={6} className="block break-words px-3 py-2.5 pl-10 lg:table-cell">
+                                  {/* Fazele curg pe coloane, în ordine de sus în jos: nouă faze încap în trei rânduri. */}
+                                  <ol className="columns-1 gap-x-10 sm:columns-2 xl:columns-3">
+                                    {template.phases.map((phase, index) => (
+                                      <li key={phase.id} className="flex break-inside-avoid items-baseline gap-x-2.5 py-0.5 text-sm">
+                                        {/* Banda după poziție, aceeași pe care faza o poartă în proiect. */}
+                                        <span
+                                          aria-hidden="true"
+                                          className="mt-1 h-3.5 w-[var(--sg-rail)] shrink-0 self-start rounded-[1px]"
+                                          style={{ background: bandVar(bandFor(index)) }}
+                                        />
+                                        <span className="w-5 shrink-0 tabular-nums text-ink-faint">{index + 1}.</span>
+                                        <span className="min-w-0 flex-1 font-medium text-ink">{phase.name}</span>
+                                        <span className="shrink-0 text-xs text-ink-faint">
+                                          {countLabel(phase.activities?.length || 0, 'activitate', 'activități')}
+                                        </span>
+                                      </li>
+                                    ))}
                                   </ol>
                                 </td>
                               </tr>
@@ -1552,20 +1573,20 @@ function AdminTemplatesContent() {
 
       {showForm && (
         <>
-          <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">
+          <h1 className="text-2xl font-bold tracking-tight text-ink md:text-3xl">
             {editingTemplate ? 'Editează șablonul' : 'Șablon nou'}
           </h1>
-          <p className="mt-2 text-sm text-ink-soft">
+          <p className="mt-1 hidden text-sm text-ink-soft sm:block">
             {editingTemplate
               ? 'Modifică fazele, activitățile și cererile de documente ale acestui șablon.'
               : 'Definește fazele, activitățile și documentele cerute — un proiect nou pornește de aici.'}
           </p>
 
-          <div className="mt-6 space-y-6 pb-16">
+          <div className="mt-4 space-y-4">
             {formError && <FeedbackMessage variant="error">{formError}</FeedbackMessage>}
 
-            <Plate className="p-5">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Plate className="p-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <Camp label="Nume șablon" required error={hasValidationError('template:name') ? 'Numele șablonului este obligatoriu.' : null}>
                   <input
                     type="text"
@@ -1590,13 +1611,16 @@ function AdminTemplatesContent() {
               </div>
             </Plate>
 
-            <div>
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-ink">Faze și activități</h2>
-                {phases.length > 0 && (
-                  <span className="text-xs text-ink-soft">
-                    {phases.length} {phases.length === 1 ? 'fază' : 'faze'}
-                  </span>
+            <section aria-labelledby="faze-sablon">
+              <div className="mb-2 flex min-h-9 items-center justify-between gap-3">
+                <h2 id="faze-sablon" className="text-sm font-semibold text-ink">Faze și activități</h2>
+                {phases.length > 1 && (
+                  <Button variant="quiet" size="sm" onClick={() => setAllPhasesExpanded(!allPhasesExpanded)}>
+                    {allPhasesExpanded
+                      ? <ChevronsDownUp className="h-3.5 w-3.5" aria-hidden="true" />
+                      : <ChevronsUpDown className="h-3.5 w-3.5" aria-hidden="true" />}
+                    {allPhasesExpanded ? 'Restrânge toate fazele' : 'Extinde toate fazele'}
+                  </Button>
                 )}
               </div>
 
@@ -1605,305 +1629,333 @@ function AdminTemplatesContent() {
                   Un șablon fără faze nu poate fi salvat. Adaugă prima fază pentru a începe să definești fluxul de lucru.
                 </EmptyState>
               ) : (
-                <div className="space-y-4">
-                  {phases.map((phase, phaseIdx) => (
-                    <Plate
-                      key={phase.id}
-                      rail={getStatusColor(phase.project_status_id)}
-                      className={`overflow-hidden !p-0 ${dragItem?.kind === 'phase' && dragItem.id === phase.id ? 'opacity-50' : ''}`}
-                    >
-                      <div
-                        className="flex items-center gap-2 bg-paper-sunk px-4 py-3"
-                        onDragOver={e => handleReorderDragOver(e, 'phase', '', phase.id)}
+                <div className="space-y-3">
+                  {phases.map((phase, phaseIdx) => {
+                    const phaseLabel = phase.name || phaseIdx + 1
+                    return (
+                      <Plate
+                        key={phase.id}
+                        band={bandFor(phaseIdx)}
+                        className={`overflow-hidden !p-0 ${dragItem?.kind === 'phase' && dragItem.id === phase.id ? 'opacity-50' : ''}`}
                       >
-                        <span
-                          draggable
-                          aria-hidden="true"
-                          onDragStart={e => { setDragItem({ kind: 'phase', parentKey: '', id: phase.id }); e.dataTransfer.effectAllowed = 'move' }}
-                          onDragEnd={() => setDragItem(null)}
-                          title="Trage pentru a reordona"
-                          className="-ml-1 cursor-grab p-0.5 text-ink-faint hover:text-ink-soft active:cursor-grabbing"
+                        {/* Capul fazei: numele se citește ca titlu și se editează pe loc. */}
+                        <div
+                          className={`group/phase flex flex-wrap items-center gap-x-1.5 gap-y-1 bg-paper-sunk px-2 pb-2 pt-3 sm:px-3 ${phase.expanded ? 'border-b border-rule' : ''}`}
+                          onDragOver={e => handleReorderDragOver(e, 'phase', '', phase.id)}
                         >
-                          <GripVertical className="h-4 w-4" />
-                        </span>
-                        <ReorderButtons
-                          itemLabel={`faza ${phase.name || phaseIdx + 1}`}
-                          onUp={() => movePhase(phase.id, -1)}
-                          onDown={() => movePhase(phase.id, 1)}
-                          disableUp={phaseIdx === 0}
-                          disableDown={phaseIdx === phases.length - 1}
-                        />
-                        <IconButton
-                          label={phase.expanded ? `Restrânge faza ${phase.name || phaseIdx + 1}` : `Extinde faza ${phase.name || phaseIdx + 1}`}
-                          onClick={() => updatePhase(phase.id, { expanded: !phase.expanded })}
-                        >
-                          {phase.expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                        </IconButton>
-                        <span className="w-6 shrink-0 text-center text-sm font-semibold tabular-nums text-ink-soft">{phaseIdx + 1}</span>
-                        <input
-                          type="text"
-                          value={phase.name}
-                          onChange={(e) => {
-                            updatePhase(phase.id, { name: e.target.value })
-                            clearValidationError(`phase:${phase.id}:name`)
-                          }}
-                          placeholder="Nume fază…"
-                          aria-label={`Nume pentru faza ${phaseIdx + 1}`}
-                          className={`h-10 flex-1 rounded-[var(--radius-plate)] border bg-plate px-3 text-sm text-ink placeholder:text-ink-faint transition-colors duration-[120ms] focus:border-[var(--sg-accent)] ${
-                            hasValidationError(`phase:${phase.id}:name`) ? 'border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]' : 'border-rule'
-                          }`}
-                        />
-                        <select
-                          value={phase.project_status_id}
-                          onChange={(e) => {
-                            updatePhase(phase.id, { project_status_id: e.target.value })
-                            clearValidationError(`phase:${phase.id}:project_status_id`)
-                          }}
-                          aria-label={`Status de proiect pentru faza ${phaseIdx + 1}`}
-                          className={`h-10 rounded-[var(--radius-plate)] border bg-plate px-2 text-sm text-ink transition-colors duration-[120ms] focus:border-[var(--sg-accent)] ${
-                            hasValidationError(`phase:${phase.id}:project_status_id`) ? 'border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]' : 'border-rule'
-                          }`}
-                        >
-                          {statuses.map(s => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                          ))}
-                        </select>
-                        <IconButton label={`Duplică faza ${phase.name || phaseIdx + 1}`} onClick={() => duplicatePhase(phase.id)}>
-                          <Copy className="h-4 w-4" />
-                        </IconButton>
-                        <IconButton label={`Șterge faza ${phase.name || phaseIdx + 1}`} tone="danger" onClick={() => requestDeletePhase(phase)}>
-                          <Trash2 className="h-4 w-4" />
-                        </IconButton>
-                      </div>
+                          <span
+                            draggable
+                            aria-hidden="true"
+                            onDragStart={e => { setDragItem({ kind: 'phase', parentKey: '', id: phase.id }); e.dataTransfer.effectAllowed = 'move' }}
+                            onDragEnd={() => setDragItem(null)}
+                            title="Trage pentru a reordona"
+                            className={dragHandleClass}
+                          >
+                            <GripVertical className="h-4 w-4" />
+                          </span>
+                          <IconButton
+                            className={compactIcon}
+                            label={phase.expanded ? `Restrânge faza ${phaseLabel}` : `Extinde faza ${phaseLabel}`}
+                            aria-expanded={phase.expanded}
+                            onClick={() => updatePhase(phase.id, { expanded: !phase.expanded })}
+                          >
+                            <ChevronRight className={`h-4 w-4 transition-transform duration-[120ms] ${phase.expanded ? 'rotate-90' : ''}`} />
+                          </IconButton>
+                          <span className="w-5 shrink-0 text-center text-sm font-semibold tabular-nums text-ink-soft">{phaseIdx + 1}</span>
+                          <input
+                            type="text"
+                            value={phase.name}
+                            onChange={(e) => {
+                              updatePhase(phase.id, { name: e.target.value })
+                              clearValidationError(`phase:${phase.id}:name`)
+                            }}
+                            placeholder="Nume fază…"
+                            aria-label={`Nume pentru faza ${phaseIdx + 1}`}
+                            className={`${titleInputClass} h-10 min-w-[10rem] flex-1 text-[15px] font-semibold pointer-fine:h-9 ${
+                              hasValidationError(`phase:${phase.id}:name`) ? titleInputErrorClass : ''
+                            }`}
+                          />
+                          <span className="hidden shrink-0 px-1 text-xs text-ink-faint md:inline">
+                            {countLabel(phase.activities.length, 'activitate', 'activități')} · {countLabel(countPhaseDocuments(phase), 'document', 'documente')}
+                          </span>
+                          <div className="ml-auto flex items-center gap-0.5">
+                            <ReorderButtons
+                              className={revealOnPhaseHover}
+                              itemLabel={`faza ${phaseLabel}`}
+                              onUp={() => movePhase(phase.id, -1)}
+                              onDown={() => movePhase(phase.id, 1)}
+                              disableUp={phaseIdx === 0}
+                              disableDown={phaseIdx === phases.length - 1}
+                            />
+                            <IconButton className={compactIcon} label={`Duplică faza ${phaseLabel}`} onClick={() => duplicatePhase(phase.id)}>
+                              <Copy className="h-4 w-4" />
+                            </IconButton>
+                            <IconButton className={compactIcon} label={`Șterge faza ${phaseLabel}`} tone="danger" onClick={() => requestDeletePhase(phase)}>
+                              <Trash2 className="h-4 w-4" />
+                            </IconButton>
+                          </div>
+                        </div>
 
-                      {phase.expanded && (
-                        <div className="space-y-3 p-4">
-                          {(hasValidationError(`phase:${phase.id}:name`) || hasValidationError(`phase:${phase.id}:project_status_id`)) && (
-                            <p className="text-xs text-[var(--sg-danger)]">
-                              Completează numele fazei și statusul înainte de salvare.
-                            </p>
-                          )}
+                        {phase.expanded && (
+                          <div className="space-y-3 px-2 py-3 sm:px-3">
+                            {hasValidationError(`phase:${phase.id}:name`) && (
+                              <p className="text-xs text-[var(--sg-danger)]">
+                                Completează numele fazei înainte de salvare.
+                              </p>
+                            )}
 
-                          {phase.activities.map((activity, activityIdx) => (
-                            <div
-                              key={activity.id}
-                              className={`border-l border-rule pl-4 ${dragItem?.kind === 'activity' && dragItem.id === activity.id ? 'opacity-50' : ''}`}
-                            >
-                              <div
-                                className="mb-2 flex flex-wrap items-center gap-2"
-                                onDragOver={e => handleReorderDragOver(e, 'activity', phase.id, activity.id)}
-                              >
-                                <span
-                                  draggable
-                                  aria-hidden="true"
-                                  onDragStart={e => { setDragItem({ kind: 'activity', parentKey: phase.id, id: activity.id }); e.dataTransfer.effectAllowed = 'move' }}
-                                  onDragEnd={() => setDragItem(null)}
-                                  title="Trage pentru a reordona"
-                                  className="-ml-1 cursor-grab p-0.5 text-ink-faint hover:text-ink-soft active:cursor-grabbing"
+                            {phase.activities.map((activity, activityIdx) => {
+                              const activityLabel = activity.name || activityIdx + 1
+                              return (
+                                <div
+                                  key={activity.id}
+                                  className={dragItem?.kind === 'activity' && dragItem.id === activity.id ? 'opacity-50' : ''}
                                 >
-                                  <GripVertical className="h-3.5 w-3.5" />
-                                </span>
-                                <ReorderButtons
-                                  itemLabel={`activitatea ${activity.name || activityIdx + 1}`}
-                                  onUp={() => moveActivity(phase.id, activity.id, -1)}
-                                  onDown={() => moveActivity(phase.id, activity.id, 1)}
-                                  disableUp={activityIdx === 0}
-                                  disableDown={activityIdx === phase.activities.length - 1}
-                                />
-                                <Activity className="h-4 w-4 shrink-0 text-ink-faint" aria-hidden="true" />
-                                <input
-                                  type="text"
-                                  value={activity.name}
-                                  onChange={(e) => {
-                                    updateActivity(phase.id, activity.id, { name: e.target.value })
-                                    clearValidationError(`activity:${phase.id}:${activity.id}:name`)
-                                  }}
-                                  placeholder="Nume activitate…"
-                                  aria-label={`Nume pentru activitatea ${activityIdx + 1} din faza ${phase.name || phaseIdx + 1}`}
-                                  className={`h-9 min-w-[160px] flex-1 rounded-[var(--radius-plate)] border bg-plate px-3 text-sm text-ink placeholder:text-ink-faint transition-colors duration-[120ms] focus:border-[var(--sg-accent)] ${
-                                    hasValidationError(`activity:${phase.id}:${activity.id}:name`) ? 'border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]' : 'border-rule'
-                                  }`}
-                                />
-                                <select
-                                  value={activity.default_consultant_id ?? ''}
-                                  onChange={e => updateActivity(phase.id, activity.id, { default_consultant_id: e.target.value || undefined })}
-                                  aria-label={`Consultant implicit pentru activitatea ${activity.name || activityIdx + 1}`}
-                                  className="h-9 min-w-[150px] rounded-[var(--radius-plate)] border border-rule bg-plate px-2 text-xs text-ink transition-colors duration-[120ms] focus:border-[var(--sg-accent)]"
-                                >
-                                  <option value="">Consultant implicit</option>
-                                  {consultants.find(c => c.id === activity.default_consultant_id && c.is_active === false) && (
-                                    <option value={activity.default_consultant_id} disabled>{profileDisplayName(consultants.find(c => c.id === activity.default_consultant_id))}</option>
-                                  )}
-                                  {consultants.filter(c => c.is_active !== false).map(c => (
-                                    <option key={c.id} value={c.id}>{profileDisplayName(c)}</option>
-                                  ))}
-                                </select>
-                                <IconButton
-                                  label={activity.expanded ? `Restrânge activitatea ${activity.name || activityIdx + 1}` : `Extinde activitatea ${activity.name || activityIdx + 1}`}
-                                  className="!h-9 !w-9"
-                                  onClick={() => updateActivity(phase.id, activity.id, { expanded: !activity.expanded })}
-                                >
-                                  {activity.expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                                </IconButton>
-                                <IconButton label={`Duplică activitatea ${activity.name || activityIdx + 1}`} className="!h-9 !w-9" onClick={() => duplicateActivity(phase.id, activity.id)}>
-                                  <Copy className="h-3.5 w-3.5" />
-                                </IconButton>
-                                <IconButton label={`Șterge activitatea ${activity.name || activityIdx + 1}`} tone="danger" className="!h-9 !w-9" onClick={() => requestDeleteActivity(phase.id, activity)}>
-                                  <X className="h-3.5 w-3.5" />
-                                </IconButton>
-                              </div>
-
-                              {activity.expanded && (
-                                <div className="ml-5 space-y-2">
-                                  {hasValidationError(`activity:${phase.id}:${activity.id}:name`) && (
-                                    <p className="text-xs text-[var(--sg-danger)]">Numele activității este obligatoriu.</p>
-                                  )}
-
-                                  {activity.document_requirements.map((doc, docIdx) => (
-                                    <div
-                                      key={doc.id}
-                                      onDragOver={e => handleReorderDragOver(e, 'doc', `${phase.id}:${activity.id}`, doc.id)}
-                                      className={`flex items-start gap-2 rounded-[var(--radius-plate)] border p-3 ${
-                                        hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:name`) ||
-                                        hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`)
-                                          ? 'border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]'
-                                          : doc.is_outgoing
-                                          ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)]'
-                                          : 'border-rule bg-paper-sunk'
-                                      } ${dragItem?.kind === 'doc' && dragItem.id === doc.id ? 'opacity-50' : ''}`}
+                                  <div
+                                    className="group/act flex flex-wrap items-center gap-x-1.5 gap-y-1"
+                                    onDragOver={e => handleReorderDragOver(e, 'activity', phase.id, activity.id)}
+                                  >
+                                    <span
+                                      draggable
+                                      aria-hidden="true"
+                                      onDragStart={e => { setDragItem({ kind: 'activity', parentKey: phase.id, id: activity.id }); e.dataTransfer.effectAllowed = 'move' }}
+                                      onDragEnd={() => setDragItem(null)}
+                                      title="Trage pentru a reordona"
+                                      className={dragHandleClass}
                                     >
-                                      <span
-                                        draggable
-                                        aria-hidden="true"
-                                        onDragStart={e => { setDragItem({ kind: 'doc', parentKey: `${phase.id}:${activity.id}`, id: doc.id }); e.dataTransfer.effectAllowed = 'move' }}
-                                        onDragEnd={() => setDragItem(null)}
-                                        title="Trage pentru a reordona"
-                                        className="-ml-1 mt-0.5 cursor-grab p-0.5 text-ink-faint hover:text-ink-soft active:cursor-grabbing"
+                                      <GripVertical className="h-4 w-4" />
+                                    </span>
+                                    <IconButton
+                                      className={compactIcon}
+                                      label={activity.expanded ? `Restrânge activitatea ${activityLabel}` : `Extinde activitatea ${activityLabel}`}
+                                      aria-expanded={activity.expanded}
+                                      onClick={() => updateActivity(phase.id, activity.id, { expanded: !activity.expanded })}
+                                    >
+                                      <ChevronRight className={`h-4 w-4 transition-transform duration-[120ms] ${activity.expanded ? 'rotate-90' : ''}`} />
+                                    </IconButton>
+                                    <input
+                                      type="text"
+                                      value={activity.name}
+                                      onChange={(e) => {
+                                        updateActivity(phase.id, activity.id, { name: e.target.value })
+                                        clearValidationError(`activity:${phase.id}:${activity.id}:name`)
+                                      }}
+                                      placeholder="Nume activitate…"
+                                      aria-label={`Nume pentru activitatea ${activityIdx + 1} din faza ${phaseLabel}`}
+                                      className={`${titleInputClass} h-10 min-w-[10rem] flex-1 text-sm font-medium pointer-fine:h-8 ${
+                                        hasValidationError(`activity:${phase.id}:${activity.id}:name`) ? titleInputErrorClass : ''
+                                      }`}
+                                    />
+                                    <div className="ml-auto flex items-center gap-0.5">
+                                      <select
+                                        value={activity.default_consultant_id ?? ''}
+                                        onChange={e => updateActivity(phase.id, activity.id, { default_consultant_id: e.target.value || undefined })}
+                                        aria-label={`Consultant implicit pentru activitatea ${activityLabel}`}
+                                        className="mr-1 h-10 w-44 rounded-[var(--radius-plate)] border border-rule bg-plate px-2 text-xs text-ink-soft transition-colors duration-[120ms] hover:border-rule-strong focus:border-[var(--sg-accent)] pointer-fine:h-8"
                                       >
-                                        <GripVertical className="h-3.5 w-3.5" />
-                                      </span>
+                                        <option value="">Consultant implicit</option>
+                                        {consultants.find(c => c.id === activity.default_consultant_id && c.is_active === false) && (
+                                          <option value={activity.default_consultant_id} disabled>{profileDisplayName(consultants.find(c => c.id === activity.default_consultant_id))}</option>
+                                        )}
+                                        {consultants.filter(c => c.is_active !== false).map(c => (
+                                          <option key={c.id} value={c.id}>{profileDisplayName(c)}</option>
+                                        ))}
+                                      </select>
                                       <ReorderButtons
-                                        itemLabel={`cererea ${doc.name || docIdx + 1}`}
-                                        onUp={() => moveDocRequirement(phase.id, activity.id, doc.id, -1)}
-                                        onDown={() => moveDocRequirement(phase.id, activity.id, doc.id, 1)}
-                                        disableUp={docIdx === 0}
-                                        disableDown={docIdx === activity.document_requirements.length - 1}
+                                        className={revealOnActivityHover}
+                                        itemLabel={`activitatea ${activityLabel}`}
+                                        onUp={() => moveActivity(phase.id, activity.id, -1)}
+                                        onDown={() => moveActivity(phase.id, activity.id, 1)}
+                                        disableUp={activityIdx === 0}
+                                        disableDown={activityIdx === phase.activities.length - 1}
                                       />
-                                      <FileText className={`mt-0.5 h-4 w-4 shrink-0 ${doc.is_outgoing ? 'text-[var(--sg-accent)]' : 'text-ink-faint'}`} aria-hidden="true" />
-                                      <div className="min-w-0 flex-1">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                          <span className="text-sm font-medium text-ink">{doc.name || 'Document fără nume'}</span>
-                                          {doc.is_outgoing ? (
-                                            <span className="rounded-[var(--radius-plate)] border border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] px-1.5 py-0.5 text-xs text-[var(--sg-accent)]">
-                                              Document de trimis
-                                            </span>
-                                          ) : REQUIREMENT_BADGE[doc.requirement_type] && (
-                                            <span className={`rounded-[var(--radius-plate)] border px-1.5 py-0.5 text-xs ${REQUIREMENT_BADGE[doc.requirement_type].bg} ${REQUIREMENT_BADGE[doc.requirement_type].text} ${REQUIREMENT_BADGE[doc.requirement_type].border}`}>
-                                              {REQUIREMENT_LABELS[doc.requirement_type]}
-                                            </span>
-                                          )}
-                                        </div>
-                                        {hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:name`) && (
-                                          <p className="mt-0.5 text-xs text-[var(--sg-danger)]">Numele documentului este obligatoriu.</p>
-                                        )}
-                                        {hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`) && (
-                                          <p className="mt-0.5 text-xs text-[var(--sg-danger)]">Documentul de trimis are nevoie de fișier atașat.</p>
-                                        )}
-                                        {doc.description && (
-                                          <p className="mt-0.5 text-xs text-ink-soft">{doc.description}</p>
-                                        )}
-                                        {(doc.templateAttachments.length > 0 || doc.templateFiles.length > 0) && (
-                                          <div className={`mt-1 flex items-center gap-1 text-xs ${hasMissingTemplateAttachment(doc) ? 'text-[var(--sg-warn)]' : 'text-[var(--sg-accent)]'}`}>
-                                            {hasMissingTemplateAttachment(doc) ? <AlertCircle className="h-3 w-3" aria-hidden="true" /> : <Paperclip className="h-3 w-3" aria-hidden="true" />}
-                                            <span>{[
-                                              ...doc.templateAttachments.map(a => `${a.original_name || a.storage_path.split('/').pop() || 'fișier atașat'}${a.missing_at ? ' (indisponibil)' : ''}`),
-                                              ...doc.templateFiles.map(file => file.name),
-                                            ].filter(Boolean).join(', ')}</span>
-                                          </div>
-                                        )}
-                                        <div className="mt-2 flex items-center gap-2">
-                                          <label className="inline-flex cursor-pointer items-center gap-1 rounded-[var(--radius-plate)] border border-rule bg-plate px-2 py-1 text-xs text-ink-soft hover:border-[var(--sg-accent)] hover:text-[var(--sg-accent)]">
-                                            <Upload className="h-3 w-3" aria-hidden="true" />
-                                            {doc.templateAttachments.length > 0 || doc.templateFiles.length > 0
-                                              ? doc.is_outgoing ? 'Adaugă documente' : 'Adaugă modele'
-                                              : doc.is_outgoing ? 'Atașează documente' : 'Atașează modele'}
-                                            <input
-                                              type="file"
-                                              className="sr-only"
-                                              accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp"
-                                              multiple
-                                              onChange={(e) => {
-                                                const files = Array.from(e.currentTarget.files ?? [])
-                                                if (files.length === 0) return
-                                                updateDocRequirement(phase.id, activity.id, doc.id, {
-                                                  templateFiles: [...doc.templateFiles, ...files],
-                                                  templateAttachments: doc.templateAttachments,
-                                                  templateFileName: files[0].name,
-                                                  templateFileMissingAt: doc.templateAttachments.find(attachment => attachment.missing_at)?.missing_at || null,
-                                                  templateFileRemoved: false,
-                                                })
-                                                clearValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`)
-                                                e.currentTarget.value = ''
-                                              }}
-                                            />
-                                          </label>
-                                        </div>
-                                      </div>
-                                      <IconButton label={`Modifică cererea ${doc.name || 'fără nume'}`} className="!h-9 !w-9" onClick={() => openEditDocModal(phase.id, activity.id, doc)}>
-                                        <Edit2 className="h-3.5 w-3.5" />
+                                      <IconButton label={`Duplică activitatea ${activityLabel}`} className={compactIcon} onClick={() => duplicateActivity(phase.id, activity.id)}>
+                                        <Copy className="h-3.5 w-3.5" />
                                       </IconButton>
-                                      <IconButton label={`Șterge cererea ${doc.name || 'fără nume'}`} tone="danger" className="!h-9 !w-9" onClick={() => requestDeleteDocRequirement(phase.id, activity.id, doc)}>
-                                        <X className="h-3.5 w-3.5" />
+                                      <IconButton label={`Șterge activitatea ${activityLabel}`} tone="danger-quiet" className={compactIcon} onClick={() => requestDeleteActivity(phase.id, activity)}>
+                                        <Trash2 className="h-3.5 w-3.5" />
                                       </IconButton>
                                     </div>
-                                  ))}
-                                  <button
-                                    type="button"
-                                    onClick={() => openAddDocModal(phase.id, activity.id)}
-                                    className="flex items-center gap-1 rounded-[var(--radius-plate)] px-3 py-2 text-xs font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)]"
-                                  >
-                                    <Plus className="h-3 w-3" aria-hidden="true" /> Adaugă cerere document
-                                  </button>
+                                  </div>
+
+                                  {activity.expanded && (
+                                    <div className="mt-1.5 sm:ml-14">
+                                      {hasValidationError(`activity:${phase.id}:${activity.id}:name`) && (
+                                        <p className="mb-1.5 text-xs text-[var(--sg-danger)]">Numele activității este obligatoriu.</p>
+                                      )}
+
+                                      {/* Cererile activității: o singură listă cu despărțitoare, nu câte o casetă pentru fiecare. */}
+                                      <ul className="divide-y divide-rule overflow-hidden rounded-[var(--radius-plate)] border border-rule bg-plate">
+                                        {activity.document_requirements.map((doc, docIdx) => {
+                                          const docInvalid =
+                                            hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:name`) ||
+                                            hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`)
+                                          return (
+                                            <li
+                                              key={doc.id}
+                                              onDragOver={e => handleReorderDragOver(e, 'doc', `${phase.id}:${activity.id}`, doc.id)}
+                                              className={`group/doc flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1 ${
+                                                docInvalid
+                                                  ? 'bg-[var(--sg-danger-soft)]'
+                                                  : doc.is_outgoing
+                                                  ? 'bg-[var(--sg-accent-soft)]'
+                                                  : ''
+                                              } ${dragItem?.kind === 'doc' && dragItem.id === doc.id ? 'opacity-50' : ''}`}
+                                            >
+                                              <span
+                                                draggable
+                                                aria-hidden="true"
+                                                onDragStart={e => { setDragItem({ kind: 'doc', parentKey: `${phase.id}:${activity.id}`, id: doc.id }); e.dataTransfer.effectAllowed = 'move' }}
+                                                onDragEnd={() => setDragItem(null)}
+                                                title="Trage pentru a reordona"
+                                                className={dragHandleClass}
+                                              >
+                                                <GripVertical className="h-3.5 w-3.5" />
+                                              </span>
+                                              <FileText className={`h-4 w-4 shrink-0 ${doc.is_outgoing ? 'text-[var(--sg-accent)]' : 'text-ink-faint'}`} aria-hidden="true" />
+                                              <div className="min-w-[10rem] flex-1 py-1">
+                                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                                  <span className="text-sm font-medium text-ink">{doc.name || 'Document fără nume'}</span>
+                                                  {doc.is_outgoing ? (
+                                                    <span className="rounded-[var(--radius-plate)] border border-[var(--sg-accent)] bg-plate px-1.5 text-[11px] leading-[18px] text-[var(--sg-accent)]">
+                                                      Document de trimis
+                                                    </span>
+                                                  ) : REQUIREMENT_BADGE[doc.requirement_type] && (
+                                                    <span className={`rounded-[var(--radius-plate)] border px-1.5 text-[11px] leading-[18px] ${REQUIREMENT_BADGE[doc.requirement_type].bg} ${REQUIREMENT_BADGE[doc.requirement_type].text} ${REQUIREMENT_BADGE[doc.requirement_type].border}`}>
+                                                      {REQUIREMENT_LABELS[doc.requirement_type]}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                                {hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:name`) && (
+                                                  <p className="mt-0.5 text-xs text-[var(--sg-danger)]">Numele documentului este obligatoriu.</p>
+                                                )}
+                                                {hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`) && (
+                                                  <p className="mt-0.5 text-xs text-[var(--sg-danger)]">Documentul de trimis are nevoie de fișier atașat.</p>
+                                                )}
+                                                {doc.description && (
+                                                  <p className="mt-0.5 text-xs leading-5 text-ink-soft">{doc.description}</p>
+                                                )}
+                                                {(doc.templateAttachments.length > 0 || doc.templateFiles.length > 0) && (
+                                                  <p className={`mt-0.5 flex items-start gap-1 text-xs leading-5 ${hasMissingTemplateAttachment(doc) ? 'text-[var(--sg-warn)]' : 'text-[var(--sg-accent)]'}`}>
+                                                    {hasMissingTemplateAttachment(doc)
+                                                      ? <AlertCircle className="mt-1 h-3 w-3 shrink-0" aria-hidden="true" />
+                                                      : <Paperclip className="mt-1 h-3 w-3 shrink-0" aria-hidden="true" />}
+                                                    <span className="min-w-0 break-words">{[
+                                                      ...doc.templateAttachments.map(a => `${a.original_name || a.storage_path.split('/').pop() || 'fișier atașat'}${a.missing_at ? ' (indisponibil)' : ''}`),
+                                                      ...doc.templateFiles.map(file => file.name),
+                                                    ].filter(Boolean).join(', ')}</span>
+                                                  </p>
+                                                )}
+                                              </div>
+                                              <div className="ml-auto flex items-center gap-0.5">
+                                                <ReorderButtons
+                                                  className={revealOnDocHover}
+                                                  itemLabel={`cererea ${doc.name || docIdx + 1}`}
+                                                  onUp={() => moveDocRequirement(phase.id, activity.id, doc.id, -1)}
+                                                  onDown={() => moveDocRequirement(phase.id, activity.id, doc.id, 1)}
+                                                  disableUp={docIdx === 0}
+                                                  disableDown={docIdx === activity.document_requirements.length - 1}
+                                                />
+                                                <label
+                                                  title={uploadLabel(doc)}
+                                                  className="inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-[var(--sg-accent)] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--sg-accent)] pointer-fine:h-8 pointer-fine:w-8"
+                                                >
+                                                  <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+                                                  <span className="sr-only">{uploadLabel(doc)} — {doc.name || 'cerere fără nume'}</span>
+                                                  <input
+                                                    type="file"
+                                                    className="sr-only"
+                                                    accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp"
+                                                    multiple
+                                                    onChange={(e) => {
+                                                      const files = Array.from(e.currentTarget.files ?? [])
+                                                      if (files.length === 0) return
+                                                      updateDocRequirement(phase.id, activity.id, doc.id, {
+                                                        templateFiles: [...doc.templateFiles, ...files],
+                                                        templateAttachments: doc.templateAttachments,
+                                                        templateFileName: files[0].name,
+                                                        templateFileMissingAt: doc.templateAttachments.find(attachment => attachment.missing_at)?.missing_at || null,
+                                                        templateFileRemoved: false,
+                                                      })
+                                                      clearValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`)
+                                                      e.currentTarget.value = ''
+                                                    }}
+                                                  />
+                                                </label>
+                                                <IconButton label={`Modifică cererea ${doc.name || 'fără nume'}`} className={compactIcon} onClick={() => openEditDocModal(phase.id, activity.id, doc)}>
+                                                  <Edit2 className="h-3.5 w-3.5" />
+                                                </IconButton>
+                                                <IconButton label={`Șterge cererea ${doc.name || 'fără nume'}`} tone="danger-quiet" className={compactIcon} onClick={() => requestDeleteDocRequirement(phase.id, activity.id, doc)}>
+                                                  <Trash2 className="h-3.5 w-3.5" />
+                                                </IconButton>
+                                              </div>
+                                            </li>
+                                          )
+                                        })}
+                                        <li>
+                                          <button
+                                            type="button"
+                                            onClick={() => openAddDocModal(phase.id, activity.id)}
+                                            className="flex min-h-9 w-full items-center gap-1.5 px-3 py-2 text-left text-xs font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)]"
+                                          >
+                                            <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Adaugă cerere document
+                                          </button>
+                                        </li>
+                                      </ul>
+                                    </div>
+                                  )}
                                 </div>
-                              )}
-                            </div>
-                          ))}
-                          <button
-                            type="button"
-                            onClick={() => addActivity(phase.id)}
-                            className="ml-4 flex items-center gap-1 text-sm font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:text-[var(--sg-accent-ink)]"
-                          >
-                            <Plus className="h-4 w-4" aria-hidden="true" /> Adaugă activitate
-                          </button>
-                        </div>
-                      )}
-                    </Plate>
-                  ))}
+                              )
+                            })}
+                            <button
+                              type="button"
+                              onClick={() => addActivity(phase.id)}
+                              className="inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-plate)] px-2 text-sm font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)]"
+                            >
+                              <Plus className="h-4 w-4" aria-hidden="true" /> Adaugă activitate
+                            </button>
+                          </div>
+                        )}
+                      </Plate>
+                    )
+                  })}
                 </div>
               )}
 
               <button
                 type="button"
                 onClick={addPhase}
-                className="mt-4 flex w-full items-center justify-center gap-2 rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-4 py-3 text-sm font-semibold text-ink-soft transition-colors duration-[120ms] hover:border-[var(--sg-accent)] hover:text-[var(--sg-accent)]"
+                className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-4 py-2 text-sm font-semibold text-ink-soft transition-colors duration-[120ms] hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)]"
               >
-                <Plus className="h-5 w-5" aria-hidden="true" /> Adaugă fază nouă
+                <Plus className="h-4 w-4" aria-hidden="true" /> Adaugă fază nouă
               </button>
-            </div>
+            </section>
+          </div>
 
-            <div className="flex flex-col-reverse gap-3 border-t border-rule pt-4 sm:flex-row">
-              <Button variant="secondary" className="sm:flex-1" onClick={resetForm}>
-                Anulează
-              </Button>
-              <Button
-                variant="primary"
-                className="sm:flex-1"
-                onClick={handleSave}
-                disabled={saving || !templateName.trim()}
-              >
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
-                {saving ? 'Se salvează…' : (editingTemplate ? 'Salvează modificările' : 'Creează template')}
-              </Button>
+          {/* Bara de salvare rămâne la vedere: la un șablon cu zeci de cereri,
+              butonul de la capătul paginii era la câteva ecrane distanță. */}
+          <div className="sticky bottom-0 z-10 -mx-4 mt-6 border-t border-rule bg-paper px-4 py-3 sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="hidden min-w-0 text-sm leading-5 sm:block">
+                <span className="block truncate font-semibold text-ink">
+                  {templateName.trim() ? `„${templateName.trim()}”` : 'Șablon fără nume'}
+                </span>
+                <span className="mt-0.5 block truncate text-xs text-ink-soft">{formSummary}</span>
+              </p>
+              <div className="flex shrink-0 gap-2">
+                <Button variant="quiet" className="flex-1 sm:flex-none" onClick={resetForm}>
+                  Anulează
+                </Button>
+                <Button
+                  variant="primary"
+                  className="flex-1 sm:flex-none"
+                  onClick={handleSave}
+                  disabled={saving || !templateName.trim()}
+                >
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
+                  {saving ? 'Se salvează…' : (editingTemplate ? 'Salvează modificările' : 'Creează template')}
+                </Button>
+              </div>
             </div>
           </div>
         </>

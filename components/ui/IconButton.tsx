@@ -2,12 +2,14 @@
 
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
-type Tone = 'quiet' | 'bordered' | 'danger'
+type Tone = 'quiet' | 'bordered' | 'danger' | 'danger-quiet'
 
 const tones: Record<Tone, string> = {
   quiet:    'text-ink-faint hover:bg-paper-sunk hover:text-ink',
   bordered: 'border border-rule text-ink-soft hover:border-rule-strong hover:bg-paper-sunk hover:text-ink',
   danger:   'border border-rule text-ink-soft hover:border-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)] hover:text-[var(--sg-danger)]',
+  // Pentru listele dese, unde o muchie pe fiecare rând ar face zgomot; ștergerea cere oricum confirmare.
+  'danger-quiet': 'text-ink-faint hover:bg-[var(--sg-danger-soft)] hover:text-[var(--sg-danger)]',
 }
 
 /**
