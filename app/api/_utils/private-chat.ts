@@ -3,6 +3,37 @@ import type { AppRole, Result } from './auth'
 import { requireProfile } from './auth'
 import { canChatWithUser } from './private-chat-access'
 import { inactiveReferenceConflict } from './inactive-reference'
+import { chatTimestampMicroseconds } from '@/lib/chat-timestamp'
+
+const POSTGREST_PAGE_SIZE = 1000
+const CONVERSATION_IDS_PER_BATCH = 50
+
+type PrivateConversationReadRow = {
+  conversation_id: string
+  last_read_at: string | null
+}
+
+async function forEachPostgrestPage<T>(
+  loadPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  consume: (rows: T[]) => boolean | void
+) {
+  for (let from = 0; ; from += POSTGREST_PAGE_SIZE) {
+    const { data, error } = await loadPage(from, from + POSTGREST_PAGE_SIZE - 1)
+    if (error) throw error
+
+    const page = data ?? []
+    const shouldContinue = consume(page)
+    if (page.length < POSTGREST_PAGE_SIZE || shouldContinue === false) return
+  }
+}
+
+function batches<T>(values: T[], size: number) {
+  const result: T[][] = []
+  for (let from = 0; from < values.length; from += size) {
+    result.push(values.slice(from, from + size))
+  }
+  return result
+}
 
 export type PrivateConversation = {
   id: string
@@ -342,6 +373,7 @@ export type PrivateConversationListItem = {
   last_message_at: string | null
   last_read_at: string | null
   other_last_read_at: string | null
+  has_unread: boolean
   other_user: {
     id: string
     full_name: string | null
@@ -369,21 +401,30 @@ export async function listPrivateConversationsForCurrentUser(
   if (!ctx.ok) return ctx
 
   const admin = createSupabaseServiceClient()
+  const lastReadMap = new Map<string, string | null>()
 
-  const { data: myParticipants, error: myParticipantsError } = await admin
-    .from('private_conversation_participants')
-    .select('conversation_id, last_read_at')
-    .eq('user_id', ctx.user.id)
-
-  if (myParticipantsError) {
+  try {
+    await forEachPostgrestPage<PrivateConversationReadRow>(
+      (from, to) =>
+        admin
+          .from('private_conversation_participants')
+          .select('conversation_id, last_read_at')
+          .eq('user_id', ctx.user.id)
+          .order('conversation_id')
+          .range(from, to),
+      (rows) => {
+        for (const row of rows) lastReadMap.set(row.conversation_id, row.last_read_at)
+      }
+    )
+  } catch (error) {
     console.error('Failed to load user private conversation participants:', {
       userId: ctx.user.id,
-      error: myParticipantsError,
+      error,
     })
     return { ok: false, status: 500, error: 'Failed to load conversations' }
   }
 
-  const conversationIds = (myParticipants ?? []).map((row) => row.conversation_id)
+  const conversationIds = [...lastReadMap.keys()]
 
   if (conversationIds.length === 0) {
     return {
@@ -394,118 +435,135 @@ export async function listPrivateConversationsForCurrentUser(
     }
   }
 
-  const lastReadMap = new Map<string, string | null>()
-  for (const row of myParticipants ?? []) {
-    lastReadMap.set(row.conversation_id, row.last_read_at)
+  type ParticipantProfile = {
+    id: string
+    full_name: string | null
+    email: string | null
+    is_active: boolean | null
   }
-
-  const { data: conversations, error: conversationsError } = await admin
-    .from('private_conversations')
-    .select('id, created_at, created_by, last_message_at')
-    .in('id', conversationIds)
-
-  if (conversationsError) {
-    console.error('Failed to load private conversations:', {
-      userId: ctx.user.id,
-      conversationIds,
-      error: conversationsError,
-    })
-    return { ok: false, status: 500, error: 'Failed to load conversations' }
-  }
-
-  const { data: allParticipants, error: allParticipantsError } = await admin
-    .from('private_conversation_participants')
-    .select(`
-      conversation_id,
-      user_id,
-      last_read_at,
-      profiles:user_id (
-        id,
-        full_name,
-        email,
-        is_active
-      )
-    `)
-    .in('conversation_id', conversationIds)
-
-  if (allParticipantsError) {
-    console.error('Failed to load private conversation participants:', {
-      userId: ctx.user.id,
-      conversationIds,
-      error: allParticipantsError,
-    })
-    return { ok: false, status: 500, error: 'Failed to load conversation participants' }
-  }
-
-  const { data: messages, error: messagesError } = await admin
-    .from('private_messages')
-    .select('id, conversation_id, body, created_at, created_by, deleted_at')
-    .in('conversation_id', conversationIds)
-    .order('created_at', { ascending: false })
-
-  if (messagesError) {
-    console.error('Failed to load private conversation messages:', {
-      userId: ctx.user.id,
-      conversationIds,
-      error: messagesError,
-    })
-    return { ok: false, status: 500, error: 'Failed to load conversation messages' }
-  }
-
-  type ParticipantProfile =
-  | {
-      id: string
-      full_name: string | null
-      email: string | null
-      is_active: boolean | null
-    }
-  | {
-      id: string
-      full_name: string | null
-      email: string | null
-      is_active: boolean | null
-    }[]
-  | null
-
-const participantsByConversation = new Map<
-  string,
-  Array<{
+  type ParticipantWithProfile = {
     conversation_id: string
     user_id: string
     last_read_at: string | null
-    profiles: ParticipantProfile
-  }>
->()
-
-  for (const row of allParticipants ?? []) {
-    if (!participantsByConversation.has(row.conversation_id)) {
-      participantsByConversation.set(row.conversation_id, [])
-    }
-    participantsByConversation.get(row.conversation_id)!.push(row)
+    profiles: ParticipantProfile | ParticipantProfile[] | null
   }
 
+  const conversationsById = new Map<string, PrivateConversation>()
+  const participantsByConversation = new Map<string, ParticipantWithProfile[]>()
   const lastMessageByConversation = new Map<
     string,
-    {
-      id: string
-      body: string | null
-      created_at: string
-      created_by: string
-    } | null
+    { id: string; body: string | null; created_at: string; created_by: string }
   >()
+  const unreadConversationIds = new Set<string>()
 
-  for (const row of messages ?? []) {
-    if (lastMessageByConversation.has(row.conversation_id)) continue
+  for (const conversationBatch of batches(conversationIds, CONVERSATION_IDS_PER_BATCH)) {
+    try {
+      await forEachPostgrestPage<PrivateConversation>(
+        (from, to) =>
+          admin
+            .from('private_conversations')
+            .select('id, created_at, created_by, last_message_at')
+            .in('id', conversationBatch)
+            .order('id')
+            .range(from, to),
+        (rows) => rows.forEach((row) => conversationsById.set(row.id, row))
+      )
+    } catch (error) {
+      console.error('Failed to load private conversations:', {
+        userId: ctx.user.id,
+        conversationIds: conversationBatch,
+        error,
+      })
+      return { ok: false, status: 500, error: 'Failed to load conversations' }
+    }
 
-    lastMessageByConversation.set(row.conversation_id, {
-      id: row.id,
-      body: row.deleted_at ? null : row.body,
-      created_at: row.created_at,
-      created_by: row.created_by,
-    })
+    try {
+      await forEachPostgrestPage<ParticipantWithProfile>(
+        (from, to) =>
+          admin
+            .from('private_conversation_participants')
+            .select(`
+              conversation_id,
+              user_id,
+              last_read_at,
+              profiles:user_id (
+                id,
+                full_name,
+                email,
+                is_active
+              )
+            `)
+            .in('conversation_id', conversationBatch)
+            .order('conversation_id')
+            .order('user_id')
+            .range(from, to),
+        (rows) => {
+          for (const row of rows) {
+            const participants = participantsByConversation.get(row.conversation_id) ?? []
+            participants.push(row)
+            participantsByConversation.set(row.conversation_id, participants)
+          }
+        }
+      )
+    } catch (error) {
+      console.error('Failed to load private conversation participants:', {
+        userId: ctx.user.id,
+        conversationIds: conversationBatch,
+        error,
+      })
+      return { ok: false, status: 500, error: 'Failed to load conversation participants' }
+    }
+
+    try {
+      await forEachPostgrestPage<{
+        id: string
+        conversation_id: string
+        body: string | null
+        created_at: string
+        created_by: string
+      }>(
+        (from, to) =>
+          admin
+            .from('private_messages')
+            .select('id, conversation_id, body, created_at, created_by')
+            .in('conversation_id', conversationBatch)
+            .is('deleted_at', null)
+            .order('conversation_id')
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: false })
+            .range(from, to),
+        (rows) => {
+          for (const row of rows) {
+            if (!lastMessageByConversation.has(row.conversation_id)) {
+              lastMessageByConversation.set(row.conversation_id, {
+                id: row.id,
+                body: row.body,
+                created_at: row.created_at,
+                created_by: row.created_by,
+              })
+            }
+
+            const lastReadAt = lastReadMap.get(row.conversation_id)
+            if (
+              row.created_by !== ctx.user.id &&
+              (!lastReadAt || chatTimestampMicroseconds(row.created_at) > chatTimestampMicroseconds(lastReadAt))
+            ) {
+              unreadConversationIds.add(row.conversation_id)
+            }
+          }
+        }
+      )
+    } catch (error) {
+      console.error('Failed to load private conversation messages:', {
+        userId: ctx.user.id,
+        conversationIds: conversationBatch,
+        error,
+      })
+      return { ok: false, status: 500, error: 'Failed to load conversation messages' }
+    }
   }
 
-  const items: PrivateConversationListItem[] = (conversations ?? []).map((conversation) => {
+  const items: PrivateConversationListItem[] = [...conversationsById.values()].map((conversation) => {
     const participants = participantsByConversation.get(conversation.id) ?? []
     const otherParticipant = participants.find((p) => p.user_id !== ctx.user.id)
 
@@ -520,15 +578,16 @@ const participantsByConversation = new Map<
       last_message_at: conversation.last_message_at,
       last_read_at: lastReadMap.get(conversation.id) ?? null,
       other_last_read_at: otherParticipant?.last_read_at ?? null,
+      has_unread: unreadConversationIds.has(conversation.id),
       other_user: otherProfile,
       last_message: lastMessageByConversation.get(conversation.id) ?? null,
     }
   })
 
   items.sort((a, b) => {
-    const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : 0
-    const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : 0
-    return bTime - aTime
+    const aTime = a.last_message_at ? chatTimestampMicroseconds(a.last_message_at) : 0
+    const bTime = b.last_message_at ? chatTimestampMicroseconds(b.last_message_at) : 0
+    return bTime - aTime || b.id.localeCompare(a.id)
   })
 
   return {
@@ -553,21 +612,30 @@ export async function getPrivateConversationUnreadSummary(
   if (!ctx.ok) return ctx
 
   const admin = createSupabaseServiceClient()
+  const lastReadMap = new Map<string, string | null>()
 
-  const { data: myParticipants, error: myParticipantsError } = await admin
-    .from('private_conversation_participants')
-    .select('conversation_id, last_read_at')
-    .eq('user_id', ctx.user.id)
-
-  if (myParticipantsError) {
+  try {
+    await forEachPostgrestPage<PrivateConversationReadRow>(
+      (from, to) =>
+        admin
+          .from('private_conversation_participants')
+          .select('conversation_id, last_read_at')
+          .eq('user_id', ctx.user.id)
+          .order('conversation_id')
+          .range(from, to),
+      (rows) => {
+        for (const row of rows) lastReadMap.set(row.conversation_id, row.last_read_at)
+      }
+    )
+  } catch (error) {
     console.error('Failed to load private conversation unread participants:', {
       userId: ctx.user.id,
-      error: myParticipantsError,
+      error,
     })
     return { ok: false, status: 500, error: 'Failed to load unread conversations' }
   }
 
-  const conversationIds = (myParticipants ?? []).map((row) => row.conversation_id)
+  const conversationIds = [...lastReadMap.keys()]
 
   if (conversationIds.length === 0) {
     return {
@@ -579,58 +647,74 @@ export async function getPrivateConversationUnreadSummary(
     }
   }
 
-  const lastReadMap = new Map<string, string | null>()
-  for (const row of myParticipants ?? []) {
-    lastReadMap.set(row.conversation_id, row.last_read_at)
-  }
+  const unreadConversationIds = new Set<string>()
+  const idsWithReadState = conversationIds.filter((id) => !!lastReadMap.get(id))
+  const idsWithoutReadState = conversationIds.filter((id) => !lastReadMap.get(id))
 
-  const { data: messages, error: messagesError } = await admin
-    .from('private_messages')
-    .select('conversation_id, created_at, created_by, deleted_at')
-    .in('conversation_id', conversationIds)
-    .order('created_at', { ascending: false })
+  try {
+    for (const conversationBatch of batches(idsWithReadState, CONVERSATION_IDS_PER_BATCH)) {
+      const earliestLastReadAt = conversationBatch
+        .map((id) => lastReadMap.get(id)!)
+        .reduce((earliest, value) =>
+          chatTimestampMicroseconds(value) < chatTimestampMicroseconds(earliest) ? value : earliest
+        )
 
-  if (messagesError) {
+      await forEachPostgrestPage<{
+        conversation_id: string
+        created_at: string
+      }>(
+        (from, to) =>
+          admin
+            .from('private_messages')
+            .select('id, conversation_id, created_at')
+            .in('conversation_id', conversationBatch)
+            .neq('created_by', ctx.user.id)
+            .is('deleted_at', null)
+            .gt('created_at', earliestLastReadAt)
+            .order('conversation_id')
+            .order('created_at')
+            .order('id')
+            .range(from, to),
+        (rows) => {
+          for (const row of rows) {
+            const lastReadAt = lastReadMap.get(row.conversation_id)
+            if (lastReadAt && chatTimestampMicroseconds(row.created_at) > chatTimestampMicroseconds(lastReadAt)) {
+              unreadConversationIds.add(row.conversation_id)
+            }
+          }
+          return conversationBatch.some((id) => !unreadConversationIds.has(id))
+        }
+      )
+    }
+
+    for (const conversationBatch of batches(idsWithoutReadState, CONVERSATION_IDS_PER_BATCH)) {
+      await forEachPostgrestPage<{ conversation_id: string }>(
+        (from, to) =>
+          admin
+            .from('private_messages')
+            .select('id, conversation_id')
+            .in('conversation_id', conversationBatch)
+            .neq('created_by', ctx.user.id)
+            .is('deleted_at', null)
+            .order('conversation_id')
+            .order('created_at')
+            .order('id')
+            .range(from, to),
+        (rows) => {
+          for (const row of rows) unreadConversationIds.add(row.conversation_id)
+          return conversationBatch.some((id) => !unreadConversationIds.has(id))
+        }
+      )
+    }
+  } catch (error) {
     console.error('Failed to load private conversation unread messages:', {
       userId: ctx.user.id,
-      conversationIds,
-      error: messagesError,
+      error,
     })
     return { ok: false, status: 500, error: 'Failed to load unread conversations' }
   }
 
-  const latestMessageByConversation = new Map<
-    string,
-    {
-      created_at: string
-      created_by: string
-      deleted_at: string | null
-    }
-  >()
-
-  for (const row of messages ?? []) {
-    if (latestMessageByConversation.has(row.conversation_id)) continue
-    latestMessageByConversation.set(row.conversation_id, row)
-  }
-
-  let unreadConversationCount = 0
-
-  for (const conversationId of conversationIds) {
-    const lastMessage = latestMessageByConversation.get(conversationId)
-    if (!lastMessage) continue
-    if (lastMessage.deleted_at) continue
-    if (lastMessage.created_by === ctx.user.id) continue
-
-    const lastReadAt = lastReadMap.get(conversationId)
-    if (!lastReadAt) {
-      unreadConversationCount += 1
-      continue
-    }
-
-    if (new Date(lastMessage.created_at).getTime() > new Date(lastReadAt).getTime()) {
-      unreadConversationCount += 1
-    }
-  }
+  const unreadConversationCount = unreadConversationIds.size
 
   return {
     ok: true,

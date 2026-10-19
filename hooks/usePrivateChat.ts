@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { userErrorMessage } from '@/lib/user-error'
+import { chatTimestampMicroseconds } from '@/lib/chat-timestamp'
 
 export type PrivateChatProfile = {
   id: string
@@ -41,10 +42,6 @@ type DeleteMessageResponse = {
   ok: true
 }
 
-type GetMessageByIdResponse = {
-  item: PrivateChatMessage
-}
-
 type ReadResponse = {
   ok: true
   lastReadAt: string
@@ -62,19 +59,47 @@ type UsePrivateChatOptions = {
   initialOtherLastReadAt?: string | null
 }
 
+const compareChatTimestamps = (left: string, right: string) => {
+  const leftTime = chatTimestampMicroseconds(left)
+  const rightTime = chatTimestampMicroseconds(right)
+  return leftTime < rightTime ? -1 : leftTime > rightTime ? 1 : 0
+}
+
 const maxIso = (a: string | null, b: string | null) => {
   if (!a) return b
   if (!b) return a
-  return new Date(a).getTime() >= new Date(b).getTime() ? a : b
+  return compareChatTimestamps(a, b) >= 0 ? a : b
+}
+
+const compareMessages = (a: PrivateChatMessage, b: PrivateChatMessage) => (
+  compareChatTimestamps(a.created_at, b.created_at) || a.id.localeCompare(b.id)
+)
+
+const mergeMessage = (existing: PrivateChatMessage | undefined, incoming: PrivateChatMessage) => {
+  if (!existing) return incoming
+
+  const existingVersion = existing.edited_at ?? existing.created_at
+  const incomingVersion = incoming.edited_at ?? incoming.created_at
+  const message = compareChatTimestamps(incomingVersion, existingVersion) >= 0 ? incoming : existing
+  const deletedAt = maxIso(existing.deleted_at, incoming.deleted_at)
+
+  return {
+    ...existing,
+    ...message,
+    profiles: incoming.profiles ?? existing.profiles,
+    deleted_at: deletedAt,
+    body: deletedAt ? null : message.body,
+    is_deleted: deletedAt ? true : message.is_deleted,
+  }
 }
 
 export function usePrivateChat(
   conversationId: string,
   opts: UsePrivateChatOptions = {}
 ) {
-  const { apiFetch, loading: authLoading, userId } = useAuth()
+  const { apiFetch, loading: authLoading, token, userId } = useAuth()
   const initialLimit = opts.initialLimit ?? 50
-
+  const active = !!conversationId && !authLoading && !!token && !!userId
 
   const [messages, setMessages] = useState<PrivateChatMessage[]>([])
   const [loading, setLoading] = useState(false)
@@ -86,138 +111,207 @@ export function usePrivateChat(
     opts.initialOtherLastReadAt ?? null
   )
 
-  const idsRef = useRef<Set<string>>(new Set())
+  const messagesRef = useRef<PrivateChatMessage[]>([])
+  const hasLoadedRef = useRef(false)
+  const loadedScopeRef = useRef<{ conversationId: string; userId: string } | null>(null)
   const initialLastReadAtRef = useRef(opts.initialLastReadAt ?? null)
   const initialOtherLastReadAtRef = useRef(opts.initialOtherLastReadAt ?? null)
+  const activeRef = useRef(active)
+  activeRef.current = active
 
-  const resetState = useCallback(() => {
-    idsRef.current = new Set()
+  const identityRef = useRef({ apiFetch, authLoading, token, userId, conversationId })
+  const authGenerationRef = useRef(0)
+  const effectGenerationRef = useRef(0)
+  const activeEffectGenerationRef = useRef<number | null>(null)
+  const inFlightSyncRef = useRef<{
+    authGeneration: number
+    effectGeneration: number
+    promise: Promise<void>
+  } | null>(null)
+  const syncQueuedRef = useRef<{
+    authGeneration: number
+    effectGeneration: number
+    mode: 'recent' | 'full'
+  } | null>(null)
+  const readStateInFlightRef = useRef<{
+    authGeneration: number
+    effectGeneration: number
+    promise: Promise<void>
+  } | null>(null)
+  const readStateQueuedRef = useRef<{ authGeneration: number; effectGeneration: number } | null>(null)
+  const loadMoreInFlightRef = useRef<{ authGeneration: number; effectGeneration: number } | null>(null)
+
+  if (
+    identityRef.current.apiFetch !== apiFetch ||
+    identityRef.current.authLoading !== authLoading ||
+    identityRef.current.token !== token ||
+    identityRef.current.userId !== userId ||
+    identityRef.current.conversationId !== conversationId
+  ) {
+    identityRef.current = { apiFetch, authLoading, token, userId, conversationId }
+    authGenerationRef.current += 1
+    syncQueuedRef.current = null
+    readStateQueuedRef.current = null
+  }
+  const authGeneration = authGenerationRef.current
+
+  const isCurrentRequest = useCallback((expectedAuthGeneration: number, expectedEffectGeneration: number) => (
+    activeRef.current &&
+    authGenerationRef.current === expectedAuthGeneration &&
+    activeEffectGenerationRef.current === expectedEffectGeneration
+  ), [])
+
+  const replaceMessages = useCallback((nextMessages: PrivateChatMessage[]) => {
+    messagesRef.current = nextMessages
+    setMessages(nextMessages)
+  }, [])
+
+  const applyIncomingMessages = useCallback((
+    incomingMessages: PrivateChatMessage[],
+    minimumNewMessage: PrivateChatMessage | null = null
+  ) => {
+    const byId = new Map<string, PrivateChatMessage>(
+      messagesRef.current.map((message): [string, PrivateChatMessage] => [message.id, message])
+    )
+    for (const incoming of incomingMessages) {
+      const existing = byId.get(incoming.id)
+      if (!existing && minimumNewMessage && compareMessages(incoming, minimumNewMessage) < 0) continue
+      byId.set(incoming.id, mergeMessage(existing, incoming))
+    }
+    replaceMessages(Array.from(byId.values()).sort(compareMessages))
+  }, [replaceMessages])
+
+  const resetState = useCallback((lastRead: string | null, otherLastRead: string | null) => {
+    messagesRef.current = []
+    hasLoadedRef.current = false
     setMessages([])
     setNextCursor(null)
     setError(null)
     setLoading(false)
     setSending(false)
-    setLastReadAt(initialLastReadAtRef.current)
-    setOtherLastReadAt(initialOtherLastReadAtRef.current)
+    setLastReadAt(lastRead)
+    setOtherLastReadAt(otherLastRead)
   }, [])
 
   const pushOne = useCallback((m: PrivateChatMessage) => {
-    if (idsRef.current.has(m.id)) return
-    idsRef.current.add(m.id)
-
-    setMessages((prev) => {
-      const next = prev.concat(m)
-      next.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-      return next
-    })
-  }, [])
+    applyIncomingMessages([m])
+  }, [applyIncomingMessages])
 
   const upsertOne = useCallback((m: PrivateChatMessage) => {
-    idsRef.current.add(m.id)
+    applyIncomingMessages([m])
+  }, [applyIncomingMessages])
 
-    setMessages((prev) => {
-      const existing = prev.find((x) => x.id === m.id)
+  const readStateForGeneration = useCallback(async (
+    expectedAuthGeneration: number,
+    expectedEffectGeneration: number
+  ) => {
+    const canRefresh = () => (
+      isCurrentRequest(expectedAuthGeneration, expectedEffectGeneration) &&
+      document.visibilityState === 'visible' && navigator.onLine
+    )
+    if (!canRefresh()) return
 
-      const merged: PrivateChatMessage = existing
-        ? { ...existing, ...m, profiles: m.profiles ?? existing.profiles }
-        : m
+    const inFlight = readStateInFlightRef.current
+    if (
+      inFlight?.authGeneration === expectedAuthGeneration &&
+      inFlight.effectGeneration === expectedEffectGeneration
+    ) {
+      readStateQueuedRef.current = {
+        authGeneration: expectedAuthGeneration,
+        effectGeneration: expectedEffectGeneration,
+      }
+      await inFlight.promise
+      return
+    }
 
-      const next = existing
-        ? prev.map((x) => (x.id === m.id ? merged : x))
-        : prev.concat(merged)
+    const hasQueuedReadState = () => {
+      const queued = readStateQueuedRef.current
+      return queued?.authGeneration === expectedAuthGeneration &&
+        queued.effectGeneration === expectedEffectGeneration
+    }
+    const run = (async () => {
+      do {
+        readStateQueuedRef.current = null
+        try {
+          const res = await apiFetch(`/api/private-conversations/${conversationId}/read`, {
+            method: 'GET',
+          })
+          const json = (await res.json().catch(() => null)) as ReadStateResponse | null
+          if (res.ok && json?.ok && canRefresh()) {
+            setLastReadAt((prev) => maxIso(prev, json.lastReadAt))
+            setOtherLastReadAt((prev) => maxIso(prev, json.otherLastReadAt))
+          }
+        } catch {
+          // Retain the last good frontiers after a temporary GET failure.
+        }
+      } while (canRefresh() && hasQueuedReadState())
+    })()
+    readStateInFlightRef.current = {
+      authGeneration: expectedAuthGeneration,
+      effectGeneration: expectedEffectGeneration,
+      promise: run,
+    }
 
-      next.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-      return next
-    })
-  }, [])
+    try {
+      await run
+    } finally {
+      if (readStateInFlightRef.current?.promise === run) readStateInFlightRef.current = null
+    }
+  }, [apiFetch, conversationId, isCurrentRequest])
 
-  const fetchInitial = useCallback(async () => {
-    if (!conversationId) return
-    if (authLoading) return
+  const getCurrentOperation = useCallback(() => {
+    const effectGeneration = activeEffectGenerationRef.current
+    return effectGeneration !== null && isCurrentRequest(authGeneration, effectGeneration)
+      ? { authGeneration, effectGeneration }
+      : null
+  }, [authGeneration, isCurrentRequest])
 
+  const loadMore = useCallback(async () => {
+    const operation = getCurrentOperation()
+    if (!operation || !nextCursor || loading) return
+    const existingLoad = loadMoreInFlightRef.current
+    if (
+      existingLoad?.authGeneration === operation.authGeneration &&
+      existingLoad.effectGeneration === operation.effectGeneration
+    ) return
+
+    const requestedCursor = nextCursor
+    loadMoreInFlightRef.current = operation
     setLoading(true)
     setError(null)
 
     try {
       const res = await apiFetch(
-        `/api/private-conversations/${conversationId}/messages?limit=${initialLimit}`,
+        `/api/private-conversations/${conversationId}/messages?limit=${initialLimit}&cursor=${encodeURIComponent(requestedCursor)}`,
         { method: 'GET' }
       )
       const json = (await res.json().catch(() => null)) as GetMessagesResponse | null
-
-      if (!res.ok) {
-        setError(userErrorMessage(res.status, 'Nu am putut încărca mesajele.'))
-        resetState()
-        return
-      }
-
-      const apiItems = json?.items ?? []
-      const cursor = json?.nextCursor ?? null
-
-      const oldestFirst = apiItems.slice().reverse()
-
-      idsRef.current = new Set(oldestFirst.map((m) => m.id))
-      setMessages(oldestFirst)
-      setNextCursor(cursor)
-    } catch {
-      setError(userErrorMessage(undefined, 'Nu am putut încărca mesajele.'))
-    } finally {
-      setLoading(false)
-    }
-  }, [apiFetch, authLoading, conversationId, initialLimit, resetState])
-
-  const loadMore = useCallback(async () => {
-    if (!conversationId) return
-    if (authLoading) return
-    if (!nextCursor) return
-    if (loading) return
-
-    setLoading(true)
-    setError(null)
-
-    try {
-      const url = `/api/private-conversations/${conversationId}/messages?limit=${initialLimit}&cursor=${encodeURIComponent(
-        nextCursor
-      )}`
-
-      const res = await apiFetch(url, { method: 'GET' })
-      const json = (await res.json().catch(() => null)) as GetMessagesResponse | null
+      if (!isCurrentRequest(operation.authGeneration, operation.effectGeneration)) return
 
       if (!res.ok) {
         setError(userErrorMessage(res.status, 'Nu am putut încărca mesajele mai vechi.'))
         return
       }
 
-      const apiItems = json?.items ?? []
-      const cursor = json?.nextCursor ?? null
-      const oldestFirst = apiItems.slice().reverse()
-
-      setMessages((prev) => {
-        const merged = [...oldestFirst, ...prev]
-        const seen = new Set<string>()
-        const out: PrivateChatMessage[] = []
-
-        for (const m of merged) {
-          if (seen.has(m.id)) continue
-          seen.add(m.id)
-          out.push(m)
-        }
-
-        idsRef.current = new Set(out.map((m) => m.id))
-        out.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-        return out
-      })
-
-      setNextCursor(cursor)
+      applyIncomingMessages((json?.items ?? []).slice().reverse())
+      setNextCursor(json?.nextCursor ?? null)
     } catch {
-      setError(userErrorMessage(undefined, 'Nu am putut încărca mesajele mai vechi.'))
+      if (isCurrentRequest(operation.authGeneration, operation.effectGeneration)) {
+        setError(userErrorMessage(undefined, 'Nu am putut încărca mesajele mai vechi.'))
+      }
     } finally {
-      setLoading(false)
+      if (isCurrentRequest(operation.authGeneration, operation.effectGeneration)) setLoading(false)
+      if (
+        loadMoreInFlightRef.current?.authGeneration === operation.authGeneration &&
+        loadMoreInFlightRef.current.effectGeneration === operation.effectGeneration
+      ) loadMoreInFlightRef.current = null
     }
-  }, [apiFetch, authLoading, conversationId, initialLimit, loading, nextCursor])
+  }, [apiFetch, applyIncomingMessages, conversationId, getCurrentOperation, initialLimit, isCurrentRequest, loading, nextCursor])
 
   const sendMessage = useCallback(
     async (body: string) => {
+      const operation = getCurrentOperation()
+      if (!operation) return
       const trimmed = body.trim()
       if (!trimmed) return
 
@@ -230,6 +324,7 @@ export function usePrivateChat(
           body: JSON.stringify({ body: trimmed }),
         })
         const json = (await res.json().catch(() => null)) as PostMessageResponse | null
+        if (!isCurrentRequest(operation.authGeneration, operation.effectGeneration)) return
 
         if (!res.ok) {
           setError(userErrorMessage(res.status, 'Nu am putut trimite mesajul.'))
@@ -239,16 +334,20 @@ export function usePrivateChat(
         const item = json?.item
         if (item) pushOne(item)
       } catch {
-        setError(userErrorMessage(undefined, 'Nu am putut trimite mesajul.'))
+        if (isCurrentRequest(operation.authGeneration, operation.effectGeneration)) {
+          setError(userErrorMessage(undefined, 'Nu am putut trimite mesajul.'))
+        }
       } finally {
-        setSending(false)
+        if (isCurrentRequest(operation.authGeneration, operation.effectGeneration)) setSending(false)
       }
     },
-    [apiFetch, conversationId, pushOne]
+    [apiFetch, conversationId, getCurrentOperation, isCurrentRequest, pushOne]
   )
 
   const editMessage = useCallback(
     async (messageId: string, body: string) => {
+      const operation = getCurrentOperation()
+      if (!operation) return
       const trimmed = body.trim()
       if (!trimmed) return
 
@@ -263,6 +362,7 @@ export function usePrivateChat(
           }
         )
         const json = (await res.json().catch(() => null)) as PatchMessageResponse | null
+        if (!isCurrentRequest(operation.authGeneration, operation.effectGeneration)) return
 
         if (!res.ok) {
           setError(userErrorMessage(res.status, 'Nu am putut edita mesajul.'))
@@ -271,14 +371,18 @@ export function usePrivateChat(
 
         if (json?.item) upsertOne(json.item)
       } catch {
-        setError(userErrorMessage(undefined, 'Nu am putut edita mesajul.'))
+        if (isCurrentRequest(operation.authGeneration, operation.effectGeneration)) {
+          setError(userErrorMessage(undefined, 'Nu am putut edita mesajul.'))
+        }
       }
     },
-    [apiFetch, conversationId, upsertOne]
+    [apiFetch, conversationId, getCurrentOperation, isCurrentRequest, upsertOne]
   )
 
   const deleteMessage = useCallback(
     async (messageId: string) => {
+      const operation = getCurrentOperation()
+      if (!operation) return
       setError(null)
 
       try {
@@ -289,6 +393,7 @@ export function usePrivateChat(
           }
         )
         const json = (await res.json().catch(() => null)) as DeleteMessageResponse | null
+        if (!isCurrentRequest(operation.authGeneration, operation.effectGeneration)) return
 
         if (!res.ok || !json?.ok) {
           setError(userErrorMessage(res.status, 'Nu am putut șterge mesajul.'))
@@ -296,19 +401,20 @@ export function usePrivateChat(
         }
 
         const nowIso = new Date().toISOString()
-        setMessages((prev) =>
-          prev.map((m) => (m.id === messageId ? { ...m, deleted_at: nowIso } : m))
-        )
+        const existing = messagesRef.current.find((message) => message.id === messageId)
+        if (existing) upsertOne({ ...existing, body: null, deleted_at: nowIso, is_deleted: true })
       } catch {
-        setError(userErrorMessage(undefined, 'Nu am putut șterge mesajul.'))
+        if (isCurrentRequest(operation.authGeneration, operation.effectGeneration)) {
+          setError(userErrorMessage(undefined, 'Nu am putut șterge mesajul.'))
+        }
       }
     },
-    [apiFetch, conversationId]
+    [apiFetch, conversationId, getCurrentOperation, isCurrentRequest, upsertOne]
   )
 
   const markAsRead = useCallback(async (readThroughAt?: string | null) => {
-    if (!conversationId) return
-    if (authLoading) return
+    const operation = getCurrentOperation()
+    if (!operation) return
 
     try {
       const res = await apiFetch(`/api/private-conversations/${conversationId}/read`, {
@@ -316,42 +422,23 @@ export function usePrivateChat(
         body: JSON.stringify({ readThroughAt: readThroughAt ?? undefined }),
       })
       const json = (await res.json().catch(() => null)) as ReadResponse | null
+      if (!isCurrentRequest(operation.authGeneration, operation.effectGeneration)) return
 
       if (!res.ok || !json?.ok || !json.lastReadAt) return
       setLastReadAt((prev) => maxIso(prev, json.lastReadAt))
     } catch {
       // silent fail
     }
-  }, [apiFetch, authLoading, conversationId])
-
-  const refreshReadState = useCallback(async () => {
-    if (!conversationId) return
-    if (authLoading) return
-
-    try {
-      const res = await apiFetch(`/api/private-conversations/${conversationId}/read`, {
-        method: 'GET',
-      })
-      const json = (await res.json().catch(() => null)) as ReadStateResponse | null
-
-      if (!res.ok || !json?.ok) return
-      setLastReadAt((prev) => maxIso(prev, json.lastReadAt))
-      setOtherLastReadAt((prev) => maxIso(prev, json.otherLastReadAt))
-    } catch {
-      // silent fail
-    }
-  }, [apiFetch, authLoading, conversationId])
+  }, [apiFetch, conversationId, getCurrentOperation, isCurrentRequest])
 
   const hasPendingOutgoingReadReceipt = useMemo(() => {
     if (!userId) return false
 
-    const otherReadTime = otherLastReadAt ? new Date(otherLastReadAt).getTime() : null
-
     return messages.some((m) => {
       if (m.deleted_at) return false
       if (m.created_by !== userId) return false
-      if (otherReadTime === null) return true
-      return new Date(m.created_at).getTime() > otherReadTime
+      if (!otherLastReadAt) return true
+      return compareChatTimestamps(m.created_at, otherLastReadAt) > 0
     })
   }, [messages, otherLastReadAt, userId])
 
@@ -360,93 +447,223 @@ export function usePrivateChat(
       return messages.filter((m) => !m.deleted_at && m.created_by !== userId).length
     }
 
-    const lastReadTime = new Date(lastReadAt).getTime()
-
     return messages.filter(
       (m) =>
         !m.deleted_at &&
         m.created_by !== userId &&
-        new Date(m.created_at).getTime() > lastReadTime
+        compareChatTimestamps(m.created_at, lastReadAt) > 0
     ).length
   }, [lastReadAt, messages, userId])
 
   useEffect(() => {
-    if (!conversationId) return
-    if (authLoading) return
-
-    let cancelled = false
-
-    const fetchFullById = async (id: string) => {
-      const res = await apiFetch(
-        `/api/private-conversations/${conversationId}/messages/${id}`,
-        { method: 'GET' }
-      )
-      const json = (await res.json().catch(() => null)) as GetMessageByIdResponse | null
-      if (!res.ok) return null
-      return json?.item ?? null
+    if (!active || !token || !userId || !conversationId) {
+      if (!authLoading && (!token || !userId || !conversationId)) {
+        loadedScopeRef.current = null
+        hasLoadedRef.current = false
+        resetState(null, null)
+      }
+      return
     }
 
-    const channel = supabase
-      .channel(`private-chat-${conversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'private_messages',
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        async (payload) => {
-          try {
-            const row = payload.new as { id?: string; deleted_at?: string | null } | null
-            const id = row?.id
-            if (!id) return
-            if (row?.deleted_at) return
-            if (idsRef.current.has(id)) return
-            const item = await fetchFullById(id)
-            if (cancelled) return
-            if (item && !item.deleted_at) upsertOne(item)
-          } catch {
-            // ignore
-          }
+    const effectGeneration = ++effectGenerationRef.current
+    activeEffectGenerationRef.current = effectGeneration
+    const loadedScope = loadedScopeRef.current
+    if (
+      !loadedScope ||
+      loadedScope.conversationId !== conversationId ||
+      loadedScope.userId !== userId
+    ) {
+      loadedScopeRef.current = { conversationId, userId }
+      initialLastReadAtRef.current = opts.initialLastReadAt ?? null
+      initialOtherLastReadAtRef.current = opts.initialOtherLastReadAt ?? null
+      resetState(initialLastReadAtRef.current, initialOtherLastReadAtRef.current)
+    }
+    setSending(false)
+    setLoading(!hasLoadedRef.current)
+
+    const isCurrent = () => isCurrentRequest(authGeneration, effectGeneration)
+    const canSync = () => isCurrent() && document.visibilityState === 'visible' && navigator.onLine
+
+    const fetchMessages = async (mode: 'recent' | 'full') => {
+      if (!canSync()) return false
+
+      const existingMessages = messagesRef.current
+      const boundary = mode === 'full'
+        ? existingMessages[0] ?? null
+        : existingMessages[existingMessages.length - 1] ?? null
+      const collected: PrivateChatMessage[] = []
+      const seenCursors = new Set<string>()
+      let cursor: string | null = null
+      let firstPage = true
+      let firstPageCursor: string | null = null
+
+      while (true) {
+        if (!canSync()) return false
+        const query = cursor
+          ? `?limit=${initialLimit}&cursor=${encodeURIComponent(cursor)}`
+          : `?limit=${initialLimit}`
+        const res = await apiFetch(
+          `/api/private-conversations/${conversationId}/messages${query}`,
+          { method: 'GET' }
+        )
+        const json = (await res.json().catch(() => null)) as GetMessagesResponse | null
+        if (!canSync()) return false
+        if (!res.ok) throw new Error('messages-refresh-failed')
+
+        const pageItems = json?.items ?? []
+        collected.push(...pageItems)
+        const pageCursor = json?.nextCursor ?? null
+        if (firstPage) {
+          firstPageCursor = pageCursor
+          firstPage = false
         }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'private_messages',
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        async (payload) => {
+
+        if (boundary && pageItems.some((message) => message.id === boundary.id)) break
+        if (!pageCursor || seenCursors.has(pageCursor) || !boundary) break
+        seenCursors.add(pageCursor)
+        cursor = pageCursor
+      }
+
+      if (!canSync()) return false
+      const minimumNewMessage = boundary
+        ? (mode === 'full' ? existingMessages[0] : existingMessages[existingMessages.length - 1]) ?? null
+        : null
+      // Publish only after every page up to the loaded boundary has succeeded.
+      applyIncomingMessages(collected, minimumNewMessage)
+      if (!hasLoadedRef.current) {
+        hasLoadedRef.current = true
+        setNextCursor(firstPageCursor)
+      }
+      return true
+    }
+
+    const requestSync = (requestedMode: 'recent' | 'full') => {
+      if (!canSync()) return Promise.resolve()
+      const inFlight = inFlightSyncRef.current
+      if (
+        inFlight?.authGeneration === authGeneration &&
+        inFlight.effectGeneration === effectGeneration
+      ) {
+        const queued = syncQueuedRef.current
+        syncQueuedRef.current = {
+          authGeneration,
+          effectGeneration,
+          mode: requestedMode === 'full' || queued?.mode === 'full' ? 'full' : 'recent',
+        }
+        return inFlight.promise
+      }
+
+      const getQueuedSyncMode = () => {
+        const queued = syncQueuedRef.current
+        return queued?.authGeneration === authGeneration && queued.effectGeneration === effectGeneration
+          ? queued.mode
+          : null
+      }
+      const hasQueuedSync = () => getQueuedSyncMode() !== null
+      const run = (async () => {
+        let mode = requestedMode
+        do {
+          syncQueuedRef.current = null
+          if (!canSync()) break
+          const isInitialLoad = !hasLoadedRef.current
+          if (isInitialLoad) setLoading(true)
           try {
-            const row = payload.new as {
-              id?: string
-              deleted_at?: string | null
-            } | null
-
-            const id = row?.id
-            if (!id) return
-
-            if (row?.deleted_at) {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === id
-                    ? { ...m, deleted_at: row.deleted_at ?? new Date().toISOString() }
-                    : m
-                )
-              )
-              return
+            const succeeded = await fetchMessages(mode)
+            if (succeeded && isCurrent() && isInitialLoad) setError(null)
+          } catch {
+            if (isCurrent() && !hasLoadedRef.current) {
+              setError(userErrorMessage(undefined, 'Nu am putut încărca mesajele.'))
             }
-
-            const item = await fetchFullById(id)
-            if (cancelled) return
-            if (item && !item.deleted_at) upsertOne(item)
-          } catch {
-            // ignore
+          } finally {
+            if (isInitialLoad && isCurrent()) setLoading(false)
           }
-        }
+
+          await readStateForGeneration(authGeneration, effectGeneration)
+          const queuedMode = getQueuedSyncMode()
+          if (queuedMode) mode = queuedMode
+        } while (canSync() && hasQueuedSync())
+      })()
+      inFlightSyncRef.current = { authGeneration, effectGeneration, promise: run }
+      return run.finally(() => {
+        if (inFlightSyncRef.current?.promise === run) inFlightSyncRef.current = null
+      })
+    }
+
+    const onMessageChange = (payload: { new: unknown }) => {
+      if (!isCurrent()) return
+      const row = payload.new as Partial<PrivateChatMessage> & { id?: string }
+      if (!row?.id) return
+      const existing = messagesRef.current.find((message) => message.id === row.id)
+      if (existing) {
+        const incoming = { ...existing, ...row, profiles: existing.profiles } as PrivateChatMessage
+        upsertOne(incoming)
+      }
+      void requestSync('full')
+    }
+
+    const onParticipantChange = (payload: { new: unknown }) => {
+      if (!isCurrent()) return
+      const row = payload.new as { user_id?: string; last_read_at?: string | null } | null
+      if (!row?.user_id) return
+      if (row.user_id === userId) {
+        setLastReadAt((previous) => maxIso(previous, row.last_read_at ?? null))
+      } else {
+        setOtherLastReadAt((previous) => maxIso(previous, row.last_read_at ?? null))
+      }
+    }
+
+    let interval: number | null = null
+    const stopPeriodicRefresh = () => {
+      if (interval !== null) window.clearInterval(interval)
+      interval = null
+    }
+    const refreshIfCurrent = () => {
+      if (canSync()) void requestSync('full')
+    }
+    const startPeriodicRefresh = () => {
+      stopPeriodicRefresh()
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        interval = window.setInterval(() => {
+          if (canSync()) void requestSync('full')
+        }, 30_000)
+      }
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        startPeriodicRefresh()
+        refreshIfCurrent()
+      } else {
+        syncQueuedRef.current = null
+        readStateQueuedRef.current = null
+        stopPeriodicRefresh()
+      }
+    }
+    const onOnline = () => {
+      startPeriodicRefresh()
+      refreshIfCurrent()
+    }
+    const onOffline = () => {
+      syncQueuedRef.current = null
+      readStateQueuedRef.current = null
+      stopPeriodicRefresh()
+    }
+
+    window.addEventListener('focus', refreshIfCurrent)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+
+    const channel = supabase
+      .channel(`private-chat-${conversationId}-${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'private_messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        onMessageChange
       )
       .on(
         'postgres_changes',
@@ -456,58 +673,97 @@ export function usePrivateChat(
           table: 'private_conversation_participants',
           filter: `conversation_id=eq.${conversationId}`,
         },
-        (payload) => {
-          const row = payload.new as {
-            user_id?: string
-            last_read_at?: string | null
-          } | null
-
-          if (!row?.user_id) return
-
-          if (row.user_id === userId) {
-            setLastReadAt((prev) => maxIso(prev, row.last_read_at ?? null))
-            return
-          }
-
-          setOtherLastReadAt((prev) => maxIso(prev, row.last_read_at ?? null))
-        }
+        onParticipantChange
       )
-      .subscribe()
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') refreshIfCurrent()
+      })
+
+    startPeriodicRefresh()
+    refreshIfCurrent()
 
     return () => {
-      cancelled = true
+      stopPeriodicRefresh()
+      window.removeEventListener('focus', refreshIfCurrent)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+      if (activeEffectGenerationRef.current === effectGeneration) {
+        activeEffectGenerationRef.current = null
+        syncQueuedRef.current = null
+        readStateQueuedRef.current = null
+        if (inFlightSyncRef.current?.effectGeneration === effectGeneration) inFlightSyncRef.current = null
+        if (readStateInFlightRef.current?.effectGeneration === effectGeneration) readStateInFlightRef.current = null
+        if (loadMoreInFlightRef.current?.effectGeneration === effectGeneration) loadMoreInFlightRef.current = null
+      }
       supabase.removeChannel(channel)
     }
-  }, [apiFetch, authLoading, conversationId, upsertOne, userId])
+  }, [
+    active,
+    apiFetch,
+    authGeneration,
+    authLoading,
+    applyIncomingMessages,
+    conversationId,
+    initialLimit,
+    isCurrentRequest,
+    opts.initialLastReadAt,
+    opts.initialOtherLastReadAt,
+    readStateForGeneration,
+    resetState,
+    token,
+    upsertOne,
+    userId,
+  ])
 
   useEffect(() => {
-    if (!conversationId) return
-    if (authLoading) return
+    if (!active || !conversationId || !hasPendingOutgoingReadReceipt) return
+    const effectGeneration = activeEffectGenerationRef.current
+    if (effectGeneration === null) return
 
-    resetState()
-    fetchInitial()
-  }, [conversationId, authLoading, fetchInitial, resetState])
+    let interval: number | null = null
+    const stop = () => {
+      if (interval !== null) window.clearInterval(interval)
+      interval = null
+    }
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        void readStateForGeneration(authGeneration, effectGeneration)
+      }
+    }
+    const start = () => {
+      stop()
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        interval = window.setInterval(refreshIfVisible, 2000)
+      }
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        start()
+        refreshIfVisible()
+      } else {
+        stop()
+      }
+    }
+    const onOnline = () => {
+      start()
+      refreshIfVisible()
+    }
+    const onOffline = stop
 
-  useEffect(() => {
-    if (!conversationId) return
-    if (authLoading) return
-
-    void refreshReadState()
-  }, [authLoading, conversationId, refreshReadState])
-
-  useEffect(() => {
-    if (!conversationId) return
-    if (authLoading) return
-    if (!hasPendingOutgoingReadReceipt) return
-
-    // Realtime for participant read rows is not dependable in this setup, so poll only
-    // while there is an outgoing message that may still become read.
-    const interval = window.setInterval(() => {
-      void refreshReadState()
-    }, 2000)
-
-    return () => window.clearInterval(interval)
-  }, [authLoading, conversationId, hasPendingOutgoingReadReceipt, refreshReadState])
+    start()
+    window.addEventListener('focus', refreshIfVisible)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    return () => {
+      stop()
+      window.removeEventListener('focus', refreshIfVisible)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+    }
+  }, [active, authGeneration, conversationId, hasPendingOutgoingReadReceipt, readStateForGeneration])
 
   const hasMore = useMemo(() => !!nextCursor, [nextCursor])
 

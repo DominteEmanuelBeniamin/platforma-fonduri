@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { guardToResponse } from '@/app/api/_utils/auth'
 import { requirePrivateConversationParticipant } from '@/app/api/_utils/private-chat'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
+import { chatTimestampMicroseconds } from '@/lib/chat-timestamp'
 
 const MarkReadSchema = z
   .object({
@@ -59,7 +60,7 @@ export async function POST(
     if (!accessRes.ok) return guardToResponse(accessRes)
 
     const admin = createSupabaseServiceClient()
-    const nowIso = new Date().toISOString()
+    const requestTimeIso = new Date().toISOString()
     const bodyJson = await request.json().catch(() => undefined)
     const parsed = MarkReadSchema.safeParse(bodyJson)
 
@@ -71,16 +72,17 @@ export async function POST(
     }
 
     const readThroughAt = parsed.data?.readThroughAt
-    const candidates = [
-      nowIso,
-      readThroughAt,
-      accessRes.participant.last_read_at,
-    ].filter((value): value is string => !!value)
-    const lastReadAt = candidates.reduce((latest, value) =>
-      new Date(value).getTime() > new Date(latest).getTime() ? value : latest
-    )
+    const requestedReadThroughAt = readThroughAt &&
+      chatTimestampMicroseconds(readThroughAt) <= chatTimestampMicroseconds(requestTimeIso)
+      ? readThroughAt
+      : requestTimeIso
+    const currentLastReadAt = accessRes.participant.last_read_at
+    const lastReadAt = currentLastReadAt &&
+      chatTimestampMicroseconds(currentLastReadAt) > chatTimestampMicroseconds(requestedReadThroughAt)
+      ? currentLastReadAt
+      : requestedReadThroughAt
 
-    const { error } = await admin
+    const { error: updateError } = await admin
       .from('private_conversation_participants')
       .update({
         last_read_at: lastReadAt,
@@ -89,16 +91,32 @@ export async function POST(
       .eq('user_id', accessRes.user.id)
       .or(`last_read_at.is.null,last_read_at.lt.${lastReadAt}`)
 
-    if (error) {
+    if (updateError) {
       console.error('POST private conversation read failed:', {
         conversationId,
         userId: accessRes.user.id,
-        error,
+        error: updateError,
       })
       return Response.json({ error: 'Failed to mark conversation as read' }, { status: 500 })
     }
 
-    return Response.json({ ok: true, lastReadAt })
+    const { data: persisted, error: readError } = await admin
+      .from('private_conversation_participants')
+      .select('last_read_at')
+      .eq('conversation_id', conversationId)
+      .eq('user_id', accessRes.user.id)
+      .maybeSingle()
+
+    if (readError || !persisted?.last_read_at) {
+      console.error('POST private conversation read result lookup failed:', {
+        conversationId,
+        userId: accessRes.user.id,
+        error: readError,
+      })
+      return Response.json({ error: 'Failed to load conversation read state' }, { status: 500 })
+    }
+
+    return Response.json({ ok: true, lastReadAt: persisted.last_read_at })
   } catch (err) {
     console.error('POST private conversation read unexpected error:', err)
     return Response.json({ error: 'Internal Server Error' }, { status: 500 })

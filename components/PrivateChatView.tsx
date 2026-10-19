@@ -13,6 +13,7 @@ import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { type PrivateChatMessage, usePrivateChat } from '@/hooks/usePrivateChat'
 import { getAvatarColor, getInitials } from '@/lib/avatar'
+import { chatTimestampMicroseconds } from '@/lib/chat-timestamp'
 import { profileDisplayName } from '@/lib/profile-display'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { Spinner } from '@/components/ui/Spinner'
@@ -29,10 +30,16 @@ type Props = {
   onMarkedAsRead?: (lastReadAt: string | null) => void
 }
 
+const compareChatTimestamps = (left: string, right: string) => {
+  const leftTime = chatTimestampMicroseconds(left)
+  const rightTime = chatTimestampMicroseconds(right)
+  return leftTime < rightTime ? -1 : leftTime > rightTime ? 1 : 0
+}
+
 const maxIso = (a: string | null, b: string | null) => {
   if (!a) return b
   if (!b) return a
-  return new Date(a).getTime() >= new Date(b).getTime() ? a : b
+  return compareChatTimestamps(a, b) >= 0 ? a : b
 }
 
 const getLatestUnreadIncomingCreatedAt = (
@@ -42,17 +49,15 @@ const getLatestUnreadIncomingCreatedAt = (
 ) => {
   if (!userId) return null
 
-  const lastReadTime = lastReadAt ? new Date(lastReadAt).getTime() : null
   let latestCreatedAt: string | null = null
 
   for (const m of messages) {
     if (m.deleted_at) continue
     if (m.created_by === userId) continue
 
-    const createdTime = new Date(m.created_at).getTime()
-    if (lastReadTime !== null && createdTime <= lastReadTime) continue
+    if (lastReadAt && compareChatTimestamps(m.created_at, lastReadAt) <= 0) continue
 
-    if (!latestCreatedAt || createdTime > new Date(latestCreatedAt).getTime()) {
+    if (!latestCreatedAt || compareChatTimestamps(m.created_at, latestCreatedAt) > 0) {
       latestCreatedAt = m.created_at
     }
   }
@@ -67,14 +72,12 @@ const getFirstUnreadMessageId = (
 ) => {
   if (!userId) return null
 
-  const boundaryTime = initialReadBoundary ? new Date(initialReadBoundary).getTime() : null
-
   return (
     messages.find((m) => {
       if (m.deleted_at) return false
       if (m.created_by === userId) return false
-      if (boundaryTime === null) return true
-      return new Date(m.created_at).getTime() > boundaryTime
+      if (!initialReadBoundary) return true
+      return compareChatTimestamps(m.created_at, initialReadBoundary) > 0
     })?.id ?? null
   )
 }
@@ -86,13 +89,12 @@ const getReadOutgoingMessageId = (
 ) => {
   if (!userId || !otherLastReadAt) return null
 
-  const otherReadTime = new Date(otherLastReadAt).getTime()
   let readMessageId: string | null = null
 
   for (const m of messages) {
     if (m.deleted_at) continue
     if (m.created_by !== userId) continue
-    if (new Date(m.created_at).getTime() <= otherReadTime) {
+    if (compareChatTimestamps(m.created_at, otherLastReadAt) <= 0) {
       readMessageId = m.id
     }
   }
