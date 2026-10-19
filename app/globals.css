@@ -62,7 +62,7 @@
   --sg-pending-soft: #F3EAE2;
   --sg-closed:       #625E59;  /* închis, arhivat */
   --sg-closed-soft:  #EAE7E2;
-  --sg-draft:        #6B7079;  /* în lucru, nepublicat */
+  --sg-draft:        #61666E;  /* în lucru, nepublicat — 4.76:1 pe draft-soft; ink-faint dădea 4.10:1 */
   --sg-draft-soft:   #EAE9E5;
 
   /* --- Geometrie: semnalizarea e dreaptă ---------------------------------- */

@@ -18,7 +18,7 @@ const PALETA = new Set([
   '#0e4c4a', '#e3ecea', '#0a3937',
   '#7a5b12', '#8e3b2a', '#5b3a63', '#4a5a24', '#2f4858',
   '#f2eddf', '#f4e6e2', '#ede7ef', '#ebeee2', '#e6eaed',
-  '#1f6b3a', '#e4efe8', '#8a5a08', '#f4ebdc', '#9b2c21', '#f5e4e1', '#eae9e5',
+  '#1f6b3a', '#e4efe8', '#8a5a08', '#f4ebdc', '#9b2c21', '#f5e4e1', '#61666e', '#eae9e5',
   '#000000',
 ])
 

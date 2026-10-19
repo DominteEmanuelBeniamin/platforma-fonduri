@@ -25,7 +25,7 @@ colors:
   warn-soft: "#F4EBDC"
   danger: "#9B2C21"
   danger-soft: "#F5E4E1"
-  draft: "#6B7079"
+  draft: "#61666E"
   draft-soft: "#EAE9E5"
 typography:
   display:
@@ -168,7 +168,7 @@ Riscul asumat: un program instituțional poate aluneca în „portal guvernament
 
 **Cele șase benzi de fază** sunt fixe și ordonate: petrol, ocru, cărămidă, prună, măsliniu, ardezie. Se atribuie după **poziția fazei în proiect** (`bandFor(index)` în `lib/signage.ts`), ca într-un program de semnalizare adevărat, unde culorile aripilor sunt poziționale. Rotația pe șase dă distribuție egală și garantează că două faze vecine nu poartă niciodată aceeași culoare. Varianta pe id — un hash — a fost măsurată și respinsă: pe 14 faze dădea în medie 2,3 perechi de vecini identici și o distribuție strâmbă, adică exact opusul tezei. `bandFor(string)` rămâne pentru suprafețele care n-au poziția la îndemână. Fiecare bandă poartă text alb la ≥6,3:1 și se citește pe hârtie la ≥5,7:1.
 
-**Semnalele sunt rezervate.** `ok` verde pentru finalizat, `warn` chihlimbar pentru termen apropiat, `danger` roșu pentru depășit, respins sau eroare, `draft` gri pentru nepublicat. Niciuna nu se folosește vreodată ca accent de brand. Roșul înseamnă că ceva arde — mesajele necitite nu ard, ele primesc accentul.
+**Semnalele sunt rezervate.** `ok` verde pentru finalizat, `warn` chihlimbar pentru termen apropiat, `danger` roșu pentru depășit, respins sau eroare, `draft` gri pentru nepublicat. Griul lui `draft` e puțin mai închis decât `ink-faint`: pe fondul `draft-soft`, `ink-faint` dădea doar 4,10:1, iar `#61666E` dă 4,76:1. Niciuna nu se folosește vreodată ca accent de brand. Roșul înseamnă că ceva arde — mesajele necitite nu ard, ele primesc accentul.
 
 **`closed` e pentru ce s-a încheiat fără să mai aștepte nimic**: cererea de documente închisă, proiectul încheiat (#109). Are culorile lui `neutral` — nicio nuanță nouă, contrastul e cel deja măsurat — dar iconița proprie, cutia de arhivă. Cu ceasul lui `neutral`, care înseamnă „la client”, o cerere închisă s-ar fi citit pe „Panoul cu chei” drept una care încă așteaptă clientul. Nu e verde: o cerere închisă poate să nu fi primit niciodată documentul, iar verdele ar fi spus „aprobat”.
 
