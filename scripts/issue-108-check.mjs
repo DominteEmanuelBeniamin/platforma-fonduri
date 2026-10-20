@@ -296,6 +296,63 @@ try {
     passed(old.sessionId.length > 0, 'Session fixture exists')
   })
 
+  await group('actor_auth_restrictions_revalidated_at_mutation', async () => {
+    mailMode = 'reject'
+    const person = await fixture(), alternate = await fixture('admin'), session = await login(alternate)
+    const before = snapshot(person).hash, start = messages.length, tag = 'issue108_ban_' + stamp
+    const ban = concurrentSql("begin; set application_name=" + q(tag) + "; select pg_advisory_xact_lock(105,1); update auth.users set banned_until=clock_timestamp()+interval '1 hour' where id=" + q(alternate.id) + "; select pg_sleep(2); commit;")
+    await waitLock(tag)
+    const answer = await reset(person, randomUUID(), { token: session.token })
+    passed((await ban).code === 0, 'Concurrent actor ban completes')
+    passed(answer.status === 401 && !answer.data?.temporaryPassword && snapshot(person).hash === before && messages.length === start, 'Ban after HTTP guard prevents reset, delivery and fallback')
+
+    for (const stage of ['delivery', 'fallback']) {
+      sql("update auth.users set banned_until=null where id=" + q(alternate.id))
+      const target = await fixture(), attempt = randomUUID()
+      const identity = { p_actor_id: alternate.id, p_actor_session_id: session.sessionId, p_target_id: target.id, p_attempt_id: attempt }
+      await rpc('admin_reset_password', { ...args(target, attempt), ...identity })
+      if (stage === 'fallback') {
+        await rpc('admin_reset_password_prepare_delivery', identity)
+        await rpc('admin_reset_password_finish_delivery', { p_target_id: target.id, p_attempt_id: attempt, p_outcome: 'failed', p_reason: 'provider_rejected' })
+      }
+      sql("update auth.users set banned_until=clock_timestamp()+interval '1 hour' where id=" + q(alternate.id))
+      if (stage === 'delivery') {
+        const prepared = await rpc('admin_reset_password_prepare_delivery', identity)
+        passed(prepared.status === 'skipped' && prepared.reason === 'actor_ineligible', 'Actor ban before handoff skips delivery')
+      } else {
+        passed((await rpc('admin_reset_password_claim_fallback', identity)).allowed === false, 'Actor ban before disclosure denies fallback')
+      }
+    }
+    passed(sql("begin; update auth.users set banned_until=null,deleted_at=clock_timestamp() where id=" + q(alternate.id) + "; select not account_recovery.admin_reset_actor_session_active(" + [alternate.id, session.sessionId].map(q).join(',') + "); rollback;").endsWith('t'), 'Soft-deleted Auth actor is ineligible')
+  })
+
+  await group('abandoned_delivery_reconciliation', async () => {
+    const start = messages.length
+    for (const phase of ['pending', 'claimed']) {
+      const person = await fixture(), attempt = randomUUID()
+      await rpc('admin_reset_password', args(person, attempt))
+      if (phase === 'claimed') await rpc('admin_reset_password_prepare_delivery', ident(person, attempt))
+      const before = snapshot(person).hash
+      const inProgress = await reset(person, attempt)
+      passed(inProgress.data.replayed && inProgress.data.deliveryAuditPending === true, 'A retry leaves an active delivery attempt unfinished')
+      sql("update account_recovery.admin_password_resets set created_at=clock_timestamp()-interval '2 minutes'" + (phase === 'claimed' ? ",delivery_started_at=clock_timestamp()-interval '2 minutes'" : '') + " where attempt_id=" + q(attempt))
+      for (let n = 0; n < 2; n++) {
+        const replay = await reset(person, attempt)
+        passed(replay.status === 200 && replay.data.replayed && replay.data.deliveryStatus === 'unknown' && !replay.data.deliveryAuditPending && !replay.data.temporaryPassword, 'Retry closes an abandoned attempt and repairs its audit without disclosure')
+      }
+      passed((await rpc('admin_reset_password_prepare_delivery', ident(person, attempt))).status === 'skipped', 'A delayed handoff cannot send after reconciliation')
+      const late = await rpc('admin_reset_password_finish_delivery', { p_target_id: person.id, p_attempt_id: attempt, p_outcome: 'failed', p_reason: 'provider_rejected' })
+      passed(late.delivery_status === 'unknown' && late.delivery_audited === true, 'Late result cannot overwrite a reconciled unknown outcome')
+      passed((await rpc('admin_reset_password_claim_fallback', ident(person, attempt))).allowed === false, 'Reconciliation never enables fallback')
+      passed(Number(sql("select count(*) from public.audit_logs where entity_id=" + q(person.id) + " and new_values->>'source'='admin_reset_delivery'")) === 1, 'Reconciliation writes exactly one delivery audit')
+      passed(snapshot(person).hash === before && snapshot(person).audit === 1 && messages.length === start, 'Reconciliation does not reset again or send another email')
+    }
+    const person = await fixture(), attempt = randomUUID()
+    await rpc('admin_reset_password', args(person, attempt))
+    const finished = await rpc('admin_reset_password_finish_delivery', { p_target_id: person.id, p_attempt_id: attempt, p_outcome: 'unknown', p_reason: 'provider_unconfirmed' })
+    passed(finished.delivery_status === 'unknown' && finished.delivery_audited === true, 'A failed prepare RPC can finalize its still-pending receipt immediately')
+  })
+
   await group('deactivation_ordering_and_no_false_success', async () => {
     const person = await fixture(), original = snapshot(person).hash, tag = 'issue108_first_' + stamp
     const first = concurrentSql("begin; set application_name=" + q(tag) + "; select pg_advisory_xact_lock(105,1); select pg_sleep(1.5); select public.set_user_account_active(" + [person.id, actor.id].map(q).join(',') + ",false); commit;")
@@ -514,6 +571,23 @@ try {
     await page.keyboard.press('Escape')
     await page.goto(base + '/admin/users')
     await page.getByRole('button', { name: 'Resetează parola', exact: true }).first().waitFor(); passed(await page.getByRole('button', { name: 'Resetează parola', exact: true }).count() > 0, 'List reset placement exists')
+    const listActions = page.getByLabel('Rolul lui ' + person.email, { exact: true }).locator('..')
+    await listActions.getByRole('button', { name: 'Resetează parola', exact: true }).click()
+    const refreshed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/users' && response.request().method() === 'GET' && response.status() === 200)
+    await page.getByRole('dialog').getByRole('button', { name: 'Confirmă resetarea', exact: true }).click()
+    const listPassword = page.getByRole('textbox', { name: /parol[ăa] temporară/i })
+    await listPassword.waitFor()
+    await refreshed
+    await page.waitForTimeout(200)
+    passed(await listPassword.isVisible() && (await listPassword.inputValue()).length === 20, 'List refresh preserves the initial fallback')
+    await page.keyboard.press('Escape')
+
+    await listActions.getByRole('button', { name: 'Resetează parola', exact: true }).click()
+    const changedEmail = 'issue108.' + stamp + '.changed@example.invalid'
+    passed(!(await service.auth.admin.updateUserById(person.id, { email: changedEmail, email_confirm: true })).error, 'Change own fixture Auth email')
+    passed(!(await service.from('profiles').update({ email: changedEmail }).eq('id', person.id)).error, 'Change own fixture saved email')
+    await page.getByRole('dialog').getByRole('button', { name: 'Confirmă resetarea', exact: true }).click()
+    await page.getByRole('dialog').getByRole('alert').filter({ hasText: 'Adresa contului s-a schimbat. Reîncarcă pagina' }).waitFor()
     await browser.close(); browser = null
   })
 } catch (error) {

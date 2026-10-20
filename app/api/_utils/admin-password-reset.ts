@@ -65,7 +65,7 @@ export function adminPasswordResetResponse(body: unknown, status = 200) {
 }
 
 function failure(code: string, error: string, status: number) {
-  return response({ code, error }, status)
+  return response({ code, error, message: error }, status)
 }
 
 function retrySameAttempt() {

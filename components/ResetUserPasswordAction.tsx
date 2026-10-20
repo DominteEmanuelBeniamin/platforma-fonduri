@@ -356,7 +356,7 @@ export function ResetUserPasswordAction({
 
                   {result.deliveryAuditPending && (
                     <FeedbackMessage variant="warning">
-                      Înregistrarea rezultatului emailului nu este confirmată. Poți verifica aceeași încercare din nou; verificarea nu trimite un alt email.
+                      Înregistrarea rezultatului emailului nu este confirmată. Verifică aceeași încercare din nou; dacă rămâne neconfirmată, reîncearcă peste un minut. Verificarea nu trimite un alt email.
                     </FeedbackMessage>
                   )}
 

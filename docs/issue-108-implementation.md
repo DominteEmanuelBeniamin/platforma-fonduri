@@ -66,4 +66,18 @@ Gărzile #105 sunt reutilizate. Acestea permit intenționat citirea profilului p
 
 Nu s-a făcut deploy/activare hosted și nu s-a trimis email real. Preflight-ul, compatibilitatea și livrarea reală se verifică separat pe mediul de rollout. Interfața de editare #106 nu este inclusă.
 
-**Review final al orchestratorului: acceptat pentru codul și verificările locale de mai sus.**
+**Acceptare inițială: verificările locale de mai sus au fost efectuate la 19 octombrie 2026.**
+
+
+## Corecții după review — 20 octombrie 2026
+
+Aplicați și migrarea corectivă `20261020074934_issue_108_review_fixes.sql`. Ea este aplicată local; verificările nu aplică nimic pe mediul hosted.
+
+- Revalidarea comună a autorului verifică și banul Auth, respectiv ștergerea soft. Un ban apărut după garda HTTP oprește mutația; aceeași verificare oprește predarea emailului și afișarea fallback-ului.
+- Verificarea unei încercări abandonate închide livrarea ca `unknown` și repară auditul după un minut de la creare/predare. Intervalul depășește apelurile RPC/provider limitate în timp și păstrează cererile încă în curs. Nu se retrimite emailul, nu se schimbă parola, nu se afișează vreun secret și nu se suprascrie un rezultat terminal.
+- Dacă pregătirea livrării eșuează înainte de claim, rezultatul necunoscut poate finaliza și receipt-ul încă `pending`. Un rezultat necunoscut finalizat nu poate permite ulterior fallback sau un nou claim de predare.
+- Refuzurile controlate expun textul și prin `message`, convenția păstrată de `apiFetch`. Schimbarea emailului cu dialogul deschis afișează acum explicit instrucțiunea de reîncărcare.
+
+Matricea reproductibilă include două grupe noi pentru aceste regresii și verificări suplimentare în browser: fallback-ul din listă rămâne vizibil după actualizarea listei, iar adresa schimbată produce explicația corectă. Cele două grupe DB au eșuat pe schema veche și trec după corecție. Matricea completă: **16/16 grupe trecute într-o singură rulare**.
+
+Verificarea completă `npm run verifica` trece: 325/325 teste unitare, TypeScript, build production și ESLint fără erori (3 avertismente preexistente). SQL lint și advisori de securitate locali: 0 erori. `audit:check` trece, iar preflight-ul #107 read-only confirmă `already_enabled`, cu toate verificările trecute.
