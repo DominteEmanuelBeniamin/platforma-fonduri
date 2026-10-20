@@ -112,7 +112,9 @@ const imageRetryKey = (messageId: string, image: ChatImage) =>
 
 import ImagePreviewDialog from './chat/ImagePreviewDialog'
 import ChatMessageList from './chat/ChatMessageList'
+import ChatTextQueueStatus from './chat/ChatTextQueueStatus'
 import { Spinner } from '@/components/ui/Spinner'
+import { useChatTextQueue } from '@/hooks/useChatTextQueue'
 
 export default function ProjectChatDrawer({
   open,
@@ -147,12 +149,20 @@ export default function ProjectChatDrawer({
     refreshMessage,
   } = useProjectChat(projectId, { initialLimit: 50 });
 
+  const textQueue = useChatTextQueue(
+    userId ? `project:${userId}:${projectId}` : null,
+    sendMessage,
+    !authLoading && !!userId && !readOnly
+  );
+  const { waitForIdle: waitForTextQueue } = textQueue;
+
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<PendingImage[]>([]);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [showRequestCta, setShowRequestCta] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [attachmentAttemptActive, setAttachmentAttemptActive] = useState(false);
   /** Câte imagini s-au urcat din câte, cât ține trimiterea. */
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -188,7 +198,9 @@ export default function ProjectChatDrawer({
   const activeAttemptRef = useRef<SendAttempt | null>(null);
   const closePromiseRef = useRef<Promise<void> | null>(null);
 
-  const canSend = !authLoading && !sending && !uploading && (text.trim().length > 0 || attachments.length > 0);
+  const canSend = !authLoading && !!userId && !readOnly && !uploading && !attachmentAttemptActive &&
+    (text.trim().length > 0 || attachments.length > 0) &&
+    (attachments.length === 0 || (!sending && textQueue.items.length === 0));
 
   const cleanupPaths = useCallback(async (paths: string[], targetProjectId = projectId) => {
     if (!paths.length) return;
@@ -224,6 +236,7 @@ export default function ProjectChatDrawer({
     attachmentsRef.current = [];
     setAttachments([]);
     setText('');
+    setAttachmentAttemptActive(false);
     setPreview(null);
     setComposerError(null);
     setShowRequestCta(false);
@@ -254,6 +267,7 @@ export default function ProjectChatDrawer({
         if (attempt.phase !== 'posting') attempt.controller.abort();
         await attempt.settled;
       }
+      if (!(await waitForTextQueue())) return;
       onClose();
     })().finally(() => {
       if (closePromiseRef.current === closePromise) closePromiseRef.current = null;
@@ -261,10 +275,10 @@ export default function ProjectChatDrawer({
 
     closePromiseRef.current = closePromise;
     return closePromise;
-  }, [onClose]);
+  }, [onClose, waitForTextQueue]);
 
   const addFiles = (incoming: File[]) => {
-    if (!incoming.length || activeAttemptRef.current || uploading || sending) return;
+    if (!incoming.length || activeAttemptRef.current || uploading || sending || textQueue.items.length > 0) return;
     setComposerError(null);
     setShowRequestCta(false);
 
@@ -709,8 +723,20 @@ export default function ProjectChatDrawer({
   const handleSend = async () => {
     if (!canSend || activeAttemptRef.current) return;
 
+    if (!attachmentsRef.current.length) {
+      const body = textRef.current.trim();
+      if (!body || !textQueue.enqueue(body)) return;
+      textRef.current = '';
+      setText('');
+      setComposerError(null);
+      setShowRequestCta(false);
+      setTimeout(() => scrollToBottom(false), 0);
+      return;
+    }
+
     const attempt = createSendAttempt(projectId, attachmentsRef.current);
     activeAttemptRef.current = attempt;
+    setAttachmentAttemptActive(true);
     setUploading(true);
     setComposerError(null);
     setUploadProgress(attempt.attachments.length ? { done: 0, total: attempt.attachments.length } : null);
@@ -849,6 +875,7 @@ export default function ProjectChatDrawer({
         if (mountedRef.current) {
           setUploading(false);
           setUploadProgress(null);
+          setAttachmentAttemptActive(false);
         }
       }
       attempt.resolveSettled();
@@ -985,6 +1012,12 @@ export default function ProjectChatDrawer({
           </div>
         ) : (
         <div className="z-10 bg-white p-3 sm:p-4 border-t border-rule pb-[env(safe-area-inset-bottom)]">
+          <ChatTextQueueStatus
+            items={textQueue.items}
+            sendingId={textQueue.sendingId}
+            failed={textQueue.failed}
+            onRetry={textQueue.retry}
+          />
           {!!attachments.length && (
             <div className="mb-2 flex gap-2 overflow-x-auto px-1">
               {attachments.map((attachment) => (
@@ -1025,7 +1058,7 @@ export default function ProjectChatDrawer({
               multiple
               accept="image/png,image/jpeg,image/webp,image/gif"
               className="hidden"
-              disabled={uploading || sending}
+              disabled={uploading || sending || textQueue.items.length > 0}
               onChange={(event) => {
                 addFiles(Array.from(event.target.files ?? []));
                 event.target.value = '';
@@ -1035,7 +1068,7 @@ export default function ProjectChatDrawer({
               type="button"
               aria-label="Adaugă imagini"
               onClick={() => fileInputRef.current?.click()}
-              disabled={uploading || sending}
+              disabled={uploading || sending || textQueue.items.length > 0}
               className="mb-0.5 rounded-full p-2 text-ink-soft hover:bg-paper disabled:opacity-40"
             >
               <ImagePlus className="h-5 w-5" />

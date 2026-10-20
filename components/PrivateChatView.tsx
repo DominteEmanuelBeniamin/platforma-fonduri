@@ -7,7 +7,6 @@ import {
   Send,
   Pencil,
   Trash2,
-  MoreHorizontal,
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
@@ -16,7 +15,10 @@ import { getAvatarColor, getInitials } from '@/lib/avatar'
 import { chatTimestampMicroseconds } from '@/lib/chat-timestamp'
 import { profileDisplayName } from '@/lib/profile-display'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
+import ChatActionMenu from '@/components/chat/ChatActionMenu'
+import ChatTextQueueStatus from '@/components/chat/ChatTextQueueStatus'
 import { Spinner } from '@/components/ui/Spinner'
+import { useChatTextQueue } from '@/hooks/useChatTextQueue'
 
 type Props = {
   conversationId: string
@@ -117,6 +119,7 @@ export default function PrivateChatView({
   const { confirm } = useToast()
 
   const [text, setText] = useState('')
+  const textRef = useRef('')
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
@@ -144,6 +147,12 @@ export default function PrivateChatView({
     initialOtherLastReadAt: initialOtherReadBoundary,
   })
 
+  const textQueue = useChatTextQueue(
+    userId ? `private:${userId}:${conversationId}` : null,
+    sendMessage,
+    !authLoading && !!userId
+  )
+
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
@@ -153,7 +162,7 @@ export default function PrivateChatView({
   const userPinnedToBottomRef = useRef(true)
   const previousConversationIdRef = useRef(conversationId)
 
-  const canSend = !authLoading && !sending && text.trim().length > 0
+  const canSend = !authLoading && !!userId && text.trim().length > 0
 
   const latestUnreadIncomingCreatedAt = useMemo(
     () => getLatestUnreadIncomingCreatedAt(messages, userId, lastReadAt),
@@ -290,11 +299,12 @@ export default function PrivateChatView({
     onMarkedAsRead?.(lastReadAt)
   }, [lastReadAt, onMarkedAsRead])
 
-  const handleSend = async () => {
+  const handleSend = () => {
     if (!canSend) return
-    const body = text.trim()
+    const body = textRef.current.trim()
+    if (!body || !textQueue.enqueue(body)) return
+    textRef.current = ''
     setText('')
-    await sendMessage(body)
     setTimeout(() => scrollToBottom(false), 0)
   }
 
@@ -552,31 +562,22 @@ export default function PrivateChatView({
                         </div>
 
                         {!m.deleted_at && isMe && (
-                        <div
-                            className={`relative flex-shrink-0 transition-opacity ${
+                          <ChatActionMenu
+                            open={openMenuId === m.id}
+                            onOpenChange={(open) => setOpenMenuId(open ? m.id : null)}
+                            label="Opțiuni mesaj"
+                            className={`relative flex-shrink-0 transition-opacity focus-within:opacity-100 [@media(hover:none)]:opacity-100 ${
                                 openMenuId === m.id
                                 ? 'opacity-100'
                                 : 'opacity-0 group-hover/bubble:opacity-100'
                             }`}
-                        >
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setOpenMenuId(openMenuId === m.id ? null : m.id)
-                              }}
-                              className={`rounded-full p-1.5 transition-colors ${
+                            buttonClassName={`rounded-full p-1.5 transition-colors ${
                                 openMenuId === m.id ? 'bg-paper text-ink' : 'text-ink-faint hover:bg-paper hover:text-ink'
                               }`}
-                            >
-                              <MoreHorizontal className="h-[18px] w-[18px]" />
-                            </button>
-
-                            {openMenuId === m.id && (
-                              <div
-                                className="absolute bottom-full right-0 z-50 mb-2 min-w-[140px] rounded-xl border border-rule bg-white p-1.5 shadow-xl"
-                                onClick={(e) => e.stopPropagation()}
-                              >
+                          >
                                 <button
+                                  type="button"
+                                  role="menuitem"
                                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-ink hover:bg-paper-sunk"
                                   onClick={() => {
                                     setOpenMenuId(null)
@@ -588,6 +589,8 @@ export default function PrivateChatView({
                                 </button>
 
                                 <button
+                                  type="button"
+                                  role="menuitem"
                                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)]"
                                   onClick={async () => {
                                     setOpenMenuId(null)
@@ -599,9 +602,7 @@ export default function PrivateChatView({
                                   <Trash2 className="h-4 w-4 text-[var(--sg-danger)]" />
                                   Șterge
                                 </button>
-                              </div>
-                            )}
-                          </div>
+                          </ChatActionMenu>
                         )}
                       </>
                     )}
@@ -640,11 +641,20 @@ export default function PrivateChatView({
       </div>
 
       <div className="z-10 shrink-0 border-t border-rule bg-white p-3 sm:p-4">
+        <ChatTextQueueStatus
+          items={textQueue.items}
+          sendingId={textQueue.sendingId}
+          failed={textQueue.failed}
+          onRetry={textQueue.retry}
+        />
         <div className="flex items-end gap-2 rounded-[20px] border border-rule bg-paper-sunk p-1.5 shadow-sm transition-all focus-within:border-rule-strong focus-within:bg-white focus-within:ring-2 focus-within:ring-[var(--sg-accent)]">
           <textarea
             ref={textareaRef}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              textRef.current = e.target.value
+              setText(e.target.value)
+            }}
             onKeyDown={onTextareaKeyDown}
             placeholder="Scrie un mesaj..."
             className="max-h-[120px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm text-ink outline-none focus-visible:outline-none! placeholder:text-ink-faint"

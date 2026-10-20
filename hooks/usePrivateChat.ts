@@ -311,9 +311,9 @@ export function usePrivateChat(
   const sendMessage = useCallback(
     async (body: string) => {
       const operation = getCurrentOperation()
-      if (!operation) return
+      if (!operation) return false
       const trimmed = body.trim()
-      if (!trimmed) return
+      if (!trimmed) return false
 
       setSending(true)
       setError(null)
@@ -324,19 +324,22 @@ export function usePrivateChat(
           body: JSON.stringify({ body: trimmed }),
         })
         const json = (await res.json().catch(() => null)) as PostMessageResponse | null
-        if (!isCurrentRequest(operation.authGeneration, operation.effectGeneration)) return
+        const isCurrent = isCurrentRequest(operation.authGeneration, operation.effectGeneration)
+        if (!isCurrent) return res.ok
 
         if (!res.ok) {
           setError(userErrorMessage(res.status, 'Nu am putut trimite mesajul.'))
-          return
+          return false
         }
 
         const item = json?.item
         if (item) pushOne(item)
+        return true
       } catch {
         if (isCurrentRequest(operation.authGeneration, operation.effectGeneration)) {
           setError(userErrorMessage(undefined, 'Nu am putut trimite mesajul.'))
         }
+        return false
       } finally {
         if (isCurrentRequest(operation.authGeneration, operation.effectGeneration)) setSending(false)
       }
