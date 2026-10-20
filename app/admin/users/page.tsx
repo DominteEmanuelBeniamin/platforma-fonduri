@@ -19,6 +19,7 @@ import { formatDate } from '@/lib/signage'
 import { Spinner } from '@/components/ui/Spinner'
 import { Signal } from '@/components/ui/Signal'
 import { profileDisplayName } from '@/lib/profile-display'
+import { ResetUserPasswordAction } from '@/components/ResetUserPasswordAction'
 
 type Rol = 'admin' | 'consultant' | 'client'
 type UserState = 'active' | 'inactive' | 'all'
@@ -645,6 +646,10 @@ export default function AdminUsersPage() {
                   <span className={`rounded border px-2 py-1 text-xs font-semibold ${user.is_active === false ? 'border-rule text-ink-soft' : 'border-[var(--sg-ok)] text-[var(--sg-ok)]'}`}>
                     {user.is_active === false ? 'Dezactivat' : 'Activ'}
                   </span>
+                  <ResetUserPasswordAction
+                    target={{ id: user.id, email: user.email, full_name: user.full_name, is_active: user.is_active }}
+                    onReset={() => fetchUsers(false)}
+                  />
                   {user.is_active === false ? (
                     <>
                       {/* Sincronizarea neterminată (inclusiv conturile dezactivate înainte de #105)

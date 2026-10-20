@@ -10,6 +10,7 @@ import { LocationStrip } from '@/components/ui/LocationStrip'
 import DriveFilesView, { DriveRow } from '@/components/DriveFilesView'
 import { Spinner } from '@/components/ui/Spinner'
 import { profileDisplayName } from '@/lib/profile-display'
+import { ResetUserPasswordAction } from '@/components/ResetUserPasswordAction'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -203,6 +204,9 @@ export default function UserFilesPage() {
         action={
           <>
             <RoleBadge role={user.role} />
+            <ResetUserPasswordAction
+              target={{ id: user.id, email: user.email, full_name: user.full_name, is_active: user.is_active }}
+            />
             {user.role === 'consultant' && (
               <LevelSwitch
                 level={user.consultant_level === 'senior' ? 'senior' : 'junior'}
