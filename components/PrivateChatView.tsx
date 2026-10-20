@@ -340,7 +340,7 @@ export default function PrivateChatView({
 
   return (
     <section className={`flex h-full min-h-0 flex-col bg-white ${className}`}>
-      <div className="z-10 border-b border-rule bg-white/80 backdrop-blur-md">
+      <div className="z-10 shrink-0 border-b border-rule bg-white/80 backdrop-blur-md">
         <div className="flex h-16 items-center justify-between px-4">
           <div className="flex items-center gap-3">
             {showBackButton && (
@@ -366,7 +366,7 @@ export default function PrivateChatView({
       <div
         ref={listRef}
         onClick={() => setOpenMenuId(null)}
-        className="flex-1 overflow-y-auto bg-paper-sunk p-4"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-paper-sunk p-4"
       >
         {hasMore && (
           <div className="flex justify-center pb-4 pt-2">
@@ -639,7 +639,7 @@ export default function PrivateChatView({
         <div ref={bottomRef} className="h-2" />
       </div>
 
-      <div className="z-10 border-t border-rule bg-white p-3 sm:p-4">
+      <div className="z-10 shrink-0 border-t border-rule bg-white p-3 sm:p-4">
         <div className="flex items-end gap-2 rounded-[20px] border border-rule bg-paper-sunk p-1.5 shadow-sm transition-all focus-within:border-rule-strong focus-within:bg-white focus-within:ring-2 focus-within:ring-[var(--sg-accent)]">
           <textarea
             ref={textareaRef}

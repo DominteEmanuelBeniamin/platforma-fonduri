@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
+import AppContent from "@/components/AppContent";
 import { AuthProvider } from './providers/AuthProvider'
 import { ProjectChatUnreadProvider } from './providers/ProjectChatUnreadProvider'
 import { NotificationsProvider } from './providers/NotificationsProvider'
@@ -47,11 +48,7 @@ export default function RootLayout({
 
             <Navbar />
 
-            <main id="continut" className="relative flex-1 pt-16 pb-16 min-h-screen">
-              <div className="mx-auto w-full max-w-[1400px] px-4 sm:px-6 lg:px-10">
-                {children}
-              </div>
-            </main>
+            <AppContent>{children}</AppContent>
           </ProjectChatUnreadProvider>
           </NotificationsProvider>
         </AuthProvider>
