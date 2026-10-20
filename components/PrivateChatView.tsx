@@ -368,7 +368,7 @@ export default function PrivateChatView({
       >
         {hasMore && (
           <div className="flex justify-center pb-4 pt-2">
-            <button
+            <button data-tooltip="Încarcă mesajele mai vechi din conversație"
               onClick={() => {
                 prevScrollHeightRef.current = listRef.current?.scrollHeight || null
                 void loadMore()
@@ -509,13 +509,13 @@ export default function PrivateChatView({
                           className="min-h-[100px] w-full resize-none bg-transparent px-4 py-3 text-[14px] text-ink focus:outline-none"
                         />
                         <div className="flex justify-end gap-2 border-t border-rule bg-paper-sunk p-2">
-                          <button
+                          <button data-tooltip="Renunță la modificare"
                             onClick={cancelEdit}
                             className="rounded-lg px-3 py-1.5 text-xs font-bold text-ink-soft hover:bg-paper"
                           >
                             Anulează
                           </button>
-                          <button
+                          <button data-tooltip="Salvează mesajul modificat"
                             onClick={() => void saveEdit(m.id)}
                             className="rounded-lg bg-ink px-3 py-1.5 text-xs font-bold text-white shadow-md hover:brightness-90"
                           >
@@ -557,7 +557,7 @@ export default function PrivateChatView({
                                 : 'opacity-0 group-hover/bubble:opacity-100'
                             }`}
                         >
-                            <button
+                            <button aria-label="Acțiuni pentru mesaj"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 setOpenMenuId(openMenuId === m.id ? null : m.id)
@@ -574,7 +574,7 @@ export default function PrivateChatView({
                                 className="absolute bottom-full right-0 z-50 mb-2 min-w-[140px] rounded-xl border border-rule bg-white p-1.5 shadow-xl"
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                <button
+                                <button data-tooltip="Modifică mesajul"
                                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-ink hover:bg-paper-sunk"
                                   onClick={() => {
                                     setOpenMenuId(null)
@@ -585,7 +585,7 @@ export default function PrivateChatView({
                                   Editează
                                 </button>
 
-                                <button
+                                <button data-tooltip="Șterge mesajul"
                                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)]"
                                   onClick={async () => {
                                     setOpenMenuId(null)
@@ -648,7 +648,7 @@ export default function PrivateChatView({
             className="max-h-[120px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm text-ink outline-none placeholder:text-ink-faint"
             rows={1}
           />
-          <button
+          <button data-tooltip="Trimite mesajul"
             onClick={() => void handleSend()}
             disabled={!canSend}
             className={`mb-0.5 mr-0.5 flex h-[38px] flex-shrink-0 items-center gap-2 rounded-2xl px-4 text-sm font-semibold transition-all ${

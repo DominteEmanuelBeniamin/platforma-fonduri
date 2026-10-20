@@ -129,12 +129,12 @@ export default function LoginPage() {
               </span>
             </label>
 
-            <Button type="submit" variant="primary" disabled={authLoading} className="w-full">
+            <Button data-tooltip="Intră în Bonie cu emailul și parola ta" type="submit" variant="primary" disabled={authLoading} className="w-full">
               {authLoading ? 'Se conectează…' : 'Intră în cont'}
             </Button>
             {recoveryAvailable && (
               <p className="text-center text-sm">
-                <Link href="/forgot-password" className="font-semibold text-[var(--sg-accent-ink)] underline underline-offset-4">
+                <Link data-tooltip="Primești pe email un link ca să-ți alegi o parolă nouă" href="/forgot-password" className="font-semibold text-[var(--sg-accent-ink)] underline underline-offset-4">
                   Ai uitat parola?
                 </Link>
               </p>

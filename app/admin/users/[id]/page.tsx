@@ -42,7 +42,7 @@ function LevelSwitch({
   return (
     <div role="radiogroup" aria-label="Nivelul consultantului" className="inline-flex shrink-0 rounded-[var(--radius-plate)] border border-rule bg-plate p-0.5">
       {(['junior', 'senior'] as const).map(option => (
-        <button
+        <button data-tooltip={option === 'junior' ? 'Junior: drepturi restrânse în proiectele lui' : 'Senior: mai multe drepturi în proiectele lui, de pildă încheierea proiectului'}
           key={option}
           type="button"
           role="radio"

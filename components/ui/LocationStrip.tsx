@@ -70,7 +70,7 @@ export function LocationStrip({
                 />
               ) : null}
               {s.href && i !== last ? (
-                <Link
+                <Link data-tooltip={`Înapoi la ${s.label}`}
                   href={s.href}
                   className="truncate rounded-[var(--radius-plate)] px-1 py-0.5 font-medium text-ink-soft transition-colors hover:text-ink hover:underline"
                 >

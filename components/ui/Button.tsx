@@ -58,6 +58,7 @@ export function ButtonLink({
   /** Necesar când textul butonului e ascuns la unele lățimi. */
   label,
   children,
+  'data-tooltip': tooltip,
 }: {
   href: string
   variant?: Variant
@@ -65,9 +66,11 @@ export function ButtonLink({
   className?: string
   label?: string
   children: ReactNode
+  /** Explicația din tooltip (vezi `TooltipLayer`). */
+  'data-tooltip'?: string
 }) {
   return (
-    <Link href={href} aria-label={label} className={buttonClass(variant, size, className)}>
+    <Link href={href} aria-label={label} data-tooltip={tooltip} className={buttonClass(variant, size, className)}>
       {children}
     </Link>
   )

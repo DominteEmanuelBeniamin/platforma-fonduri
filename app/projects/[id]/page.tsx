@@ -26,6 +26,10 @@ import {
   Archive,
   RotateCcw,
   CheckCircle2,
+  Table2,
+  ListTodo,
+  ChevronsDownUp,
+  ChevronsUpDown,
 } from 'lucide-react'
 
 import {
@@ -38,9 +42,7 @@ import {
 } from '@/lib/automatic-reminders'
 import ProjectChatDrawer from '@/components/ProjectChatDrawer'
 import ProjectTeam from '@/components/ProjectTeam'
-import { ProjectBoard, type BoardRow, type BoardItem } from '@/components/ProjectBoard'
-import { displayedRequestStatus } from '@/lib/request-status'
-import { bandFor } from '@/lib/signage'
+import { bandFor, type SignalTone } from '@/lib/signage'
 import { LocationStrip } from '@/components/ui/LocationStrip'
 import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
@@ -57,8 +59,10 @@ import type { ProjectActivity, ProjectPhase } from '@/components/ProjectPhasesSi
 import DocumentRequests from '@/components/DocumentRequests'
 import DocumentModal from '@/components/DocumentModal'
 import ProjectDocumentsView from '@/components/ProjectDocumentsView'
-import PhaseAccordionSection from '@/components/PhaseAccordionSection'
-import ActivityFold from '@/components/ActivityFold'
+import TableGroup, { ColumnHeader, GroupSummary, activityColumnsTemplate, type SummarySegment } from '@/components/project-table/TableGroup'
+import ActivityRow from '@/components/project-table/ActivityRow'
+import { AssigneePicker } from '@/components/project-table/AssigneePicker'
+import { activityStatus, deadlineRange, requestTone, startOfToday } from '@/lib/activity-status'
 import ActionNeededPanel from '@/components/ActionNeededPanel'
 import PublishStatusControl from '@/components/PublishStatusControl'
 import UnifiedSearchDialog from '@/components/UnifiedSearchDialog'
@@ -94,6 +98,7 @@ import {
   type HiddenItems,
   isActivityFinal,
   isPhaseFinal,
+  isRequestFinal,
   phaseCompletionBlocker,
   phaseCompletionConfirm,
   phaseProgress,
@@ -122,6 +127,8 @@ type ProjectView = 'phases' | 'documents' | 'calendar'
  * aceeași pentru toate proiectele (D11). Nu se salvează pe server.
  */
 const SHOW_FINAL_KEY = 'bonie:arata-finalizate'
+/** Panoul fazelor strâns pe calculator — tot o preferință a browserului. */
+const SIDEBAR_COLLAPSED_KEY = 'bonie:panou-faze-strans'
 const NOTHING_HIDDEN: HiddenItems = { phases: new Set(), activities: new Set(), requests: new Set() }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -172,8 +179,52 @@ function ProjectDetailsContent() {
   const [activeView, setActiveView] = useState<ProjectView>(
     targetView === 'documents' || targetView === 'calendar' ? targetView : 'phases'
   )
-  const [landingView, setLandingView] = useState<'board' | 'action-needed' | 'browse'>(hasDeepLink ? 'browse' : 'board')
-  const [landingViewInitialized, setLandingViewInitialized] = useState(false)
+  // „Tabel principal” sau „Ce ai de făcut”. Tabelul e vederea de pornire a
+  // tuturor; un deep-link duce tot în el, la rândul cerut.
+  const [landingView, setLandingView] = useState<'table' | 'action-needed'>('table')
+  // Grupurile tabelului (fazele și „Cereri generale”) sunt deschise implicit,
+  // ca în monday; aici stau doar cele strânse de om. `expandedPhases` rămâne al
+  // panoului din stânga, care își deschide fazele separat.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set())
+  const openGroups = useCallback((...ids: (string | null | undefined)[]) => {
+    setCollapsedGroups(prev => {
+      if (!ids.some(id => id && prev.has(id))) return prev
+      const next = new Set(prev)
+      for (const id of ids) if (id) next.delete(id)
+      return next
+    })
+  }, [])
+  // Faza aleasă — din panoul fazelor, din căutare, din „Ce ai de făcut” sau
+  // dintr-un link: tabelul arată doar grupul ei, nu tot proiectul. `null`
+  // înseamnă toate fazele. Separat de `activePhaseId`, pe care `fetchAll` îl
+  // resetează la fiecare reîncărcare (de pildă după o activitate nouă).
+  const [focusedPhaseId, setFocusedPhaseId] = useState<string | null>(null)
+  const focusPhase = useCallback((id: string) => {
+    setFocusedPhaseId(id)
+    openGroups(id)
+  }, [openGroups])
+  const toggleGroup = (id: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  useEffect(() => {
+    try { setSidebarCollapsed(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1') } catch { /* stocare indisponibilă */ }
+  }, [])
+  const changeSidebarCollapsed = (next: boolean) => {
+    setSidebarCollapsed(next)
+    try { window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0') } catch { /* rămâne doar pentru sesiunea asta */ }
+  }
+  // Pe calculator panoul e coloană și doar se redeschide dacă era strâns; pe
+  // telefon e sertar.
+  const openPhasesPanel = () => {
+    if (window.matchMedia('(min-width: 768px)').matches) changeSidebarCollapsed(false)
+    else setMobileSidebarOpen(true)
+  }
   const [searchOpen, setSearchOpen] = useState(false)
   const [autoOpenRequestId, setAutoOpenRequestId] = useState<string | null>(null)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
@@ -187,7 +238,11 @@ function ProjectDetailsContent() {
   const pendingRevealAnchor = useRef<string | null>(null)
   const highlightAnimation = useRef<Animation | null>(null)
 
-  const revealTarget = useCallback((anchor: string, delay = 120) => {
+  // `block`: unde ajunge ținta. Implicit la mijloc, ca pentru deep-linkuri,
+  // căutare și „Ce ai de făcut”. Panoul de faze cere `start`: o fază sau o
+  // activitate deschisă poate fi mai înaltă decât ecranul, iar începutul ei
+  // trebuie să rămână la vedere, sub bare.
+  const revealTarget = useCallback((anchor: string, delay = 120, block: ScrollLogicalPosition = 'center') => {
     if (revealTimer.current) clearTimeout(revealTimer.current)
     const reveal = (attempt = 0) => {
       const el = document.getElementById(anchor)
@@ -195,7 +250,13 @@ function ProjectDetailsContent() {
         if (attempt < 4) revealTimer.current = setTimeout(() => reveal(attempt + 1), 80)
         return
       }
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      // Ținta deja la vedere, sub barele lipite (le ține `scroll-margin-top`),
+      // nu mută pagina: doar se evidențiază. Un salt inutil mută și ce era sub
+      // cursor, iar cine apucase să tragă ceva l-ar scăpa.
+      const box = el.getBoundingClientRect()
+      const reserved = parseFloat(getComputedStyle(el).scrollMarginTop) || 0
+      const inView = box.top >= reserved && box.bottom <= window.innerHeight
+      if (!inView) el.scrollIntoView({ behavior: 'smooth', block })
       highlightAnimation.current?.cancel()
       const accent = getComputedStyle(document.documentElement).getPropertyValue('--p-accent').trim() || '#4f46e5'
       const ring = anchor.startsWith('request-')
@@ -861,32 +922,42 @@ function ProjectDetailsContent() {
     })
   }
 
-  // Selectarea unei faze din sidebar o marchează ca țintă, o depliază și
-  // închide restul — accordion exclusiv.
-  const scrollToPhaseSection = (id: string) => {
-    setTimeout(() => {
-      document.getElementById(`phase-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 120)
-  }
-
+  // Selectarea unei faze din panou: tabelul arată doar faza ei, iar în panou se
+  // depliază doar ea.
   const handleSelectPhase = (phaseId: string) => {
     // Panoul lateral arată și fazele finalizate (D10): alese de acolo, apar.
     reveal(phaseId)
     selectView('phases')
-    setLandingView('browse')
+    setLandingView('table')
     setActivePhaseId(phaseId)
     setExpandedPhases(new Set([phaseId]))
+    focusPhase(phaseId)
     setMobileSidebarOpen(false)
-    scrollToPhaseSection(phaseId)
+    revealTarget(`phase-${phaseId}`, 120, 'start')
+  }
+
+  // Clic pe o activitate în panoul de faze: tabelul arată faza ei, activitatea
+  // se desface, pagina sare la ea și o evidențiază.
+  const handleSelectActivity = (phaseId: string, activityId: string) => {
+    reveal(phaseId, activityId)
+    selectView('phases')
+    setLandingView('table')
+    setActivePhaseId(phaseId)
+    setExpandedPhases(prev => new Set(prev).add(phaseId))
+    focusPhase(phaseId)
+    setExpandedActivityIds(prev => new Set(prev).add(activityId))
+    setMobileSidebarOpen(false)
+    revealTarget(`activity-${activityId}`, 120, 'start')
   }
 
   const handleSelectGeneral = () => {
     selectView('phases')
-    setLandingView('browse')
+    setLandingView('table')
     setActivePhaseId(GENERAL_ID)
     setExpandedPhases(new Set([GENERAL_ID]))
+    focusPhase(GENERAL_ID)
     setMobileSidebarOpen(false)
-    scrollToPhaseSection(GENERAL_ID)
+    revealTarget(`phase-${GENERAL_ID}`, 120, 'start')
   }
 
   // ─── Ascunderea celor finalizate (#109, A9) ─────────────────────────────────
@@ -908,11 +979,6 @@ function ProjectDetailsContent() {
     setRevealedIds(prev => (fresh.every(id => prev.has(id)) ? prev : new Set([...prev, ...fresh])))
   }, [])
   const toggleShowFinal = (next: boolean) => {
-    // Cu toate fazele deschise (sau cu toate ascunse), fazele finalizate care
-    // apar acum se deschid și ele: altfel comutatorul n-ar arăta nimic nou.
-    if (next && (allPhasesExpanded || visiblePhases.length === 0)) {
-      setExpandedPhases(prev => new Set([...prev, ...phases.map(p => p.id), GENERAL_ID]))
-    }
     setShowFinal(next)
     setRevealedIds(new Set())
     try { window.localStorage.setItem(SHOW_FINAL_KEY, next ? '1' : '0') } catch { /* rămâne doar pentru sesiunea asta */ }
@@ -929,21 +995,23 @@ function ProjectDetailsContent() {
   )
   const visiblePhases = useMemo(() => phases.filter(p => !hidden.phases.has(p.id)), [phases, hidden])
 
-  // „Extinde toate fazele" lucrează pe cele vizibile: o fază finalizată ascunsă
-  // nu se deschide pe ascuns.
-  const allPhasesExpanded =
-    visiblePhases.length > 0 &&
-    visiblePhases.every(p => expandedPhases.has(p.id)) &&
-    expandedPhases.has(GENERAL_ID)
+  // „Restrânge toate” lucrează pe grupurile vizibile, ca în monday: rămân doar
+  // titlurile și sumarele, adică tot proiectul pe un ecran.
+  const allGroupsCollapsed = visiblePhases.length > 0 && visiblePhases.every(p => collapsedGroups.has(p.id))
 
-  const handleToggleAllPhases = () => {
-    if (allPhasesExpanded) {
-      setExpandedPhases(new Set())
-      setActivePhaseId(null)
-      if (hasDeepLink) selectView('phases')
-    } else {
-      setExpandedPhases(new Set([...visiblePhases.map(p => p.id), GENERAL_ID]))
-    }
+  // Faza aleasă, cât timp mai există: una ștearsă între timp lasă tabelul pe
+  // toate fazele. Aleasă explicit, se arată și dacă e finalizată și ascunsă.
+  const focusId = focusedPhaseId === GENERAL_ID || phases.some(p => p.id === focusedPhaseId) ? focusedPhaseId : null
+  const tablePhases = focusId === GENERAL_ID ? [] : focusId ? phases.filter(p => p.id === focusId) : visiblePhases
+  const showAllPhases = () => {
+    setFocusedPhaseId(null)
+    setExpandedPhases(new Set())
+    selectView('phases')
+    setLandingView('table')
+    setMobileSidebarOpen(false)
+  }
+  const handleToggleAllGroups = () => {
+    setCollapsedGroups(allGroupsCollapsed ? new Set() : new Set([...visiblePhases.map(p => p.id), GENERAL_ID]))
   }
 
   const handleToggleActivity = (activityId: string) => {
@@ -995,10 +1063,11 @@ function ProjectDetailsContent() {
     // finalizat: ținta se dezvăluie, altfel pagina ar derula spre nimic.
     reveal(targetPhaseId, targetActivityId, targetDocumentId)
     setActiveView('phases')
-    setLandingView('browse')
+    setLandingView('table')
     setActivePhaseId(targetPhaseId)
     setExpandedPhases(prev => (prev.has(targetPhaseId) ? prev : new Set(prev).add(targetPhaseId)))
-  }, [targetPhaseId, targetActivityId, targetDocumentId, phases, reveal])
+    focusPhase(targetPhaseId)
+  }, [targetPhaseId, targetActivityId, targetDocumentId, phases, reveal, focusPhase])
 
   // ─── Deep-link: scroll + highlight zona țintă din URL ───────────────────────
   useEffect(() => {
@@ -1027,7 +1096,8 @@ function ProjectDetailsContent() {
   const jumpToActivity = (phaseId: string | null, activityId: string | null, requestId?: string) => {
     reveal(phaseId, activityId, requestId)
     selectView('phases')
-    setLandingView('browse')
+    setLandingView('table')
+    focusPhase(activityId && phaseId ? phaseId : GENERAL_ID)
     if (activityId && phaseId) {
       // Document legat de o activitate dintr-o fază
       setActivePhaseId(phaseId)
@@ -1109,49 +1179,75 @@ function ProjectDetailsContent() {
   }, [allDocRequests, phaseNameById, isClient, projectClosed])
   const actionNeededCount = pendingUploads.length + waitingOnClient.length
 
-  const boardTodayTs = useMemo(() => {
-    const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime()
-  }, [])
+  const todayTs = useMemo(startOfToday, [])
 
-  /** Rândurile Panoului cu chei: fiecare fază cu cererile ei, plus rândul
-   *  cererilor generale, care nu aparțin niciunei faze. */
-  const boardRows: BoardRow[] = useMemo(() => {
-    const vii = allDocRequests.filter((r: any) => !r.is_outgoing && !r.deleted_at)
-    const dupaFaza = new Map<string, BoardItem[]>()
-    for (const r of vii as any[]) {
-      const cheie = r.activity?.phase_id ?? GENERAL_ID
-      const lista = dupaFaza.get(cheie) ?? []
-      lista.push({
-        id: r.id,
-        name: r.name,
-        // Închisă din „Aprobat”, rămâne „Aprobat” și pe panou.
-        status: displayedRequestStatus(r),
-        deadline_at: r.deadline_at ?? null,
-        activity_id: r.activity?.id ?? r.activity_id ?? null,
-        activity_name: r.activity?.name ?? null,
-      })
-      dupaFaza.set(cheie, lista)
+  /** Cererile vii — fără documentele trimise clientului — pe activitate și pe
+   *  fază. Din ele se trag starea fiecărui rând și sumarul fiecărui grup. */
+  const { requestsByActivity, requestsByPhase } = useMemo(() => {
+    const byActivity = new Map<string, any[]>()
+    const byPhase = new Map<string, any[]>()
+    for (const r of allDocRequests as any[]) {
+      if (r.is_outgoing || r.deleted_at) continue
+      const activityId = r.activity?.id ?? r.activity_id
+      if (activityId) {
+        const list = byActivity.get(activityId) ?? []
+        list.push(r)
+        byActivity.set(activityId, list)
+      }
+      const phaseId = r.activity?.phase_id ?? GENERAL_ID
+      const list = byPhase.get(phaseId) ?? []
+      list.push(r)
+      byPhase.set(phaseId, list)
     }
-    const rows: BoardRow[] = phases.map((f, i) => ({
-      id: f.id,
-      name: f.name,
-      band: bandFor(i),
-      draft: canEdit ? f.visibility !== 'published' : false,
-      items: dupaFaza.get(f.id) ?? [],
-    }))
-    const generale = dupaFaza.get(GENERAL_ID)
-    if (generale?.length) {
-      rows.push({ id: GENERAL_ID, name: 'Cereri generale', band: bandFor(phases.length), items: generale })
-    }
-    return rows
-  }, [phases, allDocRequests, canEdit])
+    return { requestsByActivity: byActivity, requestsByPhase: byPhase }
+  }, [allDocRequests])
 
-  // Fără params deschidem mereu "Ce ai de făcut"; params expliciți duc la browse.
-  useEffect(() => {
-    if (loading || landingViewInitialized) return
-    setLandingView(hasDeepLink ? 'browse' : 'board')
-    setLandingViewInitialized(true)
-  }, [loading, landingViewInitialized, hasDeepLink])
+  /** Starea fiecărei activități, în cuvântul celui care se uită. */
+  const statusOf = (activity: ProjectActivity) =>
+    activityStatus(activity, requestsByActivity.get(activity.id) ?? [], todayTs, isClient)
+
+  // Coloanele tabelului: „Vizibil clientului” e a echipei, „⋯” a cui poate modifica.
+  const tableColumns = { visibility: canEdit, actions: canChange }
+  const tableLabels = [
+    'Responsabil', 'Status', 'Documente', 'Termen',
+    ...(canEdit ? ['Vizibil clientului'] : []),
+    ...(canChange ? [''] : []),
+  ]
+
+  /** Bateria unui grup: activitățile numărate pe stare, de la ce e gata la ce arde. */
+  const summarySegments = (activities: ProjectActivity[]): SummarySegment[] => {
+    const order: SignalTone[] = ['ok', 'review', 'pending', 'neutral', 'danger']
+    const byLabel = new Map<string, SummarySegment>()
+    for (const activity of activities) {
+      const { tone, label } = statusOf(activity)
+      const segment = byLabel.get(label) ?? { tone, label, count: 0 }
+      segment.count++
+      byLabel.set(label, segment)
+    }
+    return [...byLabel.values()].sort((a, b) => order.indexOf(a.tone) - order.indexOf(b.tone))
+  }
+
+  // Grupul „Cereri generale” apare cui are ce vedea acolo, sau cui poate adăuga.
+  const showGeneralGroup = canChange || allDocRequests.some((r: any) => !r.deleted_at && !(r.activity?.id ?? r.activity_id))
+
+  /** Ce arde în fiecare fază, pentru panoul de faze. Clientul vede doar ce ține
+   *  de el (termen depășit sau respins); „de verificat” e treaba echipei. Un
+   *  proiect încheiat n-are nimic de făcut, deci nu semnalează nimic. */
+  const phaseSignals = useMemo(() => {
+    const signals = new Map<string, { danger: number; review: number }>()
+    if (projectClosed) return signals
+    for (const [phaseId, requests] of requestsByPhase) {
+      let danger = 0
+      let review = 0
+      for (const request of requests) {
+        const tone = requestTone(request, todayTs)
+        if (tone === 'danger') danger++
+        else if (tone === 'review' && !isClient) review++
+      }
+      if (danger > 0 || review > 0) signals.set(phaseId, { danger, review })
+    }
+    return signals
+  }, [requestsByPhase, todayTs, projectClosed, isClient])
 
   const searchIndex = useMemo(() => buildSearchIndex(phases, allDocRequests), [phases, allDocRequests])
 
@@ -1159,8 +1255,9 @@ function ProjectDetailsContent() {
     if (result.type === 'phase') {
       reveal(result.id)
       selectView('phases')
-      setLandingView('browse')
+      setLandingView('table')
       setExpandedPhases(new Set([result.id]))
+      focusPhase(result.id)
       revealTarget(`phase-${result.id}`)
       return
     }
@@ -1180,9 +1277,10 @@ function ProjectDetailsContent() {
     handledDeepLink.current = deepLinkKey
     reveal(phaseId, result.activityId, result.type === 'document_request' ? result.id : null)
     setActiveView('phases')
-    setLandingView('browse')
+    setLandingView('table')
     setActivePhaseId(phaseId)
     setExpandedPhases(prev => new Set(prev).add(phaseId))
+    focusPhase(phaseId)
     if (result.activityId) {
       setExpandedActivityIds(prev => new Set(prev).add(result.activityId!))
     }
@@ -1223,7 +1321,7 @@ function ProjectDetailsContent() {
         <div className="text-center">
           <AlertCircle className="mx-auto mb-3 h-12 w-12" style={{ color: 'var(--sg-danger)' }} aria-hidden="true" />
           <h2 className="mb-4 text-lg font-semibold text-ink">Proiectul nu există sau nu ai acces la el</h2>
-          <button onClick={() => router.push('/')}
+          <button data-tooltip="Înapoi la lista de proiecte" onClick={() => router.push('/')}
             className="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-plate)] bg-[var(--sg-accent)] px-4 text-sm font-semibold text-white sm:min-h-10">
             <ArrowLeft className="w-4 h-4" /> Înapoi
           </button>
@@ -1246,14 +1344,14 @@ function ProjectDetailsContent() {
         action={
           <>
             {perms.edit_project && !isEditingTitle && (
-              <IconButton label="Redenumește proiectul" onClick={() => { setEditTitle(project.title); setIsEditingTitle(true) }}>
+              <IconButton label="Redenumește proiectul" data-tooltip="Schimbă numele proiectului" onClick={() => { setEditTitle(project.title); setIsEditingTitle(true) }}>
                 <Pencil className="h-4 w-4" />
               </IconButton>
             )}
-            <IconButton label="Toate fazele: reordonare, activități, echipă" onClick={() => setMobileSidebarOpen(true)}>
+            <IconButton label="Toate fazele: reordonare, activități, echipă" data-tooltip="Panoul fazelor: alege o fază, reordonează, adaugă" onClick={openPhasesPanel}>
               <Layers className="h-4 w-4" />
             </IconButton>
-            <IconButton label="Caută în proiect" onClick={() => setSearchOpen(true)}>
+            <IconButton label="Caută în proiect" data-tooltip="Caută în proiect: faze, activități, cereri  ·  tasta /" onClick={() => setSearchOpen(true)}>
               <Search className="h-4 w-4" />
             </IconButton>
             {!isClient && (
@@ -1266,7 +1364,13 @@ function ProjectDetailsContent() {
                 onChange={fetchProjectMembers}
               />
             )}
-            <Button variant="secondary" size="sm" onClick={handleOpenChat} className="relative">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleOpenChat}
+              className="relative"
+              data-tooltip={isClient ? 'Scrie-i consultantului despre acest proiect' : 'Discuția proiectului, cu echipa și cu clientul'}
+            >
               <MessageSquare className="h-4 w-4" aria-hidden="true" />
               Chat
               {unreadCount > 0 && <Counter n={unreadCount} label={`${unreadCount} mesaje necitite`} className="ml-1" />}
@@ -1313,7 +1417,7 @@ function ProjectDetailsContent() {
                 </Button>
               )
             )}
-            <span className="hidden items-center gap-1.5 rounded-[var(--radius-plate)] bg-paper-sunk px-2.5 py-1 text-xs text-ink-soft lg:flex">
+            <span data-tooltip="Clientul proiectului" className="hidden items-center gap-1.5 rounded-[var(--radius-plate)] bg-paper-sunk px-2.5 py-1 text-xs text-ink-soft lg:flex">
               <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
               {profileDisplayName(project.profiles, project.profiles?.full_name || 'Client')}
             </span>
@@ -1342,28 +1446,24 @@ function ProjectDetailsContent() {
         }
       />
 
-      {/* Titlul paginii. A dispărut odată cu antetul vechi și pagina a rămas
-          fără `h1` — fâșia de locație e navigație, nu titlu. */}
-      {!isEditingTitle && (
-        <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2">
-          <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">
-            {project.title}
-          </h1>
+      {/* Titlul paginii. Numele proiectului se vede deja în fâșia de locație,
+          deci titlul mare a ieșit (cererea clientului, 20 octombrie 2026) și
+          tabelul urcă sub ea. `h1` rămâne pentru cititoarele de ecran: fâșia e
+          navigație, nu titlu. Ce se vede aici e doar starea „încheiat”. */}
+      <h1 className="sr-only">{project.title}</h1>
+      {!isEditingTitle && projectClosed && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
           {/* Clientul vede data, nu și cine a încheiat: ruta nu-i trimite numele. */}
-          {projectClosed && (
-            <Signal tone="closed">
-              {projectClosedLabel(project.closed_at, project.closer?.full_name)}
-            </Signal>
-          )}
-          {projectClosed && (
-            <p className="basis-full text-sm text-ink-soft">
-              {isClient
-                ? 'Proiectul e încheiat; nu mai e nevoie să încarci nimic.'
-                : permissions.close_project
-                  ? 'Se poate doar consulta. Ca să modifici ceva, redeschide-l din „Mai multe acțiuni”.'
-                  : 'Se poate doar consulta, până îl redeschide un administrator sau un consultant senior din echipă.'}
-            </p>
-          )}
+          <Signal tone="closed">
+            {projectClosedLabel(project.closed_at, project.closer?.full_name)}
+          </Signal>
+          <p className="basis-full text-sm text-ink-soft">
+            {isClient
+              ? 'Proiectul e încheiat; nu mai e nevoie să încarci nimic.'
+              : permissions.close_project
+                ? 'Se poate doar consulta. Ca să modifici ceva, redeschide-l din „Mai multe acțiuni”.'
+                : 'Se poate doar consulta, până îl redeschide un administrator sau un consultant senior din echipă.'}
+          </p>
         </div>
       )}
 
@@ -1378,16 +1478,19 @@ function ProjectDetailsContent() {
             aria-label="Titlul proiectului"
             className="h-11 min-w-0 flex-1 rounded-[var(--radius-plate)] border border-rule bg-plate px-3 text-sm font-semibold text-ink focus:border-[var(--sg-accent)] sm:h-10"
           />
-          <Button variant="primary" size="sm" onClick={handleSaveTitle} disabled={saving}>
+          <Button data-tooltip="Salvează noul nume al proiectului" variant="primary" size="sm" onClick={handleSaveTitle} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
             Salvează
           </Button>
-          <Button variant="quiet" size="sm" onClick={() => setIsEditingTitle(false)}>Renunță</Button>
+          <Button data-tooltip="Păstrează numele vechi" variant="quiet" size="sm" onClick={() => setIsEditingTitle(false)}>Renunță</Button>
         </div>
       )}
 
       {/* ── Body: sidebar + main ── */}
-      <div className="flex flex-1 w-full px-4 sm:px-6">
+      {/* Fără a doua margine: containerul paginii o are deja. Panoul și
+          conținutul se aliniază cu titlul, iar pe telefon conținutul ia toată
+          lățimea. Spațiul dintre panou și conținut vine din `md:px-6`. */}
+      <div className="flex flex-1 w-full">
 
         {/* Sidebar-ul nu mai e navigație: numele se tăiau și nu se puteau
             deosebi două faze. Navigarea trăiește în panou și în coridorul de
@@ -1396,15 +1499,20 @@ function ProjectDetailsContent() {
         {activeView === 'phases' && (
           <ProjectPhasesSidebar
             phases={phases}
-            activePhaseId={landingView === 'browse' ? activePhaseId : null}
+            activePhaseId={landingView === 'table' ? focusedPhaseId : null}
             expandedPhases={expandedPhases}
             canEdit={canEdit}
             readOnly={projectClosed}
             projectId={projectId}
             documentRequests={allDocRequests}
-            isGeneralActive={landingView === 'browse' && activePhaseId === GENERAL_ID}
+            isGeneralActive={landingView === 'table' && focusedPhaseId === GENERAL_ID}
+            onShowAll={showAllPhases}
+            showingAll={landingView === 'table' && !focusId}
             onSelectPhase={handleSelectPhase}
+            onSelectActivity={handleSelectActivity}
             onSelectGeneral={handleSelectGeneral}
+            phaseSignals={phaseSignals}
+            generalId={GENERAL_ID}
             onToggleExpand={handleToggleExpand}
             onRefresh={fetchAll}
             onReorderRefresh={refreshPhases}
@@ -1413,17 +1521,24 @@ function ProjectDetailsContent() {
             permissions={perms}
             mobileOpen={mobileSidebarOpen}
             onMobileClose={() => setMobileSidebarOpen(false)}
+            collapsed={sidebarCollapsed}
+            onCollapsedChange={next => { changeSidebarCollapsed(next); setMobileSidebarOpen(false) }}
           />
         )}
 
         {/* ══ MAIN ══ */}
         <main className="flex-1 min-w-0">
 
+          {/* Bara de unelte rămâne la vedere pe calculator: taburile și, pe
+              „Faze & Activități”, comutatorul panou / de făcut. Pagina se
+              derulează în continuare normal — pe telefon, la zoom mare sau cu
+              Ctrl+F nimic nu se schimbă; doar bara se lipește sub navigare. */}
+          <div className="md:sticky md:top-16 md:z-20 md:bg-paper">
           {/* ── Tab switcher ── */}
-          <div className="relative z-10 h-12 bg-[var(--p-surface)] border-b border-[var(--p-border)] px-4 sm:px-6">
+          <div className="relative z-10 h-11 bg-[var(--p-surface)] border-b border-[var(--p-border)] md:px-3">
             <div className="flex h-full gap-1 -mb-px overflow-x-auto">
               {([
-                { view: 'phases', label: 'Faze & Activități', Icon: Layers, count: 0, urgent: false, hint: '' },
+                { view: 'phases', label: 'Faze & Activități', Icon: Layers, count: 0, urgent: false, hint: '', tip: 'Fazele proiectului, cu activitățile și cererile de documente' },
                 {
                   view: 'documents',
                   label: 'Documente',
@@ -1431,6 +1546,7 @@ function ProjectDetailsContent() {
                   count: documentEntriesCount,
                   urgent: false,
                   hint: `${documentEntriesCount} fișiere`,
+                  tip: 'Toate fișierele proiectului, pe dosare — câte unul pe fază',
                 },
                 {
                   view: 'calendar',
@@ -1439,13 +1555,17 @@ function ProjectDetailsContent() {
                   count: calendarUrgentCount,
                   urgent: true,
                   hint: `${calendarUrgentCount} termene depășite sau în următoarele 7 zile`,
+                  tip: calendarUrgentCount > 0
+                    ? `Termenele proiectului — ${calendarUrgentCount} depășite sau în următoarele 7 zile`
+                    : 'Termenele proiectului, pe zile',
                 },
-              ] as const).map(({ view, label, Icon, count, urgent, hint }) => (
+              ] as const).map(({ view, label, Icon, count, urgent, hint, tip }) => (
                 <button
                   key={view}
+                  data-tooltip={tip}
                   onClick={() => selectView(view)}
                   aria-current={activeView === view ? 'page' : undefined}
-                  className={`flex h-full items-center gap-2 px-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  className={`flex h-full items-center gap-2 px-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                     activeView === view
                       ? 'border-[var(--sg-accent)] text-[var(--sg-accent-ink)]'
                       : 'border-transparent text-ink-soft hover:text-ink'
@@ -1461,7 +1581,7 @@ function ProjectDetailsContent() {
                     <>
                       <span
                         aria-hidden
-                        className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                        className={`text-xs px-1.5 rounded-[var(--radius-plate)] font-medium tabular-nums ${
                           urgent ? 'bg-[var(--sg-danger-soft)] text-[var(--sg-danger)]' : 'bg-paper-sunk text-ink-soft'
                         }`}
                       >
@@ -1475,9 +1595,89 @@ function ProjectDetailsContent() {
             </div>
           </div>
 
+            {/* Bara tabelului, ca în monday: vederea la stânga, uneltele la
+                dreapta. „Ce ai de făcut” își poartă numărul — e o poartă spre
+                lista de rezolvat, nu un ornament. */}
+            {activeView === 'phases' && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pt-3 md:px-6 md:pb-2">
+                <div role="group" aria-label="Vederea fazelor" className="inline-flex rounded-[var(--radius-plate-lg)] bg-paper-sunk p-0.5">
+                  {([
+                    { view: 'table', label: 'Tabel principal', Icon: Table2, tip: 'Tot proiectul ca tabel: faze, activități, cereri' },
+                    {
+                      view: 'action-needed',
+                      label: 'Ce ai de făcut',
+                      Icon: ListTodo,
+                      tip: isClient ? 'Documentele pe care le ai de încărcat' : 'Ce așteaptă după tine: documente de verificat, apoi ce e încă la client',
+                    },
+                  ] as const).map(({ view, label, Icon, tip }) => (
+                    <button
+                      key={view}
+                      data-tooltip={tip}
+                      type="button"
+                      aria-pressed={landingView === view}
+                      onClick={() => setLandingView(view)}
+                      className={`inline-flex min-h-10 items-center gap-1.5 rounded-[var(--radius-plate)] border px-3 text-[13px] font-semibold transition-colors duration-[120ms] pointer-fine:min-h-8 ${
+                        landingView === view
+                          ? 'border-rule bg-plate text-ink'
+                          : 'border-transparent text-ink-soft hover:text-ink'
+                      }`}
+                    >
+                      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                      {label}
+                      {view === 'action-needed' && actionNeededCount > 0 && <Counter n={actionNeededCount} className="ml-0.5" />}
+                    </button>
+                  ))}
+                </div>
+                {landingView === 'table' && phases.length > 0 && (
+                  <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">
+                    {/* Apare numai când chiar ascunde ceva, ca în tabloul de bord:
+                        altfel ar fi un control care nu face nimic vizibil. */}
+                    {(finalCount > 0 || showFinal) && (
+                      <label
+                        data-tooltip="Arată și fazele, activitățile și cererile încheiate, ascunse ca să nu încurce"
+                        className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-soft pointer-fine:min-h-8"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={showFinal}
+                          onChange={event => toggleShowFinal(event.target.checked)}
+                          className="h-4 w-4 rounded-[1px] border-rule-strong text-[var(--sg-accent)]"
+                        />
+                        Arată și ce e finalizat
+                        {!showFinal && finalCount > 0 && (
+                          <span className="text-ink-faint">({finalCount})</span>
+                        )}
+                      </label>
+                    )}
+                    {/* Cu o fază aleasă, drumul înapoi e la vedere; „Restrânge
+                        toate” n-are sens pe un singur grup. */}
+                    {focusId ? (
+                      <Button variant="secondary" size="sm" onClick={showAllPhases} data-tooltip="Înapoi la tot proiectul, cu toate fazele">
+                        <Layers className="h-4 w-4" aria-hidden="true" />
+                        Arată toate fazele
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="quiet"
+                        size="sm"
+                        onClick={handleToggleAllGroups}
+                        data-tooltip={allGroupsCollapsed ? 'Deschide toate fazele, cu activitățile lor' : 'Lasă doar titlul și sumarul fiecărei faze — tot proiectul pe un ecran'}
+                      >
+                        {allGroupsCollapsed
+                          ? <ChevronsUpDown className="h-4 w-4" aria-hidden="true" />
+                          : <ChevronsDownUp className="h-4 w-4" aria-hidden="true" />}
+                        {allGroupsCollapsed ? 'Extinde toate grupurile' : 'Restrânge toate grupurile'}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* ── Content ── */}
           {activeView === 'calendar' ? (
-            <div className="p-4 sm:p-6 max-w-5xl mx-auto">
+            <div className="max-w-5xl py-4 md:px-6">
               <CalendarSurface projectId={projectId} />
             </div>
           ) : activeView === 'documents' ? (
@@ -1493,112 +1693,52 @@ function ProjectDetailsContent() {
               // „Faze & Activități", nu în modal. Fără handler, rândul nu se deschide.
               onOpenRequest={canEdit ? handleOpenDocumentRequest : undefined}
             />
+          ) : landingView === 'action-needed' ? (
+            <ActionNeededPanel items={pendingUploads} waitingItems={waitingOnClient} isClient={isClient} projectClosed={projectClosed} onJump={jumpToActivity} />
           ) : (
-            <>
-              {/* Fâșia „arde acum”: numărul e o poartă, nu un ornament — duce
-                  direct la lista de rezolvat. Sub ea, Panoul cu chei. */}
-              <div className="flex flex-wrap items-center gap-2 px-4 pt-4 sm:px-6">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  aria-pressed={landingView === 'board'}
-                  onClick={() => setLandingView('board')}
-                  className={landingView === 'board' ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : ''}
-                >
-                  Panoul proiectului
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  aria-pressed={landingView === 'action-needed'}
-                  onClick={() => setLandingView('action-needed')}
-                  className={landingView === 'action-needed' ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : ''}
-                >
-                  Ce ai de făcut
-                  {actionNeededCount > 0 && <Counter n={actionNeededCount} className="ml-1.5" />}
-                </Button>
-
-              </div>
-
-              {landingView === 'action-needed' ? (
-                <ActionNeededPanel items={pendingUploads} waitingItems={waitingOnClient} isClient={isClient} projectClosed={projectClosed} onJump={jumpToActivity} />
-              ) : landingView === 'board' ? (
-                boardRows.length === 0 ? (
-                  <div className="mx-auto max-w-5xl p-4 sm:p-8">
-                    <div className="rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-6 py-12 text-center">
-                      <p className="text-base font-semibold text-ink">Proiectul n-are încă faze</p>
-                      <p className="mx-auto mt-2 max-w-[52ch] text-sm leading-6 text-ink-soft">
-                        Importă un șablon ca să apară fazele și activitățile, sau adaugă-le pe rând.
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mx-auto max-w-5xl p-4 sm:p-8">
-                    <ProjectBoard
-                      rows={boardRows}
-                      todayTs={boardTodayTs}
-                      onOpen={(item, rowId) => jumpToActivity(
-                        rowId === GENERAL_ID ? null : rowId,
-                        item.activity_id,
-                        item.id,
-                      )}
-                    />
-                  </div>
-                )
-              ) : landingView === 'browse' ? (
-                <div className="mx-auto max-w-5xl p-4 sm:p-8">
-                  <div className="mb-5 flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
-                    {/* Apare numai când chiar ascunde ceva, ca în tabloul de bord:
-                        altfel ar fi un control care nu face nimic vizibil. */}
-                    {(finalCount > 0 || showFinal) && (
-                      <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-soft pointer-fine:min-h-9">
-                        <input
-                          type="checkbox"
-                          checked={showFinal}
-                          onChange={event => toggleShowFinal(event.target.checked)}
-                          className="h-4 w-4 rounded-[1px] border-rule-strong text-[var(--sg-accent)]"
-                        />
-                        Arată și ce e finalizat
-                        {!showFinal && finalCount > 0 && (
-                          <span className="text-ink-faint">({finalCount})</span>
-                        )}
-                      </label>
-                    )}
-                    <Button variant="quiet" size="sm" onClick={handleToggleAllPhases}>
-                      {allPhasesExpanded ? 'Restrânge toate fazele' : 'Extinde toate fazele'}
-                    </Button>
-                  </div>
-                  {phases.length === 0 ? (
-                    <div className="rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-6 py-12 text-center">
-                      <p className="text-base font-semibold text-ink">Niciun șablon importat</p>
-                      <p className="mx-auto mt-2 max-w-[52ch] text-sm leading-6 text-ink-soft">
-                        Importă un șablon ca să apară fazele și activitățile, cu cererile de documente organizate pe ele.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-5">
-                  {visiblePhases.filter(phase => expandedPhases.has(phase.id)).map(phase => {
-                    const shownActivities = (phase.activities ?? []).filter(activity => !hidden.activities.has(activity.id))
-                    const hiddenActivities = (phase.activities ?? []).filter(activity => hidden.activities.has(activity.id))
-                    return (
-                    <PhaseAccordionSection
+            // Învelișul e containerul după care tabelul își alege forma: pe
+            // coloane când are loc, pe fișe când nu (vezi `project-table/cells`).
+            <div className="@container py-4 md:px-6">
+              {phases.length === 0 && !focusId && (
+                <div className="mb-7 rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-6 py-12 text-center">
+                  <p className="text-base font-semibold text-ink">Proiectul n-are încă faze</p>
+                  <p className="mx-auto mt-2 max-w-[52ch] text-sm leading-6 text-ink-soft">
+                    Importă un șablon ca să apară fazele și activitățile, cu cererile de documente organizate pe ele.
+                  </p>
+                </div>
+              )}
+              <div className="space-y-7">
+                {tablePhases.map(phase => {
+                  const band = bandFor(phases.findIndex(p => p.id === phase.id))
+                  const activities = phase.activities ?? []
+                  const shownActivities = activities.filter(activity => !hidden.activities.has(activity.id))
+                  const hiddenActivities = activities.filter(activity => hidden.activities.has(activity.id))
+                  const phaseRequests = requestsByPhase.get(phase.id) ?? []
+                  return (
+                    <TableGroup
                       key={phase.id}
                       id={phase.id}
                       title={phase.name}
-                      subtitle={progressLabel(phaseProgress(phase), 'activitate', 'activități')}
-                      badge={isPhaseFinal(phase) ? <Signal tone="ok">Finalizată</Signal> : undefined}
-                      band={bandFor(phases.findIndex(p => p.id === phase.id))}
+                      band={band}
                       draft={canEdit && phase.visibility !== 'published'}
-                      headerRight={
-                        <PublishStatusControl
-                          status={phase.visibility ?? 'draft'}
-                          canPublish={canChange}
-                          showPublishedStatus={canEdit}
-                          onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}`, {
-                            title: 'Publică faza?',
-                            description: 'Faza va deveni vizibilă clientului. Activitățile și cererile deja publicate din această fază vor deveni vizibile.',
-                          })}
-                        />
+                      collapsed={collapsedGroups.has(phase.id)}
+                      onToggle={() => toggleGroup(phase.id)}
+                      columns={activityColumnsTemplate(tableColumns)}
+                      meta={progressLabel(phaseProgress(phase), 'activitate', 'activități')}
+                      badges={
+                        <>
+                          {isPhaseFinal(phase) && <Signal tone="ok">Finalizată</Signal>}
+                          <PublishStatusControl
+                            status={phase.visibility ?? 'draft'}
+                            canPublish={canChange}
+                            showPublishedStatus={canEdit}
+                            size="sm"
+                            onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}`, {
+                              title: 'Publică faza?',
+                              description: 'Faza va deveni vizibilă clientului. Activitățile și cererile deja publicate din această fază vor deveni vizibile.',
+                            })}
+                          />
+                        </>
                       }
                       actions={canChange ? (
                         <RowActionsMenu
@@ -1641,237 +1781,241 @@ function ProjectDetailsContent() {
                       renameLoading={savingRename === phase.id}
                       onRenameSubmit={name => { void renameItem(`/api/projects/${projectId}/phases/${phase.id}`, phase.id, name) }}
                       onRenameCancel={() => setRenamingId(null)}
-                      open={expandedPhases.has(phase.id)}
-                      onOpenChange={() => handleToggleExpand(phase.id)}
-                    >
-                      {(phase.activities?.length ?? 0) === 0 && !canChange ? (
-                        <p className="text-sm text-[var(--p-ink-faint)]">Nicio activitate în această fază.</p>
-                      ) : (
-                        <>
-                        {shownActivities.map(activity => (
-                          <ActivityFold
-                            key={activity.id}
-                            activity={activity}
-                            requestProgress={activityProgress(activity.id, allDocRequests)}
-                            completed={isActivityFinal(activity)}
-                            open={expandedActivityIds.has(activity.id)}
-                            onOpenChange={() => handleToggleActivity(activity.id)}
-                            canAssign={canChange}
-                            projectMembers={projectMembers}
-                            onAssign={assignedTo => { handleAssignActivity(phase.id, activity.id, assignedTo).catch(() => {}) }}
-                            visibility={activity.visibility}
-                            canPublish={canChange}
-                            showPublishedStatus={canEdit}
-                            publishBlockers={publishBlockers({
-                              kind: 'activity',
-                              currentDeadline: activity.deadline_at,
-                              currentAssignee: activity.assigned_to,
-                            })}
-                            onSetDeadline={projectClosed ? undefined : date => saveActivityDeadline(phase.id, activity.id, date)}
-                            actions={canChange ? (
-                              <RowActionsMenu
-                                label={`Acțiuni pentru activitatea ${activity.name}`}
-                                busy={duplicatingId === activity.id || deletingId === activity.id || completingId === activity.id}
-                                actions={[
-                                  {
-                                    label: 'Marchează activitatea ca finalizată',
-                                    icon: <CheckCircle2 className="w-3 h-3" />,
-                                    hidden: !perms.complete_items || isActivityFinal(activity),
-                                    onSelect: () => { void handleItemCompletion('complete', phase, activity) },
-                                  },
-                                  {
-                                    label: 'Readu activitatea în lucru',
-                                    icon: <RotateCcw className="w-3 h-3" />,
-                                    hidden: !perms.complete_items || !isActivityFinal(activity),
-                                    onSelect: () => { void handleItemCompletion('reopen', phase, activity) },
-                                  },
-                                  {
-                                    label: 'Redenumește',
-                                    icon: <Pencil className="w-3 h-3" />,
-                                    onSelect: () => setRenamingId(activity.id),
-                                  },
-                                  {
-                                    label: 'Duplică',
-                                    icon: <Copy className="w-3 h-3" />,
-                                    onSelect: () => { void handleDuplicateActivity(phase.id, activity.id, activity.name) },
-                                  },
-                                  {
-                                    label: 'Șterge',
-                                    icon: <Trash2 className="w-3 h-3" />,
-                                    danger: true,
-                                    hidden: !perms.delete_phases,
-                                    onSelect: () => { void askToDeleteActivity(phase, activity) },
-                                  },
-                                ]}
-                              />
-                            ) : undefined}
-                            renaming={renamingId === activity.id}
-                            renameLoading={savingRename === activity.id}
-                            onRenameSubmit={name => { void renameItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, activity.id, name) }}
-                            onRenameCancel={() => setRenamingId(null)}
-                            onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, {
-                              title: 'Publică activitatea?',
-                              description: phase.visibility === 'published'
-                                ? 'Activitatea va deveni vizibilă clientului.'
-                                : `Activitatea va fi publicată, dar clientul o va vedea doar după ce publici faza „${phase.name}”.`,
-                            })}
-                          >
-                            <DocumentRequests
-                              projectId={projectId}
-                              activityId={activity.id}
-                              activityName={activity.name}
-                              parentActivityVisibility={activity.visibility}
-                              parentActivityAssignee={activity.assigned_to}
-                              parentPhaseName={phase.name}
-                              parentPhaseVisibility={phase.visibility}
-                              projectMembers={projectMembers}
-                              externalRequests={allDocRequests}
-                              onRefresh={refreshDocs}
-                              clientEmail={project?.profiles?.email ?? null}
-                              clientName={project?.profiles?.full_name ?? null}
-                              projectTitle={project?.title}
-                              autoOpenRequestId={autoOpenRequestId}
-                              canCloseRequests={perms.complete_items}
-                              readOnly={projectClosed}
-                              hiddenRequestIds={hidden.requests}
-                              onRevealRequests={ids => reveal(...ids)}
-                            />
-                          </ActivityFold>
-                        ))}
-                        <HiddenFinalRow
-                          hiddenCount={hiddenActivities.length}
-                          total={phase.activities?.length ?? 0}
-                          singular="activitate"
-                          plural="activități"
-                          onReveal={() => reveal(...hiddenActivities.map(activity => activity.id))}
-                          focusTargetId={hiddenActivities[0] ? `activity-${hiddenActivities[0].id}` : undefined}
+                      summary={activities.length > 0 ? (
+                        <GroupSummary
+                          columns={tableColumns}
+                          segments={summarySegments(activities)}
+                          docs={{ done: phaseRequests.filter(isRequestFinal).length, total: phaseRequests.length }}
+                          range={deadlineRange(activities.filter(activity => !isActivityFinal(activity)).map(activity => activity.deadline_at), todayTs)}
                         />
-                        {canChange && (
-                          showAddActivity[phase.id] ? (
-                            <div className="flex items-center gap-1.5">
-                              <input
-                                autoFocus
-                                value={newActivityName[phase.id] || ''}
-                                onChange={e => setNewActivityName(prev => ({ ...prev, [phase.id]: e.target.value }))}
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter') handleAddActivity(phase.id)
-                                  if (e.key === 'Escape') setShowAddActivity(prev => ({ ...prev, [phase.id]: false }))
-                                }}
-                                placeholder="Nume activitate..."
-                                disabled={!!addingActivity[phase.id]}
-                                className="flex-1 text-sm px-3 py-2 rounded-lg border border-[var(--p-border-strong)] bg-[var(--p-surface)] text-[var(--p-ink)] outline-none focus:ring-2 focus:ring-[var(--p-accent)]/20 focus:border-[var(--p-accent)]"
-                              />
-                              <button
-                                onClick={() => handleAddActivity(phase.id)}
-                                disabled={!!addingActivity[phase.id] || !(newActivityName[phase.id] || '').trim()}
-                                className="p-2 rounded-lg bg-[var(--p-success-soft)] text-[var(--p-success)] hover:opacity-80 disabled:opacity-40 flex-shrink-0"
-                              >
-                                {addingActivity[phase.id] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                              </button>
-                              <button
-                                onClick={() => setShowAddActivity(prev => ({ ...prev, [phase.id]: false }))}
-                                className="p-2 rounded-lg bg-[var(--p-surface-2)] text-[var(--p-ink-soft)] hover:opacity-80 flex-shrink-0"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setShowAddActivity(prev => ({ ...prev, [phase.id]: true }))}
-                              className="flex min-h-11 items-center gap-1.5 text-sm font-medium text-[var(--sg-accent)] underline-offset-4 hover:underline sm:min-h-9"
-                            >
-                              <Plus className="w-4 h-4" />
-                              Adaugă activitate
-                            </button>
-                          )
-                        )}
-                        </>
+                      ) : undefined}
+                    >
+                      {activities.length > 0 && <ColumnHeader first="Activitate" labels={tableLabels} />}
+                      {activities.length === 0 && !canChange && (
+                        <p className="px-3 py-3 text-sm text-ink-faint">Nicio activitate în această fază.</p>
                       )}
-                    </PhaseAccordionSection>
-                    )
-                  })}
-                  {/* Cu toate fazele deschise, cele finalizate ascunse își spun numărul.
-                      Și când sunt ascunse toate: altfel lista ar rămâne goală, fără explicație. */}
-                  {(allPhasesExpanded || visiblePhases.length === 0) && (
-                    <HiddenFinalRow
-                      hiddenCount={phases.length - visiblePhases.length}
-                      total={phases.length}
-                      singular="fază"
-                      plural="faze"
-                      onReveal={() => {
-                        const ids = phases.filter(p => hidden.phases.has(p.id)).map(p => p.id)
-                        reveal(...ids)
-                        setExpandedPhases(prev => new Set([...prev, ...ids]))
-                      }}
-                      focusTargetId={phases.find(p => hidden.phases.has(p.id)) ? `phase-${phases.find(p => hidden.phases.has(p.id))!.id}` : undefined}
-                    />
-                  )}
-                    </div>
-                  )}
-
-                  {/* ── Secțiune distinctă: Cereri generale (fără fază/activitate) ── */}
-                  {expandedPhases.has(GENERAL_ID) && (
-                    <PhaseAccordionSection
-                      id={GENERAL_ID}
-                      title="Cereri generale"
-                      subtitle="Documente care nu țin de o anumită fază a proiectului."
-                      icon={<FolderOpen className="h-4 w-4 shrink-0 text-[var(--sg-accent)]" aria-hidden="true" />}
-                      headerRight={
-                        perms.reassign_project ? (
-                          <select
-                            value={project?.general_consultant_id ?? ''}
-                            onClick={e => e.stopPropagation()}
-                            onChange={e => handleAssignGeneralConsultant(e.target.value || null)}
-                            aria-label="Atribuie consultant pentru cererile generale"
-                            className="h-11 max-w-44 rounded-[var(--radius-plate)] border border-rule bg-plate px-2 text-sm text-ink focus:border-[var(--sg-accent)] sm:h-9"
-                          >
-                            <option value="">Neatribuit</option>
-                            {projectMembers.find(m => m.id === project?.general_consultant_id && m.is_active === false) && <option value={project.general_consultant_id} disabled>{profileDisplayName(project.general_consultant)}</option>}
-                            {projectMembers.filter(m => m.is_active !== false).map(m => <option key={m.id} value={m.id}>{profileDisplayName(m)}</option>)}
-                          </select>
+                      {shownActivities.map(activity => (
+                        <ActivityRow
+                          key={activity.id}
+                          activity={activity}
+                          columns={tableColumns}
+                          band={band}
+                          status={statusOf(activity)}
+                          completed={isActivityFinal(activity)}
+                          progress={activityProgress(activity.id, allDocRequests)}
+                          open={expandedActivityIds.has(activity.id)}
+                          onToggle={() => handleToggleActivity(activity.id)}
+                          canAssign={canChange}
+                          projectMembers={projectMembers}
+                          onAssign={assignedTo => { handleAssignActivity(phase.id, activity.id, assignedTo).catch(() => {}) }}
+                          canPublish={canChange}
+                          showPublishedStatus={canEdit}
+                          publishBlockers={publishBlockers({
+                            kind: 'activity',
+                            currentDeadline: activity.deadline_at,
+                            currentAssignee: activity.assigned_to,
+                          })}
+                          onSetDeadline={canChange ? date => saveActivityDeadline(phase.id, activity.id, date) : undefined}
+                          onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, {
+                            title: 'Publică activitatea?',
+                            description: phase.visibility === 'published'
+                              ? 'Activitatea va deveni vizibilă clientului.'
+                              : `Activitatea va fi publicată, dar clientul o va vedea doar după ce publici faza „${phase.name}”.`,
+                          })}
+                          actions={canChange ? (
+                            <RowActionsMenu
+                              label={`Acțiuni pentru activitatea ${activity.name}`}
+                              busy={duplicatingId === activity.id || deletingId === activity.id || completingId === activity.id}
+                              actions={[
+                                {
+                                  label: 'Marchează activitatea ca finalizată',
+                                  icon: <CheckCircle2 className="w-3 h-3" />,
+                                  hidden: !perms.complete_items || isActivityFinal(activity),
+                                  onSelect: () => { void handleItemCompletion('complete', phase, activity) },
+                                },
+                                {
+                                  label: 'Readu activitatea în lucru',
+                                  icon: <RotateCcw className="w-3 h-3" />,
+                                  hidden: !perms.complete_items || !isActivityFinal(activity),
+                                  onSelect: () => { void handleItemCompletion('reopen', phase, activity) },
+                                },
+                                {
+                                  label: 'Redenumește',
+                                  icon: <Pencil className="w-3 h-3" />,
+                                  onSelect: () => setRenamingId(activity.id),
+                                },
+                                {
+                                  label: 'Duplică',
+                                  icon: <Copy className="w-3 h-3" />,
+                                  onSelect: () => { void handleDuplicateActivity(phase.id, activity.id, activity.name) },
+                                },
+                                {
+                                  label: 'Șterge',
+                                  icon: <Trash2 className="w-3 h-3" />,
+                                  danger: true,
+                                  hidden: !perms.delete_phases,
+                                  onSelect: () => { void askToDeleteActivity(phase, activity) },
+                                },
+                              ]}
+                            />
+                          ) : undefined}
+                          renaming={renamingId === activity.id}
+                          renameLoading={savingRename === activity.id}
+                          onRenameSubmit={name => { void renameItem(`/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`, activity.id, name) }}
+                          onRenameCancel={() => setRenamingId(null)}
+                        >
+                          <DocumentRequests
+                            projectId={projectId}
+                            activityId={activity.id}
+                            activityName={activity.name}
+                            parentActivityVisibility={activity.visibility}
+                            parentActivityAssignee={activity.assigned_to}
+                            parentPhaseName={phase.name}
+                            parentPhaseVisibility={phase.visibility}
+                            projectMembers={projectMembers}
+                            externalRequests={allDocRequests}
+                            onRefresh={refreshDocs}
+                            clientEmail={project?.profiles?.email ?? null}
+                            clientName={project?.profiles?.full_name ?? null}
+                            projectTitle={project?.title}
+                            autoOpenRequestId={autoOpenRequestId}
+                            canCloseRequests={perms.complete_items}
+                            readOnly={projectClosed}
+                            hiddenRequestIds={hidden.requests}
+                            onRevealRequests={ids => reveal(...ids)}
+                          />
+                        </ActivityRow>
+                      ))}
+                      <HiddenFinalRow
+                        className="border-b border-rule px-3 py-1"
+                        hiddenCount={hiddenActivities.length}
+                        total={activities.length}
+                        singular="activitate"
+                        plural="activități"
+                        onReveal={() => reveal(...hiddenActivities.map(activity => activity.id))}
+                        focusTargetId={hiddenActivities[0] ? `activity-${hiddenActivities[0].id}` : undefined}
+                      />
+                      {canChange && (
+                        showAddActivity[phase.id] ? (
+                          <div className="flex items-center gap-1.5 border-b border-rule px-2 py-1.5">
+                            <input
+                              autoFocus
+                              value={newActivityName[phase.id] || ''}
+                              onChange={e => setNewActivityName(prev => ({ ...prev, [phase.id]: e.target.value }))}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') handleAddActivity(phase.id)
+                                if (e.key === 'Escape') setShowAddActivity(prev => ({ ...prev, [phase.id]: false }))
+                              }}
+                              placeholder="Nume activitate..."
+                              disabled={!!addingActivity[phase.id]}
+                              aria-label="Numele activității noi"
+                              className="h-9 min-w-0 flex-1 rounded-[var(--radius-plate)] border border-rule-strong bg-plate px-3 text-sm text-ink focus:border-[var(--sg-accent)]"
+                            />
+                            <button
+                              onClick={() => handleAddActivity(phase.id)}
+                              disabled={!!addingActivity[phase.id] || !(newActivityName[phase.id] || '').trim()}
+                              aria-label="Adaugă activitatea"
+                              className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[var(--radius-plate)] bg-[var(--sg-accent)] text-white hover:bg-[var(--sg-accent-ink)] disabled:opacity-40"
+                            >
+                              {addingActivity[phase.id] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                            </button>
+                            <button
+                              onClick={() => setShowAddActivity(prev => ({ ...prev, [phase.id]: false }))}
+                              aria-label="Renunță"
+                              className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint hover:bg-paper-sunk hover:text-ink"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
                         ) : (
-                          <span className="text-sm text-ink-soft">
-                            {project?.general_consultant ? profileDisplayName(project.general_consultant) : 'Neatribuit'}
-                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowAddActivity(prev => ({ ...prev, [phase.id]: true }))}
+                            data-tooltip={`Adaugă o activitate nouă în faza „${phase.name}”`}
+                            className="flex min-h-11 w-full items-center gap-2 border-b border-rule px-3 text-left text-[13px] text-ink-faint transition-colors duration-[120ms] hover:bg-paper hover:text-[var(--sg-accent)] pointer-fine:min-h-9"
+                          >
+                            <Plus className="h-4 w-4" aria-hidden="true" />
+                            Adaugă activitate
+                          </button>
                         )
-                      }
-                  open={expandedPhases.has(GENERAL_ID)}
-                  onOpenChange={() => handleToggleExpand(GENERAL_ID)}
-                >
-                  <div
-                    id="general-requests"
-                    className="scroll-mt-24 rounded-xl"
+                      )}
+                    </TableGroup>
+                  )
+                })}
+
+                {/* Fazele finalizate ascunse își spun numărul, cu butonul care le arată. */}
+                {!focusId && <HiddenFinalRow
+                  hiddenCount={phases.length - visiblePhases.length}
+                  total={phases.length}
+                  singular="fază"
+                  plural="faze"
+                  onReveal={() => {
+                    const ids = phases.filter(p => hidden.phases.has(p.id)).map(p => p.id)
+                    reveal(...ids)
+                    openGroups(...ids)
+                  }}
+                  focusTargetId={phases.find(p => hidden.phases.has(p.id)) ? `phase-${phases.find(p => hidden.phases.has(p.id))!.id}` : undefined}
+                />}
+
+                {/* Cererile generale, fără fază și fără activitate: grupul de la
+                    coadă, cu muchie neutră — nu e o aripă a proiectului. */}
+                {showGeneralGroup && (!focusId || focusId === GENERAL_ID) && (
+                  <TableGroup
+                    id={GENERAL_ID}
+                    title="Cereri generale"
+                    band={null}
+                    icon={<FolderOpen className="h-4 w-4 shrink-0 text-ink-soft" aria-hidden="true" />}
+                    collapsed={collapsedGroups.has(GENERAL_ID)}
+                    onToggle={() => toggleGroup(GENERAL_ID)}
+                    meta="Documente care nu țin de o anumită fază."
+                    badges={
+                      perms.reassign_project ? (
+                        <AssigneePicker
+                          value={project?.general_consultant_id}
+                          person={project?.general_consultant}
+                          members={projectMembers}
+                          onChange={id => { void handleAssignGeneralConsultant(id) }}
+                          label="Atribuie consultant pentru cererile generale"
+                          title="Consultant pentru cererile generale"
+                          emptyLabel="Neatribuit"
+                        />
+                      ) : (
+                        <span className="text-xs text-ink-soft">
+                          {project?.general_consultant ? profileDisplayName(project.general_consultant) : 'Neatribuit'}
+                        </span>
+                      )
+                    }
                   >
-                    <DocumentRequests
-                      key="__general__"
-                      projectId={projectId}
-                      activityId={null}
-                      activityName="Cereri generale"
-                      generalConsultantId={
-                        // Doar dacă e membru — aceeași condiție pe care o pune
-                        // serverul; altfel chipul ar arăta publicabil degeaba.
-                        projectMembers.some(m => m.id === project?.general_consultant_id)
-                          ? project.general_consultant_id
-                          : null
-                      }
-                      projectMembers={projectMembers}
-                      externalRequests={allDocRequests}
-                      onRefresh={refreshDocs}
-                      clientEmail={project?.profiles?.email ?? null}
-                      clientName={project?.profiles?.full_name ?? null}
-                      projectTitle={project?.title}
-                      autoOpenRequestId={autoOpenRequestId}
-                      canCloseRequests={perms.complete_items}
-                              readOnly={projectClosed}
-                      hiddenRequestIds={hidden.requests}
-                      onRevealRequests={ids => reveal(...ids)}
-                    />
-                  </div>
-                </PhaseAccordionSection>
-              )}
+                    <div id="general-requests" className="scroll-mt-24 md:scroll-mt-48">
+                      <DocumentRequests
+                        key="__general__"
+                        projectId={projectId}
+                        activityId={null}
+                        activityName="Cereri generale"
+                        generalConsultantId={
+                          // Doar dacă e membru — aceeași condiție pe care o pune
+                          // serverul; altfel chipul ar arăta publicabil degeaba.
+                          projectMembers.some(m => m.id === project?.general_consultant_id)
+                            ? project.general_consultant_id
+                            : null
+                        }
+                        projectMembers={projectMembers}
+                        externalRequests={allDocRequests}
+                        onRefresh={refreshDocs}
+                        clientEmail={project?.profiles?.email ?? null}
+                        clientName={project?.profiles?.full_name ?? null}
+                        projectTitle={project?.title}
+                        autoOpenRequestId={autoOpenRequestId}
+                        canCloseRequests={perms.complete_items}
+                        readOnly={projectClosed}
+                        hiddenRequestIds={hidden.requests}
+                        onRevealRequests={ids => reveal(...ids)}
+                      />
+                    </div>
+                  </TableGroup>
+                )}
+              </div>
             </div>
-                  ) : null}
-            </>
           )}
         </main>
       </div>

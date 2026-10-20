@@ -245,7 +245,7 @@ export default function LogicalDriveFilesView({
             { mode: 'folders' as const, label: 'Dosare', Icon: FolderOpen },
             { mode: 'flat' as const, label: 'Listă', Icon: List },
           ]).map(({ mode, label, Icon }) => (
-            <button
+            <button data-tooltip={mode === 'folders' ? 'Fișierele pe dosare, câte unul pe fază' : 'Toate fișierele, într-o singură listă'}
               key={mode}
               type="button"
               onClick={() => setMode(mode)}
@@ -300,7 +300,7 @@ export default function LogicalDriveFilesView({
         <p className="font-semibold text-ink">Documentele nu au putut fi încărcate</p>
         <p className="text-sm text-ink-soft">{error}</p>
         {onRetry && (
-          <button
+          <button data-tooltip="Încarcă din nou fișierele"
             type="button"
             onClick={onRetry}
             className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-[var(--sg-accent)] px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-[var(--sg-accent-ink)]"
@@ -325,7 +325,7 @@ export default function LogicalDriveFilesView({
             Lista poate fi neactualizată. {error}
           </p>
           {onRetry && (
-            <button
+            <button data-tooltip="Încarcă din nou fișierele"
               type="button"
               onClick={onRetry}
               className="inline-flex min-h-8 flex-shrink-0 items-center gap-1.5 rounded-full border border-[var(--sg-warn)] bg-white px-3 py-1 text-xs font-semibold text-[var(--sg-warn)] transition hover:bg-[var(--sg-warn-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-600"
@@ -348,7 +348,7 @@ export default function LogicalDriveFilesView({
             Înapoi
           </button>
           <nav aria-label="Cale documente" className="flex min-w-0 items-center gap-2">
-            <button type="button" onClick={() => onFolderChange?.(null)} className="font-semibold text-[var(--sg-accent)] hover:underline">Drive</button>
+            <button data-tooltip="Înapoi la toate dosarele" type="button" onClick={() => onFolderChange?.(null)} className="font-semibold text-[var(--sg-accent)] hover:underline">Drive</button>
             {selectedFolder && <><span className="text-ink-faint" aria-hidden="true">/</span><span className="truncate font-semibold text-ink">{selectedFolder.name}</span></>}
             {hasSearch && <span className="whitespace-nowrap text-xs text-ink-faint">· rezultate în tot proiectul</span>}
           </nav>
@@ -360,7 +360,7 @@ export default function LogicalDriveFilesView({
             <div className="flex flex-col items-center justify-center py-24 text-center"><FolderOpen className="mb-4 h-16 w-16 text-ink-faint" /><p className="font-semibold text-ink">Nu există foldere</p><p className="text-sm text-ink-soft">Documentele vor apărea aici când vor fi disponibile.</p></div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {folders.map(folder => <button type="button" key={folder.id} onClick={() => onFolderChange?.(folder.id)} className="flex items-center gap-3 rounded-xl border border-rule p-4 text-left transition hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)]"><FolderOpen className="h-8 w-8 flex-shrink-0 text-[var(--sg-accent)]" /><span className="min-w-0 flex-1"><span className="block truncate font-semibold text-ink">{folder.name}</span><span className="text-xs text-ink-soft">{folder.documentCount} {folder.documentCount === 1 ? 'document' : 'documente'}</span></span><span className="text-ink-faint">›</span></button>)}
+              {folders.map(folder => <button data-tooltip="Deschide dosarul" type="button" key={folder.id} onClick={() => onFolderChange?.(folder.id)} className="flex items-center gap-3 rounded-xl border border-rule p-4 text-left transition hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)]"><FolderOpen className="h-8 w-8 flex-shrink-0 text-[var(--sg-accent)]" /><span className="min-w-0 flex-1"><span className="block truncate font-semibold text-ink">{folder.name}</span><span className="text-xs text-ink-soft">{folder.documentCount} {folder.documentCount === 1 ? 'document' : 'documente'}</span></span><span className="text-ink-faint">›</span></button>)}
             </div>
           )
         ) : noResults ? (

@@ -143,7 +143,7 @@ export default function PreviewPage({
         <p className="flex-1 min-w-0 truncate text-sm font-semibold text-ink">
           {fileName || 'Document'}
         </p>
-        <button
+        <button data-tooltip="Descarcă fișierul pe calculator"
           onClick={handleDownload}
           disabled={downloading}
           className="flex items-center gap-2 px-3 py-2 rounded-lg border border-rule bg-white text-sm font-semibold text-ink hover:bg-paper-sunk transition-colors disabled:opacity-60 flex-shrink-0"
@@ -170,7 +170,7 @@ export default function PreviewPage({
             <p className="text-base font-bold text-ink mb-1">Vizualizarea nu este disponibilă</p>
             <p className="text-sm text-ink-soft max-w-md">{error}</p>
           </div>
-          <button
+          <button data-tooltip="Descarcă fișierul pe calculator"
             onClick={handleDownload}
             disabled={downloading}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--sg-accent)] text-white text-sm font-semibold hover:bg-[var(--sg-accent-ink)] transition-colors disabled:opacity-60"

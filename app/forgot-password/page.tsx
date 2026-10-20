@@ -81,14 +81,14 @@ export default function ForgotPasswordPage() {
 
             {error && <p id="recovery-email-error" role="alert" aria-live="assertive" className="text-sm text-[var(--sg-danger)]">{error}</p>}
 
-            <Button type="submit" variant="primary" disabled={busy} className="w-full">
+            <Button data-tooltip="Primești pe email un link pentru o parolă nouă" type="submit" variant="primary" disabled={busy} className="w-full">
               {busy ? 'Se trimite…' : 'Trimite instrucțiunile'}
             </Button>
           </form>
         )}
 
         <p className="mt-6 text-center text-sm">
-          <Link href="/login" className="font-semibold text-[var(--sg-accent-ink)] underline underline-offset-4">Înapoi la autentificare</Link>
+          <Link data-tooltip="Înapoi la pagina de intrare în cont" href="/login" className="font-semibold text-[var(--sg-accent-ink)] underline underline-offset-4">Înapoi la autentificare</Link>
         </p>
       </section>
     </div>

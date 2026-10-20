@@ -132,7 +132,7 @@ export default function MyRequestsPage() {
       {requests.length === 0 ? (
         <EmptyState
           title="Totul e la zi"
-          action={<ButtonLink href="/" variant="secondary">Înapoi la proiecte</ButtonLink>}
+          action={<ButtonLink data-tooltip="Înapoi la lista de proiecte" href="/" variant="secondary">Înapoi la proiecte</ButtonLink>}
         >
           Nicio cerere nu așteaptă răspuns. Când trimiți una nouă, apare aici, ordonată după termen.
         </EmptyState>
@@ -199,7 +199,7 @@ export default function MyRequestsPage() {
                             text, cum îl vrea și excepția din 2.5.8, iar
                             interlinia îi dă înălțimea. */}
                         <p className="mt-0.5 truncate text-xs leading-6 text-ink-soft">
-                          <Link
+                          <Link data-tooltip="Deschide proiectul"
                             href={`/projects/${req.project_id}`}
                             className="font-medium text-[var(--sg-accent)] underline-offset-4 hover:underline"
                           >

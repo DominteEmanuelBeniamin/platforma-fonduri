@@ -404,7 +404,7 @@ export default function NewProjectPage() {
       {createdProjectId && (
         <div className="mx-auto mt-4 max-w-3xl rounded-[var(--radius-plate)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] p-4" role="alert">
           <p className="text-sm font-semibold text-ink">{importError || 'Dosarul a fost creat. Reîncearcă importul sau deschide dosarul.'}</p>
-          <Link className="mt-2 inline-block text-sm font-semibold text-[var(--sg-accent)] underline" href={'/projects/' + createdProjectId}>Deschide dosarul</Link>
+          <Link data-tooltip="Deschide proiectul creat" className="mt-2 inline-block text-sm font-semibold text-[var(--sg-accent)] underline" href={'/projects/' + createdProjectId}>Deschide dosarul</Link>
         </div>
       )}
       <form onSubmit={handleCreate} noValidate className="mt-8">
@@ -442,7 +442,7 @@ export default function NewProjectPage() {
               ) : clients.length === 0 ? (
                 <p className="mt-1.5 rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-4 py-3 text-sm text-ink-soft">
                   Nu există încă niciun client. {profile?.role === 'admin'
-                    ? <><Link href="/admin/users" className="font-semibold text-[var(--sg-accent)] underline underline-offset-2">Creează contul clientului</Link>, apoi revino aici.</>
+                    ? <><Link data-tooltip="Clientul n-are încă cont: creează-l din Utilizatori" href="/admin/users" className="font-semibold text-[var(--sg-accent)] underline underline-offset-2">Creează contul clientului</Link>, apoi revino aici.</>
                     : 'Cere unui administrator să creeze contul clientului.'}
                 </p>
               ) : (
@@ -635,8 +635,8 @@ export default function NewProjectPage() {
               )}
             </p>
             <div className="flex shrink-0 gap-2">
-              {createdProjectId ? <ButtonLink href={'/projects/' + createdProjectId} variant="quiet" className="flex-1 sm:flex-none">Deschide dosarul</ButtonLink> : <ButtonLink href="/" variant="quiet" className="flex-1 sm:flex-none">Anulează</ButtonLink>}
-              <Button type="submit" variant="primary" disabled={submitting || (!createdProjectId && !ready)} className="flex-1 sm:flex-none">
+              {createdProjectId ? <ButtonLink data-tooltip="Deschide proiectul creat" href={'/projects/' + createdProjectId} variant="quiet" className="flex-1 sm:flex-none">Deschide dosarul</ButtonLink> : <ButtonLink data-tooltip="Renunță și întoarce-te la proiecte" href="/" variant="quiet" className="flex-1 sm:flex-none">Anulează</ButtonLink>}
+              <Button data-tooltip={createdProjectId ? 'Încearcă din nou importul șablonului în proiectul creat' : 'Creează proiectul cu datele de mai sus'} type="submit" variant="primary" disabled={submitting || (!createdProjectId && !ready)} className="flex-1 sm:flex-none">
                 {submitting
                   ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                   : <FolderPlus className="h-4 w-4" aria-hidden="true" />}

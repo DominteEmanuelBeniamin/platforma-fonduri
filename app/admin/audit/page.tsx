@@ -566,20 +566,20 @@ export default function AuditPage() {
               />
               <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" aria-hidden="true" />
             </div>
-            <Button type="submit" variant="primary" disabled={loading}>
+            <Button data-tooltip="Aplică filtrele și caută în jurnal" type="submit" variant="primary" disabled={loading}>
               <Search className="h-4 w-4" aria-hidden="true" />
               Caută
             </Button>
           </form>
 
           <div className="flex w-full sm:w-auto flex-wrap items-center gap-2 shrink-0">
-            <Button variant="secondary" onClick={exportCsv} disabled={exporting || loading}>
+            <Button data-tooltip="Descarcă rezultatele filtrate ca fișier CSV, pentru Excel" variant="secondary" onClick={exportCsv} disabled={exporting || loading}>
               <FileDown className="h-4 w-4" aria-hidden="true" />
               {exporting ? 'Se exportă…' : 'Export CSV'}
             </Button>
 
             {hasFilters && (
-              <Button variant="quiet" onClick={clearFilters}>
+              <Button data-tooltip="Golește toate filtrele" variant="quiet" onClick={clearFilters}>
                 <X className="h-4 w-4" aria-hidden="true" />
                 Resetează
               </Button>
@@ -590,7 +590,7 @@ export default function AuditPage() {
         <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtrează rapid după acțiune">
           <span className="mr-0.5 text-xs font-medium text-ink-soft">Acțiune</span>
           {QUICK_ACTIONS.map(({ key, label }) => (
-            <Button
+            <Button data-tooltip={key ? `Doar acțiunile de tip „${label}”` : 'Toate tipurile de acțiuni'}
               key={key || '__all__'}
               type="button"
               variant="secondary"
@@ -609,7 +609,7 @@ export default function AuditPage() {
           {QUICK_RANGES.map(({ key, label }) => {
             const active = detectQuickRange(fromDate, toDate) === key
             return (
-              <Button
+              <Button data-tooltip={`Doar ce s-a întâmplat: ${label.toLowerCase()}`}
                 key={key}
                 type="button"
                 variant="secondary"
@@ -622,7 +622,7 @@ export default function AuditPage() {
               </Button>
             )
           })}
-          <Button
+          <Button data-tooltip="Alege tu ziua de început și de sfârșit"
             type="button"
             variant="secondary"
             size="sm"
@@ -713,7 +713,7 @@ export default function AuditPage() {
       ) : logs.length === 0 ? (
         <EmptyState
           title="Nicio înregistrare găsită"
-          action={hasFilters ? <Button variant="secondary" onClick={clearFilters}>Șterge filtrele</Button> : undefined}
+          action={hasFilters ? <Button data-tooltip="Golește toate filtrele și arată tot jurnalul" variant="secondary" onClick={clearFilters}>Șterge filtrele</Button> : undefined}
         >
           {hasFilters ? 'Încearcă alte filtre sau șterge-le pe cele active.' : 'Jurnalul e gol deocamdată — orice acțiune din platformă apare aici.'}
         </EmptyState>
@@ -936,7 +936,7 @@ function Paginator({
 }) {
   return (
     <nav aria-label="Pagini" className="flex w-full flex-wrap items-center justify-center gap-2 pt-4">
-      <Button
+      <Button data-tooltip="Pagina anterioară de rezultate"
         variant="secondary"
         onClick={() => onPageChange(pagination.page - 1)}
         disabled={!pagination.hasPrev}
@@ -969,7 +969,7 @@ function Paginator({
           )
         })}
       </div>
-      <Button
+      <Button data-tooltip="Pagina următoare de rezultate"
         variant="secondary"
         onClick={() => onPageChange(pagination.page + 1)}
         disabled={!pagination.hasNext}

@@ -6,6 +6,7 @@ import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { REQUIREMENT_TYPES, REQUIREMENT_LABELS, type RequirementType } from '@/lib/requirement-type'
 import type { TemplateAttachment } from './types'
 import { formatFileSize } from '@/lib/client-upload'
+import { DateField } from '@/components/ui/DatePicker'
 
 /**
  * Formularul de cerere de documente, creare și editare. A stat 163 de linii în
@@ -87,12 +88,12 @@ export default function RequestFormDialog({
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-ink">Termen limită</label>
-              <input
-                type="date"
+              <label htmlFor="request-deadline" className="mb-1.5 block text-sm font-semibold text-ink">Termen limită</label>
+              <DateField
+                id="request-deadline"
                 value={deadline}
-                onChange={(e) => onDeadlineChange(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-rule text-sm focus:border-[var(--sg-accent)] focus:ring-4 focus:ring-[var(--sg-accent)] outline-none transition-all bg-white"
+                onChange={onDeadlineChange}
+                placeholder="Fără termen"
               />
             </div>
           </div>
@@ -151,7 +152,7 @@ export default function RequestFormDialog({
               />
             </label>
 
-            <button
+            <button data-tooltip={editing ? 'Salvează modificările cererii' : 'Creează cererea de document'}
               type="submit"
               disabled={submitting || !name.trim()}
               className="px-6 py-3 bg-[var(--sg-accent)] text-white rounded-xl text-sm font-semibold hover:bg-[var(--sg-accent-ink)] disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
@@ -167,7 +168,7 @@ export default function RequestFormDialog({
                 <div key={attachment.id} className="flex items-center gap-2 text-xs text-ink-soft">
                   <Paperclip className="w-3.5 h-3.5 text-ink-faint flex-shrink-0" />
                   <span className="min-w-0 flex-1 truncate">{attachment.original_name || attachment.storage_path.split('/').pop() || 'model atașat'}</span>
-                  <button
+                  <button data-tooltip="Scoate fișierul din listă"
                     type="button"
                     onClick={() => {
                       onTemplateAttachmentsChange(current => current.filter(item => item.id !== attachment.id))
@@ -184,7 +185,7 @@ export default function RequestFormDialog({
                   <Paperclip className="w-3.5 h-3.5 text-[var(--sg-accent)] flex-shrink-0" />
                   <span className="min-w-0 flex-1 truncate">{file.name}</span>
                   <span className="text-[var(--sg-accent)]">{formatFileSize(file.size)}</span>
-                  <button
+                  <button data-tooltip="Scoate fișierul din listă"
                     type="button"
                     onClick={() => {
                       onTemplateFilesChange(current => current.filter((_, fileIndex) => fileIndex !== index))

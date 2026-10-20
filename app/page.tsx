@@ -215,7 +215,7 @@ function AdminMenu({
               {remindersActionLabel(remindersEnabled)}
             </button>
             <div className="my-1 border-t border-rule" />
-            <button
+            <button data-tooltip="Șterge proiectul cu tot ce conține — cere confirmare"
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpenMenuId(null); onRequestDelete(project) }}
               className="flex min-h-11 w-full items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors duration-[120ms] hover:bg-[var(--sg-danger-soft)]"
               style={{ color: 'var(--sg-danger)' }}
@@ -239,7 +239,7 @@ function CollapsibleSection({ group, defaultOpen }: { group: FilterGroup; defaul
 
   return (
     <div className="border-t border-rule">
-      <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex min-h-11 w-full items-center justify-between py-3.5 text-left">
+      <button data-tooltip={open ? `Ascunde opțiunile pentru ${group.title.toLowerCase()}` : `Arată opțiunile pentru ${group.title.toLowerCase()}`} onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex min-h-11 w-full items-center justify-between py-3.5 text-left">
         <span className="flex items-center gap-2">
           <span className="text-sm font-semibold text-ink">{group.title}</span>
           {group.selected.size > 0 && (
@@ -265,7 +265,7 @@ function CollapsibleSection({ group, defaultOpen }: { group: FilterGroup; defaul
               <p className="py-4 text-center text-xs text-ink-faint">Niciun rezultat</p>
             ) : (
               opts.map((o) => (
-                <button key={o.key} onClick={() => group.toggle(o.key)} aria-pressed={group.selected.has(o.key)} className="flex min-h-11 w-full items-center gap-2.5 rounded-[var(--radius-plate)] px-2 py-2 text-sm transition-colors duration-[120ms] hover:bg-paper-sunk">
+                <button data-tooltip={group.selected.has(o.key) ? 'Scoate din filtru' : 'Adaugă la filtru'} key={o.key} onClick={() => group.toggle(o.key)} aria-pressed={group.selected.has(o.key)} className="flex min-h-11 w-full items-center gap-2.5 rounded-[var(--radius-plate)] px-2 py-2 text-sm transition-colors duration-[120ms] hover:bg-paper-sunk">
                   <Tick on={group.selected.has(o.key)} />
                   <span className="flex-1 truncate text-left text-ink">{o.name}</span>
                   {typeof o.count === 'number' && <span className="text-xs font-medium text-ink-faint">{o.count}</span>}
@@ -329,7 +329,7 @@ function FilterModal({
               {attentionOptions.map((o) => {
                 const on = attentionSel.has(o.key)
                 return (
-                  <button
+                  <button data-tooltip={on ? 'Scoate filtrul' : `Doar proiectele cu: ${o.label.toLowerCase()}`}
                     key={o.key}
                     onClick={() => onToggleAtt(o.key)}
                     aria-pressed={on}
@@ -351,10 +351,10 @@ function FilterModal({
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 border-t border-rule px-6 py-3.5">
-          <Button variant="quiet" onClick={onClearAll} disabled={activeCount === 0}>
+          <Button data-tooltip="Golește toate filtrele" variant="quiet" onClick={onClearAll} disabled={activeCount === 0}>
             Resetează{activeCount > 0 ? ` (${activeCount})` : ''}
           </Button>
-          <Button variant="primary" onClick={onClose}>
+          <Button data-tooltip="Închide filtrele și vezi rezultatele" variant="primary" onClick={onClose}>
             Arată {resultCount} {resultCount === 1 ? 'proiect' : 'proiecte'}
           </Button>
         </div>
@@ -386,7 +386,7 @@ function TaskRow({ req, todayTs, mode }: { req: any; todayTs: number; mode: 'cli
     : (isReview ? 'De verificat' : 'La client')
 
   return (
-    <Link href={buildRequestHref(req)} className="group flex min-h-11 items-center gap-3 px-4 py-3 transition-colors duration-[120ms] hover:bg-paper-sunk">
+    <Link data-tooltip="Deschide cererea în proiect" href={buildRequestHref(req)} className="group flex min-h-11 items-center gap-3 px-4 py-3 transition-colors duration-[120ms] hover:bg-paper-sunk">
       <span
         aria-hidden="true"
         className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[var(--radius-plate)]"
@@ -423,7 +423,7 @@ function TaskRow({ req, todayTs, mode }: { req: any; todayTs: number; mode: 'cli
 function DocRow({ doc }: { doc: any }) {
   const date = doc.created_at ? new Date(doc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' }) : null
   return (
-    <Link href={`/projects/${doc.project_id}?phase=${GENERAL_PHASE_ID}&document=${doc.id}#general-requests`} className="group flex min-h-11 items-center gap-3 px-4 py-3 transition-colors duration-[120ms] hover:bg-paper-sunk">
+    <Link data-tooltip="Deschide documentul în proiect" href={`/projects/${doc.project_id}?phase=${GENERAL_PHASE_ID}&document=${doc.id}#general-requests`} className="group flex min-h-11 items-center gap-3 px-4 py-3 transition-colors duration-[120ms] hover:bg-paper-sunk">
       <span aria-hidden="true" className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[var(--radius-plate)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]">
         <FileText className="h-3.5 w-3.5" />
       </span>
@@ -488,7 +488,7 @@ function PriorityDrawer({
           )}
 
           {!isClient && requests.length > 0 && (
-            <Link href="/my-requests" onClick={onClose} className="flex min-h-11 items-center justify-center gap-1 border-t border-rule px-5 py-3 text-sm font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)]">
+            <Link data-tooltip="Toate cererile de documente, din toate proiectele" href="/my-requests" onClick={onClose} className="flex min-h-11 items-center justify-center gap-1 border-t border-rule px-5 py-3 text-sm font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)]">
               Vezi toate cererile <span aria-hidden="true">→</span>
             </Link>
           )}
@@ -846,7 +846,7 @@ export default function Dashboard() {
               </Button>
             )}
             {canCreateProject && (
-              <ButtonLink href="/projects/new" variant="primary" label="Proiect nou">
+              <ButtonLink data-tooltip="Deschide un proiect nou, gol sau dintr-un șablon" href="/projects/new" variant="primary" label="Proiect nou">
                 <Plus className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
                 <span className="hidden sm:inline">Proiect nou</span>
               </ButtonLink>
@@ -881,7 +881,7 @@ export default function Dashboard() {
         <EmptyState
           title="Niciun proiect deocamdată"
           action={canCreateProject ? (
-            <ButtonLink href="/projects/new" variant="primary">
+            <ButtonLink data-tooltip="Deschide un proiect nou, gol sau dintr-un șablon" href="/projects/new" variant="primary">
               <Plus className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" /> Proiect nou
             </ButtonLink>
           ) : undefined}
@@ -908,7 +908,7 @@ export default function Dashboard() {
               </div>
 
               {/* Filtre → modal */}
-              <button
+              <button data-tooltip="Filtrează lista de proiecte"
                 onClick={() => setFilterOpen(true)}
                 aria-label="Filtre"
                 className={buttonClass('secondary', 'md', activeFilterCount > 0 ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : '')}
@@ -938,7 +938,7 @@ export default function Dashboard() {
                     className="absolute right-0 top-full z-40 mt-2 w-56 rounded-[var(--radius-plate-lg)] p-1.5"
                   >
                     {visibleSortOptions.map((o) => (
-                      <button
+                      <button data-tooltip={`Ordonează după: ${o.label.toLowerCase()}`}
                         key={o.key}
                         onClick={() => { setSortKey(o.key); setSortOpen(false) }}
                         aria-pressed={effectiveSortKey === o.key}
@@ -1008,7 +1008,7 @@ export default function Dashboard() {
                 </button>
               ))}
               {anyFilterActive && (
-                <button onClick={clearAll} className="ml-auto text-sm font-semibold text-[var(--sg-accent)] underline-offset-4 hover:underline">Șterge tot</button>
+                <button data-tooltip="Golește toate filtrele" onClick={clearAll} className="ml-auto text-sm font-semibold text-[var(--sg-accent)] underline-offset-4 hover:underline">Șterge tot</button>
               )}
             </div>
             )}
@@ -1018,7 +1018,7 @@ export default function Dashboard() {
           {filtered.length === 0 ? (
             <EmptyState
               title="Niciun proiect nu se potrivește"
-              action={<Button variant="secondary" onClick={clearAll}>Șterge filtrele</Button>}
+              action={<Button data-tooltip="Golește toate filtrele" variant="secondary" onClick={clearAll}>Șterge filtrele</Button>}
             >
               Încearcă alți termeni de căutare, sau scoate filtrele active.
             </EmptyState>
@@ -1029,7 +1029,7 @@ export default function Dashboard() {
                 const att = attentionByProject.get(project.id)!
                 return (
                   <Plate key={project.id} rail={railFor(att)} interactive className="group">
-                    <Link href={`/projects/${project.id}`} className="flex h-full flex-col p-5 pt-6">
+                    <Link data-tooltip="Deschide proiectul" href={`/projects/${project.id}`} className="flex h-full flex-col p-5 pt-6">
                       <h3 className="line-clamp-2 pr-10 text-lg font-bold leading-snug text-ink transition-colors duration-[120ms] group-hover:text-[var(--sg-accent)]">{project.title}</h3>
                       <p className="mt-1.5 text-sm text-ink-soft">{clientName(project)}</p>
                       <AttentionBadges att={att} isClient={isClient} className="mt-4" />
@@ -1056,7 +1056,7 @@ export default function Dashboard() {
                 const att = attentionByProject.get(project.id)!
                 return (
                   <Plate key={project.id} rail={railFor(att)} interactive className="group">
-                    <Link href={`/projects/${project.id}`} className="flex items-center gap-4 py-4 pl-5 pr-3 pt-5">
+                    <Link data-tooltip="Deschide proiectul" href={`/projects/${project.id}`} className="flex items-center gap-4 py-4 pl-5 pr-3 pt-5">
                       <div className="min-w-0 flex-1">
                         <h3 className="truncate font-semibold text-ink transition-colors duration-[120ms] group-hover:text-[var(--sg-accent)]">{project.title}</h3>
                         <p className="mt-0.5 truncate text-sm text-ink-soft">{clientName(project)}</p>

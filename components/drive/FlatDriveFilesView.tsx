@@ -295,7 +295,7 @@ export default function FlatDriveFilesView({
                 <div className="min-w-0">
                   {row.secondaryMain ? (
                     <div>
-                      <button
+                      <button data-tooltip="Mergi la cererea de care ține fișierul"
                         type="button"
                         onClick={e => { e.stopPropagation(); row.onSecondaryClick?.() }}
                         className={`flex w-full items-center gap-1 truncate text-left text-xs ${

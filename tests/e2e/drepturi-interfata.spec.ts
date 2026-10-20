@@ -943,9 +943,10 @@ test('Modifică textul mesajelor altora — doar adminul; fiecare își modific�
 test('Schimbă clientul sau consultantul general — doar adminul are selectorul de la „Cereri generale”', async ({ browser }) => {
   await session(browser, admin, 'p-reasigneaza', async page => {
     await openProject(page, OWN, '?phase=__general__')
-    const select = page.getByLabel('Atribuie consultant pentru cererile generale')
-    await shows('p-reasigneaza', 'admin', 'are selectorul consultantului general', select, true, page)
-    await select.selectOption(JA.id)
+    const picker = page.getByRole('button', { name: /^Atribuie consultant pentru cererile generale/ })
+    await shows('p-reasigneaza', 'admin', 'are selectorul consultantului general', picker, true, page)
+    await picker.click()
+    await page.getByRole('option', { name: JA.name }).click()
     await stored('p-reasigneaza', 'admin', 'alegerea din interfață ajunge în bază', JA.id, async () => {
       const { data } = await service.from('projects').select('general_consultant_id').eq('id', OWN).single()
       return data?.general_consultant_id as string | null

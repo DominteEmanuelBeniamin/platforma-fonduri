@@ -101,7 +101,7 @@ export default function DeadlineList({
         // Ultimul grup, pliat: în proiectele aflate la început aproape totul e
         // fără termen, iar deschis ar îneca zilele care contează.
         <details className="overflow-hidden rounded-xl border border-[var(--p-border)] bg-[var(--p-surface)]">
-          <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 text-sm font-semibold text-[var(--p-ink-soft)] hover:bg-[var(--p-surface-2)]">
+          <summary data-tooltip="Ce n-are încă un termen" className="flex cursor-pointer items-center gap-2 px-4 py-3 text-sm font-semibold text-[var(--p-ink-soft)] hover:bg-[var(--p-surface-2)]">
             <CalendarOff className="h-4 w-4 flex-shrink-0" aria-hidden />
             Fără termen
             <span className="rounded-full bg-[var(--p-surface-2)] px-2 py-0.5 text-[11px] font-bold text-[var(--p-ink-soft)]">

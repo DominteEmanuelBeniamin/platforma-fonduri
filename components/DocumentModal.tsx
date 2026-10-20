@@ -805,7 +805,7 @@ export default function DocumentModal({
           ) && canEdit && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               {!isOutgoing && !localDeadline && !editingDeadline && (
-                <button
+                <button data-tooltip="Stabilește până când trebuie trimis documentul"
                   onClick={() => setEditingDeadline(true)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--sg-accent-soft)] text-[var(--sg-accent)] text-xs font-semibold hover:brightness-90 transition-colors"
                 >
@@ -823,7 +823,7 @@ export default function DocumentModal({
                     onClick={(e) => { e.currentTarget.value = '' }}
                     onChange={(e) => handleReplacementModel(e.currentTarget.files?.[0])}
                   />
-                  <button
+                  <button data-tooltip={isOutgoing ? 'Atașează fișierul trimis clientului' : 'Atașează un model pe care clientul îl descarcă și îl completează'}
                     type="button"
                     onClick={() => attachmentInputRef.current?.click()}
                     disabled={attachmentActionLoading}
@@ -902,7 +902,7 @@ export default function DocumentModal({
             <div className="flex items-center gap-2 text-sm text-ink-soft">
               <Clock className="w-4 h-4 flex-shrink-0 text-ink-faint" />
               <span>Fără termen limită</span>
-              <button
+              <button data-tooltip="Adaugă un termen limită"
                 onClick={() => setEditingDeadline(true)}
                 className="text-xs font-semibold text-[var(--sg-accent)] hover:underline flex-shrink-0"
               >
@@ -936,7 +936,7 @@ export default function DocumentModal({
                 </strong>
               </span>
               {canEdit && (
-                <button
+                <button data-tooltip="Schimbă termenul limită"
                   onClick={() => setEditingDeadline(true)}
                   className="text-xs font-semibold text-[var(--sg-accent)] hover:underline flex-shrink-0"
                 >
@@ -998,7 +998,7 @@ export default function DocumentModal({
                   <strong>{assigneeLabel ?? 'neatribuit'}</strong>
                 </span>
                 {canEdit && (
-                  <button
+                  <button data-tooltip={localAssignee ? 'Schimbă consultantul care răspunde de cerere' : 'Alege consultantul care răspunde de cerere'}
                     onClick={() => { setAssigneeDraft(localAssignee ?? ''); setEditingAssignee(true) }}
                     className="text-xs font-semibold text-[var(--sg-accent)] hover:underline flex-shrink-0"
                   >
@@ -1103,7 +1103,7 @@ export default function DocumentModal({
                             onClick={(e) => { e.currentTarget.value = '' }}
                             onChange={(e) => handleReplacementModel(e.currentTarget.files?.[0])}
                           />
-                          <button
+                          <button data-tooltip={isOutgoing ? 'Înlocuiește documentul cu o versiune nouă' : 'Înlocuiește modelul cu o versiune nouă'}
                             type="button"
                             onClick={() => attachmentInputRef.current?.click()}
                             disabled={attachmentActionLoading}
@@ -1112,7 +1112,7 @@ export default function DocumentModal({
                             {attachmentActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
                             {isOutgoing ? 'Reîncarcă documentul' : 'Reîncarcă model'}
                           </button>
-                          <button
+                          <button data-tooltip={isOutgoing ? 'Scoate documentul din cerere' : 'Scoate modelul din cerere'}
                             type="button"
                             onClick={handleRemoveModel}
                             disabled={attachmentActionLoading}
@@ -1213,7 +1213,7 @@ export default function DocumentModal({
                     )}
                   </div>
 
-                  <button
+                  <button data-tooltip="Trimite consultantului fișierele alese"
                     type="button"
                     onClick={handleClientUpload}
                     disabled={clientUploadLoading || clientUploadFiles.every(file => file.error)}
@@ -1243,7 +1243,7 @@ export default function DocumentModal({
                       {groupedVersions.length > 1 && (
                         <div className="flex items-center gap-1.5 flex-wrap">
                           {groupedVersions.map(v => (
-                            <button
+                            <button data-tooltip="Vezi fișierele din această variantă"
                               key={v.version}
                               onClick={() => setSelectedVersion(v.version)}
                               className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
@@ -1314,7 +1314,7 @@ export default function DocumentModal({
                       </div>
 
                       {group.files.length > 1 && (
-                        <button
+                        <button data-tooltip="Descarcă toate fișierele acestei variante"
                           onClick={() => downloadAllFilesForVersion(group.version)}
                           disabled={downloadingId === opAllId}
                           className="flex items-center gap-1.5 text-xs font-semibold text-[var(--sg-accent)] hover:underline disabled:opacity-50"
@@ -1369,7 +1369,7 @@ export default function DocumentModal({
         {canCloseRequest && !readOnly && !isOutgoing && (isClosable(request) || isClosed) && (
           <div className="px-5 sm:px-6 py-4 border-t border-rule flex flex-col sm:flex-row sm:justify-end gap-2.5">
             {isClosed ? (
-              <button
+              <button data-tooltip="Cererea primește din nou fișiere și se poate modifica"
                 onClick={() => { void handleClosure('reopen') }}
                 disabled={closureLoading}
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-plate)] border border-rule-strong bg-plate px-4 text-sm font-semibold text-ink hover:bg-paper-sunk disabled:opacity-50 pointer-fine:min-h-10"
@@ -1378,7 +1378,7 @@ export default function DocumentModal({
                 Redeschide cererea
               </button>
             ) : (
-              <button
+              <button data-tooltip="Cererea nu mai așteaptă nimic de la client; se poate redeschide oricând"
                 onClick={() => { void handleClosure('close') }}
                 disabled={closureLoading}
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-plate)] border border-rule-strong bg-plate px-4 text-sm font-semibold text-ink hover:bg-paper-sunk disabled:opacity-50 pointer-fine:min-h-10"
@@ -1393,7 +1393,7 @@ export default function DocumentModal({
         {/* Footer - doar când există acțiuni de făcut */}
         {canReview && (
           <div className="px-5 sm:px-6 py-4 border-t border-rule flex flex-col sm:flex-row gap-2.5">
-            <button
+            <button data-tooltip="Respinge documentul și spune clientului de ce; el îl va încărca din nou"
               onClick={confirmReject}
               disabled={actionLoading}
               className="flex-1 py-3 rounded-xl text-sm font-bold border border-[var(--sg-danger)] text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
@@ -1402,7 +1402,7 @@ export default function DocumentModal({
               Respinge
             </button>
 
-            <button
+            <button data-tooltip="Documentul e bun: cererea devine aprobată"
               onClick={handleApprove}
               disabled={actionLoading}
               className="flex-[2] py-3 rounded-xl text-sm font-bold text-white bg-[var(--sg-ok)] hover:brightness-90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"

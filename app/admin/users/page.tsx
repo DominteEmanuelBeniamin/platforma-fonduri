@@ -470,7 +470,7 @@ export default function AdminUsersPage() {
               ))}
             </ul>
             {userToDelete?.is_active && (
-              <Button variant="secondary" onClick={openImpactForDeletedUser}>Dezactivează contul</Button>
+              <Button data-tooltip="Contul nu se mai poate conecta; istoricul lui rămâne" variant="secondary" onClick={openImpactForDeletedUser}>Dezactivează contul</Button>
             )}
           </div>
         )}
@@ -530,8 +530,8 @@ export default function AdminUsersPage() {
               {lifecycleActionError && <FeedbackMessage variant="error">{lifecycleActionError}</FeedbackMessage>}
             </div>
             <div className="flex justify-end gap-2 border-t border-rule bg-paper-sunk px-5 py-4">
-              <Dialog.Close asChild><Button variant="secondary">Anulează</Button></Dialog.Close>
-              <Button variant="danger" disabled={changingStateId !== null} onClick={() => { if (impactUser) void changeLifecycle(impactUser, 'deactivate') }}>
+              <Dialog.Close asChild><Button data-tooltip="Lasă contul activ" variant="secondary">Anulează</Button></Dialog.Close>
+              <Button data-tooltip="Contul nu se mai poate conecta; istoricul lui rămâne" variant="danger" disabled={changingStateId !== null} onClick={() => { if (impactUser) void changeLifecycle(impactUser, 'deactivate') }}>
                 {changingStateId === impactUser?.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 Dezactivează contul
               </Button>
@@ -543,7 +543,7 @@ export default function AdminUsersPage() {
       <LocationStrip
         segments={[{ label: 'Bonie', href: '/' }, { label: 'Utilizatori' }]}
         action={
-          <Button variant="primary" aria-label="Adaugă utilizator" onClick={openCreatePanel}>
+          <Button data-tooltip="Creează un cont nou: consultant, client sau administrator" variant="primary" aria-label="Adaugă utilizator" onClick={openCreatePanel}>
             <UserPlus className="h-4 w-4" aria-hidden="true" />
             <span className="hidden sm:inline">Adaugă utilizator</span>
           </Button>
@@ -564,7 +564,7 @@ export default function AdminUsersPage() {
             DESIGN.md cere ruperea în rânduri, nu derularea. */}
         <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filtrează după rol">
           {(['toate', 'client', 'consultant', 'admin'] as const).map((r) => (
-            <Button
+            <Button data-tooltip={r === 'toate' ? 'Conturile cu orice rol' : `Doar conturile cu rolul ${ROLURI[r].replace(' (firmă)', '').toLowerCase()}`}
               key={r}
               variant="secondary"
               size="sm"
@@ -580,7 +580,7 @@ export default function AdminUsersPage() {
 
       <div className="mt-3 flex flex-wrap items-center gap-1" role="group" aria-label="Filtrează după starea contului">
         {(['active', 'inactive', 'all'] as const).map((state) => (
-          <Button key={state} variant="secondary" size="sm" aria-pressed={filtruStare === state} onClick={() => setFiltruStare(state)}
+          <Button data-tooltip={state === 'active' ? 'Doar conturile active' : state === 'inactive' ? 'Doar conturile dezactivate' : 'Conturile active și dezactivate'} key={state} variant="secondary" size="sm" aria-pressed={filtruStare === state} onClick={() => setFiltruStare(state)}
             className={filtruStare === state ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : ''}>
             {state === 'active' ? 'Active' : state === 'inactive' ? 'Dezactivate' : 'Toate stările'}
           </Button>
@@ -592,8 +592,8 @@ export default function AdminUsersPage() {
           <EmptyState
             title={users.length === 0 ? 'Niciun utilizator' : 'Niciun utilizator nu se potrivește'}
             action={users.length === 0
-              ? <Button variant="primary" onClick={openCreatePanel}><UserPlus className="h-4 w-4" aria-hidden="true" /> Adaugă utilizator</Button>
-              : <Button variant="secondary" onClick={() => { setCauta(''); setFiltruRol('toate') }}>Șterge filtrele</Button>}
+              ? <Button data-tooltip="Creează un cont nou: consultant, client sau administrator" variant="primary" onClick={openCreatePanel}><UserPlus className="h-4 w-4" aria-hidden="true" /> Adaugă utilizator</Button>
+              : <Button data-tooltip="Arată toate conturile" variant="secondary" onClick={() => { setCauta(''); setFiltruRol('toate') }}>Șterge filtrele</Button>}
           >
             {users.length === 0
               ? 'Primul cont deschide platforma pentru cineva: un client, un consultant sau un administrator.'
@@ -603,7 +603,7 @@ export default function AdminUsersPage() {
           filtrati.map((user) => (
             <Plate key={user.id} interactive className="group">
               <div className="flex flex-wrap items-center gap-3 p-4 sm:flex-nowrap">
-                <button
+                <button data-tooltip="Deschide fișa contului"
                   onClick={() => router.push(`/admin/users/${user.id}`)}
                   className="flex min-w-0 flex-1 basis-full items-center gap-3 text-left sm:basis-auto"
                 >
@@ -833,7 +833,7 @@ export default function AdminUsersPage() {
                 <p className="min-w-0 truncate text-sm text-ink-soft">
                   Creezi <span className="font-semibold text-ink">{newName || 'un cont nou'}</span> ca {ROLURI[newRole].toLowerCase()}.
                 </p>
-                <Button type="submit" variant="primary" disabled={isCreating}>
+                <Button data-tooltip="Creează contul; parola temporară pleacă pe email" type="submit" variant="primary" disabled={isCreating}>
                   {isCreating
                     ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Se creează…</>
                     : <><UserPlus className="h-4 w-4" aria-hidden="true" /> Creează</>}

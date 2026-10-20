@@ -566,10 +566,11 @@ test('7. Atribuirea din pagina proiectului trimite email și notificare', async 
     await openProject(page, DOSAR, `?phase=${activity!.phase_id}`)
     await page.getByRole('button', { name: `Extinde activitatea ${activity!.name}` }).waitFor({ timeout: 20_000 })
     const row = page.locator('div').filter({ has: page.getByRole('button', { name: `Extinde activitatea ${activity!.name}` }) }).last()
-    const select = row.getByLabel('Atribuie consultant')
+    const picker = row.getByRole('button', { name: /^Atribuie consultant:/ })
     const emailsBefore = emailuriAcum()
     const patched = page.waitForResponse(res => res.url().includes(`/activities/${activity!.id}`) && res.request().method() === 'PATCH')
-    await select.selectOption(JA.id)
+    await picker.click()
+    await page.getByRole('option', { name: JA.name }).click()
     const response = await patched
     await page.waitForTimeout(500)
     const shot = await dovezi.captura(page, 'senior-atribuie-din-proiect', { fullPage: true })

@@ -933,7 +933,7 @@ export default function ProjectChatDrawer({
           )}
           {hasMore && (
             <div className="flex justify-center pb-4 pt-2">
-              <button
+              <button data-tooltip="Încarcă mesajele mai vechi"
                 onClick={() => {
                   prevScrollHeightRef.current =
                     listRef.current?.scrollHeight || null;
@@ -1012,7 +1012,7 @@ export default function ProjectChatDrawer({
             <div className="mb-2 rounded-lg bg-[var(--sg-danger-soft)] px-3 py-2 text-xs text-[var(--sg-danger)]">
               <p>{composerError}</p>
               {showRequestCta && (
-                <button type="button" onClick={openDocumentRequestSearch} className="mt-1 font-semibold underline">
+                <button data-tooltip="Alege cererea de document despre care scrii" type="button" onClick={openDocumentRequestSearch} className="mt-1 font-semibold underline">
                   Alege cererea potrivită
                 </button>
               )}
@@ -1075,7 +1075,7 @@ export default function ProjectChatDrawer({
               className="flex-1 bg-transparent resize-none px-3 py-2.5 text-sm text-ink placeholder:text-ink-faint outline-none max-h-[120px]"
               rows={1}
             />
-            <button
+            <button data-tooltip="Trimite mesajul"
               type="button"
               onClick={handleSend}
               disabled={!canSend}

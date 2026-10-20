@@ -410,7 +410,7 @@ function ProjectDashboardContent() {
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
           <div className="space-y-2">
             <p>{error}</p>
-            <button type="button" onClick={load} className="font-semibold underline underline-offset-2">
+            <button data-tooltip="Încarcă din nou tabloul de bord" type="button" onClick={load} className="font-semibold underline underline-offset-2">
               Reîncearcă
             </button>
           </div>
@@ -469,7 +469,7 @@ function ViewSwitch({ view, onSwitch }: { view: DashboardView; onSwitch: (view: 
   return (
     <div className="inline-flex rounded-[var(--radius-plate)] border border-rule bg-plate p-0.5">
       {options.map(option => (
-        <button
+        <button data-tooltip={`Grupează tabloul de bord: ${option.label.toLowerCase()}`}
           key={option.key}
           type="button"
           onClick={() => onSwitch(option.key)}
@@ -600,7 +600,7 @@ function SortHeader<K extends string>({
             >
               <button
                 type="button"
-                title={column.hint}
+                data-tooltip={column.hint ? `${column.hint} Clic: ordonează după coloana asta.` : `Ordonează după ${column.label.toLowerCase()}`}
                 onClick={() => onSort(column.key)}
                 className={`group inline-flex min-h-6 items-center gap-1 text-[11px] uppercase tracking-[0.08em] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)] ${
                   active
@@ -772,7 +772,7 @@ function ProjectRow({
           <div className="flex items-center gap-1.5">
             <ExpandButton open={open} onToggle={onToggle} detailsId={detailsId} label={row.label} />
 
-            <Link
+            <Link data-tooltip="Deschide proiectul"
               href={`/projects/${row.id}`}
               // Titlul e un link adevărat, ca ecranul să rămână accesibil de la
               // tastatură și proiectul să se poată deschide în tab nou.
@@ -831,10 +831,10 @@ function ProjectRow({
               upcomingHref={projectCalendarHref(row.id, { ended: !row.active })}
               links={
                 <>
-                  <Link href={`/projects/${row.id}`} className={PANEL_ACTION}>
+                  <Link data-tooltip="Deschide pagina proiectului" href={`/projects/${row.id}`} className={PANEL_ACTION}>
                     Deschide proiectul
                   </Link>
-                  <Link href={projectCalendarHref(row.id, { ended: !row.active })} className={PANEL_ACTION}>
+                  <Link data-tooltip="Termenele acestui proiect, în calendar" href={projectCalendarHref(row.id, { ended: !row.active })} className={PANEL_ACTION}>
                     Vezi în calendar
                   </Link>
                 </>
@@ -912,7 +912,7 @@ function ConsultantRow({
               overdueHref={consultantCalendarHref(row.id, { overdueOnly: true, ended })}
               upcomingHref={consultantCalendarHref(row.id, { ended })}
               links={
-                <Link href={consultantCalendarHref(row.id, { ended })} className={PANEL_ACTION}>
+                <Link data-tooltip="Termenele acestui proiect, în calendar" href={consultantCalendarHref(row.id, { ended })} className={PANEL_ACTION}>
                   Vezi în calendar
                 </Link>
               }
@@ -1061,7 +1061,7 @@ function DetailList({
       </ul>
 
       {rest > 0 && (
-        <Link
+        <Link data-tooltip="Vezi toate termenele în calendar"
           href={moreHref}
           className="flex items-center justify-center gap-1 border-t border-[var(--p-border)] bg-[var(--p-surface-2)] px-3 py-2 text-xs font-medium text-[var(--p-accent)] hover:bg-[var(--p-accent-soft)]"
         >
@@ -1096,7 +1096,7 @@ function EmptyView({
             : `Niciun nume de consultant nu se potrivește cu „${search}”.`
         }
         action={
-          <button
+          <button data-tooltip="Golește căutarea și arată toate proiectele"
             type="button"
             onClick={onClearSearch}
             className="text-sm font-medium text-[var(--p-accent)] underline underline-offset-2"

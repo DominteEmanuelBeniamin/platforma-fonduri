@@ -150,7 +150,12 @@ export default function ProjectTeam({
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
-        <Button variant="secondary" size="sm" aria-label={`Echipa proiectului, ${count} ${count === 1 ? 'membru' : 'membri'}`}>
+        <Button
+          variant="secondary"
+          size="sm"
+          aria-label={`Echipa proiectului, ${count} ${count === 1 ? 'membru' : 'membri'}`}
+          data-tooltip={`Echipa proiectului: ${count} ${count === 1 ? 'membru' : 'membri'}. Vezi cine lucrează aici${canManage ? ', adaugă sau scoate oameni' : ''}.`}
+        >
           {preview.length > 0 ? (
             <span className="flex gap-0.5" aria-hidden="true">
               {preview.map(person => (
@@ -245,8 +250,8 @@ export default function ProjectTeam({
                             {isSelf ? 'Te scoți din echipă? Nu vei mai avea acces la proiect.' : `Scoți pe ${name}? Nu va mai avea acces la proiect.`}
                           </p>
                           <div className="flex gap-2">
-                            <Button size="sm" variant="quiet" disabled={removingId !== null} onClick={() => setConfirmingId(null)}>Anulează</Button>
-                            <Button size="sm" variant="danger" disabled={removingId !== null} onClick={() => { void removeMember(member) }}>
+                            <Button data-tooltip="Lasă persoana în echipă" size="sm" variant="quiet" disabled={removingId !== null} onClick={() => setConfirmingId(null)}>Anulează</Button>
+                            <Button data-tooltip="Persoana nu mai are acces la proiect" size="sm" variant="danger" disabled={removingId !== null} onClick={() => { void removeMember(member) }}>
                               {removingId === member.id && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
                               Scoate din echipă
                             </Button>
@@ -283,7 +288,7 @@ export default function ProjectTeam({
                         <option key={c.id} value={c.id}>{profileDisplayName(c)}</option>
                       ))}
                     </select>
-                    <Button variant="primary" disabled={!selectedId || adding} onClick={() => { void addMember() }}>
+                    <Button data-tooltip="Adaugă persoana aleasă în echipa proiectului" variant="primary" disabled={!selectedId || adding} onClick={() => { void addMember() }}>
                       {adding ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <UserPlus className="h-4 w-4" aria-hidden="true" />}
                       Adaugă
                     </Button>

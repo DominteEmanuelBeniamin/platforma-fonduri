@@ -1385,7 +1385,7 @@ function AdminTemplatesContent() {
         ]}
         action={
           !showForm ? (
-            <Button variant="primary" onClick={openCreateForm} aria-label="Șablon nou">
+            <Button data-tooltip="Pornește un șablon nou de faze și activități" variant="primary" onClick={openCreateForm} aria-label="Șablon nou">
               <Plus className="h-4 w-4" aria-hidden="true" />
               <span className="hidden sm:inline">Șablon nou</span>
             </Button>
@@ -1416,7 +1416,7 @@ function AdminTemplatesContent() {
               <EmptyState
                 title="Niciun șablon creat"
                 action={
-                  <Button variant="primary" onClick={openCreateForm}>
+                  <Button data-tooltip="Pornește un șablon nou de faze și activități" variant="primary" onClick={openCreateForm}>
                     <Plus className="h-4 w-4" aria-hidden="true" /> Creează primul șablon
                   </Button>
                 }
@@ -1426,7 +1426,7 @@ function AdminTemplatesContent() {
             ) : filteredTemplates.length === 0 ? (
               <EmptyState
                 title="Niciun șablon nu se potrivește"
-                action={<Button variant="secondary" onClick={() => setTemplateSearch('')}>Șterge căutarea</Button>}
+                action={<Button data-tooltip="Golește căutarea și arată toate șabloanele" variant="secondary" onClick={() => setTemplateSearch('')}>Șterge căutarea</Button>}
               >
                 Încearcă alt termen de căutare.
               </EmptyState>
@@ -1615,7 +1615,7 @@ function AdminTemplatesContent() {
               <div className="mb-2 flex min-h-9 items-center justify-between gap-3">
                 <h2 id="faze-sablon" className="text-sm font-semibold text-ink">Faze și activități</h2>
                 {phases.length > 1 && (
-                  <Button variant="quiet" size="sm" onClick={() => setAllPhasesExpanded(!allPhasesExpanded)}>
+                  <Button data-tooltip={allPhasesExpanded ? 'Închide toate fazele șablonului' : 'Deschide toate fazele șablonului, cu activitățile lor'} variant="quiet" size="sm" onClick={() => setAllPhasesExpanded(!allPhasesExpanded)}>
                     {allPhasesExpanded
                       ? <ChevronsDownUp className="h-3.5 w-3.5" aria-hidden="true" />
                       : <ChevronsUpDown className="h-3.5 w-3.5" aria-hidden="true" />}
@@ -1893,7 +1893,7 @@ function AdminTemplatesContent() {
                                           )
                                         })}
                                         <li>
-                                          <button
+                                          <button data-tooltip="Adaugă o cerere de document în această activitate"
                                             type="button"
                                             onClick={() => openAddDocModal(phase.id, activity.id)}
                                             className="flex min-h-9 w-full items-center gap-1.5 px-3 py-2 text-left text-xs font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)]"
@@ -1907,7 +1907,7 @@ function AdminTemplatesContent() {
                                 </div>
                               )
                             })}
-                            <button
+                            <button data-tooltip="Adaugă o activitate nouă în această fază"
                               type="button"
                               onClick={() => addActivity(phase.id)}
                               className="inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-plate)] px-2 text-sm font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)]"
@@ -1922,7 +1922,7 @@ function AdminTemplatesContent() {
                 </div>
               )}
 
-              <button
+              <button data-tooltip="Adaugă o fază nouă la sfârșitul șablonului"
                 type="button"
                 onClick={addPhase}
                 className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-4 py-2 text-sm font-semibold text-ink-soft transition-colors duration-[120ms] hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)]"
@@ -1943,10 +1943,10 @@ function AdminTemplatesContent() {
                 <span className="mt-0.5 block truncate text-xs text-ink-soft">{formSummary}</span>
               </p>
               <div className="flex shrink-0 gap-2">
-                <Button variant="quiet" className="flex-1 sm:flex-none" onClick={resetForm}>
+                <Button data-tooltip="Închide editorul fără să salvezi" variant="quiet" className="flex-1 sm:flex-none" onClick={resetForm}>
                   Anulează
                 </Button>
-                <Button
+                <Button data-tooltip={editingTemplate ? 'Salvează modificările șablonului' : 'Creează șablonul'}
                   variant="primary"
                   className="flex-1 sm:flex-none"
                   onClick={handleSave}
@@ -2182,10 +2182,10 @@ function AdminTemplatesContent() {
             </div>
 
             <div className="flex flex-col-reverse gap-3 border-t border-rule bg-paper-sunk px-6 py-4 sm:flex-row">
-              <Button variant="secondary" className="sm:flex-1" onClick={closeTemplatePropagation} disabled={propagationApplying}>
+              <Button data-tooltip="Nu propaga acum; proiectele existente rămân cum sunt" variant="secondary" className="sm:flex-1" onClick={closeTemplatePropagation} disabled={propagationApplying}>
                 Mai târziu
               </Button>
-              <Button
+              <Button data-tooltip="Aplică modificările șablonului și în proiectele care îl folosesc"
                 variant="primary"
                 className="sm:flex-1"
                 onClick={applyTemplatePropagation}
@@ -2275,7 +2275,7 @@ function AdminTemplatesContent() {
                           {attachment.original_name || attachment.storage_path.split('/').pop() || 'fișier atașat'}
                           {attachment.missing_at && <span className="ml-1 text-xs">(indisponibil)</span>}
                         </p>
-                        <button
+                        <button data-tooltip="Scoate fișierul-model din listă"
                           type="button"
                           onClick={() => setNewDocAttachments(current => current.filter(item => item.id !== attachment.id))}
                           className="text-xs font-medium text-[var(--sg-danger)] hover:brightness-90"
@@ -2289,7 +2289,7 @@ function AdminTemplatesContent() {
                         <Paperclip className="h-4 w-4 shrink-0 text-[var(--sg-accent)]" aria-hidden="true" />
                         <p className="flex-1 truncate text-sm font-medium text-[var(--sg-accent)]">{file.name}</p>
                         <p className="text-xs text-[var(--sg-accent)]">{(file.size / 1024).toFixed(1)} KB</p>
-                        <button
+                        <button data-tooltip="Scoate fișierul-model din listă"
                           type="button"
                           onClick={() => setNewDocTemplates(current => current.filter((_, fileIndex) => fileIndex !== index))}
                           className="text-xs font-medium text-[var(--sg-danger)] hover:brightness-90"
@@ -2298,7 +2298,7 @@ function AdminTemplatesContent() {
                         </button>
                       </div>
                     ))}
-                    <button
+                    <button data-tooltip="Atașează fișiere-model pe care clientul le descarcă și le completează"
                       type="button"
                       onClick={() => newDocFileInputRef.current?.click()}
                       className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--sg-accent)] hover:text-[var(--sg-accent-ink)]"
@@ -2308,7 +2308,7 @@ function AdminTemplatesContent() {
                     </button>
                   </div>
                 ) : (
-                  <button
+                  <button data-tooltip="Atașează fișiere-model pe care clientul le descarcă și le completează"
                     type="button"
                     onClick={() => newDocFileInputRef.current?.click()}
                     className="flex w-full flex-col items-center justify-center gap-2 rounded-[var(--radius-plate)] border-2 border-dashed border-rule p-6 transition-colors duration-[120ms] hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)]"
@@ -2344,10 +2344,10 @@ function AdminTemplatesContent() {
               )}
             </div>
             <div className="flex shrink-0 gap-3 border-t border-rule bg-paper-sunk px-6 py-4">
-              <Button variant="secondary" className="flex-1" onClick={closeDocModal}>
+              <Button data-tooltip="Închide fără să salvezi" variant="secondary" className="flex-1" onClick={closeDocModal}>
                 Anulează
               </Button>
-              <Button
+              <Button data-tooltip={editingDocId ? 'Salvează cererea de document' : 'Adaugă cererea de document în activitate'}
                 variant="primary"
                 className="flex-1"
                 onClick={confirmAddDoc}

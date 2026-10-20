@@ -131,7 +131,7 @@ export default function NotificationsBell() {
               <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-center">
                 <AlertCircle className="h-8 w-8" style={{ color: 'var(--sg-danger)' }} aria-hidden="true" />
                 <p className="text-sm font-semibold text-ink">Notificările nu au putut fi încărcate.</p>
-                <button type="button" onClick={() => void feed.reload()} className="text-sm font-semibold text-[var(--sg-accent)] underline-offset-4 hover:underline">Încearcă din nou</button>
+                <button data-tooltip="Încarcă din nou notificările" type="button" onClick={() => void feed.reload()} className="text-sm font-semibold text-[var(--sg-accent)] underline-offset-4 hover:underline">Încearcă din nou</button>
               </div>
             ) : feed.loading && feed.items.length === 0 ? (
               <div className="flex min-h-40 items-center justify-center text-sm text-ink-soft" role="status">
@@ -158,7 +158,7 @@ export default function NotificationsBell() {
           </div>
 
           <div className="flex items-center justify-between gap-3 border-t border-rule px-5 py-3 sm:px-6">
-            <button
+            <button data-tooltip="Marchează toate notificările ca citite"
               type="button"
               onClick={() => void markAllRead()}
               disabled={busy || unreadCount === 0}
@@ -167,7 +167,7 @@ export default function NotificationsBell() {
               {markingAll ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />}
               Marchează tot ca citit
             </button>
-            <Link
+            <Link data-tooltip="Toate notificările, pe o pagină"
               href="/notificari"
               onClick={() => handleOpenChange(false)}
               className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--sg-accent)] underline-offset-4 hover:underline sm:min-h-9"

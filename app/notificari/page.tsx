@@ -108,7 +108,7 @@ export default function NotificationsPage() {
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center rounded-[var(--radius-plate)] border border-rule bg-plate p-0.5" role="group" aria-label="Filtru după stare">
-          <button
+          <button data-tooltip="Toate notificările"
             type="button"
             onClick={() => setFilters((current) => ({ ...current, status: 'all' }))}
             aria-pressed={filters.status === 'all'}
@@ -116,7 +116,7 @@ export default function NotificationsPage() {
           >
             Toate
           </button>
-          <button
+          <button data-tooltip="Doar notificările pe care nu le-ai citit"
             type="button"
             onClick={() => setFilters((current) => ({ ...current, status: 'unread' }))}
             aria-pressed={filters.status === 'unread'}
@@ -153,7 +153,7 @@ export default function NotificationsPage() {
         <div className="flex min-h-64 flex-col items-center justify-center gap-2 rounded-[var(--radius-plate)] border border-rule bg-plate text-center">
           <AlertCircle className="h-8 w-8" style={{ color: 'var(--sg-danger)' }} aria-hidden="true" />
           <p className="text-sm font-semibold text-ink">Notificările nu au putut fi încărcate.</p>
-          <button type="button" onClick={() => void feed.reload()} className="min-h-11 text-sm font-semibold text-[var(--sg-accent)] underline-offset-4 hover:underline sm:min-h-9">
+          <button data-tooltip="Încarcă din nou notificările" type="button" onClick={() => void feed.reload()} className="min-h-11 text-sm font-semibold text-[var(--sg-accent)] underline-offset-4 hover:underline sm:min-h-9">
             Încearcă din nou
           </button>
         </div>
@@ -168,7 +168,7 @@ export default function NotificationsPage() {
             {hasFilter ? 'Nu există notificări pentru filtrele selectate.' : 'Nu ai notificări.'}
           </p>
           {hasFilter ? (
-            <button
+            <button data-tooltip="Arată toate notificările"
               type="button"
               onClick={() => setFilters({ status: 'all', type: '', projectId: '' })}
               className="min-h-11 text-sm font-semibold text-[var(--sg-accent)] underline-offset-4 hover:underline sm:min-h-9"
@@ -200,7 +200,7 @@ export default function NotificationsPage() {
           ))}
 
           {feed.hasMore && (
-            <button
+            <button data-tooltip="Arată notificări mai vechi"
               type="button"
               onClick={feed.loadMore}
               disabled={feed.loading}

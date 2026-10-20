@@ -186,6 +186,8 @@ Cifre tabulare peste tot, activate pe `body`. Într-un sistem de semnalizare, nu
 
 Scara: display 1,875–2,25rem/700 pentru titlul paginii · heading 1,125rem/700 pentru titlul unei plăcuțe · body 0,875rem/400 · label 0,75rem/600. Măsura textului de citit stă între 52 și 75 de caractere.
 
+Tabelul proiectului e dens și are trei trepte ale lui, doar acolo: 15px/700 pentru titlul unui grup, 13px/500 pentru numele unei activități sau cereri, 11px/600 pentru antetul coloanelor și cifrele mărunte.
+
 ## Layout
 
 Un singur container: `max-w-[1400px]`, cu `px-4 / sm:px-6 / lg:px-10`. Modulul de spațiere e 4px.
@@ -206,6 +208,8 @@ Semnalizarea e dreaptă. `plate` 2px, `plate-lg` 3px pentru suprafețele care pl
 
 Banda de fază e o **fâșie plină de 4px pe muchia de sus** a plăcuței. Niciodată un `border-left` colorat: acela e tiparul leneș pe care sistemul îl refuză explicit.
 
+**O singură excepție, cerută de client (20 octombrie 2026): tabelul proiectului**, făcut după monday. Acolo fiecare fază e un grup, iar banda ei devine **muchia stângă a grupului, de 4px** — coloana vertebrală care leagă antetul, rândurile și sumarul, nu decorul unui rând. Faza în pregătire are muchia întreruptă. Excepția nu se extinde la carduri, rânduri sau alerte de pe alte ecrane.
+
 Plăcuța nemontată — starea „în lucru” — are contur întrerupt, fond transparent și nicio bandă. Se citește imediat ca ceva ce încă nu e prins pe perete.
 
 ## Components
@@ -219,6 +223,14 @@ Plăcuța nemontată — starea „în lucru” — are contur întrerupt, fond 
 **Fâșia de locație** (`components/ui/LocationStrip.tsx`) e interacțiunea-semnătură. Un `<nav aria-label="Locație">` cu segmente ordonate, ultimul purtând `aria-current="page"`, plus acțiunea primară la dreapta. `Alt+L` o focalizează de oriunde din pagină; de acolo Tab parcurge etajele fără mouse. Folosește modificator, deci nu încalcă WCAG 2.1.4.
 
 **Ecranul gol** (`components/ui/EmptyState.tsx`) spune ce lipsește și ce urmează. Fără ilustrație și fără glumă.
+
+**Calendarul** (`components/ui/DatePicker.tsx`) e singurul fel în care se alege un termen: `react-day-picker`, biblioteca din spatele componentei `Calendar` din shadcn/ui, desenat în paleta aplicației — luni la început, în română, ziua de azi subliniată în accent, ziua aleasă plină în accent. Plutește lângă celulă sau lângă plăcuța cu data (`DatePopover`, folosit de `InlineDateEditor`); în formularele din dialoguri se deschide sub câmp (`DateField`), fiindcă un panou plutitor s-ar tăia la marginea dialogului. O zi aleasă se salvează pe loc. Câmpul de dată al browserului nu se mai folosește pentru termene.
+
+**Tooltip-urile** (`components/ui/TooltipLayer.tsx`) sunt un singur strat, montat o dată în `app/layout.tsx`, care explică orice buton: textul vine din `data-tooltip` (explicația scrisă anume), apoi din `title` (pe care îl desenează în locul browserului), apoi din `aria-label`-ul butoanelor doar cu iconiță. Plăcuță de cerneală cu text alb, 12px, cu `--sg-lift` — plutește. Apare după 0,5 s (imediat, dacă tocmai s-a văzut altul), la focus de la tastatură, se închide cu Escape, nu apare pe touch. Un buton nou primește tooltip fără nimic în plus; o explicație mai bună decât numele se scrie în `data-tooltip`. Nimic esențial nu stă doar în tooltip.
+
+**Alegătorul de persoane** (`components/project-table/AssigneePicker.tsx`) înlocuiește `select`-ul nativ pentru responsabil: căutare, inițiale, bifă pe cel ales, „Fără responsabil” la coadă.
+
+**Tabelul proiectului** (`components/project-table/`) e vederea „Tabel principal” din pagina proiectului, în gramatica lui monday: fiecare fază e un grup cu titlul în culoarea benzii ei, activitățile sunt rânduri pe coloane (Activitate · Responsabil · Status · Documente · Termen · Vizibil clientului · ⋯), iar cererile de documente sunt sub-rânduri, indentate, cu antetul lor. Sub fiecare grup stă un rând de sumar: o baterie subțire a stărilor, cererile gata și intervalul termenelor deschise; grupul strâns rămâne doar cu titlul și sumarul. Tabelul e liniștit, la cererea clientului („mai elegant, mai minimalist”, 20 octombrie 2026): fără linii verticale între celule, statusul e o etichetă în nuanța deschisă a semnalului (culoare, iconiță, cuvânt), lată fix ca să se alinieze pe coloană, „Vizibil clientului” e doar un ochi (iese în evidență doar ce e în pregătire), iar „⋯” și editarea cererilor apar la trecerea mausului. O primă variantă, cu celule de status pline și text alb, a fost respinsă ca prea grea. Starea activității vine din `lib/activity-status.ts` și spune întâi ce arde. Forma tabelului se alege după lățimea containerului (`@container`, prag 50rem), nu a ecranului: sub prag, fiecare rând devine o fișă.
 
 **Navigarea** e o fâșie de material cu o linie sub ea. Etajul curent poartă banda accentului dedesubt și fondul `accent-soft`. Fără pastile, fără sticlă mată.
 
@@ -238,7 +250,7 @@ Plăcuța nemontată — starea „în lucru” — are contur întrerupt, fond 
 
 **Don't**
 - Fără umbre pe plăcuțe. `--sg-lift` e doar pentru dialoguri, sertare și meniuri.
-- Fără `border-left` colorat pe carduri, rânduri sau alerte. Banda stă sus.
+- Fără `border-left` colorat pe carduri, rânduri sau alerte. Banda stă sus. (Singura excepție: muchia grupului din tabelul proiectului.)
 - Fără etichetă mică tracked deasupra unui titlu. Titlul se descurcă singur.
 - Fără nuanțe din afara paletei. Cele opt culori rătăcite din vechiul cod — purple, violet, rose, sky, blue, cyan, orange — nu se întorc.
 - Fără roșu pentru altceva decât ce chiar arde.

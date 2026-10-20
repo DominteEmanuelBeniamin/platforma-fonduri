@@ -1,6 +1,6 @@
 'use client'
 
-import { AlertTriangle, Clock, FileText, ListChecks } from 'lucide-react'
+import { AlertTriangle, ChevronRight, Clock, FileText, ListChecks } from 'lucide-react'
 import { TONE } from '@/lib/signage'
 
 export interface PendingUpload {
@@ -48,14 +48,12 @@ export default function ActionNeededPanel({ items, waitingItems = [], isClient, 
       : (isRejected ? 'Respins' : isClient ? 'De încărcat' : 'De revizuit')
 
     return (
-      <button
+      <button data-tooltip="Mergi la cererea din proiect"
         key={req.id}
         onClick={() => onJump(req.phase_id, req.activity_id, req.id)}
-        className={`group w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
-          waiting ? 'hover:bg-[var(--p-bg)]' : 'hover:bg-[var(--p-surface)]/70'
-        }`}
+        className="group w-full flex items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-paper-sunk"
       >
-        <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: statusTone.bg, color: statusTone.fg }}>
+        <div className="w-7 h-7 rounded-[var(--radius-plate)] flex items-center justify-center flex-shrink-0" style={{ background: statusTone.bg, color: statusTone.fg }}>
           {danger
             ? <AlertTriangle className="w-3.5 h-3.5" />
             : <FileText className="w-3.5 h-3.5" />}
@@ -71,17 +69,17 @@ export default function ActionNeededPanel({ items, waitingItems = [], isClient, 
           </p>
         </div>
         {deadline && (
-          <div className={`hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md flex-shrink-0 ${
+          <div className={`hidden sm:flex items-center gap-1 text-[11px] font-semibold px-1.5 py-0.5 rounded-[var(--radius-plate)] flex-shrink-0 tabular-nums ${
             overdue ? 'bg-[var(--p-danger-soft)] text-[var(--p-danger)]' : 'bg-[var(--p-surface)] text-[var(--p-ink-soft)] border border-[var(--p-border)]'
           }`}>
             <Clock className="w-2.5 h-2.5" />
             {deadline.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })}
           </div>
         )}
-        <span className="hidden md:inline-flex flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-md" style={{ background: statusTone.bg, color: statusTone.fg }}>
+        <span className="hidden md:inline-flex flex-shrink-0 text-[11px] font-semibold px-1.5 py-0.5 rounded-[var(--radius-plate)]" style={{ background: statusTone.bg, color: statusTone.fg }}>
           {pill}
         </span>
-        <span className="flex-shrink-0 text-xs font-semibold text-[var(--p-accent)] group-hover:opacity-80 transition-opacity" aria-hidden>→</span>
+        <ChevronRight className="h-4 w-4 flex-shrink-0 text-ink-faint transition-colors group-hover:text-[var(--sg-accent)]" aria-hidden="true" />
       </button>
     )
   })
@@ -89,7 +87,7 @@ export default function ActionNeededPanel({ items, waitingItems = [], isClient, 
   if (items.length === 0 && waitingItems.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center text-center p-8 sm:p-12">
-        <div className="w-16 h-16 bg-[var(--p-success-soft)] rounded-2xl flex items-center justify-center mb-4">
+        <div className="w-12 h-12 bg-[var(--p-success-soft)] rounded-[var(--radius-plate)] flex items-center justify-center mb-3">
           <ListChecks className="w-8 h-8 text-[var(--p-success)]" />
         </div>
         <h2 className="font-display text-lg font-semibold text-[var(--p-ink)] mb-1">Nimic de făcut</h2>
@@ -105,11 +103,11 @@ export default function ActionNeededPanel({ items, waitingItems = [], isClient, 
   }
 
   return (
-    <div className="p-4 sm:p-8 max-w-5xl mx-auto space-y-4">
+    <div className="max-w-5xl py-4 md:px-6 space-y-3">
       {items.length > 0 && (
-      <div className="border border-[var(--p-border)] bg-[var(--p-surface)] rounded-2xl overflow-hidden">
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--p-border)]">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: TONE[isClient ? 'pending' : 'review'].bg, color: TONE[isClient ? 'pending' : 'review'].fg }}>
+      <div className="border border-[var(--p-border)] bg-[var(--p-surface)] rounded-[var(--radius-plate)] overflow-hidden">
+        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--p-border)] bg-paper-sunk">
+          <div className="w-7 h-7 rounded-[var(--radius-plate)] flex items-center justify-center flex-shrink-0" style={{ background: TONE[isClient ? 'pending' : 'review'].bg, color: TONE[isClient ? 'pending' : 'review'].fg }}>
             <ListChecks className="w-4 h-4" />
           </div>
           <div className="min-w-0">
@@ -131,9 +129,9 @@ export default function ActionNeededPanel({ items, waitingItems = [], isClient, 
       )}
 
       {!isClient && waitingItems.length > 0 && (
-      <div className="border border-[var(--p-border)] bg-[var(--p-surface)] rounded-2xl overflow-hidden">
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--p-border)]">
-          <div className="w-8 h-8 rounded-lg bg-[var(--sg-pending-soft)] flex items-center justify-center flex-shrink-0">
+      <div className="border border-[var(--p-border)] bg-[var(--p-surface)] rounded-[var(--radius-plate)] overflow-hidden">
+        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--p-border)] bg-paper-sunk">
+          <div className="w-7 h-7 rounded-[var(--radius-plate)] bg-[var(--sg-pending-soft)] flex items-center justify-center flex-shrink-0">
             <Clock className="w-4 h-4 text-[var(--sg-pending)]" />
           </div>
           <div className="min-w-0">
