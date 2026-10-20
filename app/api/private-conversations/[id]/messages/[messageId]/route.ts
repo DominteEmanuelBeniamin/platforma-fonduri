@@ -110,13 +110,11 @@ export async function PATCH(
     }
 
     const admin = createSupabaseServiceClient()
-    const nowIso = new Date().toISOString()
 
     const { data, error } = await admin
       .from('private_messages')
       .update({
         body: parsed.data.body,
-        edited_at: nowIso,
       })
       .eq('id', messageId)
       .eq('conversation_id', conversationId)
@@ -153,7 +151,7 @@ export async function PATCH(
       entityId: messageId,
       entityName: `msg:${messageId}`,
       // Decision: update fara preview (vezi PRD 1)
-      newValues: { conversation_id: conversationId, edited_at: nowIso },
+      newValues: { conversation_id: conversationId, edited_at: data.edited_at },
       description: `Editare mesaj privat in conversatia ${conversationId}`,
       request,
     })
