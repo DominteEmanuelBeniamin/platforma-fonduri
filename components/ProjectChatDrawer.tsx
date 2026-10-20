@@ -1018,7 +1018,7 @@ export default function ProjectChatDrawer({
               )}
             </div>
           )}
-          <div className="flex items-end gap-2 bg-paper-sunk border border-rule rounded-[20px] p-1.5 focus-within:ring-2 focus-within:ring-rule-strong focus-within:bg-white focus-within:border-rule-strong transition-all shadow-sm">
+          <div className="flex items-end gap-2 bg-paper-sunk border border-rule rounded-[20px] p-1.5 focus-within:ring-2 focus-within:ring-[var(--sg-accent)] focus-within:bg-white focus-within:border-rule-strong transition-all shadow-sm">
             <input
               ref={fileInputRef}
               type="file"
@@ -1072,7 +1072,7 @@ export default function ProjectChatDrawer({
                 }
               }}
               placeholder="Scrie un mesaj..."
-              className="flex-1 bg-transparent resize-none px-3 py-2.5 text-sm text-ink placeholder:text-ink-faint outline-none max-h-[120px]"
+              className="flex-1 bg-transparent resize-none px-3 py-2.5 text-sm text-ink placeholder:text-ink-faint outline-none focus-visible:outline-none! max-h-[120px]"
               rows={1}
             />
             <button

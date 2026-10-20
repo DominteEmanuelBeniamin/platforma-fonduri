@@ -640,14 +640,14 @@ export default function PrivateChatView({
       </div>
 
       <div className="z-10 border-t border-rule bg-white p-3 sm:p-4">
-        <div className="flex items-end gap-2 rounded-[20px] border border-rule bg-paper-sunk p-1.5 shadow-sm transition-all focus-within:border-rule-strong focus-within:bg-white focus-within:ring-2 focus-within:ring-rule-strong">
+        <div className="flex items-end gap-2 rounded-[20px] border border-rule bg-paper-sunk p-1.5 shadow-sm transition-all focus-within:border-rule-strong focus-within:bg-white focus-within:ring-2 focus-within:ring-[var(--sg-accent)]">
           <textarea
             ref={textareaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onTextareaKeyDown}
             placeholder="Scrie un mesaj..."
-            className="max-h-[120px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm text-ink outline-none placeholder:text-ink-faint"
+            className="max-h-[120px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm text-ink outline-none focus-visible:outline-none! placeholder:text-ink-faint"
             rows={1}
           />
           <button
