@@ -3,7 +3,7 @@ import path from 'node:path'
 import { test, expect, type Browser } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
-import { templateAction } from './helpers/sabloane-ui'
+import { addEditorPhase, templateAction } from './helpers/sabloane-ui'
 
 /**
  * Regresii în jurul lucrului pentru consultantul senior: ce a atins schimbarea
@@ -347,8 +347,7 @@ test('Editor de șabloane, ca senior: salvează un șablon publicat, fără fere
     await expect(page.getByRole('navigation', { name: 'Locație' })).toHaveCount(0)
     await templateAction(page, TPL_NAME, 'Editează')
     await expect(page.getByRole('navigation', { name: 'Locație' }).getByRole('button', { name: 'Șabloane' })).toBeVisible()
-    await page.getByRole('button', { name: 'Adaugă fază nouă' }).click()
-    await page.getByLabel('Nume pentru faza 2').fill('Fază adăugată din editor')
+    await addEditorPhase(page, 'Fază adăugată din editor')
     const saved = page.waitForResponse(res => res.url().endsWith(`/api/admin/templates/${TPL}/tree`) && res.request().method() === 'PUT')
     await page.getByRole('button', { name: 'Salvează modificările' }).click()
     expect((await saved).ok()).toBe(true)

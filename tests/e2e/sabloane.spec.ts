@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { e2eEnv, requireE2EConfig, serviceClient, BUCKET } from './helpers/project-state'
-import { templateAction, templateHasAction, templateMenu } from './helpers/sabloane-ui'
+import { addEditorActivity, addEditorPhase, editorAction, expandEditor, templateAction, templateHasAction, templateMenu } from './helpers/sabloane-ui'
 
 /**
  * Șabloanele: salvarea dintr-o singură cerere, importul în proiect, propagarea
@@ -315,13 +315,11 @@ test('editorul din interfață: o singură cerere per salvare, de la creare la p
   await page.getByRole('button', { name: 'Șablon nou' }).click()
   await page.getByPlaceholder('Ex: Proiect Standard').fill(name)
   for (let p = 0; p < 2; p++) {
-    await page.getByRole('button', { name: 'Adaugă fază nouă' }).click()
-    await page.getByLabel(`Nume pentru faza ${p + 1}`).fill(`Faza UI ${p + 1}`)
-    await page.getByRole('button', { name: 'Adaugă activitate' }).nth(p).click()
-    await page.getByLabel(`Nume pentru activitatea 1 din faza Faza UI ${p + 1}`).fill(`Activitate UI ${p + 1}`)
+    await addEditorPhase(page, `Faza UI ${p + 1}`)
+    await addEditorActivity(page, p, `Activitate UI ${p + 1}`)
     for (let d = 0; d < 2; d++) await addDoc(page, p, `Cerere UI ${p + 1}.${d + 1}`)
   }
-  await page.getByRole('button', { name: 'Duplică activitatea Activitate UI 1' }).click()
+  await editorAction(page, 'activitatea', 'Activitate UI 1', 'Duplică')
 
   writes.length = 0
   await save(page, name)
@@ -343,20 +341,34 @@ test('editorul din interfață: o singură cerere per salvare, de la creare la p
 
   // Editare: redenumire cerere, mutare fază, ștergere activitate.
   await templateAction(page, name, 'Editează')
-  await page.getByRole('button', { name: 'Modifică cererea Cerere UI 2.1' }).click()
+  // La deschidere fazele sunt strânse (S-24).
+  await expect(page.getByRole('button', { name: /^Restrânge faza/ })).toHaveCount(0)
+  await expandEditor(page)
+  await editorAction(page, 'cererea', 'Cerere UI 2.1', 'Modifică')
   await page.getByPlaceholder('Ex: Certificat constatator').fill('Cerere UI 2.1 redenumită')
   await page.getByRole('button', { name: 'Salvează', exact: true }).click()
   await expect(page.getByPlaceholder('Ex: Certificat constatator')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Mută faza Faza UI 2 mai sus' }).click()
-  await expect(page.getByLabel('Nume pentru faza 1')).toHaveValue('Faza UI 2')
-  await page.getByRole('button', { name: `Șterge activitatea ${copyName}` }).click()
+  await editorAction(page, 'faza', 'Faza UI 2', 'Mută sus')
+  await expect(page.getByRole('heading', { level: 3 }).first()).toHaveText('Faza UI 2')
+  // Numele se schimbă dintr-un dialog (D9): Escape nu schimbă nimic, Enter salvează.
+  await editorAction(page, 'faza', 'Faza UI 1', 'Redenumește')
+  const rename = page.getByRole('dialog', { name: 'Redenumește faza' })
+  await rename.getByRole('textbox').fill('Altceva')
+  await page.keyboard.press('Escape')
+  await expect(rename).toHaveCount(0)
+  await expect(page.getByRole('heading', { level: 3, name: 'Faza UI 1', exact: true })).toBeVisible()
+  await editorAction(page, 'faza', 'Faza UI 1', 'Redenumește')
+  await rename.getByRole('textbox').fill('Faza UI 1 bis')
+  await rename.getByRole('textbox').press('Enter')
+  await expect(page.getByRole('heading', { level: 3, name: 'Faza UI 1 bis', exact: true })).toBeVisible()
+  await editorAction(page, 'activitatea', copyName, 'Șterge')
   await confirmDialog(page, /^Șterge/)
 
   writes.length = 0
   await save(page, name)
   expect(writes).toEqual([`PUT /api/admin/templates/${templateId}/tree`])
   tree = await templateTree(templateId)
-  expect(tree.map(phase => phase.name)).toEqual(['Faza UI 2', 'Faza UI 1'])
+  expect(tree.map(phase => phase.name)).toEqual(['Faza UI 2', 'Faza UI 1 bis'])
   expect(tree[0].activities[0].docs).toEqual(['Cerere UI 2.1 redenumită', 'Cerere UI 2.2'])
   expect(tree[1].activities).toHaveLength(1)
 
@@ -369,6 +381,7 @@ test('editorul din interfață: o singură cerere per salvare, de la creare la p
 
   // O cerere nouă într-un șablon publicat deschide propagarea după salvare.
   await templateAction(page, name, 'Editează')
+  await expandEditor(page)
   await addDoc(page, 0, 'Cerere adăugată după publicare')
   writes.length = 0
   const propagate = page.getByRole('button', { name: /^Propagă în \d+ proiect/ })
@@ -426,6 +439,7 @@ test('salvarea nu se poate întrerupe: rămâi în editor, propagarea vine peste
 
   // Cu modificări, întreabă; „Anulează” din confirmare lasă editorul cum era (D12).
   await templateAction(page, name, 'Editează')
+  await expandEditor(page)
   await addDoc(page, 0, 'Cerere nouă la salvare')
   await page.getByRole('button', { name: 'Anulează', exact: true }).click()
   const discard = page.getByRole('dialog', { name: 'Renunți la modificări?' })

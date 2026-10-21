@@ -683,8 +683,10 @@ export default function DocumentRequests({
   }
 
   // Create request (admin/consultant) via API, with optional template upload
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent, text: { name: string; description: string } = { name, description }) => {
     e.preventDefault()
+    const name = text.name
+    const description = text.description
     if (!name.trim()) return
     setSubmitting(true)
 
@@ -999,8 +1001,8 @@ export default function DocumentRequests({
         open={showForm && canChange}
         editing={editingRequest}
         submitting={submitting}
-        name={name} onNameChange={setName}
-        description={description} onDescriptionChange={setDescription}
+        name={name}
+        description={description}
         category={category} onCategoryChange={setCategory}
         deadline={deadline} onDeadlineChange={setDeadline}
         templateFiles={templateFiles} onTemplateFilesChange={setTemplateFiles}

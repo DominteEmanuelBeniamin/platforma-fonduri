@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { test, expect, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
-import { templateAction, templateMenu } from './helpers/sabloane-ui'
+import { addEditorPhase, templateAction, templateMenu } from './helpers/sabloane-ui'
 import { ROW, ROWS } from './helpers/matricea-drepturilor'
 
 /**
@@ -318,13 +318,6 @@ function projectMain(page: Page) {
 }
 
 /** Editorul de șabloane: completează numele fazei tocmai adăugate, oricâte ar fi înainte. */
-async function addEditorPhase(page: Page, name: string) {
-  const inputs = page.getByLabel(/^Nume pentru faza \d+$/)
-  await inputs.first().waitFor({ timeout: 30_000 }).catch(() => {})
-  const before = await inputs.count()
-  await page.getByRole('button', { name: 'Adaugă fază nouă' }).click()
-  await page.getByLabel(`Nume pentru faza ${before + 1}`, { exact: true }).fill(name)
-}
 
 function deepLink(phaseId: string, activityId?: string, documentId?: string) {
   const params = new URLSearchParams({ phase: phaseId })
@@ -1017,8 +1010,7 @@ test('Creează și modifică ciorne de șablon — toți, din editor', async ({ 
       await page.goto('/admin/templates')
       await page.getByRole('button', { name: 'Șablon nou' }).first().click()
       await page.getByLabel('Nume șablon').fill(name)
-      await page.getByRole('button', { name: 'Adaugă fază nouă' }).click()
-      await page.getByLabel('Nume pentru faza 1').fill('Etapa întâi')
+      await addEditorPhase(page, 'Etapa întâi')
       await page.getByRole('button', { name: 'Creează template' }).click()
       await stored('s-ciorne', person.who, 'creează o ciornă din editor', 'draft', async () => {
         const { data } = await service.from('project_templates').select('id, status').eq('name', name).maybeSingle()

@@ -3,19 +3,23 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo, Fragment, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { createPortal } from 'react-dom'
 import {
-  Layers, FileText, Plus, Trash2,
-  ChevronDown, ChevronRight, ChevronUp, ChevronsDownUp, ChevronsUpDown, Check, X, Paperclip, Upload,
-  Loader2, Edit2, AlertCircle, GripVertical, Copy,
+  Layers, Plus, Trash2,
+  ChevronRight, ChevronsDownUp, ChevronsUpDown, Check, X,
+  Loader2, Edit2, Copy,
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { countLabel } from '@/lib/count-label'
-import { RequirementType, REQUIREMENT_TYPES, REQUIREMENT_LABELS, REQUIREMENT_BADGE, normalizeRequirementType } from '@/lib/requirement-type'
+import { RequirementType, normalizeRequirementType } from '@/lib/requirement-type'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { useToast } from '@/app/providers/ToastProvider'
 import { buildCopyName } from '@/lib/duplicate-name'
+import type { Consultant, DocumentRequirement, DragKind, EditorActions, TemplateActivity, TemplateAttachment, TemplatePhase } from '@/components/template-editor/types'
+import { PhaseList, countPhaseDocuments } from '@/components/template-editor/PhaseList'
+import { NameDialog } from '@/components/template-editor/NameDialog'
+import { DocDialog, type DocDialogValues } from '@/components/template-editor/DocDialog'
+import { AutoGrowTextarea } from '@/components/template-editor/AutoGrowTextarea'
 import { templateFormDirty, type TemplateFormState } from '@/lib/template-form'
 import { serverMessage } from '@/lib/api-error'
 import { mapWithConcurrency } from '@/lib/template-tree'
@@ -23,7 +27,6 @@ import {
   duplicationFromSource,
   isPersistentTemplateId,
 } from '@/app/api/_utils/template-duplication'
-import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
 import { Spinner } from '@/components/ui/Spinner'
 import { LocationStrip } from '@/components/ui/LocationStrip'
 import { Button } from '@/components/ui/Button'
@@ -35,7 +38,6 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Plate } from '@/components/ui/Plate'
 import { Signal } from '@/components/ui/Signal'
 import { FloatingSurface, Scrim } from '@/components/ui/Surface'
-import { profileDisplayName } from '@/lib/profile-display'
 import { bandFor, bandVar } from '@/lib/signage'
 
 interface ProjectStatus {
@@ -43,59 +45,6 @@ interface ProjectStatus {
   name: string
   slug: string
   color: string
-}
-
-interface DocumentRequirement {
-  id: string
-  name: string
-  description: string
-  is_outgoing: boolean
-  requirement_type: RequirementType
-  templateFiles: File[]
-  templateAttachments: TemplateAttachment[]
-  templateFileName: string | null
-  templateFileMissingAt?: string | null
-  templateFileRemoved?: boolean
-  duplication?: TemplateDuplication
-  sourceLocalId?: string
-}
-
-interface TemplateAttachment {
-  id: string
-  storage_path: string
-  original_name: string | null
-  mime_type?: string | null
-  file_size?: number | null
-  order_index?: number
-  missing_at?: string | null
-  missing_checked_at?: string | null
-}
-
-interface Consultant {
-  id: string
-  full_name: string | null
-  email: string
-  is_active?: boolean | null
-}
-
-interface TemplateActivity {
-  id: string
-  name: string
-  document_requirements: DocumentRequirement[]
-  expanded: boolean
-  default_consultant_id?: string
-  duplication?: TemplateDuplication
-  sourceLocalId?: string
-}
-
-interface TemplatePhase {
-  id: string
-  name: string
-  project_status_id: string | null
-  activities: TemplateActivity[]
-  expanded: boolean
-  duplication?: TemplateDuplication
-  sourceLocalId?: string
 }
 
 interface Template {
@@ -249,28 +198,11 @@ function countTemplateDocuments(template: Template) {
   )
 }
 
-function countPhaseDocuments(phase: TemplatePhase) {
-  return phase.activities.reduce(
-    (sum, activity) => sum + activity.document_requirements.length,
-    0
-  )
-}
-
 /** Tooltip-ul statutului: se poate sau nu alege la crearea unui proiect (S-22). */
 function templateStatusHint(template: { status: 'draft' | 'published'; is_active?: boolean | null }) {
   if (template.status === 'draft') return 'Ciornă: nu apare la crearea unui proiect până nu o publică un administrator.'
   if (template.is_active === false) return 'Publicat, dar dezactivat: nu apare la crearea unui proiect nou.'
   return 'Publicat: se poate alege la crearea unui proiect nou.'
-}
-
-function hasMissingTemplateAttachment(doc: DocumentRequirement) {
-  return Boolean(doc.templateFileMissingAt || doc.templateAttachments.some(attachment => attachment.missing_at))
-}
-
-/** Încărcarea stă lângă Modifică și Șterge, ca pictogramă; textul rămâne în tooltip și pentru cititoare. */
-function uploadLabel(doc: DocumentRequirement) {
-  const hasFiles = doc.templateAttachments.length > 0 || doc.templateFiles.length > 0
-  return `${hasFiles ? 'Adaugă' : 'Atașează'} ${doc.is_outgoing ? 'documente' : 'modele'}`
 }
 
 function getDeleteModalText(target: TemplateDeleteTarget | null) {
@@ -356,51 +288,6 @@ const inputErrorClass =
   'h-11 w-full rounded-[var(--radius-plate)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-3 text-sm text-ink ' +
   'placeholder:text-ink-faint transition-colors duration-[120ms] focus:border-[var(--sg-danger)] sm:h-10'
 
-/** Butoanele-pictogramă ale rândurilor: 32px cu mausul, ca rândurile să rămână joase; 44px la atingere. */
-const compactIcon = 'pointer-fine:h-8! pointer-fine:w-8!'
-
-/** Numele fazei și al activității se citesc ca titluri și se editează pe loc; muchia apare la hover și la focus. */
-const titleInputClass =
-  'rounded-[var(--radius-plate)] border border-transparent bg-transparent px-2 text-ink placeholder:text-ink-faint ' +
-  'transition-colors duration-[120ms] hover:border-rule hover:bg-plate focus:border-[var(--sg-accent)] focus:bg-plate'
-const titleInputErrorClass = 'border-[var(--sg-danger)]! bg-[var(--sg-danger-soft)]!'
-
-/** Mânerul de tras e doar pentru maus: tragerea HTML nu merge la atingere, acolo rămân săgețile. */
-const dragHandleClass = 'hidden shrink-0 cursor-grab p-0.5 text-ink-faint hover:text-ink-soft active:cursor-grabbing pointer-fine:block'
-
-/* Săgețile de reordonare apar la hover sau la focus de la tastatură când există maus; la atingere stau mereu la vedere. */
-const revealOnPhaseHover = 'transition-opacity duration-[120ms] pointer-fine:opacity-0 group-hover/phase:opacity-100! has-[:focus-visible]:opacity-100!'
-const revealOnActivityHover = 'transition-opacity duration-[120ms] pointer-fine:opacity-0 group-hover/act:opacity-100! has-[:focus-visible]:opacity-100!'
-const revealOnDocHover = 'transition-opacity duration-[120ms] pointer-fine:opacity-0 group-hover/doc:opacity-100! has-[:focus-visible]:opacity-100!'
-
-/** Perechea sus/jos — alternativa la tastatură a tragerii cu mouse-ul, cerută de WCAG 2.1.1. */
-function ReorderButtons({
-  itemLabel, onUp, onDown, disableUp, disableDown, className = '',
-}: { itemLabel: string; onUp: () => void; onDown: () => void; disableUp: boolean; disableDown: boolean; className?: string }) {
-  return (
-    <div className={`flex items-center ${className}`} role="group" aria-label={`Reordonează ${itemLabel}`}>
-      <button
-        type="button"
-        onClick={onUp}
-        disabled={disableUp}
-        aria-label={`Mută ${itemLabel} mai sus`}
-        className="flex h-11 w-10 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:text-ink disabled:cursor-not-allowed disabled:opacity-30 pointer-fine:h-8 pointer-fine:w-6"
-      >
-        <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        onClick={onDown}
-        disabled={disableDown}
-        aria-label={`Mută ${itemLabel} mai jos`}
-        className="flex h-11 w-10 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:text-ink disabled:cursor-not-allowed disabled:opacity-30 pointer-fine:h-8 pointer-fine:w-6"
-      >
-        <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
-    </div>
-  )
-}
-
 function AdminTemplatesContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -455,83 +342,26 @@ function AdminTemplatesContent() {
     })
   }
 
-  const [addingDocTo, setAddingDocTo] = useState<{ phaseId: string, activityId: string } | null>(null)
-  const [editingDocId, setEditingDocId] = useState<string | null>(null)
-  const [newDocName, setNewDocName] = useState('')
-  const [newDocDescription, setNewDocDescription] = useState('')
-  const [newDocOutgoing, setNewDocOutgoing] = useState(false)
-  const [newDocCategory, setNewDocCategory] = useState<RequirementType>('obligatoriu')
-  const [newDocTemplates, setNewDocTemplates] = useState<File[]>([])
-  const [newDocAttachments, setNewDocAttachments] = useState<TemplateAttachment[]>([])
-  const newDocFileInputRef = useRef<HTMLInputElement | null>(null)
+  // Dialogurile editorului își țin câmpurile în ele; aici stă doar ce e deschis.
+  const [docDialog, setDocDialog] = useState<{ phaseId: string; activityId: string; doc: DocumentRequirement | null } | null>(null)
+  const [nameDialog, setNameDialog] = useState<
+    | { kind: 'new-phase' }
+    | { kind: 'new-activity'; phaseId: string }
+    | { kind: 'rename-phase'; phaseId: string; name: string }
+    | { kind: 'rename-activity'; phaseId: string; activityId: string; name: string }
+    | null
+  >(null)
   const [propagationTemplateId, setPropagationTemplateId] = useState<string | null>(null)
   const [propagationPreview, setPropagationPreview] = useState<TemplatePropagationPreview | null>(null)
   const [propagationSelectedProjectIds, setPropagationSelectedProjectIds] = useState<string[]>([])
   const [propagationApplying, setPropagationApplying] = useState(false)
   const [propagationError, setPropagationError] = useState<string | null>(null)
 
-  // Drag & drop reorder — doar în array-urile locale; handleSave persistă order_index = index + 1
-  const [dragItem, setDragItem] = useState<{ kind: 'phase' | 'activity' | 'doc'; parentKey: string; id: string } | null>(null)
-
-  const reorderList = <T extends { id: string }>(list: T[], draggedId: string, targetId: string): T[] => {
-    const from = list.findIndex(item => item.id === draggedId)
-    const to = list.findIndex(item => item.id === targetId)
-    if (from === -1 || to === -1 || from === to) return list
-    const next = [...list]
-    const [moved] = next.splice(from, 1)
-    next.splice(to, 0, moved)
-    return next
-  }
-
-  const handleReorderDragOver = (
-    e: React.DragEvent,
-    kind: 'phase' | 'activity' | 'doc',
-    parentKey: string,
-    targetId: string
-  ) => {
-    // doar în cadrul aceleiași liste (același nivel + același părinte)
-    if (!dragItem || dragItem.kind !== kind || dragItem.parentKey !== parentKey) return
-    e.preventDefault()
-    if (dragItem.id === targetId) return
-    if (kind === 'phase') {
-      setPhases(prev => reorderList(prev, dragItem.id, targetId))
-    } else if (kind === 'activity') {
-      setPhases(prev => prev.map(p => p.id === parentKey
-        ? { ...p, activities: reorderList(p.activities, dragItem.id, targetId) }
-        : p))
-    } else {
-      const [phaseId, activityId] = parentKey.split(':')
-      setPhases(prev => prev.map(p => p.id === phaseId
-        ? {
-            ...p,
-            activities: p.activities.map(a => a.id === activityId
-              ? { ...a, document_requirements: reorderList(a.document_requirements, dragItem.id, targetId) }
-              : a),
-          }
-        : p))
-    }
-  }
-
-  const movePhase = (phaseId: string, direction: -1 | 1) => {
-    setPhases(prev => moveInArray(prev, phaseId, direction))
-  }
-
-  const moveActivity = (phaseId: string, activityId: string, direction: -1 | 1) => {
-    setPhases(prev => prev.map(p => p.id === phaseId
-      ? { ...p, activities: moveInArray(p.activities, activityId, direction) }
-      : p))
-  }
-
-  const moveDocRequirement = (phaseId: string, activityId: string, docId: string, direction: -1 | 1) => {
-    setPhases(prev => prev.map(p => p.id === phaseId
-      ? {
-          ...p,
-          activities: p.activities.map(a => a.id === activityId
-            ? { ...a, document_requirements: moveInArray(a.document_requirements, docId, direction) }
-            : a),
-        }
-      : p))
-  }
+  // Drag & drop reorder — doar în array-urile locale; handleSave persistă
+  // order_index = index + 1. Elementul tras stă într-un ref, ca funcțiile de
+  // tras să rămână stabile pentru rândurile `memo`; `dragId` doar îl estompează.
+  const dragRef = useRef<{ kind: DragKind; parentKey: string; id: string } | null>(null)
+  const [dragId, setDragId] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     try {
@@ -568,23 +398,20 @@ function AdminTemplatesContent() {
   }, [authLoading, token, profile, router, fetchData])
 
   // Statusul fazei nu se mai alege în editor; faza nouă îl primește pe primul,
-  // ca importul în proiect să meargă ca înainte.
-  const addPhase = () => {
-    setPhases([...phases, {
+  // ca importul în proiect să meargă ca înainte. Numele vine din dialog (D9):
+  // din interfață nu se mai poate crea o fază sau o activitate fără nume.
+  const addPhase = (name: string) => {
+    setPhases(current => [...current, {
       id: generateId(),
-      name: '',
+      name,
       project_status_id: statuses[0]?.id || null,
       activities: [],
-      expanded: true
+      expanded: true,
     }])
   }
 
-  const updatePhase = (phaseId: string, updates: Partial<TemplatePhase>) => {
-    setPhases(phases.map(p => p.id === phaseId ? { ...p, ...updates } : p))
-  }
-
   const removePhase = (phaseId: string) => {
-    setPhases(phases.filter(p => p.id !== phaseId))
+    setPhases(current => current.filter(p => p.id !== phaseId))
   }
 
   const allPhasesExpanded = phases.length > 0 && phases.every(p => p.expanded)
@@ -592,241 +419,213 @@ function AdminTemplatesContent() {
     setPhases(current => current.map(p => ({ ...p, expanded })))
   }
 
-  // Duplicare (#15). Copia primește id-uri locale noi, deci salvarea o creează
-  // ca element nou, cu tot cu cererile de documente și fișierele-model.
-  const cloneDocRequirement = (doc: DocumentRequirement): DocumentRequirement => ({
-    ...doc,
-    id: generateId(),
-    templateFiles: [...(doc.templateFiles ?? [])],
-    templateAttachments: (doc.templateAttachments ?? []).map(attachment => ({ ...attachment })),
-    ...duplicationFromSource(doc, 'template_document'),
-  })
-
-  const cloneActivity = (activity: TemplateActivity, name: string): TemplateActivity => ({
-    ...activity,
-    id: generateId(),
-    name,
-    expanded: true,
-    document_requirements: activity.document_requirements.map(cloneDocRequirement),
-    ...duplicationFromSource(activity, 'template_activity'),
-  })
-
-  const duplicatePhase = (phaseId: string) => {
-    const index = phases.findIndex(p => p.id === phaseId)
-    if (index === -1) return
-    const source = phases[index]
-    const copy: TemplatePhase = {
-      ...source,
-      id: generateId(),
-      name: buildCopyName(source.name, phases.map(p => p.name)),
-      expanded: true,
-      activities: source.activities.map(activity => cloneActivity(activity, activity.name)),
-      ...duplicationFromSource(source, 'template_phase'),
-    }
-    setPhases([...phases.slice(0, index + 1), copy, ...phases.slice(index + 1)])
-  }
-
-  const duplicateActivity = (phaseId: string, activityId: string) => {
-    setPhases(phases.map(p => {
-      if (p.id !== phaseId) return p
-      const index = p.activities.findIndex(a => a.id === activityId)
-      if (index === -1) return p
-      const source = p.activities[index]
-      const copy = cloneActivity(source, buildCopyName(source.name, p.activities.map(a => a.name)))
-      return {
-        ...p,
-        activities: [...p.activities.slice(0, index + 1), copy, ...p.activities.slice(index + 1)],
-      }
-    }))
-  }
-
-  const addActivity = (phaseId: string) => {
-    setPhases(phases.map(p =>
-      p.id === phaseId
-        ? { ...p, activities: [...p.activities, { id: generateId(), name: '', document_requirements: [], expanded: true }] }
-        : p
-    ))
-  }
-
-  const updateActivity = (phaseId: string, activityId: string, updates: Partial<TemplateActivity>) => {
-    setPhases(phases.map(p =>
-      p.id === phaseId
-        ? { ...p, activities: p.activities.map(a => a.id === activityId ? { ...a, ...updates } : a) }
-        : p
-    ))
-  }
-
   const removeActivity = (phaseId: string, activityId: string) => {
-    setPhases(phases.map(p =>
-      p.id === phaseId
-        ? { ...p, activities: p.activities.filter(a => a.id !== activityId) }
-        : p
-    ))
-  }
-
-  const openAddDocModal = (phaseId: string, activityId: string) => {
-    setAddingDocTo({ phaseId, activityId })
-    setEditingDocId(null)
-    setNewDocName('')
-    setNewDocDescription('')
-    setNewDocOutgoing(false)
-    setNewDocCategory('obligatoriu')
-    setNewDocTemplates([])
-    setNewDocAttachments([])
-  }
-
-  const openEditDocModal = (phaseId: string, activityId: string, doc: DocumentRequirement) => {
-    setAddingDocTo({ phaseId, activityId })
-    setEditingDocId(doc.id)
-    setNewDocName(doc.name)
-    setNewDocDescription(doc.description)
-    setNewDocOutgoing(doc.is_outgoing)
-    setNewDocCategory(doc.requirement_type)
-    setNewDocTemplates(doc.templateFiles ?? [])
-    setNewDocAttachments(doc.templateAttachments ?? [])
-  }
-
-  const closeDocModal = () => {
-    setAddingDocTo(null)
-    setEditingDocId(null)
-    setNewDocName('')
-    setNewDocDescription('')
-    setNewDocOutgoing(false)
-    setNewDocCategory('obligatoriu')
-    setNewDocTemplates([])
-    setNewDocAttachments([])
-  }
-
-  const addNewDocTemplateFiles = (files: FileList | null) => {
-    const nextFiles = Array.from(files ?? [])
-    if (nextFiles.length === 0) return
-    setNewDocTemplates(current => [...current, ...nextFiles])
-  }
-
-  const confirmAddDoc = () => {
-    if (!addingDocTo || !newDocName.trim()) return
-    const { phaseId, activityId } = addingDocTo
-    if (newDocOutgoing && newDocTemplates.length === 0 && newDocAttachments.length === 0) return
-    const docRequirementType: RequirementType = newDocOutgoing ? 'optional' : newDocCategory
-
-    if (editingDocId) {
-      const updates: Partial<DocumentRequirement> = {
-        name: newDocName.trim(),
-        description: newDocDescription.trim(),
-        is_outgoing: newDocOutgoing,
-        requirement_type: docRequirementType,
-      }
-      const firstAttachmentName = newDocAttachments[0]?.original_name || newDocAttachments[0]?.storage_path.split('/').pop()
-      updates.templateFiles = newDocTemplates
-      updates.templateAttachments = newDocAttachments
-      updates.templateFileName = firstAttachmentName || newDocTemplates[0]?.name || null
-      updates.templateFileMissingAt = newDocAttachments.find(attachment => attachment.missing_at)?.missing_at || null
-      updates.templateFileRemoved = newDocAttachments.length === 0 && newDocTemplates.length === 0
-      updateDocRequirement(phaseId, activityId, editingDocId, updates)
-      closeDocModal()
-      return
-    }
-
-    const newDoc: DocumentRequirement = {
-      id: generateId(),
-      name: newDocName.trim(),
-      description: newDocDescription.trim(),
-      is_outgoing: newDocOutgoing,
-      requirement_type: docRequirementType,
-      templateFiles: newDocTemplates,
-      templateAttachments: [],
-      templateFileName: newDocTemplates[0]?.name || null,
-      templateFileMissingAt: null,
-      templateFileRemoved: false,
-    }
-    setPhases(phases.map(p =>
-      p.id === phaseId
-        ? { ...p, activities: p.activities.map(a =>
-            a.id === activityId
-              ? { ...a, document_requirements: [...a.document_requirements, newDoc] }
-              : a
-          )}
-        : p
-    ))
-    closeDocModal()
+    setPhases(current => current.map(p =>
+      p.id === phaseId ? { ...p, activities: p.activities.filter(a => a.id !== activityId) } : p))
   }
 
   const removeDocRequirement = (phaseId: string, activityId: string, docId: string) => {
-    setPhases(phases.map(p =>
-      p.id === phaseId
-        ? { ...p, activities: p.activities.map(a =>
-            a.id === activityId
-              ? { ...a, document_requirements: a.document_requirements.filter(d => d.id !== docId) }
-              : a
-          )}
-        : p
-    ))
+    setPhases(current => current.map(p => p.id === phaseId
+      ? { ...p, activities: p.activities.map(a => a.id === activityId
+          ? { ...a, document_requirements: a.document_requirements.filter(d => d.id !== docId) }
+          : a) }
+      : p))
   }
 
-  const requestDeletePhase = (phase: TemplatePhase) => {
-    setDeleteError(null)
-    setDeleteTarget({
-      type: 'phase',
-      phaseId: phase.id,
-      phaseName: phase.name.trim() || 'Fază fără nume',
-      activityCount: phase.activities.length,
-      documentCount: countPhaseDocuments(phase),
-      persisted: isDbId(phase.id),
+  /** Schimbă o activitate, fără să atingă restul arborelui (referințele rămân, deci și `memo`). */
+  const patchActivity = useCallback((phaseId: string, activityId: string, patch: (activity: TemplateActivity) => TemplateActivity) => {
+    setPhases(current => current.map(p => p.id === phaseId
+      ? { ...p, activities: p.activities.map(a => a.id === activityId ? patch(a) : a) }
+      : p))
+  }, [])
+
+  const dropError = useCallback((key: string) => {
+    setValidationErrors(prev => {
+      if (!prev.has(key)) return prev
+      const next = new Set(prev)
+      next.delete(key)
+      return next
     })
+  }, [])
+
+  const saveDocDialog = (values: DocDialogValues) => {
+    if (!docDialog) return
+    const { phaseId, activityId, doc } = docDialog
+    const firstAttachmentName = values.templateAttachments[0]?.original_name || values.templateAttachments[0]?.storage_path.split('/').pop()
+    const fields: Partial<DocumentRequirement> = {
+      name: values.name,
+      description: values.description,
+      is_outgoing: values.is_outgoing,
+      requirement_type: values.requirement_type,
+      templateFiles: values.templateFiles,
+      templateAttachments: values.templateAttachments,
+      templateFileName: firstAttachmentName || values.templateFiles[0]?.name || null,
+      templateFileMissingAt: values.templateAttachments.find(attachment => attachment.missing_at)?.missing_at || null,
+      templateFileRemoved: values.templateAttachments.length === 0 && values.templateFiles.length === 0,
+    }
+    patchActivity(phaseId, activityId, a => ({
+      ...a,
+      document_requirements: doc
+        ? a.document_requirements.map(d => d.id === doc.id ? { ...d, ...fields } : d)
+        : [...a.document_requirements, { id: generateId(), ...fields, templateFileRemoved: false } as DocumentRequirement],
+    }))
+    if (doc) {
+      dropError(`doc:${phaseId}:${activityId}:${doc.id}:name`)
+      dropError(`doc:${phaseId}:${activityId}:${doc.id}:templateFile`)
+    }
+    setDocDialog(null)
   }
 
-  const requestDeleteActivity = (phaseId: string, activity: TemplateActivity) => {
-    setDeleteError(null)
-    setDeleteTarget({
-      type: 'activity',
-      phaseId,
-      activityId: activity.id,
-      activityName: activity.name.trim() || 'Activitate fără nume',
-      documentCount: activity.document_requirements.length,
-      persisted: isDbId(activity.id),
+  const saveNameDialog = (name: string) => {
+    if (!nameDialog) return
+    if (nameDialog.kind === 'new-phase') addPhase(name)
+    else if (nameDialog.kind === 'new-activity') {
+      const { phaseId } = nameDialog
+      setPhases(current => current.map(p => p.id === phaseId
+        ? { ...p, expanded: true, activities: [...p.activities, { id: generateId(), name, document_requirements: [], expanded: true }] }
+        : p))
+    } else if (nameDialog.kind === 'rename-phase') {
+      const { phaseId } = nameDialog
+      setPhases(current => current.map(p => p.id === phaseId ? { ...p, name } : p))
+      dropError(`phase:${phaseId}:name`)
+    } else {
+      const { phaseId, activityId } = nameDialog
+      patchActivity(phaseId, activityId, a => ({ ...a, name }))
+      dropError(`activity:${phaseId}:${activityId}:name`)
+    }
+    setFormError(null)
+    setNameDialog(null)
+  }
+
+  // Duplicare (#15). Copia primește id-uri locale noi, deci salvarea o creează
+  // ca element nou, cu tot cu cererile de documente și fișierele-model.
+  const editorActions = useMemo<EditorActions>(() => {
+    const cloneDocRequirement = (doc: DocumentRequirement): DocumentRequirement => ({
+      ...doc,
+      id: generateId(),
+      templateFiles: [...(doc.templateFiles ?? [])],
+      templateAttachments: (doc.templateAttachments ?? []).map(attachment => ({ ...attachment })),
+      ...duplicationFromSource(doc, 'template_document'),
     })
-  }
-
-  const requestDeleteDocRequirement = (
-    phaseId: string,
-    activityId: string,
-    doc: DocumentRequirement
-  ) => {
-    setDeleteError(null)
-    setDeleteTarget({
-      type: 'document',
-      phaseId,
-      activityId,
-      documentId: doc.id,
-      documentName: doc.name.trim() || 'Document fără nume',
-      persisted: isDbId(doc.id),
+    const cloneActivity = (activity: TemplateActivity, name: string): TemplateActivity => ({
+      ...activity,
+      id: generateId(),
+      name,
+      expanded: true,
+      document_requirements: activity.document_requirements.map(cloneDocRequirement),
+      ...duplicationFromSource(activity, 'template_activity'),
     })
-  }
+    const reorderList = <T extends { id: string }>(list: T[], draggedId: string, targetId: string): T[] => {
+      const from = list.findIndex(item => item.id === draggedId)
+      const to = list.findIndex(item => item.id === targetId)
+      if (from === -1 || to === -1 || from === to) return list
+      const next = [...list]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    }
+    const patchDocs = (phaseId: string, activityId: string, patch: (docs: DocumentRequirement[]) => DocumentRequirement[]) =>
+      patchActivity(phaseId, activityId, a => ({ ...a, document_requirements: patch(a.document_requirements) }))
 
-  const updateDocRequirement = (
-    phaseId: string,
-    activityId: string,
-    docId: string,
-    updates: Partial<DocumentRequirement>
-  ) => {
-    setPhases(phases.map(p =>
-      p.id === phaseId
-        ? {
-            ...p,
-            activities: p.activities.map(a =>
-              a.id === activityId
-                ? {
-                    ...a,
-                    document_requirements: a.document_requirements.map(d =>
-                      d.id === docId ? { ...d, ...updates } : d
-                    )
-                  }
-                : a
-            )
-          }
-        : p
-    ))
-  }
+    return {
+      togglePhase: phaseId => setPhases(current => current.map(p => p.id === phaseId ? { ...p, expanded: !p.expanded } : p)),
+      toggleActivity: (phaseId, activityId) => patchActivity(phaseId, activityId, a => ({ ...a, expanded: !a.expanded })),
+      renamePhase: phase => setNameDialog({ kind: 'rename-phase', phaseId: phase.id, name: phase.name }),
+      renameActivity: (phaseId, activity) => setNameDialog({ kind: 'rename-activity', phaseId, activityId: activity.id, name: activity.name }),
+      duplicatePhase: phaseId => setPhases(current => {
+        const index = current.findIndex(p => p.id === phaseId)
+        if (index === -1) return current
+        const source = current[index]
+        const copy: TemplatePhase = {
+          ...source,
+          id: generateId(),
+          name: buildCopyName(source.name, current.map(p => p.name)),
+          expanded: true,
+          activities: source.activities.map(activity => cloneActivity(activity, activity.name)),
+          ...duplicationFromSource(source, 'template_phase'),
+        }
+        return [...current.slice(0, index + 1), copy, ...current.slice(index + 1)]
+      }),
+      duplicateActivity: (phaseId, activityId) => setPhases(current => current.map(p => {
+        if (p.id !== phaseId) return p
+        const index = p.activities.findIndex(a => a.id === activityId)
+        if (index === -1) return p
+        const source = p.activities[index]
+        const copy = cloneActivity(source, buildCopyName(source.name, p.activities.map(a => a.name)))
+        return { ...p, activities: [...p.activities.slice(0, index + 1), copy, ...p.activities.slice(index + 1)] }
+      })),
+      movePhase: (phaseId, direction) => setPhases(current => moveInArray(current, phaseId, direction)),
+      moveActivity: (phaseId, activityId, direction) => setPhases(current => current.map(p => p.id === phaseId
+        ? { ...p, activities: moveInArray(p.activities, activityId, direction) }
+        : p)),
+      moveDoc: (phaseId, activityId, docId, direction) => patchDocs(phaseId, activityId, docs => moveInArray(docs, docId, direction)),
+      deletePhase: phase => {
+        setDeleteError(null)
+        setDeleteTarget({
+          type: 'phase',
+          phaseId: phase.id,
+          phaseName: phase.name.trim() || 'Fază fără nume',
+          activityCount: phase.activities.length,
+          documentCount: countPhaseDocuments(phase),
+          persisted: isDbId(phase.id),
+        })
+      },
+      deleteActivity: (phaseId, activity) => {
+        setDeleteError(null)
+        setDeleteTarget({
+          type: 'activity',
+          phaseId,
+          activityId: activity.id,
+          activityName: activity.name.trim() || 'Activitate fără nume',
+          documentCount: activity.document_requirements.length,
+          persisted: isDbId(activity.id),
+        })
+      },
+      deleteDoc: (phaseId, activityId, doc) => {
+        setDeleteError(null)
+        setDeleteTarget({
+          type: 'document',
+          phaseId,
+          activityId,
+          documentId: doc.id,
+          documentName: doc.name.trim() || 'Document fără nume',
+          persisted: isDbId(doc.id),
+        })
+      },
+      addActivity: phaseId => setNameDialog({ kind: 'new-activity', phaseId }),
+      addDoc: (phaseId, activityId) => setDocDialog({ phaseId, activityId, doc: null }),
+      editDoc: (phaseId, activityId, doc) => setDocDialog({ phaseId, activityId, doc }),
+      setConsultant: (phaseId, activityId, consultantId) => patchActivity(phaseId, activityId, a => ({ ...a, default_consultant_id: consultantId })),
+      attachFiles: (phaseId, activityId, docId, files) => {
+        patchDocs(phaseId, activityId, docs => docs.map(d => d.id === docId
+          ? {
+              ...d,
+              templateFiles: [...d.templateFiles, ...files],
+              templateFileName: files[0].name,
+              templateFileMissingAt: d.templateAttachments.find(attachment => attachment.missing_at)?.missing_at || null,
+              templateFileRemoved: false,
+            }
+          : d))
+        dropError(`doc:${phaseId}:${activityId}:${docId}:templateFile`)
+      },
+      dragStart: (kind, parentKey, id) => { dragRef.current = { kind, parentKey, id }; setDragId(id) },
+      dragEnd: () => { dragRef.current = null; setDragId(null) },
+      dragOver: (event, kind, parentKey, targetId) => {
+        const drag = dragRef.current
+        // Doar în aceeași listă: același nivel și același părinte.
+        if (!drag || drag.kind !== kind || drag.parentKey !== parentKey) return
+        event.preventDefault()
+        if (drag.id === targetId) return
+        if (kind === 'phase') setPhases(current => reorderList(current, drag.id, targetId))
+        else if (kind === 'activity') {
+          setPhases(current => current.map(p => p.id === parentKey ? { ...p, activities: reorderList(p.activities, drag.id, targetId) } : p))
+        } else {
+          const [phaseId, activityId] = parentKey.split(':')
+          patchDocs(phaseId, activityId, docs => reorderList(docs, drag.id, targetId))
+        }
+      },
+    }
+  }, [patchActivity, dropError])
 
   const clearValidationError = (key: string) => {
     setValidationErrors(prev => {
@@ -1353,11 +1152,13 @@ function AdminTemplatesContent() {
       id: p.id,
       name: p.name,
       project_status_id: p.project_status_id,
-      expanded: true,
+      // Strânse la deschidere (S-24): un șablon mare se citește întâi pe faze.
+      // Erorile de validare deschid ce e greșit; o fază nouă se deschide.
+      expanded: false,
       activities: p.activities?.map((a: any) => ({
         id: a.id,
         name: a.name,
-        expanded: true,
+        expanded: false,
         default_consultant_id: a.default_consultant_id || '',
         document_requirements: a.document_requirements?.map((d: any) => ({
           id: d.id,
@@ -1421,7 +1222,6 @@ function AdminTemplatesContent() {
     affectedPropagationProjects.length > 0 &&
     affectedPropagationProjects.every(project => propagationSelectedProjectIds.includes(project.project_id))
   const deleteModalText = getDeleteModalText(deleteTarget)
-  const docModalHasTemplate = Boolean(newDocTemplates.length > 0 || newDocAttachments.length > 0)
 
   const filteredTemplates = useMemo(() => {
     const q = templateSearch.trim().toLowerCase()
@@ -1666,15 +1466,16 @@ function AdminTemplatesContent() {
                     className={hasValidationError('template:name') ? inputErrorClass : inputClass}
                   />
                 </Camp>
-                <Camp label="Descriere">
-                  <input
-                    type="text"
-                    value={templateDescription}
-                    onChange={(e) => setTemplateDescription(e.target.value)}
-                    placeholder="Descriere scurtă…"
-                    className={inputClass}
-                  />
-                </Camp>
+                {/* Pe toată lățimea, crește cu textul până la 8 rânduri (S-25). */}
+                <div className="md:col-span-2">
+                  <Camp label="Descriere">
+                    <AutoGrowTextarea
+                      value={templateDescription}
+                      onChange={setTemplateDescription}
+                      placeholder="Descriere scurtă…"
+                    />
+                  </Camp>
+                </div>
               </div>
             </Plate>
 
@@ -1696,302 +1497,18 @@ function AdminTemplatesContent() {
                   Un șablon fără faze nu poate fi salvat. Adaugă prima fază pentru a începe să definești fluxul de lucru.
                 </EmptyState>
               ) : (
-                <div className="space-y-3">
-                  {phases.map((phase, phaseIdx) => {
-                    const phaseLabel = phase.name || phaseIdx + 1
-                    return (
-                      <Plate
-                        key={phase.id}
-                        band={bandFor(phaseIdx)}
-                        className={`overflow-hidden !p-0 ${dragItem?.kind === 'phase' && dragItem.id === phase.id ? 'opacity-50' : ''}`}
-                      >
-                        {/* Capul fazei: numele se citește ca titlu și se editează pe loc. */}
-                        <div
-                          className={`group/phase flex flex-wrap items-center gap-x-1.5 gap-y-1 bg-paper-sunk px-2 pb-2 pt-3 sm:px-3 ${phase.expanded ? 'border-b border-rule' : ''}`}
-                          onDragOver={e => handleReorderDragOver(e, 'phase', '', phase.id)}
-                        >
-                          <span
-                            draggable
-                            aria-hidden="true"
-                            onDragStart={e => { setDragItem({ kind: 'phase', parentKey: '', id: phase.id }); e.dataTransfer.effectAllowed = 'move' }}
-                            onDragEnd={() => setDragItem(null)}
-                            title="Trage pentru a reordona"
-                            className={dragHandleClass}
-                          >
-                            <GripVertical className="h-4 w-4" />
-                          </span>
-                          <IconButton
-                            className={compactIcon}
-                            label={phase.expanded ? `Restrânge faza ${phaseLabel}` : `Extinde faza ${phaseLabel}`}
-                            aria-expanded={phase.expanded}
-                            onClick={() => updatePhase(phase.id, { expanded: !phase.expanded })}
-                          >
-                            <ChevronRight className={`h-4 w-4 transition-transform duration-[120ms] ${phase.expanded ? 'rotate-90' : ''}`} />
-                          </IconButton>
-                          <span className="w-5 shrink-0 text-center text-sm font-semibold tabular-nums text-ink-soft">{phaseIdx + 1}</span>
-                          <input
-                            type="text"
-                            value={phase.name}
-                            onChange={(e) => {
-                              updatePhase(phase.id, { name: e.target.value })
-                              clearValidationError(`phase:${phase.id}:name`)
-                            }}
-                            placeholder="Nume fază…"
-                            aria-label={`Nume pentru faza ${phaseIdx + 1}`}
-                            className={`${titleInputClass} h-10 min-w-[10rem] flex-1 text-[15px] font-semibold pointer-fine:h-9 ${
-                              hasValidationError(`phase:${phase.id}:name`) ? titleInputErrorClass : ''
-                            }`}
-                          />
-                          <span className="hidden shrink-0 px-1 text-xs text-ink-faint md:inline">
-                            {countLabel(phase.activities.length, 'activitate', 'activități')} · {countLabel(countPhaseDocuments(phase), 'document', 'documente')}
-                          </span>
-                          <div className="ml-auto flex items-center gap-0.5">
-                            <ReorderButtons
-                              className={revealOnPhaseHover}
-                              itemLabel={`faza ${phaseLabel}`}
-                              onUp={() => movePhase(phase.id, -1)}
-                              onDown={() => movePhase(phase.id, 1)}
-                              disableUp={phaseIdx === 0}
-                              disableDown={phaseIdx === phases.length - 1}
-                            />
-                            <IconButton className={compactIcon} label={`Duplică faza ${phaseLabel}`} onClick={() => duplicatePhase(phase.id)}>
-                              <Copy className="h-4 w-4" />
-                            </IconButton>
-                            <IconButton className={compactIcon} label={`Șterge faza ${phaseLabel}`} tone="danger" onClick={() => requestDeletePhase(phase)}>
-                              <Trash2 className="h-4 w-4" />
-                            </IconButton>
-                          </div>
-                        </div>
-
-                        {phase.expanded && (
-                          <div className="space-y-3 px-2 py-3 sm:px-3">
-                            {hasValidationError(`phase:${phase.id}:name`) && (
-                              <p className="text-xs text-[var(--sg-danger)]">
-                                Completează numele fazei înainte de salvare.
-                              </p>
-                            )}
-
-                            {phase.activities.map((activity, activityIdx) => {
-                              const activityLabel = activity.name || activityIdx + 1
-                              return (
-                                <div
-                                  key={activity.id}
-                                  className={dragItem?.kind === 'activity' && dragItem.id === activity.id ? 'opacity-50' : ''}
-                                >
-                                  <div
-                                    className="group/act flex flex-wrap items-center gap-x-1.5 gap-y-1"
-                                    onDragOver={e => handleReorderDragOver(e, 'activity', phase.id, activity.id)}
-                                  >
-                                    <span
-                                      draggable
-                                      aria-hidden="true"
-                                      onDragStart={e => { setDragItem({ kind: 'activity', parentKey: phase.id, id: activity.id }); e.dataTransfer.effectAllowed = 'move' }}
-                                      onDragEnd={() => setDragItem(null)}
-                                      title="Trage pentru a reordona"
-                                      className={dragHandleClass}
-                                    >
-                                      <GripVertical className="h-4 w-4" />
-                                    </span>
-                                    <IconButton
-                                      className={compactIcon}
-                                      label={activity.expanded ? `Restrânge activitatea ${activityLabel}` : `Extinde activitatea ${activityLabel}`}
-                                      aria-expanded={activity.expanded}
-                                      onClick={() => updateActivity(phase.id, activity.id, { expanded: !activity.expanded })}
-                                    >
-                                      <ChevronRight className={`h-4 w-4 transition-transform duration-[120ms] ${activity.expanded ? 'rotate-90' : ''}`} />
-                                    </IconButton>
-                                    <input
-                                      type="text"
-                                      value={activity.name}
-                                      onChange={(e) => {
-                                        updateActivity(phase.id, activity.id, { name: e.target.value })
-                                        clearValidationError(`activity:${phase.id}:${activity.id}:name`)
-                                      }}
-                                      placeholder="Nume activitate…"
-                                      aria-label={`Nume pentru activitatea ${activityIdx + 1} din faza ${phaseLabel}`}
-                                      className={`${titleInputClass} h-10 min-w-[10rem] flex-1 text-sm font-medium pointer-fine:h-8 ${
-                                        hasValidationError(`activity:${phase.id}:${activity.id}:name`) ? titleInputErrorClass : ''
-                                      }`}
-                                    />
-                                    <div className="ml-auto flex items-center gap-0.5">
-                                      <select
-                                        value={activity.default_consultant_id ?? ''}
-                                        onChange={e => updateActivity(phase.id, activity.id, { default_consultant_id: e.target.value || undefined })}
-                                        aria-label={`Consultant implicit pentru activitatea ${activityLabel}`}
-                                        className="mr-1 h-10 w-44 rounded-[var(--radius-plate)] border border-rule bg-plate px-2 text-xs text-ink-soft transition-colors duration-[120ms] hover:border-rule-strong focus:border-[var(--sg-accent)] pointer-fine:h-8"
-                                      >
-                                        <option value="">Consultant implicit</option>
-                                        {consultants.find(c => c.id === activity.default_consultant_id && c.is_active === false) && (
-                                          <option value={activity.default_consultant_id} disabled>{profileDisplayName(consultants.find(c => c.id === activity.default_consultant_id))}</option>
-                                        )}
-                                        {consultants.filter(c => c.is_active !== false).map(c => (
-                                          <option key={c.id} value={c.id}>{profileDisplayName(c)}</option>
-                                        ))}
-                                      </select>
-                                      <ReorderButtons
-                                        className={revealOnActivityHover}
-                                        itemLabel={`activitatea ${activityLabel}`}
-                                        onUp={() => moveActivity(phase.id, activity.id, -1)}
-                                        onDown={() => moveActivity(phase.id, activity.id, 1)}
-                                        disableUp={activityIdx === 0}
-                                        disableDown={activityIdx === phase.activities.length - 1}
-                                      />
-                                      <IconButton label={`Duplică activitatea ${activityLabel}`} className={compactIcon} onClick={() => duplicateActivity(phase.id, activity.id)}>
-                                        <Copy className="h-3.5 w-3.5" />
-                                      </IconButton>
-                                      <IconButton label={`Șterge activitatea ${activityLabel}`} tone="danger-quiet" className={compactIcon} onClick={() => requestDeleteActivity(phase.id, activity)}>
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </IconButton>
-                                    </div>
-                                  </div>
-
-                                  {activity.expanded && (
-                                    <div className="mt-1.5 sm:ml-14">
-                                      {hasValidationError(`activity:${phase.id}:${activity.id}:name`) && (
-                                        <p className="mb-1.5 text-xs text-[var(--sg-danger)]">Numele activității este obligatoriu.</p>
-                                      )}
-
-                                      {/* Cererile activității: o singură listă cu despărțitoare, nu câte o casetă pentru fiecare. */}
-                                      <ul className="divide-y divide-rule overflow-hidden rounded-[var(--radius-plate)] border border-rule bg-plate">
-                                        {activity.document_requirements.map((doc, docIdx) => {
-                                          const docInvalid =
-                                            hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:name`) ||
-                                            hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`)
-                                          return (
-                                            <li
-                                              key={doc.id}
-                                              onDragOver={e => handleReorderDragOver(e, 'doc', `${phase.id}:${activity.id}`, doc.id)}
-                                              className={`group/doc flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1 ${
-                                                docInvalid
-                                                  ? 'bg-[var(--sg-danger-soft)]'
-                                                  : doc.is_outgoing
-                                                  ? 'bg-[var(--sg-accent-soft)]'
-                                                  : ''
-                                              } ${dragItem?.kind === 'doc' && dragItem.id === doc.id ? 'opacity-50' : ''}`}
-                                            >
-                                              <span
-                                                draggable
-                                                aria-hidden="true"
-                                                onDragStart={e => { setDragItem({ kind: 'doc', parentKey: `${phase.id}:${activity.id}`, id: doc.id }); e.dataTransfer.effectAllowed = 'move' }}
-                                                onDragEnd={() => setDragItem(null)}
-                                                title="Trage pentru a reordona"
-                                                className={dragHandleClass}
-                                              >
-                                                <GripVertical className="h-3.5 w-3.5" />
-                                              </span>
-                                              <FileText className={`h-4 w-4 shrink-0 ${doc.is_outgoing ? 'text-[var(--sg-accent)]' : 'text-ink-faint'}`} aria-hidden="true" />
-                                              <div className="min-w-[10rem] flex-1 py-1">
-                                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                                                  <span className="text-sm font-medium text-ink">{doc.name || 'Document fără nume'}</span>
-                                                  {doc.is_outgoing ? (
-                                                    <span className="rounded-[var(--radius-plate)] border border-[var(--sg-accent)] bg-plate px-1.5 text-[11px] leading-[18px] text-[var(--sg-accent)]">
-                                                      Document de trimis
-                                                    </span>
-                                                  ) : REQUIREMENT_BADGE[doc.requirement_type] && (
-                                                    <span className={`rounded-[var(--radius-plate)] border px-1.5 text-[11px] leading-[18px] ${REQUIREMENT_BADGE[doc.requirement_type].bg} ${REQUIREMENT_BADGE[doc.requirement_type].text} ${REQUIREMENT_BADGE[doc.requirement_type].border}`}>
-                                                      {REQUIREMENT_LABELS[doc.requirement_type]}
-                                                    </span>
-                                                  )}
-                                                </div>
-                                                {hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:name`) && (
-                                                  <p className="mt-0.5 text-xs text-[var(--sg-danger)]">Numele documentului este obligatoriu.</p>
-                                                )}
-                                                {hasValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`) && (
-                                                  <p className="mt-0.5 text-xs text-[var(--sg-danger)]">Documentul de trimis are nevoie de fișier atașat.</p>
-                                                )}
-                                                {doc.description && (
-                                                  <p className="mt-0.5 text-xs leading-5 text-ink-soft">{doc.description}</p>
-                                                )}
-                                                {(doc.templateAttachments.length > 0 || doc.templateFiles.length > 0) && (
-                                                  <p className={`mt-0.5 flex items-start gap-1 text-xs leading-5 ${hasMissingTemplateAttachment(doc) ? 'text-[var(--sg-warn)]' : 'text-[var(--sg-accent)]'}`}>
-                                                    {hasMissingTemplateAttachment(doc)
-                                                      ? <AlertCircle className="mt-1 h-3 w-3 shrink-0" aria-hidden="true" />
-                                                      : <Paperclip className="mt-1 h-3 w-3 shrink-0" aria-hidden="true" />}
-                                                    <span className="min-w-0 break-words">{[
-                                                      ...doc.templateAttachments.map(a => `${a.original_name || a.storage_path.split('/').pop() || 'fișier atașat'}${a.missing_at ? ' (indisponibil)' : ''}`),
-                                                      ...doc.templateFiles.map(file => file.name),
-                                                    ].filter(Boolean).join(', ')}</span>
-                                                  </p>
-                                                )}
-                                              </div>
-                                              <div className="ml-auto flex items-center gap-0.5">
-                                                <ReorderButtons
-                                                  className={revealOnDocHover}
-                                                  itemLabel={`cererea ${doc.name || docIdx + 1}`}
-                                                  onUp={() => moveDocRequirement(phase.id, activity.id, doc.id, -1)}
-                                                  onDown={() => moveDocRequirement(phase.id, activity.id, doc.id, 1)}
-                                                  disableUp={docIdx === 0}
-                                                  disableDown={docIdx === activity.document_requirements.length - 1}
-                                                />
-                                                <label
-                                                  title={uploadLabel(doc)}
-                                                  className="inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-[var(--sg-accent)] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--sg-accent)] pointer-fine:h-8 pointer-fine:w-8"
-                                                >
-                                                  <Upload className="h-3.5 w-3.5" aria-hidden="true" />
-                                                  <span className="sr-only">{uploadLabel(doc)} — {doc.name || 'cerere fără nume'}</span>
-                                                  <input
-                                                    type="file"
-                                                    className="sr-only"
-                                                    accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp"
-                                                    multiple
-                                                    onChange={(e) => {
-                                                      const files = Array.from(e.currentTarget.files ?? [])
-                                                      if (files.length === 0) return
-                                                      updateDocRequirement(phase.id, activity.id, doc.id, {
-                                                        templateFiles: [...doc.templateFiles, ...files],
-                                                        templateAttachments: doc.templateAttachments,
-                                                        templateFileName: files[0].name,
-                                                        templateFileMissingAt: doc.templateAttachments.find(attachment => attachment.missing_at)?.missing_at || null,
-                                                        templateFileRemoved: false,
-                                                      })
-                                                      clearValidationError(`doc:${phase.id}:${activity.id}:${doc.id}:templateFile`)
-                                                      e.currentTarget.value = ''
-                                                    }}
-                                                  />
-                                                </label>
-                                                <IconButton label={`Modifică cererea ${doc.name || 'fără nume'}`} className={compactIcon} onClick={() => openEditDocModal(phase.id, activity.id, doc)}>
-                                                  <Edit2 className="h-3.5 w-3.5" />
-                                                </IconButton>
-                                                <IconButton label={`Șterge cererea ${doc.name || 'fără nume'}`} tone="danger-quiet" className={compactIcon} onClick={() => requestDeleteDocRequirement(phase.id, activity.id, doc)}>
-                                                  <Trash2 className="h-3.5 w-3.5" />
-                                                </IconButton>
-                                              </div>
-                                            </li>
-                                          )
-                                        })}
-                                        <li>
-                                          <button data-tooltip="Adaugă o cerere de document în această activitate"
-                                            type="button"
-                                            onClick={() => openAddDocModal(phase.id, activity.id)}
-                                            className="flex min-h-9 w-full items-center gap-1.5 px-3 py-2 text-left text-xs font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)]"
-                                          >
-                                            <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Adaugă cerere document
-                                          </button>
-                                        </li>
-                                      </ul>
-                                    </div>
-                                  )}
-                                </div>
-                              )
-                            })}
-                            <button data-tooltip="Adaugă o activitate nouă în această fază"
-                              type="button"
-                              onClick={() => addActivity(phase.id)}
-                              className="inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-plate)] px-2 text-sm font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)]"
-                            >
-                              <Plus className="h-4 w-4" aria-hidden="true" /> Adaugă activitate
-                            </button>
-                          </div>
-                        )}
-                      </Plate>
-                    )
-                  })}
-                </div>
+                <PhaseList
+                  phases={phases}
+                  consultants={consultants}
+                  errors={validationErrors}
+                  dragId={dragId}
+                  actions={editorActions}
+                />
               )}
 
               <button data-tooltip="Adaugă o fază nouă la sfârșitul șablonului"
                 type="button"
-                onClick={addPhase}
+                onClick={() => setNameDialog({ kind: 'new-phase' })}
                 className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-4 py-2 text-sm font-semibold text-ink-soft transition-colors duration-[120ms] hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)]"
               >
                 <Plus className="h-4 w-4" aria-hidden="true" /> Adaugă fază nouă
@@ -2277,166 +1794,30 @@ function AdminTemplatesContent() {
         </div>
       )}
 
-      {/* Modal document */}
-      {addingDocTo && createPortal((
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
-          <Scrim onClick={closeDocModal} />
-          <FloatingSurface
-            role="dialog"
-            ariaModal
-            ariaLabel={editingDocId ? 'Modifică cererea de document' : 'Adaugă cerere document'}
-            className="relative flex w-full max-w-md max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-[var(--radius-plate-lg)]"
-          >
-            <div className="flex shrink-0 items-center justify-between border-b border-rule px-6 py-4">
-              <h2 className="font-bold text-ink">{editingDocId ? 'Modifică cererea de document' : 'Adaugă cerere document'}</h2>
-              <IconButton label="Închide" onClick={closeDocModal}><X className="h-5 w-5" /></IconButton>
-            </div>
-            <div className="flex-1 space-y-4 overflow-y-auto p-6">
-              <Camp label="Nume document" required>
-                <input
-                  type="text"
-                  value={newDocName}
-                  onChange={(e) => setNewDocName(e.target.value)}
-                  placeholder="Ex: Certificat constatator"
-                  className={inputClass}
-                />
-              </Camp>
-              <Camp label="Descriere">
-                <textarea
-                  value={newDocDescription}
-                  onChange={(e) => setNewDocDescription(e.target.value)}
-                  placeholder="Instrucțiuni pentru client…"
-                  rows={3}
-                  className="w-full resize-none rounded-[var(--radius-plate)] border border-rule bg-plate px-3 py-2 text-sm text-ink placeholder:text-ink-faint transition-colors duration-[120ms] focus:border-[var(--sg-accent)]"
-                />
-              </Camp>
-              <label className="flex cursor-pointer items-start gap-2 rounded-[var(--radius-plate)] border border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] px-3 py-2">
-                <input
-                  type="checkbox"
-                  checked={newDocOutgoing}
-                  onChange={(e) => {
-                    setNewDocOutgoing(e.target.checked)
-                    if (e.target.checked) setNewDocCategory('optional')
-                  }}
-                  className="mt-0.5 h-4 w-4 border-rule-strong text-[var(--sg-accent)]"
-                />
-                <span>
-                  <span className="block text-sm font-medium text-ink">Document de trimis (fără răspuns)</span>
-                  <span className="block text-xs text-ink-soft">Clientul îl poate descărca, fără upload înapoi.</span>
-                </span>
-              </label>
-              <div>
-                <span className="mb-2 block text-sm font-semibold text-ink">
-                  {newDocOutgoing ? <>Documente atașate<span className="ml-0.5 text-[var(--sg-danger)]" aria-hidden="true">*</span></> : 'Modele / template-uri (opțional)'}
-                </span>
-                <input
-                  ref={newDocFileInputRef}
-                  type="file"
-                  onChange={(e) => {
-                    addNewDocTemplateFiles(e.currentTarget.files)
-                    e.currentTarget.value = ''
-                  }}
-                  className="sr-only"
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.webp"
-                  multiple
-                />
-                {(newDocAttachments.length > 0 || newDocTemplates.length > 0) ? (
-                  <div className="space-y-2 rounded-[var(--radius-plate)] border border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] p-3">
-                    {newDocAttachments.map(attachment => (
-                      <div key={attachment.id} className="flex items-center gap-3">
-                        {attachment.missing_at ? (
-                          <AlertCircle className="h-4 w-4 shrink-0 text-[var(--sg-warn)]" aria-hidden="true" />
-                        ) : (
-                          <Paperclip className="h-4 w-4 shrink-0 text-[var(--sg-accent)]" aria-hidden="true" />
-                        )}
-                        <p className={`flex-1 truncate text-sm font-medium ${attachment.missing_at ? 'text-[var(--sg-warn)]' : 'text-[var(--sg-accent)]'}`}>
-                          {attachment.original_name || attachment.storage_path.split('/').pop() || 'fișier atașat'}
-                          {attachment.missing_at && <span className="ml-1 text-xs">(indisponibil)</span>}
-                        </p>
-                        <button data-tooltip="Scoate fișierul-model din listă"
-                          type="button"
-                          onClick={() => setNewDocAttachments(current => current.filter(item => item.id !== attachment.id))}
-                          className="text-xs font-medium text-[var(--sg-danger)] hover:brightness-90"
-                        >
-                          Elimină
-                        </button>
-                      </div>
-                    ))}
-                    {newDocTemplates.map((file, index) => (
-                      <div key={`${file.name}-${file.size}-${index}`} className="flex items-center gap-3">
-                        <Paperclip className="h-4 w-4 shrink-0 text-[var(--sg-accent)]" aria-hidden="true" />
-                        <p className="flex-1 truncate text-sm font-medium text-[var(--sg-accent)]">{file.name}</p>
-                        <p className="text-xs text-[var(--sg-accent)]">{(file.size / 1024).toFixed(1)} KB</p>
-                        <button data-tooltip="Scoate fișierul-model din listă"
-                          type="button"
-                          onClick={() => setNewDocTemplates(current => current.filter((_, fileIndex) => fileIndex !== index))}
-                          className="text-xs font-medium text-[var(--sg-danger)] hover:brightness-90"
-                        >
-                          Elimină
-                        </button>
-                      </div>
-                    ))}
-                    <button data-tooltip="Atașează fișiere-model pe care clientul le descarcă și le completează"
-                      type="button"
-                      onClick={() => newDocFileInputRef.current?.click()}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--sg-accent)] hover:text-[var(--sg-accent-ink)]"
-                    >
-                      <Upload className="h-3 w-3" aria-hidden="true" />
-                      Adaugă fișiere
-                    </button>
-                  </div>
-                ) : (
-                  <button data-tooltip="Atașează fișiere-model pe care clientul le descarcă și le completează"
-                    type="button"
-                    onClick={() => newDocFileInputRef.current?.click()}
-                    className="flex w-full flex-col items-center justify-center gap-2 rounded-[var(--radius-plate)] border-2 border-dashed border-rule p-6 transition-colors duration-[120ms] hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)]"
-                  >
-                    <Upload className="h-8 w-8 text-ink-faint" aria-hidden="true" />
-                    <span className="text-sm font-medium text-ink-soft">Click pentru a adăuga fișiere</span>
-                    <span className="text-xs text-ink-faint">PDF, DOC, DOCX, XLS, XLSX, CSV, imagini</span>
-                  </button>
-                )}
-                {newDocOutgoing && !docModalHasTemplate && (
-                  <p className="mt-1 text-xs text-[var(--sg-danger)]">Documentul de trimis are nevoie de fișier atașat.</p>
-                )}
-              </div>
-              {!newDocOutgoing && (
-                <fieldset>
-                  <legend className="mb-2 text-sm font-semibold text-ink">Tip cerință</legend>
-                  <div className="space-y-2">
-                    {REQUIREMENT_TYPES.map(rt => (
-                      <label key={rt} className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="radio"
-                          name="newDocCategoryTemplate"
-                          value={rt}
-                          checked={newDocCategory === rt}
-                          onChange={() => setNewDocCategory(rt)}
-                          className="h-4 w-4 border-rule-strong text-[var(--sg-accent)]"
-                        />
-                        <span className="text-sm text-ink">{REQUIREMENT_LABELS[rt]}</span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-              )}
-            </div>
-            <div className="flex shrink-0 gap-3 border-t border-rule bg-paper-sunk px-6 py-4">
-              <Button data-tooltip="Închide fără să salvezi" variant="secondary" className="flex-1" onClick={closeDocModal}>
-                Anulează
-              </Button>
-              <Button data-tooltip={editingDocId ? 'Salvează cererea de document' : 'Adaugă cererea de document în activitate'}
-                variant="primary"
-                className="flex-1"
-                onClick={confirmAddDoc}
-                disabled={!newDocName.trim() || (newDocOutgoing && !docModalHasTemplate)}
-              >
-                <Check className="h-4 w-4" aria-hidden="true" /> {editingDocId ? 'Salvează' : 'Adaugă'}
-              </Button>
-            </div>
-          </FloatingSurface>
-        </div>
-      ), document.body)}
+      {docDialog && (
+        <DocDialog
+          key={docDialog.doc?.id ?? 'nou'}
+          editing={docDialog.doc}
+          onSave={saveDocDialog}
+          onClose={() => setDocDialog(null)}
+        />
+      )}
+
+      {nameDialog && (
+        <NameDialog
+          title={{
+            'new-phase': 'Fază nouă',
+            'new-activity': 'Activitate nouă',
+            'rename-phase': 'Redenumește faza',
+            'rename-activity': 'Redenumește activitatea',
+          }[nameDialog.kind]}
+          label={nameDialog.kind.endsWith('phase') ? 'Numele fazei' : 'Numele activității'}
+          initialValue={'name' in nameDialog ? nameDialog.name : ''}
+          confirmText={nameDialog.kind.startsWith('new') ? 'Adaugă' : 'Salvează'}
+          onConfirm={saveNameDialog}
+          onClose={() => setNameDialog(null)}
+        />
+      )}
     </div>
   )
 }

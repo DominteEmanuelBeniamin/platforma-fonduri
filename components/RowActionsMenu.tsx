@@ -172,7 +172,9 @@ export default function RowActionsMenu({
               key={action.label}
               type="button"
               role="menuitem"
-              onClick={() => { setOpen(false); action.onSelect() }}
+              // Focusul revine pe „⋯” înainte de acțiune: un dialog deschis de ea
+              // știe astfel unde să-l întoarcă, iar un câmp pe loc îl ia singur.
+              onClick={() => { setOpen(false); buttonRef.current?.focus(); action.onSelect() }}
               className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-[var(--p-surface-2)] ${
                 action.danger ? 'text-[var(--p-danger)]' : 'text-[var(--p-ink)]'
               }`}
