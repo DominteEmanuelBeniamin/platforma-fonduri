@@ -115,4 +115,37 @@ test.describe('Tabelul proiectului: interacțiuni', () => {
       await page.evaluate(() => localStorage.removeItem('bonie:arata-finalizate'))
     }
   })
+
+  test('S-01: sumarul spune „Total”, iar cu grupul strâns antetul coloanelor rămâne', async ({ page }) => {
+    const withRows = page.locator('main section[id^="phase-"]').filter({ has: page.locator('[id^="activity-"]') }).first()
+    const group = page.locator(`#${await withRows.getAttribute('id')}`)
+    await expect(group.getByText(/^Total:?$/)).toBeVisible()
+    await page.getByRole('button', { name: 'Restrânge toate grupurile' }).click()
+    await expect(group.locator('[id^="activity-"]')).toHaveCount(0)
+    await expect(group.getByText('Status', { exact: true })).toBeVisible()
+    await expect(group.getByText('Documente', { exact: true })).toBeVisible()
+    await expect(group.locator('[role="img"][data-tooltip^="Activitățile pe stări:"]')).toHaveCount(1)
+  })
+
+  test('S-04: la cereri, „Vizibil clientului” e ultima coloană, ca la activități', async ({ page }) => {
+    await page.getByRole('button', { name: /^Extinde activitatea/ }).first().click()
+    const header = page.locator('main [id^="activity-"] div[aria-hidden="true"]').filter({ hasText: 'Cerere' }).first()
+    await expect(header).toBeVisible()
+    const labels = (await header.locator('span').allInnerTexts()).map(t => t.trim()).filter(Boolean)
+    expect(labels).toEqual(['Cerere', 'Status', 'Termen', 'Încărcat', 'Vizibil clientului'])
+  })
+
+  test('S-07: pe calculator nu există butonul „Panoul fazelor” din bara de sus', async ({ page }) => {
+    await expect(page.getByRole('button', { name: 'Toate fazele: reordonare, activități, echipă' })).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Strânge panoul fazelor' })).toBeVisible()
+  })
+
+  test('S-03: ochiul „Vizibil clientului” are tooltip și o țintă de cel puțin 24 px', async ({ page }) => {
+    const eye = page.locator('main [id^="activity-"] [data-tooltip^="Vizibil clientului"]').first()
+    const box = await eye.boundingBox()
+    expect(box!.width).toBeGreaterThanOrEqual(24)
+    expect(box!.height).toBeGreaterThanOrEqual(24)
+    await page.mouse.move(box!.x + 3, box!.y + 3)
+    await expect(page.locator('#sg-tooltip')).toHaveText(/Vizibil clientului/, { timeout: 3000 })
+  })
 })

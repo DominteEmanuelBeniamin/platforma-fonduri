@@ -30,6 +30,8 @@ interface PublishStatusControlProps {
    * completează pe loc.
    */
   compact?: boolean
+  /** Tooltip-ul ochiului din forma compactă. */
+  visibleTooltip?: string
 }
 
 /**
@@ -49,6 +51,7 @@ export default function PublishStatusControl({
   onSetDeadline,
   size = 'md',
   compact = false,
+  visibleTooltip = 'Vizibil clientului: clientul vede acest element',
 }: PublishStatusControlProps) {
   const [editingDeadline, setEditingDeadline] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -66,7 +69,9 @@ export default function PublishStatusControl({
   // în evidență e excepția — ce încă nu vede clientul.
   if (compact && !isDraft) {
     return (
-      <span className="inline-flex items-center text-ink-faint" title="Vizibil clientului: clientul vede acest element">
+      // Ținta e cât un buton mic, nu cât iconița de 14 px: tooltip-ul nu apărea
+      // decât dacă nimereai exact ochiul (S-03).
+      <span data-tooltip={visibleTooltip} className="inline-flex min-h-6 min-w-6 items-center justify-center p-1.5 text-ink-faint">
         <Eye className="h-3.5 w-3.5" aria-hidden="true" />
         <span className="sr-only">Vizibil clientului</span>
       </span>

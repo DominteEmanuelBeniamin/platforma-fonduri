@@ -1367,7 +1367,9 @@ function ProjectDetailsContent() {
                 <Pencil className="h-4 w-4" />
               </IconButton>
             )}
-            <IconButton label="Toate fazele: reordonare, activități, echipă" data-tooltip="Panoul fazelor: alege o fază, reordonează, adaugă" onClick={openPhasesPanel}>
+            {/* Doar pe telefon, unde panoul e sertar: pe calculator panoul are
+                propriile butoane de strâns și deschis, iar acesta nu făcea nimic (S-07). */}
+            <IconButton className="md:hidden" label="Toate fazele: reordonare, activități, echipă" data-tooltip="Panoul fazelor: alege o fază, reordonează, adaugă" onClick={openPhasesPanel}>
               <Layers className="h-4 w-4" />
             </IconButton>
             <IconButton label="Caută în proiect" data-tooltip="Caută în proiect: faze, activități, cereri  ·  tasta /" onClick={() => setSearchOpen(true)}>
@@ -1757,6 +1759,8 @@ function ProjectDetailsContent() {
                             canPublish={canChange}
                             showPublishedStatus={canEdit}
                             size="sm"
+                            compact={phase.visibility === 'published'}
+                            visibleTooltip="Faza e vizibilă clientului"
                             onPublish={() => publishProjectItem(`/api/projects/${projectId}/phases/${phase.id}`, {
                               title: 'Publică faza?',
                               description: 'Faza va deveni vizibilă clientului. Activitățile și cererile deja publicate din această fază vor deveni vizibile.',
@@ -1805,6 +1809,7 @@ function ProjectDetailsContent() {
                       renameLoading={savingRename === phase.id}
                       onRenameSubmit={name => { void renameItem(`/api/projects/${projectId}/phases/${phase.id}`, phase.id, name) }}
                       onRenameCancel={() => setRenamingId(null)}
+                      header={activities.length > 0 ? <ColumnHeader first="Activitate" labels={tableLabels} /> : undefined}
                       summary={activities.length > 0 ? (
                         <GroupSummary
                           columns={tableColumns}
@@ -1814,7 +1819,6 @@ function ProjectDetailsContent() {
                         />
                       ) : undefined}
                     >
-                      {activities.length > 0 && <ColumnHeader first="Activitate" labels={tableLabels} />}
                       {activities.length === 0 && !canChange && (
                         <p className="px-3 py-3 text-sm text-ink-faint">Nicio activitate în această fază.</p>
                       )}

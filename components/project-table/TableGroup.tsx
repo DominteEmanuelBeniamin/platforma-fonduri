@@ -54,9 +54,9 @@ export type SummarySegment = { tone: SignalTone; label: string; count: number }
 export function StatusBattery({ segments }: { segments: SummarySegment[] }) {
   const total = segments.reduce((sum, s) => sum + s.count, 0)
   if (total === 0) return null
-  const sentence = segments.map(s => `${s.count} ${s.label.toLowerCase()}`).join(', ')
+  const sentence = `Activitățile pe stări: ${segments.map(s => `${s.count} ${s.label.toLowerCase()}`).join(', ')}`
   return (
-    <span role="img" aria-label={`Stările activităților: ${sentence}`} className="flex h-1.5 w-full min-w-24 gap-0.5 overflow-hidden rounded-[1px] @min-[50rem]:w-[8.75rem]">
+    <span role="img" aria-label={sentence} data-tooltip={sentence} className="flex h-1.5 w-full min-w-24 gap-0.5 overflow-hidden rounded-[1px] @min-[50rem]:w-[8.75rem]">
       {segments.map(s => (
         <span
           key={s.tone + s.label}
@@ -92,7 +92,10 @@ export function GroupSummary({
   const wideOnly = 'hidden @min-[50rem]:block'
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2.5 @min-[50rem]:grid @min-[50rem]:min-h-9 @min-[50rem]:grid-cols-(--cols) @min-[50rem]:gap-0 @min-[50rem]:p-0">
-      <span className={wideOnly} />
+      {/* Fără etichetă, „0/18” și dunga nu spuneau ce sunt (S-01). */}
+      <span className="text-[11px] font-medium text-ink-faint @min-[50rem]:flex @min-[50rem]:items-center @min-[50rem]:pl-9">
+        Total<span className="@min-[50rem]:hidden">:</span>
+      </span>
       <span className={wideOnly} />
       <span className="flex min-w-32 flex-1 items-center justify-center">
         <StatusBattery segments={segments} />
@@ -143,6 +146,7 @@ export default function TableGroup({
   onRenameSubmit,
   onRenameCancel,
   summary,
+  header,
   children,
 }: {
   /** Id-ul fazei; ancora e `phase-${id}`, aceeași ca la deep-linkuri. */
@@ -167,6 +171,8 @@ export default function TableGroup({
   onRenameCancel?: () => void
   /** Rândul de sumar, vizibil și cu grupul strâns. */
   summary?: ReactNode
+  /** Antetul coloanelor: rămâne și cu grupul strâns, ca sumarul să aibă context. */
+  header?: ReactNode
   children: ReactNode
 }) {
   const color = band ? bandVar(band) : 'var(--sg-ink-soft)'
@@ -208,8 +214,11 @@ export default function TableGroup({
             {title}
           </h2>
         )}
-        {badges}
+        {/* Progresul stă lângă titlu, semnalele după el, cu aer între ele: lipite
+            și în aceeași culoare, „Vizibil clientului” se citea ca parte din
+            „5 din 5 activități finalizate” (S-02). */}
         {meta && <span className="text-xs text-ink-faint">{meta}</span>}
+        {badges && <span className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-1">{badges}</span>}
         {actions && <span className="ml-auto flex items-center">{actions}</span>}
       </div>
 
@@ -224,6 +233,7 @@ export default function TableGroup({
               : spine,
           }}
         />
+        {header}
         {!collapsed && children}
         {summary}
       </div>

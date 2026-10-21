@@ -916,9 +916,10 @@ export default function DocumentRequests({
   const requestColumns = [
     'minmax(10rem,1fr)',
     '10rem',
+    '5.75rem',
+    '5.75rem',
+    // Vizibilitatea e ultima înaintea acțiunilor, ca la activități (S-04).
     isAdminOrConsultant && 'minmax(8rem,10rem)',
-    '5.75rem',
-    '5.75rem',
     canChange && '4.5rem',
   ].filter(Boolean).join(' ')
 
@@ -1072,9 +1073,9 @@ export default function DocumentRequests({
             >
               <span className="flex items-center pl-6">Cerere</span>
               <span className="flex items-center justify-center">Status</span>
-              {isAdminOrConsultant && <span className="flex items-center justify-center">Vizibil clientului</span>}
               <span className="flex items-center justify-center">Termen</span>
               <span className="flex items-center justify-center">Încărcat</span>
+              {isAdminOrConsultant && <span className="flex items-center justify-center">Vizibil clientului</span>}
               {canChange && <span />}
             </div>
             {displayRequests.map((req) => {
@@ -1120,19 +1121,6 @@ export default function DocumentRequests({
                       <div className={CELL}>
                         <StatusCell tone={statusInfo.tone} label={statusLabel(req)} />
                       </div>
-                      {isAdminOrConsultant && (
-                        <div className={`${CELL} @min-[50rem]:px-2`}>
-                          <PublishStatusControl
-                            status={req.visibility ?? 'draft'}
-                            canPublish={canChange && !isClosed}
-                            showPublishedStatus={isAdminOrConsultant}
-                            onPublish={() => publishRequest(req.id)}
-                            blockers={requestBlockers(req)}
-                            compact
-                            size="sm"
-                          />
-                        </div>
-                      )}
                       <div className={CELL}>
                         <DeadlineCell
                           value={req.deadline_at}
@@ -1157,6 +1145,19 @@ export default function DocumentRequests({
                           )}
                         </span>
                       </div>
+                      {isAdminOrConsultant && (
+                        <div className={`${CELL} @min-[50rem]:px-2`}>
+                          <PublishStatusControl
+                            status={req.visibility ?? 'draft'}
+                            canPublish={canChange && !isClosed}
+                            showPublishedStatus={isAdminOrConsultant}
+                            onPublish={() => publishRequest(req.id)}
+                            blockers={requestBlockers(req)}
+                            compact
+                            size="sm"
+                          />
+                        </div>
+                      )}
                     </div>
 
                     {canChange && (

@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, CalendarPlus, Check, Clock } from 'lucide-react'
+import { AlertTriangle, CalendarPlus, Check, Clock, Pencil } from 'lucide-react'
 import { DatePopover } from '@/components/ui/DatePicker'
 import { TONE, deadlineSignal, type SignalTone } from '@/lib/signage'
 import { profileDisplayName } from '@/lib/profile-display'
@@ -176,10 +176,18 @@ export function DeadlineCell({
           aria-expanded={editing}
           onClick={() => setEditing(open => !open)}
           aria-label={value ? `Schimbă termenul pentru ${itemName}: ${formatShortDate(value)}` : `Adaugă termen pentru ${itemName}`}
-          title={value ? signal.label : 'Adaugă termen limită'}
-          className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-[var(--radius-plate)] px-2 transition-colors duration-[120ms] hover:bg-paper-sunk aria-expanded:bg-paper-sunk pointer-fine:min-h-7"
+          data-tooltip={value ? `${burning ? `${signal.label}. ` : ''}Schimbă termenul` : 'Adaugă termen limită'}
+          className="group/deadline inline-flex min-h-8 min-w-8 items-center justify-center gap-1 rounded-[var(--radius-plate)] px-2 transition-colors duration-[120ms] hover:bg-paper-sunk aria-expanded:bg-paper-sunk pointer-fine:min-h-7"
         >
           {display}
+          {/* Creionul arată că data se poate schimba (D3): la hover pe rând și la
+              focus de la tastatură; pe touch, mereu. Locul îi rămâne rezervat. */}
+          {value && (
+            <Pencil
+              aria-hidden="true"
+              className="h-3 w-3 shrink-0 text-ink-faint opacity-0 transition-opacity duration-[120ms] group-hover:opacity-100 group-hover/row:opacity-100 group-focus-visible/deadline:opacity-100 group-aria-expanded/deadline:opacity-100 pointer-coarse:opacity-100"
+            />
+          )}
         </button>
       ) : (
         <span title={value ? signal.label : undefined} className="inline-flex items-center justify-center">

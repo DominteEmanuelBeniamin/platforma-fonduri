@@ -748,14 +748,17 @@ export default function ProjectPhasesSidebar({
                                 e.stopPropagation()
                                 setEditingDeadline(isEditingThisDeadline ? null : act.id)
                               }}
-                              title={act.deadline_at ? 'Modifică termenul' : 'Setează termen'}
+                              data-tooltip={act.deadline_at ? 'Schimbă termenul' : 'Adaugă termen limită'}
                               aria-label={deadlineLabel ? `${isOverdue ? 'Termen depășit, ' : ''}termen ${deadlineLabel} — modifică` : 'Setează termen'}
-                              className={`inline-flex min-h-6 shrink-0 items-center gap-1 rounded-[var(--radius-plate)] px-1 text-[11px] tabular-nums transition-colors hover:bg-paper-sunk ${
+                              className={`group/dl inline-flex min-h-6 shrink-0 items-center gap-1 rounded-[var(--radius-plate)] px-1 text-[11px] tabular-nums transition-colors hover:bg-paper-sunk ${
                                 deadlineLabel ? deadlineTone : 'text-ink-faint opacity-0 group-hover/act:opacity-100 pointer-coarse:opacity-100 focus-visible:opacity-100'
                               }`}
                             >
                               {isOverdue && <AlertTriangle className="h-3 w-3" aria-hidden="true" />}
                               {deadlineLabel ?? <Calendar className="h-3 w-3" aria-hidden="true" />}
+                              {deadlineLabel && (
+                                <Pencil aria-hidden="true" className="h-3 w-3 text-ink-faint opacity-0 transition-opacity group-hover/act:opacity-100 group-focus-visible/dl:opacity-100 pointer-coarse:opacity-100" />
+                              )}
                             </button>
                           ) : deadlineLabel && (
                             <span className={`inline-flex shrink-0 items-center gap-1 px-1 text-[11px] tabular-nums ${deadlineTone}`}>
