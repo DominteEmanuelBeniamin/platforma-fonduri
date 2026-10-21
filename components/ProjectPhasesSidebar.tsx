@@ -111,6 +111,8 @@ interface ProjectPhasesSidebarProps {
    * Lipsă: doar „Clic: o deschide în tabel”.
    */
   activityHint?: (activity: ProjectActivity) => string
+  /** Grupul documentelor trimise clientului, cu intrarea lui sub „Cereri generale” (S-20). */
+  sent?: { label: string; active: boolean; onSelect: () => void }
   /** „Toate fazele”: tabelul revine la tot proiectul după ce s-a ales o fază. */
   onShowAll?: () => void
   /** Tabelul arată acum toate fazele — „Toate fazele” e alegerea curentă. */
@@ -175,6 +177,7 @@ export default function ProjectPhasesSidebar({
   onShowAll,
   showingAll = false,
   activityHint,
+  sent,
 }: ProjectPhasesSidebarProps) {
   // `canEdit` ține de ce vede echipa (ciorne, benzi); `canChange`, de ce poate modifica.
   const canChange = canEdit && !readOnly
@@ -886,7 +889,8 @@ export default function ProjectPhasesSidebar({
         <div className="pt-2 mt-2 border-t border-[var(--p-border)]">
           <div
             onClick={() => select(onSelectGeneral)}
-            data-tooltip="Documentele care nu țin de o anumită fază"
+            data-tooltip="Cererile de documente care nu țin de o anumită fază"
+            data-tooltip-side="right"
             className={`group flex items-center gap-2 px-2.5 py-2 rounded-[var(--radius-plate)] cursor-pointer transition-colors ${
               isGeneralActive ? 'bg-[var(--p-accent-soft)]' : 'hover:bg-[var(--p-surface-2)]'
             }`}
@@ -897,6 +901,21 @@ export default function ProjectPhasesSidebar({
             </span>
             {generalId && <PhaseSignals signal={phaseSignals?.get(generalId)} />}
           </div>
+          {sent && (
+            <div
+              onClick={() => select(sent.onSelect)}
+              data-tooltip="Fișierele trimise clientului, separat de cereri"
+              data-tooltip-side="right"
+              className={`mt-0.5 flex cursor-pointer items-center gap-2 rounded-[var(--radius-plate)] px-2.5 py-2 transition-colors ${
+                sent.active ? 'bg-[var(--p-accent-soft)]' : 'hover:bg-[var(--p-surface-2)]'
+              }`}
+            >
+              <FolderOpen className={`w-4 h-4 flex-shrink-0 ${sent.active ? 'text-[var(--p-accent)]' : 'text-[var(--p-ink-faint)]'}`} />
+              <span className={`min-w-0 flex-1 break-words text-[13px] leading-snug ${sent.active ? 'font-semibold text-[var(--sg-accent-ink)]' : 'font-medium text-ink'}`}>
+                {sent.label}
+              </span>
+            </div>
+          )}
         </div>
       </nav>
 

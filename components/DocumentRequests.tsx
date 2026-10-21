@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   Calendar,
   X,
-  ChevronRight,
   Eye,
   MessageSquare,
   FileSpreadsheet,
@@ -44,7 +43,6 @@ import {
 } from '@/lib/client-upload'
 import { RequirementType } from '@/lib/requirement-type'
 import { Spinner } from '@/components/ui/Spinner'
-import { Button } from '@/components/ui/Button'
 import { isRequestFinal, mergeVisibleOrder } from '@/lib/completion'
 import HiddenFinalRow from './HiddenFinalRow'
 import { CELL, DeadlineCell, StatusCell, formatShortDate } from './project-table/cells'
@@ -206,6 +204,14 @@ interface DocumentRequestsProps {
   onRevealRequests?: (ids: string[]) => void
   /** Proiectul e încheiat: lista se poate doar citi, de oricine (8 octombrie 2026). */
   readOnly?: boolean
+  /**
+   * `sent`: doar documentele trimise clientului, ca grup separat de cererile
+   * generale (S-20). Butonul „Trimite documente” stă în antetul grupului, deci
+   * dialogul lui se deschide din pagină (`sendOpen`).
+   */
+  section?: 'requests' | 'sent'
+  sendOpen?: boolean
+  onSendOpenChange?: (open: boolean) => void
 }
 
 /** Respinsă acum sau închisă din „Respins” (#109): motivul respingerii rămâne la vedere. */
@@ -232,6 +238,9 @@ export default function DocumentRequests({
   hiddenRequestIds,
   onRevealRequests,
   readOnly = false,
+  section = 'requests',
+  sendOpen,
+  onSendOpenChange,
 }: DocumentRequestsProps) {
   const { loading: authLoading, token, profile, apiFetch } = useAuth()
   const { showToast, confirm } = useToast()
@@ -266,7 +275,9 @@ export default function DocumentRequests({
   const [submitting, setSubmitting] = useState(false)
 
   // Trimitere documente către client (is_outgoing)
-  const [showSendDoc, setShowSendDoc] = useState(false)
+  const [ownSendOpen, setOwnSendOpen] = useState(false)
+  const showSendDoc = sendOpen ?? ownSendOpen
+  const setShowSendDoc = onSendOpenChange ?? setOwnSendOpen
   const [selectedOutgoingDoc, setSelectedOutgoingDoc] = useState<DocumentRequest | null>(null)
   const [sendFiles, setSendFiles] = useState<PickedFile[]>([])
   const [sendSubmitting, setSendSubmitting] = useState(false)
@@ -926,6 +937,16 @@ export default function DocumentRequests({
     canChange && '2.5rem',
   ].filter(Boolean).join(' ')
 
+  // Grila documentelor trimise: Document, Fișiere, Trimis la, Vizibil
+  // clientului (echipa), „⋯” (cine poate modifica).
+  const sentColumns = [
+    'minmax(10rem,1fr)',
+    'minmax(8rem,16rem)',
+    '5.75rem',
+    isAdminOrConsultant && 'minmax(8rem,10rem)',
+    canChange && '2.5rem',
+  ].filter(Boolean).join(' ')
+
   if (loading) {
     return (
       <div className={`bg-white min-h-[400px] flex items-center justify-center ${isEmbedded ? '' : 'rounded-[var(--radius-plate)] border border-rule'}`}>
@@ -940,22 +961,6 @@ export default function DocumentRequests({
   return (
     <>
       <div className={`bg-white ${isEmbedded ? '' : 'rounded-[var(--radius-plate)] border border-rule shadow-sm overflow-hidden'}`}>
-        {/* În tabel, grupul „Cereri generale” are o singură unealtă sus:
-            trimiterea de documente. Cererea nouă e rândul de la coadă, ca la
-            orice activitate. */}
-        {isEmbedded && activityId === null && canChange && (
-          <div className="flex flex-wrap items-center gap-2 border-b border-rule px-2 py-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setShowSendDoc(true)}
-              data-tooltip="Trimite clientului fișiere de citit sau de completat — nu așteaptă un răspuns"
-            >
-              <Upload className="h-4 w-4" aria-hidden="true" />
-              Trimite documente
-            </Button>
-          </div>
-        )}
         {!isEmbedded && (
         <div className={`${isEmbedded ? 'flex items-center justify-between px-4 pb-5 sm:pb-6 border-b border-rule' : 'p-4 sm:p-5 border-b border-rule'}`}>
           <div className={`flex items-center ${isEmbedded ? 'w-full justify-between' : 'flex-col gap-3 xl:flex-row xl:items-start xl:justify-between'}`}>
@@ -1014,54 +1019,85 @@ export default function DocumentRequests({
         onSubmit={handleSubmit}
       />
 
-        {!activityId && (outgoingDocs.length > 0 || canChange) && (
-          <div className="border-b border-rule bg-[var(--sg-ok-soft)]">
-            <div className="px-4 sm:px-5 py-3 flex items-center gap-2">
-              <FolderUp className="w-4 h-4 text-[var(--sg-ok)]" />
-              <h3 className="text-sm font-semibold text-ink">Documente trimise clientului</h3>
-              <span className="text-xs text-ink-soft">({outgoingDocs.length})</span>
-            </div>
+        {section === 'sent' ? (
+          // Documentele trimise, pe aceeași grilă cu tabelul și cu muchie
+          // neutră: verdele e semnalul „gata”, nu decor (S-20, Z-05).
+          <div style={{ '--sent-cols': sentColumns } as CSSProperties}>
             {outgoingDocs.length === 0 ? (
-              canChange && (
-                <p className="px-4 sm:px-5 pb-4 text-xs text-ink-soft">
-                  Trimite documente către client cu butonul „Trimite documente”.
-                </p>
-              )
+              <p className="px-3 py-2.5 text-xs text-ink-faint">
+                {canChange ? 'Niciun document trimis încă. Trimite-le cu „Trimite documente”, sus.' : 'Niciun document de la consultant încă.'}
+              </p>
             ) : (
-              <div className="divide-y divide-[var(--sg-ok)]">
+              <>
+                <div aria-hidden="true" className="hidden h-8 border-b border-rule text-[11px] font-medium text-ink-faint @min-[50rem]:grid @min-[50rem]:grid-cols-(--sent-cols)">
+                  <span className="flex items-center pl-3">Document</span>
+                  <span className="flex items-center px-2">Fișiere</span>
+                  <span className="flex items-center justify-center">Trimis la</span>
+                  {isAdminOrConsultant && <span className="flex items-center justify-center">Vizibil clientului</span>}
+                  {canChange && <span />}
+                </div>
                 {outgoingDocs.map((doc: DocumentRequest) => (
-                  <button data-tooltip="Vezi documentul trimis clientului"
+                  <div
                     key={doc.id}
-                    type="button"
+                    id={`request-${doc.id}`}
                     onClick={() => setSelectedOutgoingDoc(doc)}
-                    className="w-full px-4 sm:px-5 py-3 flex items-center gap-3 text-left hover:bg-[var(--sg-ok-soft)] transition-colors"
+                    className="group scroll-mt-24 cursor-pointer border-b border-rule/70 transition-colors duration-[120ms] hover:bg-paper/60 md:scroll-mt-48"
                   >
-                    <div className="w-9 h-9 rounded-[var(--radius-plate)] bg-white border border-[var(--sg-ok)] flex items-center justify-center text-[var(--sg-ok)] flex-shrink-0">
-                      <FileText className="w-4 h-4" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
-                        <p className="min-w-0 text-sm font-medium text-ink break-words">{doc.name}</p>
-                        <PublishStatusControl
-                          status={doc.visibility ?? 'draft'}
-                          canPublish={false}
-                          showPublishedStatus={isAdminOrConsultant}
-                          onPublish={() => undefined}
-                          size="sm"
-                        />
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1 px-3 py-2 @min-[50rem]:grid-cols-(--sent-cols) @min-[50rem]:gap-0 @min-[50rem]:p-0">
+                      <div className="flex min-w-0 items-center gap-2 @min-[50rem]:py-1.5 @min-[50rem]:pl-3 @min-[50rem]:pr-2">
+                        <FileText className="h-4 w-4 shrink-0 text-ink-faint" aria-hidden="true" />
+                        <button
+                          type="button"
+                          data-tooltip={isClient ? 'Vezi și descarcă documentul' : 'Vezi documentul trimis clientului'}
+                          onClick={e => { e.stopPropagation(); setSelectedOutgoingDoc(doc) }}
+                          className="min-w-0 break-words text-left text-[13px] leading-snug text-ink hover:underline"
+                        >
+                          {doc.name}
+                        </button>
                       </div>
-                      <p className="text-xs text-ink-soft truncate">
-                        {getRequestAttachments(doc).map(attachment => attachment.original_name || attachment.storage_path.split('/').pop() || 'document').join(', ')} · {new Date(doc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
-                      </p>
+                      <div className="col-span-2 row-start-2 flex flex-wrap items-center gap-x-3 gap-y-1 pl-6 text-xs text-ink-soft @min-[50rem]:contents">
+                        <span className="min-w-0 truncate @min-[50rem]:flex @min-[50rem]:min-h-11 @min-[50rem]:items-center @min-[50rem]:px-2">
+                          {getRequestAttachments(doc).map(attachment => attachment.original_name || attachment.storage_path.split('/').pop() || 'document').join(', ')}
+                        </span>
+                        <span className={`tabular-nums ${CELL}`}>
+                          <span className="sr-only">Trimis la </span>{formatShortDate(doc.created_at)}
+                        </span>
+                        {isAdminOrConsultant && (
+                          <span className={`${CELL} @min-[50rem]:px-2`}>
+                            <PublishStatusControl
+                              status={doc.visibility ?? 'draft'}
+                              canPublish={canChange}
+                              showPublishedStatus
+                              onPublish={() => publishRequest(doc.id)}
+                              compact
+                              size="sm"
+                            />
+                          </span>
+                        )}
+                      </div>
+                      {canChange && (
+                        <div
+                          className={`col-start-2 row-start-1 flex items-start justify-center transition-opacity duration-[120ms] pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 has-[:focus-visible]:opacity-100 has-[[data-open=true]]:opacity-100 @min-[50rem]:col-start-auto @min-[50rem]:row-start-auto ${CELL}`}
+                          onClick={e => e.stopPropagation()}
+                        >
+                          <RowActionsMenu
+                            label={`Acțiuni pentru documentul ${doc.name}`}
+                            tooltip="Acțiuni document"
+                            size="sm"
+                            actions={[
+                              { label: 'Deschide', icon: <Eye className="w-3 h-3" />, onSelect: () => setSelectedOutgoingDoc(doc) },
+                              { label: 'Șterge documentul', icon: <Trash2 className="w-3 h-3" />, danger: true, onSelect: () => setRequestToDelete(doc) },
+                            ]}
+                          />
+                        </div>
+                      )}
                     </div>
-                    <ChevronRight className="w-4 h-4 text-[var(--sg-ok)] flex-shrink-0" />
-                  </button>
+                  </div>
                 ))}
-              </div>
+              </>
             )}
           </div>
-        )}
-
+        ) : (
         <div style={{ '--req-cols': requestColumns } as CSSProperties}>
           {requests.length === 0 ? (
             <p className="px-3 py-2.5 text-xs text-ink-faint">
@@ -1332,6 +1368,7 @@ export default function DocumentRequests({
             </button>
           )}
         </div>
+        )}
       </div>
 
       {selectedRequest && (

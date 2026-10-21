@@ -160,3 +160,32 @@ test.describe('Tabelul proiectului: interacțiuni', () => {
     for (const t of tooltips) expect(t, 'tooltip-ul „⋯” nu poartă numele elementului').toMatch(/^(Acțiuni( fază| activitate| cerere)?|Mai multe acțiuni)$/)
   })
 })
+
+test.describe('Tabelul proiectului: documentele trimise, separat de cererile generale (S-20)', () => {
+  test.skip(!projectId, 'E2E_PROJECT_ID lipsește')
+
+  for (const [rol, titlu] of [['admin', 'Documente trimise clientului'], ['client', 'Documente de la consultant']] as const) {
+    test(`ca ${rol}: „${titlu}” e grup separat, fără fundal verde`, async ({ page }) => {
+      await autentifica(page, rol)
+      await deschideProiectul(page)
+      const sent = page.locator('main section#phase-__trimise__')
+      const general = page.locator('main section[id^="phase-"]').filter({ has: page.getByRole('heading', { name: 'Cereri generale' }) })
+      await expect(sent.getByRole('heading', { name: titlu })).toBeVisible()
+      // Titlul echipei nu ajunge la client (Z-05).
+      if (rol === 'client') await expect(page.getByText('Documente trimise clientului')).toHaveCount(0)
+      // Cererile generale nu mai conțin documentele trimise.
+      await expect(general.locator('[id^="request-"]').filter({ has: page.getByText('Trimis la') })).toHaveCount(0)
+      const fundaluri = await sent.locator('*').evaluateAll(els => {
+        const probe = document.createElement('div')
+        probe.style.background = 'var(--sg-ok-soft)'
+        document.body.append(probe)
+        const ok = getComputedStyle(probe).backgroundColor
+        probe.remove()
+        return els.filter(el => getComputedStyle(el).backgroundColor === ok).length
+      })
+      expect(fundaluri, 'verdele e semnal de stare, nu decor').toBe(0)
+      if (rol === 'admin') await expect(sent.getByRole('button', { name: 'Trimite documente' })).toBeVisible()
+      else await expect(page.getByRole('button', { name: 'Trimite documente' })).toHaveCount(0)
+    })
+  }
+})

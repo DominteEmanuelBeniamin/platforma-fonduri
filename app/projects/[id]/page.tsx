@@ -29,6 +29,7 @@ import {
   ListTodo,
   ChevronsDownUp,
   ChevronsUpDown,
+  Upload,
 } from 'lucide-react'
 
 import {
@@ -120,6 +121,9 @@ import {
 // Secțiunea distinctă „Cereri generale" (documente fără fază/activitate).
 // Aceeași valoare ajunge în `?phase=` din deep-linkurile calendarului.
 const GENERAL_ID = GENERAL_PHASE_ID
+// Grupul documentelor trimise clientului, separat de cererile generale (S-20).
+// Nu e o fază: doar ținta focusului din panou.
+const SENT_ID = '__trimise__'
 
 // Tabul curent. Se reflectă în `?view=`, ca vederea să poată fi trimisă mai
 // departe ca link; „phases" e implicitul, deci nu ajunge în URL.
@@ -967,6 +971,15 @@ function ProjectDetailsContent() {
     revealTarget(`activity-${activityId}`, 120, 'start')
   }
 
+  const handleSelectSent = () => {
+    selectView('phases')
+    setLandingView('table')
+    setActivePhaseId(SENT_ID)
+    focusPhase(SENT_ID)
+    setMobileSidebarOpen(false)
+    revealTarget(`phase-${SENT_ID}`, 120, 'start')
+  }
+
   const handleSelectGeneral = () => {
     selectView('phases')
     setLandingView('table')
@@ -1020,8 +1033,8 @@ function ProjectDetailsContent() {
 
   // Faza aleasă, cât timp mai există: una ștearsă între timp lasă tabelul pe
   // toate fazele. Aleasă explicit, se arată și dacă e finalizată și ascunsă.
-  const focusId = focusedPhaseId === GENERAL_ID || phases.some(p => p.id === focusedPhaseId) ? focusedPhaseId : null
-  const tablePhases = focusId === GENERAL_ID ? [] : focusId ? phases.filter(p => p.id === focusId) : visiblePhases
+  const focusId = focusedPhaseId === GENERAL_ID || focusedPhaseId === SENT_ID || phases.some(p => p.id === focusedPhaseId) ? focusedPhaseId : null
+  const tablePhases = focusId === GENERAL_ID || focusId === SENT_ID ? [] : focusId ? phases.filter(p => p.id === focusId) : visiblePhases
   const showAllPhases = () => {
     setFocusedPhaseId(null)
     setExpandedPhases(new Set())
@@ -1031,7 +1044,7 @@ function ProjectDetailsContent() {
   }
   const handleToggleAllGroups = () => {
     setRenamingId(null)
-    setCollapsedGroups(allGroupsCollapsed ? new Set() : new Set([...visiblePhases.map(p => p.id), GENERAL_ID]))
+    setCollapsedGroups(allGroupsCollapsed ? new Set() : new Set([...visiblePhases.map(p => p.id), GENERAL_ID, SENT_ID]))
   }
 
   const handleToggleActivity = (activityId: string) => {
@@ -1256,8 +1269,12 @@ function ProjectDetailsContent() {
     return [...byLabel.values()].sort((a, b) => order.indexOf(a.tone) - order.indexOf(b.tone))
   }
 
-  // Grupul „Cereri generale” apare cui are ce vedea acolo, sau cui poate adăuga.
-  const showGeneralGroup = canChange || allDocRequests.some((r: any) => !r.deleted_at && !(r.activity?.id ?? r.activity_id))
+  // Grupurile de la coadă apar cui are ce vedea acolo, sau cui poate adăuga:
+  // cererile generale și, separat, documentele trimise clientului (S-20).
+  const showGeneralGroup = canChange || allDocRequests.some((r: any) => !r.deleted_at && !r.is_outgoing && !(r.activity?.id ?? r.activity_id))
+  const showSentGroup = canChange || allDocRequests.some((r: any) => !r.deleted_at && r.is_outgoing)
+  const sentTitle = isClient ? 'Documente de la consultant' : 'Documente trimise clientului'
+  const [sendOpen, setSendOpen] = useState(false)
 
   /** Ce arde în fiecare fază, pentru panoul de faze. Clientul vede doar ce ține
    *  de el (termen depășit sau respins); „de verificat” e treaba echipei. Un
@@ -1543,6 +1560,7 @@ function ProjectDetailsContent() {
             onSelectPhase={handleSelectPhase}
             onSelectActivity={handleSelectActivity}
             onSelectGeneral={handleSelectGeneral}
+            sent={showSentGroup ? { label: sentTitle, active: landingView === 'table' && focusedPhaseId === SENT_ID, onSelect: handleSelectSent } : undefined}
             phaseSignals={phaseSignals}
             generalId={GENERAL_ID}
             onToggleExpand={handleToggleExpand}
@@ -1979,6 +1997,49 @@ function ProjectDetailsContent() {
                   focusTargetId={phases.find(p => hidden.phases.has(p.id)) ? `phase-${phases.find(p => hidden.phases.has(p.id))!.id}` : undefined}
                 />}
 
+                {/* Documentele trimise clientului: grup separat, cu muchie neutră.
+                    Se vede și când e aleasă „Cereri generale”, ca un link vechi
+                    spre un document trimis să-l găsească (S-20). */}
+                {showSentGroup && (!focusId || focusId === SENT_ID || focusId === GENERAL_ID) && (
+                  <TableGroup
+                    id={SENT_ID}
+                    title={sentTitle}
+                    band={null}
+                    icon={<FolderOpen className="h-4 w-4 shrink-0 text-ink-soft" aria-hidden="true" />}
+                    collapsed={collapsedGroups.has(SENT_ID)}
+                    onToggle={() => toggleGroup(SENT_ID)}
+                    meta={isClient ? 'Fișiere trimise de consultant, de citit sau de completat.' : 'Fișiere de citit sau de completat; clientul nu trebuie să răspundă.'}
+                    actions={canChange ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setSendOpen(true)}
+                        data-tooltip="Trimite clientului fișiere de citit sau de completat — nu așteaptă un răspuns"
+                      >
+                        <Upload className="h-4 w-4" aria-hidden="true" />
+                        Trimite documente
+                      </Button>
+                    ) : undefined}
+                  >
+                    <DocumentRequests
+                      key="__trimise__"
+                      section="sent"
+                      sendOpen={sendOpen}
+                      onSendOpenChange={setSendOpen}
+                      projectId={projectId}
+                      activityId={null}
+                      activityName={sentTitle}
+                      projectMembers={projectMembers}
+                      externalRequests={allDocRequests}
+                      onRefresh={refreshDocs}
+                      clientEmail={project?.profiles?.email ?? null}
+                      clientName={project?.profiles?.full_name ?? null}
+                      projectTitle={project?.title}
+                      readOnly={projectClosed}
+                    />
+                  </TableGroup>
+                )}
+
                 {/* Cererile generale, fără fază și fără activitate: grupul de la
                     coadă, cu muchie neutră — nu e o aripă a proiectului. */}
                 {showGeneralGroup && (!focusId || focusId === GENERAL_ID) && (
@@ -1989,7 +2050,7 @@ function ProjectDetailsContent() {
                     icon={<FolderOpen className="h-4 w-4 shrink-0 text-ink-soft" aria-hidden="true" />}
                     collapsed={collapsedGroups.has(GENERAL_ID)}
                     onToggle={() => toggleGroup(GENERAL_ID)}
-                    meta="Documente care nu țin de o anumită fază."
+                    meta="Cereri de documente care nu țin de o anumită fază."
                     badges={
                       perms.reassign_project ? (
                         <AssigneePicker
