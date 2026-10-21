@@ -428,7 +428,7 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
         })
         const json = (await res.json().catch(() => null)) as PostResponse | null
 
-        if (!isCurrentRequest()) return null
+        if (!isCurrentRequest()) return res.ok && payload.images.length === 0 ? true : null
 
         if (!res.ok) {
           setError(userErrorMessage(res.status, 'Nu am putut trimite mesajul.'))
@@ -440,7 +440,7 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
           pushOne(item)
           return item
         }
-        return null
+        return payload.images.length === 0 ? true : null
       } catch (caught) {
         if (!isAbortError(caught, options.signal) && isCurrentRequest()) {
           setError(userErrorMessage(undefined, 'Nu am putut trimite mesajul.'))

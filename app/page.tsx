@@ -129,7 +129,8 @@ function buildBadges(att: Att, isClient: boolean): { key: string; tone: SignalTo
     if (att.pending > 0) badges.push({ key: 'pending', tone: 'pending', icon: <FileText className="h-3 w-3" />, label: `${att.pending} la client`, title: `${att.pending} cereri așteaptă documente de la client` })
   }
   if (att.unreadChat > 0) {
-    badges.push({ key: 'chat', tone: 'neutral', icon: <MessageSquare className="h-3 w-3" />, label: `${att.unreadChat > 99 ? '99+' : att.unreadChat} mesaje`, title: `${att.unreadChat} mesaje necitite în chat` })
+    const count = att.unreadChat > 99 ? '99+' : att.unreadChat
+    badges.push({ key: 'chat', tone: 'neutral', icon: <MessageSquare className="h-3 w-3" />, label: `${count} ${att.unreadChat === 1 ? 'mesaj' : 'mesaje'}`, title: `${att.unreadChat} mesaje necitite în chat` })
   }
   if (att.unreadNotifications > 0) {
     badges.push({ key: 'notifications', tone: 'neutral', icon: <Bell className="h-3 w-3" />, label: `${att.unreadNotifications > 99 ? '99+' : att.unreadNotifications} notificări`, title: `${att.unreadNotifications} notificări necitite` })
@@ -155,9 +156,14 @@ function AttentionBadges({ att, isClient, className = '' }: { att: Att; isClient
   return (
     <div className={`flex flex-wrap items-center gap-1.5 ${className}`}>
       {badges.map((b) => (
-        <Signal key={b.key} tone={b.tone} className="whitespace-nowrap">
+        <Signal
+          key={b.key}
+          tone={b.tone}
+          icon={b.icon ?? undefined}
+          style={b.key === 'chat' ? { background: 'var(--sg-accent-soft)', color: 'var(--sg-accent-ink)' } : undefined}
+          className="whitespace-nowrap"
+        >
           <span title={b.title} className="inline-flex items-center gap-1">
-            {b.icon}
             {b.label}
           </span>
         </Signal>

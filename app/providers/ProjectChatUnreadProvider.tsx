@@ -45,6 +45,7 @@ const { Provider, useSummary } = createUnreadSummaryProvider<ProjectChatUnreadSt
     { table: 'project_chat_events' },
     { table: 'project_chat_reads' },
   ],
+  refreshOnWindowFocus: true,
 })
 
 export const ProjectChatUnreadProvider = Provider

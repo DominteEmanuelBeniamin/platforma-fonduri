@@ -187,7 +187,7 @@ function ChatPageContent() {
 
   if (authLoading) {
     return (
-      <div className="flex min-h-[calc(100vh-120px)] items-center justify-center">
+      <div className="flex h-full min-h-0 items-center justify-center">
         <div className="text-sm text-ink-soft">Se încarcă...</div>
       </div>
     )
@@ -207,7 +207,7 @@ function ChatPageContent() {
   }
 
   return (
-    <div className="h-[calc(100vh-88px)] min-h-[600px] overflow-hidden px-4 pb-4 pt-2 md:px-6">
+    <div className="h-full min-h-0 overflow-hidden p-2 sm:p-4">
       <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden rounded-3xl border border-rule bg-white shadow-sm md:grid-cols-[360px_minmax(0,1fr)]">
         <aside
           className={`${
@@ -432,7 +432,7 @@ export default function ChatPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-[calc(100vh-120px)] items-center justify-center">
+        <div className="flex h-full min-h-0 items-center justify-center">
           <div className="text-sm text-ink-soft">Se încarcă...</div>
         </div>
       }
