@@ -106,6 +106,11 @@ interface ProjectPhasesSidebarProps {
    */
   collapsed?: boolean
   onCollapsedChange?: (collapsed: boolean) => void
+  /**
+   * Ce spune tooltip-ul unei activități: aceeași stare ca în tabel (S-17).
+   * Lipsă: doar „Clic: o deschide în tabel”.
+   */
+  activityHint?: (activity: ProjectActivity) => string
   /** „Toate fazele”: tabelul revine la tot proiectul după ce s-a ales o fază. */
   onShowAll?: () => void
   /** Tabelul arată acum toate fazele — „Toate fazele” e alegerea curentă. */
@@ -169,6 +174,7 @@ export default function ProjectPhasesSidebar({
   onCollapsedChange,
   onShowAll,
   showingAll = false,
+  activityHint,
 }: ProjectPhasesSidebarProps) {
   // `canEdit` ține de ce vede echipa (ciorne, benzi); `canChange`, de ce poate modifica.
   const canChange = canEdit && !readOnly
@@ -573,8 +579,9 @@ export default function ProjectPhasesSidebar({
                 <div
                     onClick={() => select(() => onSelectPhase(phase.id))}
                     onDragOver={e => handlePhaseDragOver(e, phase.id)}
-                    data-tooltip={phaseDraft ? 'În pregătire — clientul n-o vede încă. Clic: doar faza asta în tabel.' : 'Clic: doar faza asta în tabel'}
-                    className={`group relative flex min-h-11 items-center gap-2 rounded-[var(--radius-plate)] py-1 pl-1 pr-1 cursor-pointer transition-colors pointer-fine:min-h-8 ${
+                    data-tooltip={phaseDraft ? 'În pregătire: clientul n-o vede încă. Clic: o arată singură în tabel.' : 'Clic: o arată singură în tabel.'}
+                    data-tooltip-side="right"
+                    className={`group relative flex min-h-11 items-center gap-1 rounded-[var(--radius-plate)] py-1 pl-0.5 pr-1 cursor-pointer transition-colors pointer-fine:min-h-8 ${
                       isActive ? 'bg-[var(--p-accent-soft)]' : 'hover:bg-[var(--p-surface-2)]'
                     } ${draggedPhaseId === phase.id ? 'opacity-50' : ''}`}
                   >
@@ -582,14 +589,16 @@ export default function ProjectPhasesSidebar({
                         „a trece peste”, deci mânerul rămâne invizibil și reordonarea nu
                         există. Pragul e lipsa mausului, nu lățimea — un iPad de 768px
                         n-are maus, dar trece de `md:`. */}
-                    {canChange && renamingId !== phase.id && (
+                    {/* Mânerul are coloana lui, în flux: plutind peste margine, se
+                        suprapunea pe nume (S-08). Ascuns, locul îi rămâne. */}
+                    {canChange && (
                       <span
-                        draggable
+                        draggable={renamingId !== phase.id}
                         onDragStart={e => handlePhaseDragStart(e, phase.id)}
                         onDragEnd={handlePhaseDragEnd}
                         onClick={e => e.stopPropagation()}
-                        title="Trage pentru a reordona"
-                        className="absolute -left-2.5 top-1/2 flex h-6 w-4 -translate-y-1/2 items-center justify-center rounded-[var(--radius-plate)] text-[var(--p-ink-faint)] hover:text-[var(--p-ink-soft)] opacity-0 group-hover:opacity-100 pointer-coarse:hidden transition-opacity cursor-grab active:cursor-grabbing"
+                        data-tooltip={renamingId !== phase.id ? 'Trage pentru a reordona' : ''}
+                        className={`flex h-6 w-4 shrink-0 items-center justify-center rounded-[var(--radius-plate)] text-[var(--p-ink-faint)] hover:text-[var(--p-ink-soft)] opacity-0 pointer-coarse:hidden transition-opacity cursor-grab active:cursor-grabbing ${renamingId !== phase.id ? 'group-hover:opacity-100' : 'invisible'}`}
                       >
                         <GripVertical className="w-3.5 h-3.5" />
                       </span>
@@ -703,18 +712,20 @@ export default function ProjectPhasesSidebar({
                             singure clicul. Numele rămâne întreg, termenul stă la dreapta. */}
                         <div
                           onClick={() => { if (renamingId !== act.id) select(() => onSelectActivity?.(phase.id, act.id)) }}
-                          className={`group/act relative flex min-h-11 items-center gap-1.5 rounded-[var(--radius-plate)] py-0.5 pl-2 pr-1 transition-colors pointer-fine:min-h-7 ${
+                          data-tooltip={onSelectActivity ? (activityHint ? activityHint(act) : 'Clic: o deschide în tabel.') : undefined}
+                          data-tooltip-side="right"
+                          className={`group/act relative flex min-h-11 items-center gap-1 rounded-[var(--radius-plate)] py-0.5 pl-0.5 pr-1 transition-colors pointer-fine:min-h-7 ${
                             onSelectActivity ? 'cursor-pointer hover:bg-[var(--p-surface-2)]' : ''
                           }`}
                         >
-                          {canChange && renamingId !== act.id && (
+                          {canChange && (
                             <span
-                              draggable
+                              draggable={renamingId !== act.id}
                               onDragStart={e => handleActivityDragStart(e, phase, act.id)}
                               onDragEnd={handleActivityDragEnd}
                               onClick={e => e.stopPropagation()}
-                              title="Trage pentru a reordona"
-                              className="absolute -left-3.5 top-1/2 flex h-6 w-4 -translate-y-1/2 items-center justify-center rounded-[var(--radius-plate)] text-[var(--p-ink-faint)] hover:text-[var(--p-ink-soft)] opacity-0 group-hover/act:opacity-100 pointer-coarse:hidden transition-opacity cursor-grab active:cursor-grabbing"
+                              data-tooltip={renamingId !== act.id ? 'Trage pentru a reordona' : ''}
+                              className={`flex h-6 w-3.5 shrink-0 items-center justify-center rounded-[var(--radius-plate)] text-[var(--p-ink-faint)] hover:text-[var(--p-ink-soft)] opacity-0 pointer-coarse:hidden transition-opacity cursor-grab active:cursor-grabbing ${renamingId !== act.id ? 'group-hover/act:opacity-100' : 'invisible'}`}
                             >
                               <GripVertical className="w-3 h-3" />
                             </span>

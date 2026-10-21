@@ -62,6 +62,7 @@ import ProjectDocumentsView from '@/components/ProjectDocumentsView'
 import TableGroup, { ColumnHeader, GroupSummary, activityColumnsTemplate, type SummarySegment } from '@/components/project-table/TableGroup'
 import ActivityRow from '@/components/project-table/ActivityRow'
 import { AssigneePicker } from '@/components/project-table/AssigneePicker'
+import { formatShortDate } from '@/components/project-table/cells'
 import { activityStatus, deadlineRange, requestTone, startOfToday } from '@/lib/activity-status'
 import ActionNeededPanel from '@/components/ActionNeededPanel'
 import PublishStatusControl from '@/components/PublishStatusControl'
@@ -1225,6 +1226,15 @@ function ProjectDetailsContent() {
   const statusOf = (activity: ProjectActivity) =>
     activityStatus(activity, requestsByActivity.get(activity.id) ?? [], todayTs, isClient)
 
+  /** Tooltip-ul activității din panou: aceeași stare ca în tabel (S-17). */
+  const activityHint = (activity: ProjectActivity) => {
+    const go = 'Clic: o deschide în tabel.'
+    if (canEdit && activity.visibility !== 'published') return `În pregătire: clientul n-o vede încă. ${go}`
+    const { label } = statusOf(activity)
+    if (label === 'Finalizată') return `Finalizată. ${go}`
+    return `${label}${activity.deadline_at ? ` · termen ${formatShortDate(activity.deadline_at)}` : ''} — ${go}`
+  }
+
   // Coloanele tabelului: „Vizibil clientului” e a echipei, „⋯” a cui poate modifica.
   const tableColumns = { visibility: canEdit, actions: canChange }
   const tableLabels = [
@@ -1543,6 +1553,7 @@ function ProjectDetailsContent() {
             mobileOpen={mobileSidebarOpen}
             onMobileClose={() => setMobileSidebarOpen(false)}
             collapsed={sidebarCollapsed}
+            activityHint={activityHint}
             onCollapsedChange={next => { changeSidebarCollapsed(next); setMobileSidebarOpen(false) }}
           />
         )}
