@@ -183,7 +183,8 @@ async function verificaEcran(page: Page, nume: string, rol: Rol, scope?: string)
 test.describe('Tooltip-uri pe toate butoanele', () => {
   test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }))
   test.skip(({ isMobile }) => isMobile, 'Tooltip-urile apar doar cu maus; pe touch nu există hover.')
-  test.describe.configure({ timeout: 15 * 60_000 })
+  // Tooltip-ul apare după 1 s (D6): „cereri de documente” trece de 15 minute.
+  test.describe.configure({ timeout: 30 * 60_000 })
 
   for (const [nume, ruta, rol] of RUTE_APLICATIE) {
     test(`${nume} (${rol})`, async ({ page }) => {

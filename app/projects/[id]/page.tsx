@@ -1700,7 +1700,8 @@ function ProjectDetailsContent() {
                           type="checkbox"
                           checked={showFinal}
                           onChange={event => toggleShowFinal(event.target.checked)}
-                          className="h-4 w-4 rounded-[1px] border-rule-strong text-[var(--sg-accent)]"
+                          // 24px: ținta minimă WCAG 2.5.8, și cu mausul.
+                          className="h-6 w-6 rounded-[1px] border-rule-strong text-[var(--sg-accent)]"
                         />
                         Arată și ce e finalizat
                         {!showFinal && finalCount > 0 && (

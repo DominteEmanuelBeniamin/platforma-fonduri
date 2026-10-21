@@ -48,8 +48,9 @@ export type SummarySegment = { tone: SignalTone; label: string; count: number }
 /**
  * Bateria grupului, ca în monday, dar subțire: câte activități sunt în fiecare
  * stare, ca fâșii lipite, lungi cât proporția lor — lată cât o etichetă de
- * stare, chiar sub coloana lor. Pentru cititoare, aceeași numărătoare în
- * cuvinte; fiecare fâșie își spune numărul și la trecerea mausului.
+ * stare, chiar sub coloana lor. Pentru cititoare și în tooltip, aceeași
+ * numărătoare în cuvinte, pe tot blocul: un `title` pe fiecare fâșie îl
+ * acoperea pe al bateriei.
  */
 export function StatusBattery({ segments }: { segments: SummarySegment[] }) {
   const total = segments.reduce((sum, s) => sum + s.count, 0)
@@ -60,7 +61,6 @@ export function StatusBattery({ segments }: { segments: SummarySegment[] }) {
       {segments.map(s => (
         <span
           key={s.tone + s.label}
-          title={`${s.label}: ${s.count}`}
           className="h-full"
           style={{
             flexGrow: s.count,

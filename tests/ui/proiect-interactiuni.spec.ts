@@ -157,7 +157,7 @@ test.describe('Tabelul proiectului: interacțiuni', () => {
     const tooltips = await page.locator('button[aria-haspopup="menu"]').evaluateAll(els =>
       els.map(el => el.getAttribute('data-tooltip') ?? ''))
     expect(tooltips.length).toBeGreaterThan(3)
-    for (const t of tooltips) expect(t, 'tooltip-ul „⋯” nu poartă numele elementului').toMatch(/^(Acțiuni( fază| activitate| cerere)?|Mai multe acțiuni)$/)
+    for (const t of tooltips) expect(t, 'tooltip-ul „⋯” nu poartă numele elementului').toMatch(/^(Acțiuni( fază| activitate| cerere| document)?|Mai multe acțiuni)$/)
   })
 })
 

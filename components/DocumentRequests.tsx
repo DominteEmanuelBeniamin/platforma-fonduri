@@ -1050,7 +1050,7 @@ export default function DocumentRequests({
                           type="button"
                           data-tooltip={isClient ? 'Vezi și descarcă documentul' : 'Vezi documentul trimis clientului'}
                           onClick={e => { e.stopPropagation(); setSelectedOutgoingDoc(doc) }}
-                          className="min-w-0 break-words text-left text-[13px] leading-snug text-ink hover:underline"
+                          className="min-h-11 min-w-0 break-words text-left text-[13px] leading-snug text-ink hover:underline pointer-fine:min-h-6"
                         >
                           {doc.name}
                         </button>
