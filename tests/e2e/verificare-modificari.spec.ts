@@ -559,7 +559,7 @@ test('7. Atribuirea din pagina proiectului trimite email și notificare', async 
     // Activitățile (și selectul responsabilului) se văd în faza deschisă, nu în panoul proiectului.
     await openProject(page, DOSAR, `?phase=${activity!.phase_id}`)
     await page.getByRole('button', { name: `Extinde activitatea ${activity!.name}` }).waitFor({ timeout: 20_000 })
-    const row = page.locator('div').filter({ has: page.getByRole('button', { name: `Extinde activitatea ${activity!.name}` }) }).last()
+    const row = page.locator(`#activity-${activity!.id}`)
     const picker = row.getByRole('button', { name: /^Atribuie consultant:/ })
     const emailsBefore = emailuriAcum()
     const patched = page.waitForResponse(res => res.url().includes(`/activities/${activity!.id}`) && res.request().method() === 'PATCH')

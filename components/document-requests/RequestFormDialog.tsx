@@ -163,7 +163,7 @@ export default function RequestFormDialog({
 
             <button data-tooltip={editing ? 'Salvează modificările cererii' : 'Creează cererea de document'}
               type="submit"
-              disabled={submitting || !name.trim()}
+              disabled={submitting || !draftName.trim()}
               className="px-6 py-3 bg-[var(--sg-accent)] text-white rounded-xl text-sm font-semibold hover:bg-[var(--sg-accent-ink)] disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
             >
               {submitting
