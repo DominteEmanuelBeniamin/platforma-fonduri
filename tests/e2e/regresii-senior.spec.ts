@@ -539,8 +539,11 @@ test('Fâșia de locație: pe desktop acțiunile stau pe un rând și nu ies din
         if (!actions || actions === nav) return { rows: 0, clipped: 0 }
         // Rândurile se numără după centrul vertical: butoanele au înălțimi diferite,
         // deci marginea de sus diferă chiar și pe același rând.
+        // Ce e ascuns (de pildă „Panoul fazelor”, doar pe telefon) nu ocupă rând.
         const centers = [...actions.children]
-          .map(child => { const r = (child as HTMLElement).getBoundingClientRect(); return r.top + r.height / 2 })
+          .map(child => (child as HTMLElement).getBoundingClientRect())
+          .filter(r => r.width > 0 && r.height > 0)
+          .map(r => r.top + r.height / 2)
           .sort((a, b) => a - b)
         const rows = centers.reduce((count, center, i) => (i === 0 || center - centers[i - 1] > 12 ? count + 1 : count), 0)
         const clipped = [...actions.querySelectorAll('button, a')].filter(el => el.getBoundingClientRect().right > window.innerWidth).length

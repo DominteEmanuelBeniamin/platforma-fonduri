@@ -529,6 +529,9 @@ function ProjectDetailsContent() {
       await refreshContent()
       if (copy?.id) {
         setExpandedPhases(prev => new Set(prev).add(copy.id))
+        // Cu o singură fază în tabel, copia n-ar fi pe ecran: tabelul trece la
+        // ea, ca redenumirea în care intră să se vadă.
+        if (focusedPhaseId) focusPhase(copy.id)
         setRenamingId(copy.id)
       }
       const omittedAssignments = Array.isArray(warnings) ? warnings.length : 0
