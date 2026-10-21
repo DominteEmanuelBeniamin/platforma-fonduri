@@ -5,6 +5,7 @@ import { canReadTemplate, requireProfile } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { loadTemplateTrees } from '@/app/api/_utils/template-tree'
 import { saveTemplateTree, TemplateSaveError } from '@/app/api/_utils/template-save'
+import { templateNameRefusal } from '@/app/api/_utils/template-name'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -56,6 +57,8 @@ export async function POST(req: NextRequest) {
     if (!name || !slug) {
       return NextResponse.json({ error: 'Numele și slug-ul sunt obligatorii' }, { status: 400 })
     }
+    const nameTaken = await templateNameRefusal(supabaseAdmin, name)
+    if (nameTaken) return nameTaken
 
     const { data: existing } = await supabaseAdmin
       .from('project_templates')

@@ -3,6 +3,7 @@ import path from 'node:path'
 import { test, expect, type Browser } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
+import { templateAction } from './helpers/sabloane-ui'
 
 /**
  * Regresii în jurul lucrului pentru consultantul senior: ce a atins schimbarea
@@ -344,7 +345,7 @@ test('Editor de șabloane, ca senior: salvează un șablon publicat, fără fere
     // Lista e pagină din meniu: fără fâșie. În editor, „Șabloane” duce înapoi
     // în listă, nu la panoul adminului (S-32).
     await expect(page.getByRole('navigation', { name: 'Locație' })).toHaveCount(0)
-    await page.getByRole('button', { name: `Editează șablonul ${TPL_NAME}`, exact: true }).click()
+    await templateAction(page, TPL_NAME, 'Editează')
     await expect(page.getByRole('navigation', { name: 'Locație' }).getByRole('button', { name: 'Șabloane' })).toBeVisible()
     await page.getByRole('button', { name: 'Adaugă fază nouă' }).click()
     await page.getByLabel('Nume pentru faza 2').fill('Fază adăugată din editor')
@@ -367,8 +368,9 @@ test('Duplicare din interfață, ca senior: copia apare în listă, ca ciornă',
   const { context, page, errors } = await login(browser, SA.email, PASSWORD)
   try {
     await page.goto('/admin/templates')
-    await page.getByRole('button', { name: `Duplică șablonul ${TPL_NAME}`, exact: true }).click()
-    const copy = `${TPL_NAME} (Copie)`
+    await templateAction(page, TPL_NAME, 'Duplică')
+    // Copia își ia un nume liber, „X (copie)” (Z-01).
+    const copy = `${TPL_NAME} (copie)`
     await expect(page.getByText(copy, { exact: true })).toBeVisible({ timeout: 15_000 })
     const { data } = await service.from('project_templates').select('id, status').eq('name', copy).single()
     if (data) created.templates.add(data.id)

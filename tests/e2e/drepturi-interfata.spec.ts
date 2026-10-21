@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { test, expect, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
+import { templateAction, templateMenu } from './helpers/sabloane-ui'
 import { ROW, ROWS } from './helpers/matricea-drepturilor'
 
 /**
@@ -1030,7 +1031,7 @@ test('Creează și modifică ciorne de șablon — toți, din editor', async ({ 
   const phaseName = `Fază pusă de junior ${STAMP}`
   await session(browser, JA, 's-ciorne', async page => {
     await page.goto('/admin/templates')
-    await page.getByRole('button', { name: `Editează șablonul ${ADMIN_DRAFT_NAME}`, exact: true }).click()
+    await templateAction(page, ADMIN_DRAFT_NAME, 'Editează')
     await addEditorPhase(page, phaseName)
     await page.getByRole('button', { name: 'Salvează modificările' }).click()
     await stored('s-ciorne', 'junior', 'modifică ciorna altcuiva din editor', 'faza adăugată', async () => {
@@ -1045,7 +1046,7 @@ test('Modifică un șablon publicat — adminul și seniorul din editor; junioru
     const phaseName = `Fază pusă de ${person.who} pe publicat ${STAMP}`
     await session(browser, person, 's-publicat', async page => {
       await page.goto('/admin/templates')
-      await page.getByRole('button', { name: `Editează șablonul ${TPL_NAME}`, exact: true }).click()
+      await templateAction(page, TPL_NAME, 'Editează')
       await addEditorPhase(page, phaseName)
       await page.getByRole('button', { name: 'Salvează modificările' }).click()
       await stored('s-publicat', person.who, 'salvează o fază nouă într-un șablon publicat', 'faza adăugată', async () => {
@@ -1057,7 +1058,8 @@ test('Modifică un șablon publicat — adminul și seniorul din editor; junioru
   await session(browser, JA, 's-publicat', async page => {
     await page.goto('/admin/templates')
     await page.getByText(TPL_NAME, { exact: true }).first().waitFor({ timeout: 30_000 })
-    await shows('s-publicat', 'junior', 'șablonul publicat nu are „Editează”', page.getByRole('button', { name: `Editează șablonul ${TPL_NAME}`, exact: true }), false, page)
+    // Fără nicio acțiune, rândul nu are deloc „⋯” (S-30).
+    await shows('s-publicat', 'junior', 'șablonul publicat nu are „Editează”', templateMenu(page, TPL_NAME), false, page)
     await page.goto(`/admin/templates?edit=${TPL}`)
     await shows('s-publicat', 'junior', 'linkul direct spune cine îl poate edita', page.getByText(/doar un administrator sau un consultant senior îl poate edita/), true, page)
     await shows('s-publicat', 'junior', 'linkul direct nu deschide editorul', page.getByRole('button', { name: 'Salvează modificările' }), false, page)
@@ -1067,11 +1069,12 @@ test('Modifică un șablon publicat — adminul și seniorul din editor; junioru
 test('Duplică un șablon — adminul și seniorul; juniorul nu are butonul', async ({ browser }) => {
   for (const person of [admin, SA]) {
     await session(browser, person, 's-duplica', async page => {
-      const before = (await service.from('project_templates').select('id').eq('name', `${TPL_NAME} (Copie)`)).data?.length ?? 0
+      // Copiile se numesc „X (copie)”, „X (copie 2)”… (Z-01).
+      const before = (await service.from('project_templates').select('id').ilike('name', `${TPL_NAME} (copie%`)).data?.length ?? 0
       await page.goto('/admin/templates')
-      await page.getByRole('button', { name: `Duplică șablonul ${TPL_NAME}`, exact: true }).click()
+      await templateAction(page, TPL_NAME, 'Duplică')
       await stored('s-duplica', person.who, 'duplică din listă; copia pornește ciornă', 'o copie nouă, ciornă', async () => {
-        const { data } = await service.from('project_templates').select('id, status').eq('name', `${TPL_NAME} (Copie)`)
+        const { data } = await service.from('project_templates').select('id, status').ilike('name', `${TPL_NAME} (copie%`)
         for (const row of data ?? []) created.templates.add(row.id)
         return data ?? []
       }, v => v.length > before && v.every(row => row.status === 'draft'), v => `${v.length - before} copii noi, ${v.map(row => row.status).join('/') || '—'}`)
@@ -1080,7 +1083,7 @@ test('Duplică un șablon — adminul și seniorul; juniorul nu are butonul', as
   await session(browser, JA, 's-duplica', async page => {
     await page.goto('/admin/templates')
     await page.getByText(TPL_NAME, { exact: true }).first().waitFor({ timeout: 30_000 })
-    await shows('s-duplica', 'junior', 'nu are „Duplică”', page.getByRole('button', { name: /^Duplică șablonul/ }), false, page)
+    await shows('s-duplica', 'junior', 'nu are „Duplică”', templateMenu(page, TPL_NAME), false, page)
   })
 })
 
@@ -1092,14 +1095,14 @@ test('Șterge un șablon — adminul și seniorul; blocat dacă îl folosește u
 
   await session(browser, SA, 's-sterge', async page => {
     await page.goto('/admin/templates')
-    await page.getByRole('button', { name: `Șterge șablonul ${unusedName}`, exact: true }).click()
+    await templateAction(page, unusedName, 'Șterge')
     await confirmWithWord(page, `Șterge template-ul "${unusedName}"?`, 'sterge', 'Șterge template-ul')
     await stored('s-sterge', 'senior', 'șterge un șablon nefolosit, cu confirmare', 'șters', async () => {
       const { data } = await service.from('project_templates').select('id').eq('id', unused).maybeSingle()
       return data
     }, v => !v, v => (v ? 'încă există' : 'șters'))
 
-    await page.getByRole('button', { name: `Șterge șablonul ${TPL_NAME}`, exact: true }).click()
+    await templateAction(page, TPL_NAME, 'Șterge')
     const refused = page.waitForResponse(response => response.url().endsWith(`/api/admin/templates/${TPL}`) && response.request().method() === 'DELETE', { timeout: 30_000 })
     const dialog = await confirmWithWord(page, `Șterge template-ul "${TPL_NAME}"?`, 'sterge', 'Șterge template-ul')
     await check('s-sterge', 'senior', 'la un șablon folosit, serverul refuză ștergerea', 'HTTP 409 template_in_use', async () => {
@@ -1121,12 +1124,17 @@ test('Șterge un șablon — adminul și seniorul; blocat dacă îl folosește u
   const juniorDraft = await createTemplate(JA, `Interfață ${STAMP} — ciornă de junior, de păstrat`)
   await session(browser, admin, 's-sterge', async page => {
     await page.goto('/admin/templates')
-    await shows('s-sterge', 'admin', 'are „Șterge” pe șablonul publicat', page.getByRole('button', { name: `Șterge șablonul ${TPL_NAME}`, exact: true }), true, page)
+    await templateMenu(page, TPL_NAME).click()
+    await shows('s-sterge', 'admin', 'are „Șterge” pe șablonul publicat', page.getByRole('menuitem', { name: 'Șterge', exact: true }), true, page)
+    await page.keyboard.press('Escape')
   })
   await session(browser, JA, 's-sterge', async page => {
     await page.goto('/admin/templates')
     await page.getByText(TPL_NAME, { exact: true }).first().waitFor({ timeout: 30_000 })
-    await shows('s-sterge', 'junior', 'nu are „Șterge” nici pe propria ciornă', page.getByRole('button', { name: /^Șterge șablonul/ }), false, page)
+    await page.getByText(`Interfață ${STAMP} — ciornă de junior, de păstrat`, { exact: true }).first().waitFor({ timeout: 30_000 })
+    await templateMenu(page, `Interfață ${STAMP} — ciornă de junior, de păstrat`).click()
+    await shows('s-sterge', 'junior', 'nu are „Șterge” nici pe propria ciornă', page.getByRole('menuitem', { name: 'Șterge', exact: true }), false, page)
+    await page.keyboard.press('Escape')
   })
   created.templates.add(juniorDraft)
 })
@@ -1149,12 +1157,14 @@ test('Publică un șablon — doar adminul, din listă; fereastra nu contrazice 
     await session(browser, person, 's-publica', async page => {
       await page.goto('/admin/templates')
       await page.getByText(draftName, { exact: true }).first().waitFor({ timeout: 30_000 })
-      await shows('s-publica', person.who, 'nu are „Publică”', page.getByRole('button', { name: `Publică șablonul ${draftName}`, exact: true }), false, page)
+      await templateMenu(page, draftName).click()
+      await shows('s-publica', person.who, 'nu are „Publică”', page.getByRole('menuitem', { name: 'Publică', exact: true }), false, page)
+      await page.keyboard.press('Escape')
     })
   }
   await session(browser, admin, 's-publica', async page => {
     await page.goto('/admin/templates')
-    await page.getByRole('button', { name: `Publică șablonul ${draftName}`, exact: true }).click()
+    await templateAction(page, draftName, 'Publică')
     const dialog = page.getByRole('dialog', { name: 'Aprobă template-ul' })
     await dialog.waitFor({ timeout: 15_000 })
     // După #104 seniorul editează șabloanele publicate, juniorul nu: fereastra

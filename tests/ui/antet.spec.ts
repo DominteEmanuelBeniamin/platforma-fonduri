@@ -46,4 +46,15 @@ test.describe('Antetul paginilor', () => {
       await expect(page.getByRole('navigation', { name: 'Locație' })).toHaveCount(0)
     })
   }
+
+  test('S-22/S-30: Ciornă și Publicat spun dacă se pot folosi; acțiunile stau într-un „⋯”', async ({ page }) => {
+    await autentifica(page, 'admin')
+    await page.goto('/admin/templates', { waitUntil: 'networkidle' })
+    const hints = await page.locator('[data-tooltip^="Ciornă:"], [data-tooltip^="Publicat"]').evaluateAll(els =>
+      [...new Set(els.map(el => el.getAttribute('data-tooltip')))])
+    expect(hints).toEqual(expect.arrayContaining(['Ciornă: nu apare la crearea unui proiect până nu o publică un administrator.']))
+    expect(hints.some(h => h?.startsWith('Publicat'))).toBe(true)
+    await expect(page.getByRole('button', { name: /^Acțiuni pentru șablonul/ }).first()).toHaveAttribute('data-tooltip', 'Acțiuni șablon')
+    await expect(page.getByRole('button', { name: /^(Editează|Duplică|Șterge|Publică) șablonul/ })).toHaveCount(0)
+  })
 })

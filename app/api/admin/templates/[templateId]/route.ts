@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
+import { templateNameRefusal } from '@/app/api/_utils/template-name'
 import { createClient } from '@supabase/supabase-js'
 import { requireTemplateAccess, requireTemplateManager } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
@@ -59,6 +60,11 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         { error: 'Doar adminul poate dezactiva un șablon sau îl poate face implicit' },
         { status: 403 }
       )
+    }
+
+    if (name !== undefined) {
+      const nameTaken = await templateNameRefusal(supabaseAdmin, name, templateId)
+      if (nameTaken) return nameTaken
     }
 
     const updateData: Record<string, any> = {}

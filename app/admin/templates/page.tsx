@@ -27,6 +27,7 @@ import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
 import { Spinner } from '@/components/ui/Spinner'
 import { LocationStrip } from '@/components/ui/LocationStrip'
 import { Button } from '@/components/ui/Button'
+import RowActionsMenu from '@/components/RowActionsMenu'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { IconButton } from '@/components/ui/IconButton'
 import { SearchInput } from '@/components/ui/SearchInput'
@@ -102,6 +103,7 @@ interface Template {
   name: string
   description: string | null
   status: 'draft' | 'published'
+  is_active?: boolean | null
   /** Setat când conținutul unui șablon publicat s-a schimbat după ultima aplicare în proiecte. */
   unpropagated_changes_at?: string | null
   phases: {
@@ -252,6 +254,13 @@ function countPhaseDocuments(phase: TemplatePhase) {
     (sum, activity) => sum + activity.document_requirements.length,
     0
   )
+}
+
+/** Tooltip-ul statutului: se poate sau nu alege la crearea unui proiect (S-22). */
+function templateStatusHint(template: { status: 'draft' | 'published'; is_active?: boolean | null }) {
+  if (template.status === 'draft') return 'Ciornă: nu apare la crearea unui proiect până nu o publică un administrator.'
+  if (template.is_active === false) return 'Publicat, dar dezactivat: nu apare la crearea unui proiect nou.'
+  return 'Publicat: se poate alege la crearea unui proiect nou.'
 }
 
 function hasMissingTemplateAttachment(doc: DocumentRequirement) {
@@ -425,6 +434,7 @@ function AdminTemplatesContent() {
   // Adminul rămâne în editor până închide propagarea; abia apoi iese în listă.
   const exitAfterPropagationRef = useRef(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const [nameError, setNameError] = useState<string | null>(null)
   const [validationErrors, setValidationErrors] = useState<Set<string>>(new Set())
   const [consultants, setConsultants] = useState<Consultant[]>([])
   const [deleteTarget, setDeleteTarget] = useState<TemplateDeleteTarget | null>(null)
@@ -918,6 +928,7 @@ function AdminTemplatesContent() {
 
   /** Închide editorul fără nicio întrebare; „Anulează” trece prin `requestCancel`. */
   const closeEditor = () => {
+    setNameError(null)
     setTemplateName('')
     setTemplateDescription('')
     setPhases([])
@@ -1163,6 +1174,11 @@ function AdminTemplatesContent() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ...tree, slug: generateSlug(tree.name) }),
           })
+      if (res.status === 409) {
+        // Numele e al altui șablon (D10): mesajul stă sub „Nume șablon”.
+        setNameError(await serverMessage(res, 'Există deja un șablon cu acest nume. Alege alt nume.'))
+        return
+      }
       if (!res.ok) {
         throw new Error(await serverMessage(res, `Nu am putut salva șablonul (${res.status})`))
       }
@@ -1216,6 +1232,14 @@ function AdminTemplatesContent() {
 
   const duplicateTemplate = async (template: Template) => {
     if (!canManageTemplates || duplicatingId) return
+    // Copierea durează câteva secunde, deci întâi o confirmare (S-23).
+    const phaseCount = template.phases?.length ?? 0
+    const activityCount = template.phases?.reduce((sum, phase) => sum + (phase.activities?.length ?? 0), 0) ?? 0
+    if (!(await confirm({
+      title: `Duplici șablonul «${template.name}»?`,
+      description: `Se copiază ${countLabel(phaseCount, 'fază', 'faze')}, ${countLabel(activityCount, 'activitate', 'activități')}, ${countLabel(countTemplateDocuments(template), 'cerere', 'cereri')} și fișierele-model. Durează câteva secunde.`,
+      confirmText: 'Duplică',
+    }))) return
     try {
       setDuplicatingId(template.id)
       const res = await apiFetch(`/api/admin/templates/${template.id}/duplicate`, { method: 'POST' })
@@ -1490,7 +1514,7 @@ function AdminTemplatesContent() {
                         <th scope="col" className="w-16 px-3 py-2 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Faze</th>
                         <th scope="col" className="w-24 px-3 py-2 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Activități</th>
                         <th scope="col" className="w-24 px-3 py-2 text-right text-[11px] font-normal uppercase tracking-[0.08em] text-ink-soft">Documente</th>
-                        <th scope="col" className="w-44 px-3 py-2"><span className="sr-only">Acțiuni</span></th>
+                        <th scope="col" className="w-14 px-3 py-2"><span className="sr-only">Acțiuni</span></th>
                       </tr>
                     </thead>
                     <tbody className="block lg:table-row-group">
@@ -1535,9 +1559,13 @@ function AdminTemplatesContent() {
                               </td>
                               <td className="max-w-full px-3 pb-2 lg:py-2">
                                 <div className="flex flex-col items-start gap-1">
-                                  <Signal tone={template.status === 'draft' ? 'draft' : 'ok'}>
-                                    {template.status === 'draft' ? 'Ciornă' : 'Publicat'}
-                                  </Signal>
+                                  {/* Ce înseamnă statutul la crearea unui proiect (S-22): acolo
+                                      apar doar șabloanele publicate și active (TemplateSelector). */}
+                                  <span data-tooltip={templateStatusHint(template)} className="inline-flex">
+                                    <Signal tone={template.status === 'draft' ? 'draft' : 'ok'}>
+                                      {template.status === 'draft' ? 'Ciornă' : 'Publicat'}
+                                    </Signal>
+                                  </span>
                                   {/* Seniorul poate schimba un șablon publicat, dar numai adminul
                                       aplică schimbarea în proiecte: eticheta e și intrarea spre asta. */}
                                   {isAdmin && template.status === 'published' && template.unpropagated_changes_at && (
@@ -1556,32 +1584,21 @@ function AdminTemplatesContent() {
                               <td className="hidden px-3 py-2 text-right tabular-nums text-ink-soft lg:table-cell">{activityCount}</td>
                               <td className="hidden px-3 py-2 text-right tabular-nums text-ink-soft lg:table-cell">{countTemplateDocuments(template)}</td>
                               <td className="ml-auto px-3 pb-2 lg:ml-0 lg:py-2">
-                                <div className="flex flex-wrap items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                                  {editable && (
-                                    <IconButton className={compactIcon} label={`Editează șablonul ${template.name}`} onClick={() => handleEdit(template)}>
-                                      <Edit2 className="h-4 w-4" />
-                                    </IconButton>
-                                  )}
-                                  {isAdmin && template.status === 'draft' && (
-                                    <IconButton className={compactIcon} label={`Publică șablonul ${template.name}`} onClick={() => requestPublishTemplate(template)}>
-                                      <Check className="h-4 w-4" />
-                                    </IconButton>
-                                  )}
-                                  {canManageTemplates && (
-                                    <IconButton
-                                      className={compactIcon}
-                                      label={`Duplică șablonul ${template.name}`}
-                                      disabled={duplicatingId !== null}
-                                      onClick={() => { void duplicateTemplate(template) }}
-                                    >
-                                      {duplicatingId === template.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
-                                    </IconButton>
-                                  )}
-                                  {canManageTemplates && (
-                                    <IconButton className={compactIcon} label={`Șterge șablonul ${template.name}`} tone="danger" onClick={() => requestDeleteTemplate(template)}>
-                                      <Trash2 className="h-4 w-4" />
-                                    </IconButton>
-                                  )}
+                                {/* Toate acțiunile într-un singur „⋯”: patru iconițe una lângă
+                                    alta se apăsau din greșeală (S-30). */}
+                                <div className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
+                                  <RowActionsMenu
+                                    label={`Acțiuni pentru șablonul ${template.name}`}
+                                    tooltip="Acțiuni șablon"
+                                    busy={duplicatingId === template.id}
+                                    triggerClassName="inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-ink disabled:opacity-60 pointer-fine:h-8 pointer-fine:w-8"
+                                    actions={[
+                                      { label: 'Editează', icon: <Edit2 className="h-4 w-4" />, hidden: !editable, onSelect: () => handleEdit(template) },
+                                      { label: 'Publică', icon: <Check className="h-4 w-4" />, hidden: !(isAdmin && template.status === 'draft'), onSelect: () => requestPublishTemplate(template) },
+                                      { label: 'Duplică', icon: <Copy className="h-4 w-4" />, hidden: !canManageTemplates || duplicatingId !== null, onSelect: () => { void duplicateTemplate(template) } },
+                                      { label: 'Șterge', icon: <Trash2 className="h-4 w-4" />, danger: true, hidden: !canManageTemplates, onSelect: () => requestDeleteTemplate(template) },
+                                    ]}
+                                  />
                                 </div>
                               </td>
                             </tr>
@@ -1636,12 +1653,13 @@ function AdminTemplatesContent() {
 
             <Plate className="p-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <Camp label="Nume șablon" required error={hasValidationError('template:name') ? 'Numele șablonului este obligatoriu.' : null}>
+                <Camp label="Nume șablon" required error={nameError ?? (hasValidationError('template:name') ? 'Numele șablonului este obligatoriu.' : null)}>
                   <input
                     type="text"
                     value={templateName}
                     onChange={(e) => {
                       setTemplateName(e.target.value)
+                      setNameError(null)
                       clearValidationError('template:name')
                     }}
                     placeholder="Ex: Proiect Standard"
