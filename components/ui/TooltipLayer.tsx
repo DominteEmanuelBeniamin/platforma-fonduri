@@ -17,21 +17,28 @@ import { usePathname } from 'next/navigation'
  * `data-tooltip=""` sau `data-tooltip-off` pe un element (sau pe un părinte)
  * îl opresc.
  *
- * Comportamentul e cel al componentelor standard (Radix Tooltip, pe care îl
- * folosește shadcn): apare după o jumătate de secundă, iar dacă tocmai s-a
- * văzut unul, următorul apare imediat; apare și la focus de la tastatură;
- * Escape îl închide; cursorul poate trece pe el fără să dispară (WCAG
- * 1.4.13). Pe touch nu apare — acolo nu există hover, deci nimic esențial nu
- * stă doar în tooltip.
+ * Apare după o secundă, fără animație (D6). Imediat apare doar când treci de
+ * la un buton mic la altul, cu un tooltip abia închis: o plimbare peste
+ * rânduri (fazele din panou, pastilele de stare) nu mai aprinde câte un
+ * tooltip pe fiecare. Apare și la focus de la tastatură; Escape îl închide;
+ * cursorul poate trece pe el fără să dispară (WCAG 1.4.13). Pe touch nu
+ * apare — acolo nu există hover, deci nimic esențial nu stă doar în tooltip.
+ *
+ * `data-tooltip-side="right"` (pe element sau pe un părinte) îl pune în
+ * dreapta, centrat vertical: în panoul fazelor, deasupra sau dedesubt ar
+ * acoperi faza vecină. Dacă nu încape, revine deasupra sau dedesubt.
  */
 
-const SHOW_DELAY = 500
+const SHOW_DELAY = 1000
 /** Cât timp după ce s-a ascuns un tooltip următorul apare fără întârziere. */
 const SKIP_DELAY = 400
 /** Răgazul în care cursorul poate trece de pe buton pe tooltip. */
 const HIDE_GRACE = 120
 const TOOLTIP_ID = 'sg-tooltip'
 const CANDIDATES = '[data-tooltip],[title],button,a[href],[role="button"],[role="switch"],[role="tab"]'
+/** Butoanele mici, între care tooltip-ul trece fără întârziere. */
+const SMALL_CONTROL = 'button,a[href],[role="button"],[role="switch"],[role="tab"]'
+const isSmallControl = (el: Element) => el.matches(SMALL_CONTROL)
 
 function normalize(text: string) {
   return text.toLowerCase().replace(/[.:…,]/g, '').replace(/\s+/g, ' ').trim()
@@ -52,7 +59,10 @@ function tooltipText(el: HTMLElement): string | null {
   return label
 }
 
-type Tip = { text: string; rect: DOMRect }
+type Tip = { text: string; rect: DOMRect; side: 'right' | null }
+
+const sideOf = (el: HTMLElement): Tip['side'] =>
+  el.closest('[data-tooltip-side]')?.getAttribute('data-tooltip-side') === 'right' ? 'right' : null
 
 export default function TooltipLayer() {
   const [tip, setTip] = useState<Tip | null>(null)
@@ -69,6 +79,8 @@ export default function TooltipLayer() {
     /** Textul tooltip-ului vizibil, ca să-l poată muta la derulare. */
     let shownText = ''
     let lastHiddenAt = 0
+    /** Ultimul tooltip văzut era al unui buton mic, nu al unui rând. */
+    let lastWasSmall = false
     /** După un clic, butonul apăsat nu-și mai arată tooltip-ul până nu-l părăsește cursorul. */
     let suppressed: HTMLElement | null = null
     /** Elementul căruia i-am scos temporar `title`, ca browserul să nu-și deseneze propriul tooltip. */
@@ -126,6 +138,7 @@ export default function TooltipLayer() {
       el.setAttribute('data-tooltip-state', 'open')
       shownOn = el
       shownText = text
+      lastWasSmall = isSmallControl(el)
       // Tooltip-ul descrie elementul cât se vede, ca la Radix — dacă spune
       // altceva decât numele lui.
       if (normalize(text) !== normalize(el.getAttribute('aria-label') ?? '')) {
@@ -133,7 +146,7 @@ export default function TooltipLayer() {
         if (!ids.includes(TOOLTIP_ID)) el.setAttribute('aria-describedby', [...ids, TOOLTIP_ID].join(' '))
         describedBy = el
       }
-      setTip({ text, rect: el.getBoundingClientRect() })
+      setTip({ text, rect: el.getBoundingClientRect(), side: sideOf(el) })
     }
 
     const schedule = (el: HTMLElement, via: 'pointer' | 'focus') => {
@@ -152,7 +165,8 @@ export default function TooltipLayer() {
         el.removeAttribute('title')
         stashed = el
       }
-      const immediate = via === 'focus' || Date.now() - lastHiddenAt < SKIP_DELAY
+      const immediate = via === 'focus'
+        || (Date.now() - lastHiddenAt < SKIP_DELAY && lastWasSmall && isSmallControl(el))
       showTimer = setTimeout(() => show(el, text), immediate ? 0 : SHOW_DELAY)
     }
 
@@ -208,7 +222,7 @@ export default function TooltipLayer() {
       if (!target) return
       const still = target.isConnected && (target.matches(':hover') || target.contains(document.activeElement))
       if (!still) { hide(); return }
-      if (visible) setTip({ text: shownText, rect: target.getBoundingClientRect() })
+      if (visible) setTip({ text: shownText, rect: target.getBoundingClientRect(), side: sideOf(target) })
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
@@ -249,12 +263,20 @@ export default function TooltipLayer() {
   // Altă pagină, alt context: nimic nu rămâne agățat.
   useEffect(() => { hideRef.current() }, [pathname])
 
-  // Deasupra elementului; dedesubt, dacă sus nu încape. Mereu în ecran.
+  // Deasupra elementului; dedesubt, dacă sus nu încape. Cu `side="right"`, în
+  // dreapta, dacă are loc. Mereu în ecran.
   useLayoutEffect(() => {
     const el = tipRef.current
     if (!tip || !el) return
     const { width, height } = el.getBoundingClientRect()
     const gap = 6
+    if (tip.side === 'right' && tip.rect.right + gap + width <= window.innerWidth - 8) {
+      const middle = tip.rect.top + tip.rect.height / 2 - height / 2
+      el.style.top = `${Math.max(8, Math.min(middle, window.innerHeight - height - 8))}px`
+      el.style.left = `${tip.rect.right + gap}px`
+      el.style.visibility = 'visible'
+      return
+    }
     let top = tip.rect.top - height - gap
     if (top < 8) top = tip.rect.bottom + gap
     const left = Math.max(8, Math.min(tip.rect.left + tip.rect.width / 2 - width / 2, window.innerWidth - width - 8))

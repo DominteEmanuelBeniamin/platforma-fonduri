@@ -277,14 +277,8 @@ input:-webkit-autofill:active {
 /* 2. Animația "Fade In Up" - pentru încărcarea elegantă a dashboard-ului */
 /* Face ca elementele să apară de jos în sus, fluid */
 /* Tooltip-ul apare scurt, de jos în sus; fără mișcare la cerere. */
-.sg-tooltip { animation: sg-tooltip-in 120ms cubic-bezier(0.2, 0, 0, 1); }
-@keyframes sg-tooltip-in {
-  from { opacity: 0; transform: translateY(2px); }
-  to   { opacity: 1; transform: none; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .sg-tooltip { animation: none; }
-}
+/* Tooltip-ul apare fără fade: după o secundă de așteptare, o animație doar îl
+   mai întârzie (feedback-ul lui Sandu, 21 octombrie 2026). */
 
 @keyframes fadeInUp {
   from {

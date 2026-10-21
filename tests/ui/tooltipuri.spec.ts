@@ -86,8 +86,9 @@ async function candidati(page: Page, scope?: string): Promise<ElementHandle<HTML
       // Uneltele de dezvoltare Next.js (în shadow DOM) nu fac parte din aplicație.
       if (node.getRootNode() !== document) return false
       // Un candidat dinăuntrul altui candidat (iconița cu `title` dintr-un
-      // buton) e același lucru pentru om: contează elementul exterior.
-      const parinte = node.parentElement?.closest('button, a[href], [role="button"], [role="switch"], [role="tab"], [data-tooltip], [title]')
+      // buton) e același lucru pentru om: contează elementul exterior. Un rând
+      // cu `data-tooltip` (activitățile din panou) nu ascunde butoanele din el.
+      const parinte = node.parentElement?.closest('button, a[href], [role="button"], [role="switch"], [role="tab"], [title]')
       if (parinte) return false
       const r = node.getBoundingClientRect()
       const style = getComputedStyle(node)
@@ -136,7 +137,7 @@ async function verificaEcran(page: Page, nume: string, rol: Rol, scope?: string)
       await el.evaluate((node: HTMLElement) => node.scrollIntoView({ block: 'center', inline: 'center' }))
       await page.waitForTimeout(40)
       await el.hover({ timeout: 2500 })
-      text = await tooltipVizibil(page, 1600, el)
+      text = await tooltipVizibil(page, 2200, el)
       stare = text ? 'ok' : 'lipsă'
     } catch {
       stare = 'acoperit'
@@ -291,13 +292,13 @@ test.describe('Tooltip-uri pe toate butoanele', () => {
     const cautare = page.getByRole('button', { name: 'Caută în proiect' })
     const comportament: Comportament[] = []
 
-    // Întârzierea: nu apare instantaneu la prima trecere, apare după ~0,5 s.
+    // Întârzierea (D6): nu apare la 0,7 s, apare până la 2 s.
     await page.mouse.move(0, 0)
     await page.waitForTimeout(700)
     await cautare.hover()
-    const imediat = await tooltipVizibil(page, 200)
-    const dupa = await tooltipVizibil(page, 1500)
-    comportament.push({ regula: 'Apare după o scurtă întârziere, nu instantaneu', trece: !imediat && !!dupa, detaliu: `imediat: ${imediat ? 'da' : 'nu'}; după 0,5 s: ${dupa ?? '—'}` })
+    const devreme = await tooltipVizibil(page, 700)
+    const dupa = await tooltipVizibil(page, 1300)
+    comportament.push({ regula: 'Apare după o secundă, nu mai devreme', trece: !devreme && !!dupa, detaliu: `la 0,7 s: ${devreme ? 'da' : 'nu'}; până la 2 s: ${dupa ?? '—'}` })
 
     // Escape îl închide (WCAG 1.4.13 — se poate închide).
     await page.keyboard.press('Escape')
@@ -308,7 +309,7 @@ test.describe('Tooltip-uri pe toate butoanele', () => {
     await page.mouse.move(0, 0)
     await page.waitForTimeout(500)
     await cautare.hover()
-    await tooltipVizibil(page, 1500)
+    await tooltipVizibil(page, 2200)
     const tip = await page.locator('#sg-tooltip').boundingBox()
     if (tip) await page.mouse.move(tip.x + tip.width / 2, tip.y + tip.height / 2, { steps: 4 })
     await page.waitForTimeout(400)
@@ -323,12 +324,35 @@ test.describe('Tooltip-uri pe toate butoanele', () => {
 
     // Descrie elementul pentru cititoarele de ecran cât se vede.
     await cautare.hover()
-    await tooltipVizibil(page, 1500)
+    await tooltipVizibil(page, 2200)
     const descris = await cautare.getAttribute('aria-describedby')
     comportament.push({ regula: 'Butonul e descris de tooltip (aria-describedby) cât se vede', trece: !!descris?.includes('sg-tooltip'), detaliu: descris ?? '—' })
 
     salveaza('comportament', { tip: 'comportament', reguli: comportament })
     for (const c of comportament) expect.soft(c.trece, c.regula).toBe(true)
+  })
+
+  test('panoul fazelor: o plimbare peste faze nu aprinde tooltip-uri, iar tooltip-ul stă în dreapta', async ({ page }) => {
+    test.skip(!projectId, 'E2E_PROJECT_ID lipsește')
+    await autentifica(page, 'staff')
+    await page.goto(`/projects/${projectId}`, { waitUntil: 'networkidle' })
+    const faze = page.locator('aside nav [data-tooltip-side="right"][data-tooltip*="în tabel"]')
+    test.skip(await faze.count() < 4, 'prea puține faze')
+    // S-15: trei faze la rând, la 300 ms una de alta: niciun tooltip.
+    await page.mouse.move(0, 0)
+    for (let i = 0; i < 3; i++) {
+      await faze.nth(i).hover()
+      await page.waitForTimeout(300)
+      expect(await tooltipVizibil(page, 50), `tooltip aprins pe faza ${i + 1}`).toBeNull()
+    }
+    // S-14: oprit pe o fază, tooltip-ul nu acoperă faza următoare.
+    await faze.nth(1).hover()
+    expect(await tooltipVizibil(page, 2200)).not.toBeNull()
+    const tip = (await page.locator('#sg-tooltip').boundingBox())!
+    const urmatoarea = (await faze.nth(2).boundingBox())!
+    const peste = tip.x < urmatoarea.x + urmatoarea.width && tip.x + tip.width > urmatoarea.x
+      && tip.y < urmatoarea.y + urmatoarea.height && tip.y + tip.height > urmatoarea.y
+    expect(peste, 'tooltip-ul fazei acoperă faza următoare').toBe(false)
   })
 
   test.afterAll(() => {
