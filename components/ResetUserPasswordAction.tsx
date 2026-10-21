@@ -32,6 +32,9 @@ type CompletedResult = {
 type VerificationKind = 'unknown' | 'audit' | null
 
 const DELIVERY_STATUSES = new Set<DeliveryStatus>(['sent', 'failed', 'unknown', 'skipped'])
+// Ruta răspunde cu aceste coduri numai înainte de commit. Orice alt eșec (500, 502, 504…)
+// poate veni după ce parola a fost deja schimbată, deci rezultatul rămâne necunoscut.
+const DEFINITE_REFUSAL_STATUSES = new Set([400, 401, 403, 404, 409])
 
 function bodyMessage(body: unknown) {
   if (!body || typeof body !== 'object') return null
@@ -141,10 +144,11 @@ export function ResetUserPasswordAction({
     setPending(true)
     setVerificationKind(verification)
     setNotice(null)
+    // Verificarea auditului nu poate reda parola, deci nu o ștergem înainte ca adminul s-o copieze.
     if (verification !== 'audit') {
       setResult(null)
+      setFallbackPassword(null)
     }
-    setFallbackPassword(null)
 
     const isCurrent = () => requestSequenceRef.current === seq
       && openRef.current
@@ -166,7 +170,7 @@ export function ResetUserPasswordAction({
         if (verification === 'audit') {
           setPhase('completed')
           setNotice(message || 'Nu am putut verifica înregistrarea livrării. Resetarea rămâne confirmată; reîncearcă verificarea aceleiași încercări.')
-        } else if (verification === 'unknown' || response.status === 503) {
+        } else if (verification === 'unknown' || !DEFINITE_REFUSAL_STATUSES.has(response.status)) {
           setPhase('unknown')
           setNotice(message || (verification === 'unknown'
             ? 'Verificarea nu a putut confirma rezultatul. Resetarea inițială poate să fi fost reușită; reîncearcă aceeași încercare.'
@@ -199,6 +203,15 @@ export function ResetUserPasswordAction({
       const superseded = body.superseded === true
       const deliveryAuditPending = body.deliveryAuditPending === true
       setPhase('completed')
+      if (verification === 'audit') {
+        // Păstrăm rezultatul inițial și parola afișată; actualizăm doar starea auditului.
+        setResult(previous => previous && previous.attemptId === id
+          ? { ...previous, deliveryAuditPending, superseded: previous.superseded || superseded }
+          : previous)
+        if (superseded) setFallbackPassword(null)
+        if (onReset) void Promise.resolve().then(onReset).catch(() => undefined)
+        return
+      }
       setResult({
         attemptId: id,
         replayed: body.replayed,
@@ -326,13 +339,13 @@ export function ResetUserPasswordAction({
 
                   <FeedbackMessage variant="success">
                     {result.superseded
-                      ? 'La acel moment, parola a fost resetată și sesiunile existente au fost închise. O schimbare ulterioară a înlocuit parola temporară.'
+                      ? 'La acel moment, parola a fost resetată și sesiunile existente au fost închise. Ulterior, contul a fost modificat (parola, adresa de email sau starea contului).'
                       : 'Parola a fost resetată; parola anterioară nu mai funcționează, iar sesiunile existente au fost închise.'}
                   </FeedbackMessage>
 
                   {result.superseded ? (
                     <FeedbackMessage variant="warning">
-                      O schimbare ulterioară a înlocuit această resetare. Parola temporară nu este afișată.
+                      Această încercare nu mai este cea curentă, așa că parola temporară nu este afișată. Dacă utilizatorul nu se poate autentifica, poate folosi „Am uitat parola” sau poți porni o resetare nouă.
                     </FeedbackMessage>
                   ) : result.deliveryStatus === 'sent' ? (
                     <FeedbackMessage variant="success">

@@ -349,8 +349,13 @@ try {
     }
     const person = await fixture(), attempt = randomUUID()
     await rpc('admin_reset_password', args(person, attempt))
-    const finished = await rpc('admin_reset_password_finish_delivery', { p_target_id: person.id, p_attempt_id: attempt, p_outcome: 'unknown', p_reason: 'provider_unconfirmed' })
-    passed(finished.delivery_status === 'unknown' && finished.delivery_audited === true, 'A failed prepare RPC can finalize its still-pending receipt immediately')
+    const finished = await rpc('admin_reset_password_finish_delivery', { p_target_id: person.id, p_attempt_id: attempt, p_outcome: 'failed', p_reason: 'delivery_not_started' })
+    passed(finished.delivery_status === 'failed' && finished.delivery_audited === true, 'A failed prepare RPC records a certain failure for its still-pending receipt')
+    passed((await rpc('admin_reset_password_claim_fallback', ident(person, attempt))).allowed === true, 'A delivery that never started allows the revalidated fallback')
+    const other = await fixture(), otherAttempt = randomUUID()
+    await rpc('admin_reset_password', args(other, otherAttempt))
+    const rejected = await rpc('admin_reset_password_finish_delivery', { p_target_id: other.id, p_attempt_id: otherAttempt, p_outcome: 'failed', p_reason: 'provider_rejected' })
+    passed(rejected.delivery_status === 'pending', 'Only delivery_not_started can fail a pending receipt')
   })
 
   await group('deactivation_ordering_and_no_false_success', async () => {

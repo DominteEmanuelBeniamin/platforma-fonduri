@@ -12,6 +12,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceClient>
 type DeliveryStatus = 'sent' | 'failed' | 'unknown' | 'skipped'
+type DeliveryReason = 'configuration' | 'provider_rejected' | 'provider_unconfirmed' | 'delivery_not_started'
 type RpcRecord = Record<string, unknown>
 type ResetInput = {
   actorId: string
@@ -201,31 +202,42 @@ async function finishDelivery(
   targetId: string,
   attemptId: string,
   outcome: DeliveryStatus | null,
-  reason: 'configuration' | 'provider_rejected' | 'provider_unconfirmed' | null,
+  reason: DeliveryReason | null,
   providerId: string | null,
 ) {
-  try {
-    const { data, error } = await callRpc(client, 'admin_reset_password_finish_delivery', {
-      p_target_id: targetId,
-      p_attempt_id: attemptId,
-      p_outcome: outcome,
-      p_reason: reason,
-      p_provider_id: providerId,
-    })
-    if (error) return { status: outcome === null ? 'unknown' as const : outcome, audited: false, current: undefined }
-    const result = rpcRecord(data)
-    if (!result) return { status: outcome === null ? 'unknown' as const : outcome, audited: false, current: undefined }
-    return {
-      status: normalizedDeliveryStatus(result.delivery_status) ?? (outcome === null ? 'unknown' as const : outcome),
-      audited: result.delivery_audited === true,
-      current: typeof result.is_current === 'boolean' ? result.is_current : undefined,
+  // finish e idempotent: o a doua încercare salvează rezultatul pierdut de prima, înainte ca
+  // reconcilierea de după un minut să-l înlocuiască cu „unknown”.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const { data, error } = await callRpc(client, 'admin_reset_password_finish_delivery', {
+        p_target_id: targetId,
+        p_attempt_id: attemptId,
+        p_outcome: outcome,
+        p_reason: reason,
+        p_provider_id: providerId,
+      })
+      const result = error ? null : rpcRecord(data)
+      if (!result) continue
+      return {
+        status: normalizedDeliveryStatus(result.delivery_status) ?? (outcome === null ? 'unknown' as const : outcome),
+        audited: result.delivery_audited === true,
+        current: typeof result.is_current === 'boolean' ? result.is_current : undefined,
+        recorded: true,
+      }
+    } catch {
+      // Reîncercăm o singură dată; după aceea raportăm rezultatul local, fără audit confirmat.
     }
-  } catch {
-    return { status: outcome === null ? 'unknown' as const : outcome, audited: false, current: undefined }
   }
+  return { status: outcome === null ? 'unknown' as const : outcome, audited: false, current: undefined, recorded: false }
 }
 
-function completedMessage(status: DeliveryStatus, replayed: boolean, passwordAvailable: boolean, superseded: boolean) {
+function completedMessage(
+  status: DeliveryStatus,
+  replayed: boolean,
+  passwordAvailable: boolean,
+  superseded: boolean,
+  skipReason?: unknown,
+) {
   let message: string
   if (replayed) {
     message = status === 'sent'
@@ -243,7 +255,9 @@ function completedMessage(status: DeliveryStatus, replayed: boolean, passwordAva
           ? 'Resetarea este completă, dar emailul nu a putut fi trimis. Copiază parola temporară și comunic-o utilizatorului în siguranță.'
           : 'Resetarea este completă, dar emailul nu a putut fi trimis. Parola temporară nu poate fi afișată pentru această încercare.'
         : status === 'skipped'
-          ? 'Resetarea este completă, dar emailul a fost omis deoarece contul sau adresa s-a schimbat.'
+          ? skipReason === 'actor_ineligible'
+            ? 'Resetarea este completă, dar emailul nu a fost trimis deoarece sesiunea ta de administrator nu mai este activă.'
+            : 'Resetarea este completă, dar emailul a fost omis deoarece contul sau adresa s-a schimbat.'
           : 'Resetarea este completă, dar trimiterea emailului nu a putut fi confirmată. Verificarea aceleiași încercări nu va trimite un email nou.'
   }
   if (superseded) message += ' Între timp, starea contului s-a schimbat.'
@@ -258,6 +272,7 @@ function completedResponse(
     superseded?: boolean
     deliveryAuditPending?: boolean
     temporaryPassword?: string
+    skipReason?: unknown
   } = {},
 ) {
   const body: Record<string, unknown> = {
@@ -267,7 +282,13 @@ function completedResponse(
     deliveryStatus: status,
     ...(options.superseded ? { superseded: true } : {}),
     ...(options.deliveryAuditPending ? { deliveryAuditPending: true } : {}),
-    message: completedMessage(status, replayed, Boolean(options.temporaryPassword), Boolean(options.superseded)),
+    message: completedMessage(
+      status,
+      replayed,
+      Boolean(options.temporaryPassword),
+      Boolean(options.superseded),
+      options.skipReason,
+    ),
     ...(options.temporaryPassword ? { temporaryPassword: options.temporaryPassword } : {}),
   }
   return response(body)
@@ -360,28 +381,22 @@ async function completeFreshReset(
     prepareFailed = true
   }
 
-  if (prepareFailed || !prepared) {
-    const finished = await finishDelivery(client, input.targetId, input.attemptId, 'unknown', 'provider_unconfirmed', null)
-    return completedResponse(input.attemptId, false, finished.status, {
-      superseded: superseded || finished.current === false,
-      deliveryAuditPending: !finished.audited,
-    })
-  }
-
   let outcome: DeliveryStatus
-  let reason: 'configuration' | 'provider_rejected' | 'provider_unconfirmed' | null
+  let reason: DeliveryReason | null
   let providerId: string | null = null
 
-  if (prepared.status === 'skipped') {
+  if (prepareFailed || !prepared || (prepared.status !== 'send' && prepared.status !== 'skipped')) {
+    // Furnizorul nu a fost apelat, deci emailul sigur nu a plecat: e un eșec cert, iar
+    // claim-ul de fallback revalidează adminul, ținta și încercarea înainte de afișarea parolei.
+    outcome = 'failed'
+    reason = 'delivery_not_started'
+  } else if (prepared.status === 'skipped') {
     outcome = 'skipped'
     reason = null
     superseded = superseded
       || prepared.reason === 'target_ineligible'
       || prepared.reason === 'recipient_changed'
       || prepared.reason === 'superseded'
-  } else if (prepared.status !== 'send') {
-    outcome = 'unknown'
-    reason = 'provider_unconfirmed'
   } else if (email.kind === 'failed') {
     outcome = 'failed'
     reason = email.reason
@@ -407,6 +422,7 @@ async function completeFreshReset(
     superseded,
     deliveryAuditPending: !finished.audited,
     temporaryPassword,
+    skipReason: prepared?.status === 'skipped' ? prepared.reason : undefined,
   })
 }
 
@@ -452,7 +468,8 @@ export async function executeAdminPasswordReset(request: Request, input: ResetIn
     if (auditPending) {
       const repaired = await finishDelivery(client, input.targetId, input.attemptId, null, null, null)
       if (repaired.current === false) superseded = true
-      status = repaired.status
+      // Dacă reparația nu a primit răspuns, statusul din receipt rămâne cel valabil.
+      if (repaired.recorded) status = repaired.status
       auditPending = !repaired.audited
     }
     return completedResponse(input.attemptId, true, status, {

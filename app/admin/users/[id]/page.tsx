@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { Building2, Briefcase, Shield } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
@@ -75,6 +75,8 @@ export default function UserFilesPage() {
   const [allFiles, setAllFiles] = useState<any[]>([])
   const [loading,  setLoading]  = useState(true)
   const [savingLevel, setSavingLevel] = useState(false)
+  // Utilizatorul pentru care pagina e deja afișată.
+  const loadedUserIdRef = useRef<string | null>(null)
 
   async function changeLevel(level: 'junior' | 'senior') {
     const name = user?.full_name || user?.email
@@ -114,7 +116,10 @@ export default function UserFilesPage() {
   }, [authLoading, token, userId, profile])
 
   async function loadAll() {
-    setLoading(true)
+    // Refresh-ul tokenului reîncarcă profilul; datele se actualizează în fundal, ca să nu
+    // demontăm dialogul de resetare a parolei.
+    const showLoader = loadedUserIdRef.current !== userId
+    if (showLoader) setLoading(true)
     try {
       // Fetch user info
       const userRes = await apiFetch('/api/users')
@@ -123,6 +128,7 @@ export default function UserFilesPage() {
       const userData = allUsers.find((u: any) => u.id === userId)
       if (!userData) { router.replace('/admin/users'); return }
       setUser(userData)
+      loadedUserIdRef.current = userId
 
       // Fetch projects for this user
       const projRes = await apiFetch('/api/projects')
@@ -160,7 +166,7 @@ export default function UserFilesPage() {
       )
       setAllFiles(fileRows)
     } finally {
-      setLoading(false)
+      if (showLoader) setLoading(false)
     }
   }
 

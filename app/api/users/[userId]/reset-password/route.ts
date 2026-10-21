@@ -10,6 +10,9 @@ import {
   resetTargetError,
 } from '@/app/api/_utils/admin-password-reset'
 
+// Lanțul complet (reset, prepare, furnizor, finish, claim) poate depăși 30s; ca rutele de recovery.
+export const maxDuration = 60
+
 const JSON_LIMIT = 4096
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -86,6 +89,7 @@ export async function POST(
     return adminPasswordResetResponse({
       code: 'temporarily_unavailable',
       error: 'Autentificarea nu este disponibilă momentan.',
+      message: 'Autentificarea nu este disponibilă momentan.',
     }, 503)
   }
   if (!admin.ok) return resetAuthError(admin.status)
@@ -111,6 +115,7 @@ export async function POST(
     return adminPasswordResetResponse({
       code: 'temporarily_unavailable',
       error: 'Nu am putut procesa cererea. Reîncearcă aceeași încercare pentru a verifica rezultatul.',
+      message: 'Nu am putut procesa cererea. Reîncearcă aceeași încercare pentru a verifica rezultatul.',
     }, 503)
   }
 }

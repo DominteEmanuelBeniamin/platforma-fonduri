@@ -13,7 +13,8 @@ CREATE TABLE account_recovery.admin_password_resets (
   delivery_reason text
     CHECK (delivery_reason IS NULL OR delivery_reason IN (
       'target_ineligible', 'recipient_changed', 'superseded', 'actor_ineligible',
-      'already_claimed', 'configuration', 'provider_rejected', 'provider_unconfirmed'
+      'already_claimed', 'configuration', 'provider_rejected', 'provider_unconfirmed',
+      'delivery_not_started'
     )),
   provider_id text CHECK (provider_id IS NULL OR length(provider_id) <= 256),
   delivery_audited boolean NOT NULL DEFAULT false,
@@ -234,6 +235,13 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'INVALID_RESET_PASSWORD';
   END IF;
 
+  -- bcrypt does not depend on locked state; hashing before the exclusive lock keeps
+  -- every shared (105, 1) writer from waiting on it.
+  v_hash := extensions.crypt(p_password, extensions.gen_salt('bf', 10));
+  IF v_hash IS NULL OR v_hash !~ '^\$2a\$10\$[./A-Za-z0-9]{53}$' THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'RESET_BCRYPT_PREFLIGHT_FAILED';
+  END IF;
+
   PERFORM pg_advisory_xact_lock(105, 1);
   PERFORM p.id
   FROM public.profiles AS p
@@ -288,15 +296,11 @@ BEGIN
      OR NOT account_recovery.recovery_auth_eligible(v_auth.id, lower(btrim(v_auth.email))) THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'TARGET_ACCOUNT_INELIGIBLE';
   END IF;
-  IF v_target.email IS DISTINCT FROM p_expected_email THEN
+  IF btrim(v_target.email) IS DISTINCT FROM btrim(p_expected_email) THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'EXPECTED_EMAIL_MISMATCH';
   END IF;
 
   v_now := clock_timestamp();
-  v_hash := extensions.crypt(p_password, extensions.gen_salt('bf', 10));
-  IF v_hash IS NULL OR v_hash !~ '^\$2a\$10\$[./A-Za-z0-9]{53}$' THEN
-    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'RESET_BCRYPT_PREFLIGHT_FAILED';
-  END IF;
 
   UPDATE auth.users
   SET encrypted_password = v_hash,
@@ -487,7 +491,8 @@ BEGIN
   END IF;
   IF p_reason IS NOT NULL AND p_reason NOT IN (
     'target_ineligible', 'recipient_changed', 'superseded', 'actor_ineligible',
-    'already_claimed', 'configuration', 'provider_rejected', 'provider_unconfirmed'
+    'already_claimed', 'configuration', 'provider_rejected', 'provider_unconfirmed',
+    'delivery_not_started'
   ) THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'DELIVERY_REASON_INVALID';
   END IF;

@@ -173,6 +173,9 @@ export default function AdminUsersPage() {
     setPanouDeschis(true)
   }, [])
 
+  // Filtrul pentru care lista e deja afișată.
+  const loadedStateRef = useRef<UserState | null>(null)
+
   const fetchUsers = useCallback(async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true)
@@ -180,6 +183,7 @@ export default function AdminUsersPage() {
       if (!res.ok) { showToast('Nu am putut încărca utilizatorii. Reîncearcă.', 'error'); return }
       const { users: data } = await res.json()
       setUsers(data)
+      loadedStateRef.current = filtruStare
     } finally {
       if (showLoader) setLoading(false)
     }
@@ -190,8 +194,10 @@ export default function AdminUsersPage() {
     if (!token) { router.replace('/login'); return }
     if (!profile) return
     if (profile.role !== 'admin') { router.replace('/'); return }
-    fetchUsers()
-  }, [authLoading, token, profile, router, fetchUsers])
+    // Refresh-ul tokenului reîncarcă profilul; lista se actualizează în fundal, ca să nu
+    // demontăm dialogurile deschise (de exemplu parola temporară afișată o singură dată).
+    fetchUsers(loadedStateRef.current !== filtruStare)
+  }, [authLoading, token, profile, router, fetchUsers, filtruStare])
 
   useEffect(() => {
     setCif(''); setNumeFirma(''); setAdresaFirma(''); setPersoanaContact('')

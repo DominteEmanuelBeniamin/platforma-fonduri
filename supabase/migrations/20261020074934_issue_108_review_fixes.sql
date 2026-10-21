@@ -44,7 +44,8 @@ BEGIN
   END IF;
   IF p_reason IS NOT NULL AND p_reason NOT IN (
     'target_ineligible', 'recipient_changed', 'superseded', 'actor_ineligible',
-    'already_claimed', 'configuration', 'provider_rejected', 'provider_unconfirmed'
+    'already_claimed', 'configuration', 'provider_rejected', 'provider_unconfirmed',
+    'delivery_not_started'
   ) THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'DELIVERY_REASON_INVALID';
   END IF;
@@ -71,6 +72,8 @@ BEGIN
   IF v_receipt.delivery_finished_at IS NULL AND (
     (v_receipt.delivery_status = 'unknown' AND p_outcome IS NOT NULL)
     OR (v_receipt.delivery_status = 'pending' AND p_outcome = 'unknown')
+    -- prepare never committed, so the provider was never called: a certain failure.
+    OR (v_receipt.delivery_status = 'pending' AND p_outcome = 'failed' AND p_reason = 'delivery_not_started')
     OR (p_outcome IS NULL AND coalesce(v_receipt.delivery_started_at, v_receipt.created_at)
         <= v_now - interval '1 minute')
   ) THEN
