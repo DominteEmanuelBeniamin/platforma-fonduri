@@ -148,4 +148,15 @@ test.describe('Tabelul proiectului: interacțiuni', () => {
     await page.mouse.move(box!.x + 3, box!.y + 3)
     await expect(page.locator('#sg-tooltip')).toHaveText(/Vizibil clientului/, { timeout: 3000 })
   })
+
+  test('S-12/S-18: cererile au „⋯”, iar toate „⋯” au tooltip scurt și nume lung', async ({ page }) => {
+    await page.getByRole('button', { name: /^Extinde activitatea/ }).first().click()
+    const request = page.locator('main [id^="request-"]').first()
+    await expect(request.getByRole('button', { name: /^Acțiuni pentru cererea/ })).toHaveAttribute('data-tooltip', 'Acțiuni cerere')
+    await expect(request.getByRole('button', { name: 'Șterge din proiect' })).toHaveCount(0)
+    const tooltips = await page.locator('button[aria-haspopup="menu"]').evaluateAll(els =>
+      els.map(el => el.getAttribute('data-tooltip') ?? ''))
+    expect(tooltips.length).toBeGreaterThan(3)
+    for (const t of tooltips) expect(t, 'tooltip-ul „⋯” nu poartă numele elementului').toMatch(/^(Acțiuni( fază| activitate| cerere)?|Mai multe acțiuni)$/)
+  })
 })

@@ -650,6 +650,7 @@ export default function ProjectPhasesSidebar({
                     {canChange && renamingId !== phase.id && (
                       <RowActionsMenu
                         label={`Acțiuni pentru faza ${phase.name}`}
+                        tooltip="Acțiuni fază"
                         busy={duplicatingPhase === phase.id || deletingPhase === phase.id}
                         // `group-hover` nu se declanșează pe touch, iar „⋯” e
                         // singura cale spre Redenumește / Duplică / Șterge:
@@ -782,6 +783,7 @@ export default function ProjectPhasesSidebar({
                           {canChange && renamingId !== act.id && (
                             <RowActionsMenu
                               label={`Acțiuni pentru activitatea ${act.name}`}
+                              tooltip="Acțiuni activitate"
                               size="sm"
                               busy={duplicatingActivity === act.id || deletingActivity === act.id}
                               className="md:opacity-0 md:group-hover/act:opacity-100 pointer-coarse:opacity-100 has-[:focus-visible]:opacity-100 data-[open=true]:opacity-100 transition-opacity"

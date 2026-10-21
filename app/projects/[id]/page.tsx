@@ -1456,6 +1456,7 @@ function ProjectDetailsContent() {
                 buton de apăsat zilnic. Meniul nu apare deloc cui n-are voie. */}
             <RowActionsMenu
               label="Mai multe acțiuni"
+              tooltip="Mai multe acțiuni"
               busy={changingLifecycle}
               triggerClassName="inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-ink disabled:opacity-60 pointer-fine:h-9 pointer-fine:w-9"
               actions={[
@@ -1782,6 +1783,7 @@ function ProjectDetailsContent() {
                       actions={canChange ? (
                         <RowActionsMenu
                           label={`Acțiuni pentru faza ${phase.name}`}
+                          tooltip="Acțiuni fază"
                           busy={duplicatingId === phase.id || deletingId === phase.id || completingId === phase.id}
                           actions={[
                             {
@@ -1864,6 +1866,7 @@ function ProjectDetailsContent() {
                           actions={canChange ? (
                             <RowActionsMenu
                               label={`Acțiuni pentru activitatea ${activity.name}`}
+                              tooltip="Acțiuni activitate"
                               busy={duplicatingId === activity.id || deletingId === activity.id || completingId === activity.id}
                               actions={[
                                 {

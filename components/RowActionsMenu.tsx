@@ -30,14 +30,20 @@ type MenuPosition = { right: number; top?: number; bottom?: number }
  */
 export default function RowActionsMenu({
   label,
+  tooltip = 'Acțiuni',
   actions,
   busy = false,
   size = 'md',
   className = '',
   triggerClassName,
 }: {
-  /** Ce apare în `aria-label`: „Acțiuni pentru faza X”. */
+  /**
+   * Ce apare în `aria-label`: „Acțiuni pentru faza X”. Lung, cu numele, fiindcă
+   * cititoarele de ecran au nevoie de nume diferite pentru zeci de „⋯”.
+   */
   label: string
+  /** Tooltip-ul, scurt: „Acțiuni fază”. Numele întreg era prea lung de citit (S-18). */
+  tooltip?: string
   actions: RowAction[]
   busy?: boolean
   /** Doar iconița e mai mică pe rândurile de activitate; ținta rămâne 32 px. */
@@ -143,6 +149,7 @@ export default function RowActionsMenu({
         }}
         disabled={busy}
         aria-label={label}
+        data-tooltip={tooltip}
         aria-haspopup="menu"
         aria-expanded={open}
         data-open={open}

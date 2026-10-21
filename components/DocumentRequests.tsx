@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import DocumentModal from './DocumentModal'
 import ConfirmDeleteModal from './ConfirmDeleteModal'
+import RowActionsMenu from './RowActionsMenu'
 import PublishStatusControl from './PublishStatusControl'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
@@ -920,7 +921,7 @@ export default function DocumentRequests({
     '5.75rem',
     // Vizibilitatea e ultima înaintea acțiunilor, ca la activități (S-04).
     isAdminOrConsultant && 'minmax(8rem,10rem)',
-    canChange && '4.5rem',
+    canChange && '2.5rem',
   ].filter(Boolean).join(' ')
 
   if (loading) {
@@ -1165,28 +1166,28 @@ export default function DocumentRequests({
                         className={`col-start-2 row-start-1 flex items-start justify-center gap-0.5 transition-opacity duration-[120ms] pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 has-[:focus-visible]:opacity-100 has-[[data-open=true]]:opacity-100 @min-[50rem]:col-start-auto @min-[50rem]:row-start-auto ${CELL}`}
                         onClick={e => e.stopPropagation()}
                       >
-                        {/* O cerere închisă nu se modifică până la redeschidere (D13);
+                        {/* Toate acțiunile cererii sub „⋯”, ca la activități (S-12). O
+                            cerere închisă nu se modifică până la redeschidere (D13);
                             ștergerea rămâne. */}
-                        {!isClosed && (
-                          <button
-                            type="button"
-                            onClick={() => openEditForm(req)}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)] pointer-fine:h-7 pointer-fine:w-7"
-                            title="Modifică cererea"
-                            aria-label="Modifică cererea"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setRequestToDelete(req)}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors hover:bg-[var(--sg-danger-soft)] hover:text-[var(--sg-danger)] pointer-fine:h-7 pointer-fine:w-7"
-                          title="Șterge din proiect"
-                          aria-label="Șterge din proiect"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        <RowActionsMenu
+                          label={`Acțiuni pentru cererea ${req.name}`}
+                          tooltip="Acțiuni cerere"
+                          size="sm"
+                          actions={[
+                            {
+                              label: 'Modifică cererea',
+                              icon: <Pencil className="w-3 h-3" />,
+                              hidden: isClosed,
+                              onSelect: () => openEditForm(req),
+                            },
+                            {
+                              label: 'Șterge din proiect',
+                              icon: <Trash2 className="w-3 h-3" />,
+                              danger: true,
+                              onSelect: () => setRequestToDelete(req),
+                            },
+                          ]}
+                        />
                       </div>
                     )}
                   </div>
