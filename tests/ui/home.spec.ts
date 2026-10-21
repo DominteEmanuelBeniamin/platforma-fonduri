@@ -1,23 +1,36 @@
 import { test, expect } from '@playwright/test'
-import { autentifica, ascultaErorile, ecranSanatos } from './helpers'
+import { autentifica, ascultaErorile, ecranSanatos, uiConfig } from './helpers'
 
 test.describe('Home — panoul-director', () => {
   test.beforeEach(async ({ page }) => { await autentifica(page, 'staff') })
 
-  test('fâșia de locație deschide ecranul și marchează pagina curentă', async ({ page }) => {
-    const loc = page.getByRole('navigation', { name: 'Locație' })
-    await expect(loc).toBeVisible()
-    await expect(loc.getByRole('link', { name: 'Bonie' })).toBeVisible()
-    await expect(loc.locator('[aria-current="page"]')).toHaveText('Proiecte')
+  test('pagina de pornire are antetul ei, fără fâșie de locație spre ea însăși', async ({ page }) => {
+    // Proiectele sunt pagina de pornire (S-05): nici „Bonie”, nici un link spre pagina curentă.
+    await expect(page.getByRole('navigation', { name: 'Locație' })).toHaveCount(0)
+    await expect(page.getByRole('heading', { level: 1, name: /^Salut,/ })).toBeVisible()
+    await expect(page.locator('main a[href="/"]').filter({ hasText: /^(Bonie|Proiecte)$/ })).toHaveCount(0)
   })
 
-  test('Alt+L focalizează fâșia de locație de oriunde din pagină', async ({ page }) => {
+  test('antetul rămâne lipit sub meniu la derulare, de la md în sus', async ({ page }, info) => {
+    test.skip(info.project.name !== 'desktop', 'pe telefon antetul derulează (D5)')
+    const header = page.locator('main header').first()
+    await page.mouse.wheel(0, 1500)
+    await page.waitForTimeout(400)
+    const box = await header.boundingBox()
+    test.skip(await page.evaluate(() => window.scrollY) < 200, 'pagina e prea scurtă ca să derulezi')
+    expect(Math.round(box!.y)).toBe(64)
+    await expect(header).toHaveAttribute('data-stuck', 'true')
+  })
+
+  test('Alt+L focalizează fâșia de locație pe o pagină de nivelul 2', async ({ page }) => {
+    const { projectId } = uiConfig()
+    test.skip(!projectId, 'E2E_PROJECT_ID lipsește')
+    await page.goto(`/projects/${projectId}`, { waitUntil: 'networkidle' })
     // Comanda trăiește în fâșia de locație; fără ea montată nu există ascultător.
     await expect(page.getByRole('navigation', { name: 'Locație' })).toBeVisible()
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
     await page.keyboard.press('Alt+l')
-    const focalizat = page.locator(':focus')
-    await expect(focalizat).toHaveText('Bonie')
+    await expect(page.locator(':focus')).toHaveText('Proiecte')
   })
 
   test('Alt+L nu fură tasta cât timp scrii într-un câmp', async ({ page }) => {

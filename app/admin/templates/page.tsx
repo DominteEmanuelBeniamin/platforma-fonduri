@@ -27,6 +27,7 @@ import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
 import { Spinner } from '@/components/ui/Spinner'
 import { LocationStrip } from '@/components/ui/LocationStrip'
 import { Button } from '@/components/ui/Button'
+import { PageHeader } from '@/components/ui/PageHeader'
 import { IconButton } from '@/components/ui/IconButton'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -1427,43 +1428,39 @@ function AdminTemplatesContent() {
 
   return (
     <div>
-      <LocationStrip
-        segments={[
-          { label: 'Bonie', href: '/' },
-          { label: 'Șabloane', href: '/admin/templates' },
-          ...(showForm
-            ? [{ label: editingTemplate ? (editingTemplate.name.trim() || 'Șablon fără nume') : 'Șablon nou' }]
-            : [{ label: 'Gestionează' }]),
-        ]}
-        action={
-          !showForm ? (
-            <Button data-tooltip="Pornește un șablon nou de faze și activități" variant="primary" onClick={openCreateForm} aria-label="Șablon nou">
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              <span className="hidden sm:inline">Șablon nou</span>
-            </Button>
-          ) : undefined
-        }
-      />
+      {/* Lista e pagină din meniu: antet lipit, cu căutarea și „Șablon nou” la
+          vedere la orice derulare (S-33). Editorul e nivelul 2: fâșia
+          „Șabloane / <nume>”, cu „Șabloane” ca drum înapoi (S-32). */}
+      {showForm && (
+        <LocationStrip
+          segments={[
+            { label: 'Șabloane', onClick: () => { void requestCancel() } },
+            { label: editingTemplate ? (editingTemplate.name.trim() || 'Șablon fără nume') : 'Șablon nou' },
+          ]}
+        />
+      )}
 
       {!showForm && (
         <>
-          {/* Pagină de lucru, nu de prezentare: titlul, cifrele și căutarea
-              stau pe un singur rând, ca lista să înceapă cât mai sus. */}
-          <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-ink md:text-3xl">Șabloane</h1>
-              <p className="mt-1 text-sm text-ink-soft">
-                {countLabel(templates.length, 'șablon', 'șabloane')} · {countLabel(totalFaze, 'fază', 'faze')} · {countLabel(totalActivitati, 'activitate', 'activități')}
-              </p>
-            </div>
-            {templates.length > 0 && (
-              <div className="w-full sm:w-72">
-                <SearchInput value={templateSearch} onChange={setTemplateSearch} placeholder="Caută după nume sau descriere…" label="Caută șabloane" />
-              </div>
-            )}
-          </div>
+          <PageHeader
+            title="Șabloane"
+            subtitle={`${countLabel(templates.length, 'șablon', 'șabloane')} · ${countLabel(totalFaze, 'fază', 'faze')} · ${countLabel(totalActivitati, 'activitate', 'activități')}`}
+            actions={
+              <>
+                {templates.length > 0 && (
+                  <div className="w-full sm:w-72">
+                    <SearchInput value={templateSearch} onChange={setTemplateSearch} placeholder="Caută după nume sau descriere…" label="Caută șabloane" />
+                  </div>
+                )}
+                <Button data-tooltip="Pornește un șablon nou de faze și activități" variant="primary" onClick={openCreateForm} aria-label="Șablon nou">
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  <span className="hidden sm:inline">Șablon nou</span>
+                </Button>
+              </>
+            }
+          />
 
-          <div className="mt-4 pb-10">
+          <div className="pb-10">
             {templates.length === 0 ? (
               <EmptyState
                 title="Niciun șablon creat"

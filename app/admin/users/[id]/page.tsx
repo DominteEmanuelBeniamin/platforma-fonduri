@@ -196,7 +196,6 @@ export default function UserFilesPage() {
     <div>
       <LocationStrip
         segments={[
-          { label: 'Bonie', href: '/' },
           { label: 'Utilizatori', href: '/admin/users' },
           { label: profileDisplayName(user, user.full_name || user.email) },
         ]}

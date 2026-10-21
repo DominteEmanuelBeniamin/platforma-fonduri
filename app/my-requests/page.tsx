@@ -14,7 +14,7 @@ import {
   CheckCircle2,
   Loader2,
 } from 'lucide-react'
-import { LocationStrip } from '@/components/ui/LocationStrip'
+import { PageHeader } from '@/components/ui/PageHeader'
 import { ButtonLink } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Signal } from '@/components/ui/Signal'
@@ -114,19 +114,15 @@ export default function MyRequestsPage() {
 
   return (
     <div className="flex flex-col">
-      <LocationStrip
-        segments={[{ label: 'Bonie', href: '/' }, { label: 'Cereri de documente' }]}
-        action={overdue.length > 0
+      <PageHeader
+        title="Cereri de documente"
+        subtitle={requests.length === 0
+          ? 'Nicio cerere în așteptare.'
+          : `${requests.length} ${requests.length === 1 ? 'cerere așteaptă' : 'cereri așteaptă'} răspuns de la clienți.`}
+        actions={overdue.length > 0
           ? <Signal tone="danger">{overdue.length} cu termen depășit</Signal>
           : undefined}
       />
-
-      <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Cereri de documente</h1>
-      <p className="mt-2 mb-8 text-sm text-ink-soft">
-        {requests.length === 0
-          ? 'Nicio cerere în așteptare.'
-          : `${requests.length} ${requests.length === 1 ? 'cerere așteaptă' : 'cereri așteaptă'} răspuns de la clienți.`}
-      </p>
 
       {/* Empty */}
       {requests.length === 0 ? (

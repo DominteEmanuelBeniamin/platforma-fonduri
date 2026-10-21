@@ -7,7 +7,7 @@ import { useAuth } from '@/app/providers/AuthProvider'
 import { useNotifications } from '@/app/providers/NotificationsProvider'
 import NotificationRow from '@/components/notifications/NotificationRow'
 import SelectFilter from '@/components/SelectFilter'
-import { LocationStrip } from '@/components/ui/LocationStrip'
+import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
 import {
   useNotificationFeed,
@@ -90,9 +90,10 @@ export default function NotificationsPage() {
 
   return (
     <div className="flex flex-col">
-      <LocationStrip
-        segments={[{ label: 'Bonie', href: '/' }, { label: 'Notificări' }]}
-        action={
+      <PageHeader
+        title="Notificări"
+        subtitle={unreadCount > 0 ? `${unreadCount} necitite` : 'Toate sunt citite.'}
+        actions={
           <Button variant="secondary" aria-label="Marchează toate notificările ca citite" onClick={() => void markAllRead()} disabled={busy || unreadCount === 0}>
             {markingAll ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CheckCheck className="h-4 w-4" aria-hidden="true" />}
             <span className="hidden sm:inline">Marchează tot ca citit</span>
@@ -101,10 +102,6 @@ export default function NotificationsPage() {
         }
       />
 
-      <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Notificări</h1>
-      <p className="mb-6 mt-2 text-sm text-ink-soft">
-        {unreadCount > 0 ? `${unreadCount} necitite` : 'Toate sunt citite.'}
-      </p>
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center rounded-[var(--radius-plate)] border border-rule bg-plate p-0.5" role="group" aria-label="Filtru după stare">

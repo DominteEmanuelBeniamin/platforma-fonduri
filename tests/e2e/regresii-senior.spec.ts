@@ -341,10 +341,11 @@ test('Editor de șabloane, ca senior: salvează un șablon publicat, fără fere
   const { context, page, errors } = await login(browser, SA.email, PASSWORD)
   try {
     await page.goto('/admin/templates')
-    const strip = page.getByRole('navigation', { name: 'Locație' })
-    await expect(strip.getByRole('link', { name: 'Șabloane' }), 'linkul nu duce la panoul adminului').toHaveAttribute('href', '/admin/templates')
-
+    // Lista e pagină din meniu: fără fâșie. În editor, „Șabloane” duce înapoi
+    // în listă, nu la panoul adminului (S-32).
+    await expect(page.getByRole('navigation', { name: 'Locație' })).toHaveCount(0)
     await page.getByRole('button', { name: `Editează șablonul ${TPL_NAME}`, exact: true }).click()
+    await expect(page.getByRole('navigation', { name: 'Locație' }).getByRole('button', { name: 'Șabloane' })).toBeVisible()
     await page.getByRole('button', { name: 'Adaugă fază nouă' }).click()
     await page.getByLabel('Nume pentru faza 2').fill('Fază adăugată din editor')
     const saved = page.waitForResponse(res => res.url().endsWith(`/api/admin/templates/${TPL}/tree`) && res.request().method() === 'PUT')
@@ -526,12 +527,15 @@ test('Fâșia de locație: pe desktop acțiunile stau pe un rând și nu ies din
     for (const [url, wait] of [[`/projects/${projectId}`, /^Echipa proiectului/], ['/admin/users', /Adaugă utilizator/], ['/admin/templates', /Șablon nou/], ['/', null]] as const) {
       await page.goto(url)
       if (wait) await page.getByRole('button', { name: wait }).first().waitFor({ timeout: 30_000 })
-      else await page.getByRole('navigation', { name: 'Locație' }).waitFor({ timeout: 30_000 })
+      else await page.getByRole('heading', { level: 1 }).waitFor({ timeout: 30_000 })
       await page.waitForTimeout(500)
       const layout = await page.evaluate(() => {
-        const nav = document.querySelector('nav[aria-label="Locație"]')!
-        const actions = nav.parentElement!.lastElementChild as HTMLElement
-        if (actions === nav) return { rows: 0, clipped: 0 }
+        // Nivelul 2 are fâșia de locație; paginile din meniu, antetul lipit (S-34).
+        const nav = document.querySelector('nav[aria-label="Locație"]')
+        const actions = (nav
+          ? nav.parentElement!.lastElementChild
+          : document.querySelector('main header > div')?.lastElementChild) as HTMLElement | null
+        if (!actions || actions === nav) return { rows: 0, clipped: 0 }
         // Rândurile se numără după centrul vertical: butoanele au înălțimi diferite,
         // deci marginea de sus diferă chiar și pe același rând.
         const centers = [...actions.children]

@@ -8,7 +8,7 @@ import { useAuth } from '@/app/providers/AuthProvider'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { useToast } from '@/app/providers/ToastProvider'
-import { LocationStrip } from '@/components/ui/LocationStrip'
+import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
 import { SearchInput } from '@/components/ui/SearchInput'
@@ -540,9 +540,11 @@ export default function AdminUsersPage() {
         </Dialog.Portal>
       </Dialog.Root>
 
-      <LocationStrip
-        segments={[{ label: 'Bonie', href: '/' }, { label: 'Utilizatori' }]}
-        action={
+      <PageHeader
+        title="Utilizatori"
+        titleProps={{ id: 'admin-users-heading', tabIndex: -1 }}
+        subtitle={`${users.length} ${users.length === 1 ? 'cont' : 'conturi'} · ${peRol.client} clienți, ${peRol.consultant} consultanți, ${peRol.admin} administratori`}
+        actions={
           <Button data-tooltip="Creează un cont nou: consultant, client sau administrator" variant="primary" aria-label="Adaugă utilizator" onClick={openCreatePanel}>
             <UserPlus className="h-4 w-4" aria-hidden="true" />
             <span className="hidden sm:inline">Adaugă utilizator</span>
@@ -550,12 +552,7 @@ export default function AdminUsersPage() {
         }
       />
 
-      <h1 id="admin-users-heading" tabIndex={-1} className="text-3xl font-bold tracking-tight text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--sg-accent)] md:text-4xl">Utilizatori</h1>
-      <p className="mt-2 text-sm text-ink-soft">
-        {users.length} {users.length === 1 ? 'cont' : 'conturi'} · {peRol.client} clienți, {peRol.consultant} consultanți, {peRol.admin} administratori
-      </p>
-
-      <div className="mt-6 flex flex-wrap items-center gap-2 border-b border-rule pb-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-rule pb-3">
         <div className="min-w-[220px] flex-1">
           <SearchInput value={cauta} onChange={setCauta} placeholder="Caută după email sau nume…" label="Caută utilizatori" />
         </div>

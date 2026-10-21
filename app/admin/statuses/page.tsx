@@ -7,7 +7,7 @@ import {
   Circle, CheckCircle, PlayCircle, FileEdit, Send, Search,
   FileSignature, Wallet, Eye, Archive, AlertCircle
 } from 'lucide-react'
-import { LocationStrip } from '@/components/ui/LocationStrip'
+import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { useAuth } from '@/app/providers/AuthProvider'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
@@ -196,9 +196,10 @@ export default function AdminStatusesPage() {
   return (
     <div>
       <div className="mx-auto max-w-4xl">
-        <LocationStrip
-          segments={[{ label: 'Bonie', href: '/' }, { label: 'Statusuri' }]}
-          action={
+        <PageHeader
+          title="Statusuri"
+          subtitle="Etapele mari prin care trece un proiect. Ordinea lor e cea în care apar peste tot în platformă."
+          actions={
             <>
               {hasOrderChanges && (
                 <Button data-tooltip="Salvează ordinea statusurilor, așa cum le-ai așezat" variant="primary" aria-label="Salvează ordinea" onClick={handleSaveOrder} disabled={saving}>
@@ -214,10 +215,6 @@ export default function AdminStatusesPage() {
           }
         />
 
-        <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Statusuri</h1>
-        <p className="mb-8 mt-2 text-sm text-ink-soft">
-          Etapele mari prin care trece un proiect. Ordinea lor e cea în care apar peste tot în platformă.
-        </p>
 
 
         {showNewForm && (

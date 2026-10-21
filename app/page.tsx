@@ -24,7 +24,7 @@ import { Counter } from '@/components/ui/Counter'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { Signal } from '@/components/ui/Signal'
 import { Button, ButtonLink, buttonClass } from '@/components/ui/Button'
-import { LocationStrip } from '@/components/ui/LocationStrip'
+import { PageHeader } from '@/components/ui/PageHeader'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { TONE, type SignalTone } from '@/lib/signage'
 import { canCreateProjects } from '@/lib/project-permissions'
@@ -824,9 +824,30 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col gap-6">
-      <LocationStrip
-        segments={[{ label: 'Bonie', href: '/' }, { label: 'Proiecte' }]}
-        action={
+      {/* Proiectele sunt practic pagina de pornire: fără fâșie de locație, cu
+          „De rezolvat” și „Proiect nou” lipite sus la derulare (S-05, S-34). */}
+      <PageHeader
+        title={`Salut, ${firstName}`}
+        subtitle={
+          <>
+          {currentDate}
+          {projects.length > 0 && (
+            <>
+              {' · '}
+              {projects.length} {projects.length === 1 ? 'proiect' : 'proiecte'}
+              {overdueReqs > 0 && (
+                <>
+                  {', '}
+                  <span className="font-semibold" style={{ color: 'var(--sg-danger)' }}>
+                    {overdueReqs} {overdueReqs === 1 ? 'termen depășit' : 'termene depășite'}
+                  </span>
+                </>
+              )}
+            </>
+          )}
+          </>
+        }
+        actions={
           <>
             {showPriority && (
               <Button
@@ -854,27 +875,6 @@ export default function Dashboard() {
           </>
         }
       />
-
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Salut, {firstName}</h1>
-        <p className="mt-2 text-sm text-ink-soft">
-          {currentDate}
-          {projects.length > 0 && (
-            <>
-              {' · '}
-              {projects.length} {projects.length === 1 ? 'proiect' : 'proiecte'}
-              {overdueReqs > 0 && (
-                <>
-                  {', '}
-                  <span className="font-semibold" style={{ color: 'var(--sg-danger)' }}>
-                    {overdueReqs} {overdueReqs === 1 ? 'termen depășit' : 'termene depășite'}
-                  </span>
-                </>
-              )}
-            </>
-          )}
-        </p>
-      </div>
 
       {projects.length === 0 ? (
         /* EMPTY — niciun proiect deloc */

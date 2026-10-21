@@ -1,7 +1,7 @@
 'use client'
 
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
-import { LocationStrip } from '@/components/ui/LocationStrip'
+import { PageHeader } from '@/components/ui/PageHeader'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
@@ -349,15 +349,13 @@ function ProjectDashboardContent() {
     // `project-scope` aduce paleta `--p-*`, ca ecranul să arate ca restul
     // suprafețelor de lucru.
     <div className="project-scope">
-      <LocationStrip
-        segments={[{ label: 'Bonie', href: '/' }, { label: 'Tablou de bord' }]}
-        action={ready ? <ViewSwitch view={view} onSwitch={switchView} /> : undefined}
-      />
-
-      <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Tablou de bord</h1>
       {/* Rezumatul ține loc de subtitlu: aceleași cifre, în locul unei
           propoziții care ar fi repetat numele coloanelor. */}
-      {ready && <div className="mt-2 text-sm text-ink-soft"><SummaryLine summary={summary} view={view} unassigned={unassigned} /></div>}
+      <PageHeader
+        title="Tablou de bord"
+        subtitle={ready ? <SummaryLine summary={summary} view={view} unassigned={unassigned} /> : undefined}
+        actions={ready ? <ViewSwitch view={view} onSwitch={switchView} /> : undefined}
+      />
 
       <header className="mt-6 flex flex-wrap items-center justify-end gap-x-6 gap-y-3 border-b border-rule pb-3">
         {ready && (

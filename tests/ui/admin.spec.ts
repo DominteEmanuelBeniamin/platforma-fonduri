@@ -50,7 +50,8 @@ test.describe('Ecranele de administrare', () => {
   test('tabloul de bord e un registru, nu un card', async ({ page }) => {
     await page.goto('/admin/proiecte', { waitUntil: 'networkidle' })
     await expect(page.getByRole('heading', { name: 'Tablou de bord', level: 1 })).toBeVisible()
-    await expect(page.getByRole('navigation', { name: 'Locație' })).toBeVisible()
+    // Pagină din meniu: antetul ei, fără fâșie de locație (S-05).
+    await expect(page.getByRole('navigation', { name: 'Locație' })).toHaveCount(0)
 
     // Capetele de coloană sunt butoane de sortare, cu stare anunțată.
     // Se caută în `th`: „Proiecte” din comutatorul de vedere ar prinde altfel.

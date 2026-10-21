@@ -4,7 +4,7 @@
 import { downloadBlob } from '@/lib/file-preview'
 import { Fragment, useEffect, useMemo, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { LocationStrip } from '@/components/ui/LocationStrip'
+import { PageHeader } from '@/components/ui/PageHeader'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import {
@@ -541,15 +541,14 @@ export default function AuditPage() {
 
   return (
     <div className="flex flex-col gap-6 pb-10">
-      <LocationStrip segments={[{ label: 'Bonie', href: '/' }, { label: 'Jurnal de audit' }]} />
-
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Jurnal de audit</h1>
-        <p className="mt-2 text-sm text-ink-soft">
-          {statsLoading || !stats
+      {/* Învelit: santinela antetului nu trebuie să primească și ea `gap-6`. */}
+      <div className="-mb-6">
+        <PageHeader
+          title="Jurnal de audit"
+          subtitle={statsLoading || !stats
             ? 'Toate acțiunile din sistem, în ordine cronologică.'
             : `${stats.totalLogs.toLocaleString('ro-RO')} de acțiuni înregistrate, din care ${stats.recentLogs.toLocaleString('ro-RO')} în ultima săptămână. ${(stats.byAction.login || 0).toLocaleString('ro-RO')} autentificări, ${(stats.byAction.update || 0).toLocaleString('ro-RO')} modificări.`}
-        </p>
+        />
       </div>
 
       <div className="space-y-4 rounded-[var(--radius-plate)] border border-rule bg-plate p-4 sm:p-5">
