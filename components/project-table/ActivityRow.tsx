@@ -117,6 +117,9 @@ export default function ActivityRow({
               members={projectMembers}
               canAssign={canAssign}
               onAssign={onAssign}
+              // Publică, activitatea nu poate rămâne fără responsabil (#70);
+              // una publicată înainte de regulă, deja fără, nu e oprită.
+              allowEmpty={activity.visibility !== 'published' || !activity.assigned_to}
             />
           </div>
           <div className={CELL}>
@@ -143,10 +146,13 @@ export default function ActivityRow({
           )}
         </div>
 
-        {/* „⋯” apare la trecerea mausului sau la focus; pe touch rămâne la vedere. */}
+        {/* „⋯” apare la trecerea mausului, cât meniul e deschis și la focus de
+            la tastatură; pe touch rămâne la vedere. Nu `focus-within`: după un
+            clic care închide meniul, focusul rămâne pe buton și îl ținea aprins
+            (S-09). */}
         {columns.actions && (
           <div
-            className={`col-start-2 row-start-1 flex items-start justify-center transition-opacity duration-[120ms] pointer-fine:opacity-0 pointer-fine:group-hover/row:opacity-100 focus-within:opacity-100 has-[[data-open=true]]:opacity-100 @min-[50rem]:col-start-auto @min-[50rem]:row-start-auto ${CELL}`}
+            className={`col-start-2 row-start-1 flex items-start justify-center transition-opacity duration-[120ms] pointer-fine:opacity-0 pointer-fine:group-hover/row:opacity-100 has-[:focus-visible]:opacity-100 has-[[data-open=true]]:opacity-100 @min-[50rem]:col-start-auto @min-[50rem]:row-start-auto ${CELL}`}
             onClick={e => e.stopPropagation()}
           >
             {actions}

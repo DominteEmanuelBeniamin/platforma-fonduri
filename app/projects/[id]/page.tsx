@@ -9,7 +9,6 @@ import {
   AlertCircle,
   Pencil,
   Check,
-  X,
   Loader2,
   Layers,
   Building2,
@@ -49,6 +48,7 @@ import { IconButton } from '@/components/ui/IconButton'
 import { Counter } from '@/components/ui/Counter'
 import ProjectPhasesSidebar from '@/components/ProjectPhasesSidebar'
 import RowActionsMenu from '@/components/RowActionsMenu'
+import InlineInput from '@/components/InlineInput'
 import {
   activityDeletionConfirm,
   activityDeletionImpact,
@@ -84,6 +84,7 @@ import {
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { usePatchField } from '@/hooks/usePatchField'
+import { useLeaveField } from '@/hooks/useLeaveField'
 import { NO_PROJECT_PERMISSIONS, type ProjectPermissions } from '@/lib/project-permissions'
 import { Spinner } from '@/components/ui/Spinner'
 import { profileDisplayName } from '@/lib/profile-display'
@@ -94,6 +95,7 @@ import {
   activityCompletionConfirm,
   activityProgress,
   countHiddenRoots,
+  hasFinalItems,
   hiddenFinalItems,
   type HiddenItems,
   isActivityFinal,
@@ -186,6 +188,9 @@ function ProjectDetailsContent() {
   // ca în monday; aici stau doar cele strânse de om. `expandedPhases` rămâne al
   // panoului din stânga, care își deschide fazele separat.
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set())
+  // Faza sau activitatea redenumită pe loc, în tabel. Se închide singură la
+  // orice schimbare de context: altă vedere, altă fază, grupuri strânse (S-11).
+  const [renamingId, setRenamingId] = useState<string | null>(null)
   const openGroups = useCallback((...ids: (string | null | undefined)[]) => {
     setCollapsedGroups(prev => {
       if (!ids.some(id => id && prev.has(id))) return prev
@@ -204,6 +209,7 @@ function ProjectDetailsContent() {
     openGroups(id)
   }, [openGroups])
   const toggleGroup = (id: string) => {
+    setRenamingId(null)
     setCollapsedGroups(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
@@ -278,7 +284,6 @@ function ProjectDetailsContent() {
   }, [])
 
   const [showAddActivity, setShowAddActivity] = useState<Record<string, boolean>>({})
-  const [newActivityName, setNewActivityName] = useState<Record<string, string>>({})
   const [addingActivity, setAddingActivity] = useState<Record<string, boolean>>({})
 
   // Aceeași regulă ca `buildDriveDocuments`: dacă există rânduri în
@@ -364,6 +369,8 @@ function ProjectDetailsContent() {
   // parametru, deci n-ar fi părut să facă nimic.
   const selectView = (view: ProjectView) => {
     setActiveView(view)
+    // Altă vedere, alt context: redenumirea începută nu rămâne agățată (S-11).
+    setRenamingId(null)
     if (!projectId) return
     const params = new URLSearchParams(searchParams.toString())
     if (view === 'phases') {
@@ -454,7 +461,6 @@ function ProjectDetailsContent() {
   // stânga. Reîmprospătăm doar fazele și cererile, ca pagina să nu treacă prin
   // spinnerul care remontează tot (vezi garda de `loading` de mai jos).
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
-  const [renamingId, setRenamingId] = useState<string | null>(null)
   const [savingRename, setSavingRename] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
@@ -623,8 +629,15 @@ function ProjectDetailsContent() {
 
   // ─── Actions ──────────────────────────────────────────────────────────────
 
+  // Titlul se încheie ca orice câmp pe loc (D1): plecarea salvează un nume
+  // schimbat și negol, altfel închide. Garda ține un singur deznodământ, fiindcă
+  // un clic în afară aduce și `pointerdown`, și `focusout`.
+  const titleEditorRef = useRef<HTMLDivElement>(null)
+  const titleSettling = useRef(false)
   const handleSaveTitle = async () => {
-    if (!editTitle.trim() || editTitle === project?.title) { setIsEditingTitle(false); return }
+    if (titleSettling.current) return
+    if (!editTitle.trim() || editTitle.trim() === project?.title) { setIsEditingTitle(false); return }
+    titleSettling.current = true
     setSaving(true)
     try {
       const res = await apiFetch(`/api/projects/${projectId}`, {
@@ -633,8 +646,12 @@ function ProjectDetailsContent() {
       const data = await res.json().catch(() => null)
       if (res.ok) { setProject(data.project); setIsEditingTitle(false) }
       else showToast('Nu am putut salva proiectul. Reîncearcă.', 'error')
-    } finally { setSaving(false) }
+    } finally {
+      setSaving(false)
+      titleSettling.current = false
+    }
   }
+  useLeaveField(titleEditorRef, isEditingTitle, () => { void handleSaveTitle() })
 
   // Reîmprospătăm tăcut, nu prin `fetchAll`: aceasta aprinde spinnerul de
   // pagină și demontează tot arborele, adică și editorul deschis pe loc, și
@@ -668,20 +685,19 @@ function ProjectDetailsContent() {
     )
   }
 
-  const handleAddActivity = async (phaseId: string) => {
-    const name = (newActivityName[phaseId] || '').trim()
-    if (!name) return
+  const handleAddActivity = async (phaseId: string, name: string) => {
+    if (!name.trim()) return
     setAddingActivity(prev => ({ ...prev, [phaseId]: true }))
     try {
       const res = await apiFetch(`/api/projects/${projectId}/phases/${phaseId}/activities`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name: name.trim() }),
       })
       if (res.ok) {
         setShowAddActivity(prev => ({ ...prev, [phaseId]: false }))
-        setNewActivityName(prev => ({ ...prev, [phaseId]: '' }))
-        fetchAll()
+        // Tăcut, nu prin `fetchAll`: spinnerul de pagină ar remonta tabelul.
+        await refreshContent()
         showToast('Activitatea a fost adăugată.', 'success')
       } else {
         await res.json().catch(() => null)
@@ -993,6 +1009,8 @@ function ProjectDetailsContent() {
     () => countHiddenRoots(hiddenFinalItems(phases, allDocRequests), phases, allDocRequests),
     [phases, allDocRequests],
   )
+  /** Comutatorul apare dacă există ceva finalizat, nu după preferința salvată. */
+  const showFinalToggle = useMemo(() => hasFinalItems(phases, allDocRequests), [phases, allDocRequests])
   const visiblePhases = useMemo(() => phases.filter(p => !hidden.phases.has(p.id)), [phases, hidden])
 
   // „Restrânge toate” lucrează pe grupurile vizibile, ca în monday: rămân doar
@@ -1011,6 +1029,7 @@ function ProjectDetailsContent() {
     setMobileSidebarOpen(false)
   }
   const handleToggleAllGroups = () => {
+    setRenamingId(null)
     setCollapsedGroups(allGroupsCollapsed ? new Set() : new Set([...visiblePhases.map(p => p.id), GENERAL_ID]))
   }
 
@@ -1468,7 +1487,7 @@ function ProjectDetailsContent() {
       )}
 
       {isEditingTitle && (
-        <div className="mb-4 flex items-center gap-2">
+        <div ref={titleEditorRef} className="mb-4 flex items-center gap-2">
           <input
             value={editTitle}
             onChange={e => setEditTitle(e.target.value)}
@@ -1615,7 +1634,7 @@ function ProjectDetailsContent() {
                       data-tooltip={tip}
                       type="button"
                       aria-pressed={landingView === view}
-                      onClick={() => setLandingView(view)}
+                      onClick={() => { setRenamingId(null); setLandingView(view) }}
                       className={`inline-flex min-h-10 items-center gap-1.5 rounded-[var(--radius-plate)] border px-3 text-[13px] font-semibold transition-colors duration-[120ms] pointer-fine:min-h-8 ${
                         landingView === view
                           ? 'border-rule bg-plate text-ink'
@@ -1630,11 +1649,16 @@ function ProjectDetailsContent() {
                 </div>
                 {landingView === 'table' && phases.length > 0 && (
                   <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">
-                    {/* Apare numai când chiar ascunde ceva, ca în tabloul de bord:
-                        altfel ar fi un control care nu face nimic vizibil. */}
-                    {(finalCount > 0 || showFinal) && (
+                    {/* Apare cât proiectul are ceva finalizat. Nu depinde de
+                        preferința salvată (aceeași pe toate proiectele) și nici
+                        de cifră: o activitate finalizată cu cereri deschise
+                        rămâne la vedere, iar comutatorul dispărea la propriul
+                        clic (S-13, feedback-ul lui Sandu). */}
+                    {showFinalToggle && (
                       <label
-                        data-tooltip="Arată și fazele, activitățile și cererile încheiate, ascunse ca să nu încurce"
+                        data-tooltip={finalCount > 0
+                          ? 'Arată și fazele, activitățile și cererile încheiate, ascunse ca să nu încurce'
+                          : 'Nimic ascuns acum: elementele finalizate mai au cereri deschise, deci rămân la vedere.'}
                         className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-soft pointer-fine:min-h-8"
                       >
                         <input
@@ -1897,35 +1921,15 @@ function ProjectDetailsContent() {
                       />
                       {canChange && (
                         showAddActivity[phase.id] ? (
-                          <div className="flex items-center gap-1.5 border-b border-rule px-2 py-1.5">
-                            <input
-                              autoFocus
-                              value={newActivityName[phase.id] || ''}
-                              onChange={e => setNewActivityName(prev => ({ ...prev, [phase.id]: e.target.value }))}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter') handleAddActivity(phase.id)
-                                if (e.key === 'Escape') setShowAddActivity(prev => ({ ...prev, [phase.id]: false }))
-                              }}
+                          <div className="border-b border-rule px-2 py-1.5">
+                            <InlineInput
+                              size="md"
                               placeholder="Nume activitate..."
-                              disabled={!!addingActivity[phase.id]}
-                              aria-label="Numele activității noi"
-                              className="h-9 min-w-0 flex-1 rounded-[var(--radius-plate)] border border-rule-strong bg-plate px-3 text-sm text-ink focus:border-[var(--sg-accent)]"
+                              label="Numele activității noi"
+                              loading={!!addingActivity[phase.id]}
+                              onConfirm={name => { void handleAddActivity(phase.id, name) }}
+                              onCancel={() => setShowAddActivity(prev => ({ ...prev, [phase.id]: false }))}
                             />
-                            <button
-                              onClick={() => handleAddActivity(phase.id)}
-                              disabled={!!addingActivity[phase.id] || !(newActivityName[phase.id] || '').trim()}
-                              aria-label="Adaugă activitatea"
-                              className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[var(--radius-plate)] bg-[var(--sg-accent)] text-white hover:bg-[var(--sg-accent-ink)] disabled:opacity-40"
-                            >
-                              {addingActivity[phase.id] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                            </button>
-                            <button
-                              onClick={() => setShowAddActivity(prev => ({ ...prev, [phase.id]: false }))}
-                              aria-label="Renunță"
-                              className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint hover:bg-paper-sunk hover:text-ink"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
                           </div>
                         ) : (
                           <button

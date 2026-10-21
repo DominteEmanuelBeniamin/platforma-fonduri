@@ -188,6 +188,14 @@ export default function ProjectPhasesSidebar({
   // id-uri distincte, deci o singură stare ajunge pentru amândouă)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [savingRename, setSavingRename] = useState<string | null>(null)
+  // O fază aleasă altundeva (tabel, căutare, link) închide redenumirea începută
+  // aici (S-11). Ajustat la randare, nu într-un efect, ca să nu clipească.
+  const [seenActivePhaseId, setSeenActivePhaseId] = useState(activePhaseId)
+  if (seenActivePhaseId !== activePhaseId) {
+    setSeenActivePhaseId(activePhaseId)
+    setRenamingId(null)
+  }
+  const select = (go: () => void) => { setRenamingId(null); go() }
 
   // deadline edit state: activityId → true/false (popup deschis)
   const [editingDeadline, setEditingDeadline] = useState<string | null>(null)
@@ -507,7 +515,7 @@ export default function ProjectPhasesSidebar({
         {onShowAll ? (
           <button
             type="button"
-            onClick={onShowAll}
+            onClick={() => select(onShowAll)}
             aria-current={showingAll ? 'true' : undefined}
             title="Arată toate fazele în tabel"
             className={`-ml-2 flex min-h-9 items-center gap-2 rounded-[var(--radius-plate)] px-2 text-sm font-semibold transition-colors duration-[120ms] hover:bg-paper-sunk ${
@@ -563,7 +571,7 @@ export default function ProjectPhasesSidebar({
             <div key={phase.id}>
               <Collapsible.Root open={isExpanded} onOpenChange={() => onToggleExpand(phase.id)}>
                 <div
-                    onClick={() => onSelectPhase(phase.id)}
+                    onClick={() => select(() => onSelectPhase(phase.id))}
                     onDragOver={e => handlePhaseDragOver(e, phase.id)}
                     data-tooltip={phaseDraft ? 'În pregătire — clientul n-o vede încă. Clic: doar faza asta în tabel.' : 'Clic: doar faza asta în tabel'}
                     className={`group relative flex min-h-11 items-center gap-2 rounded-[var(--radius-plate)] py-1 pl-1 pr-1 cursor-pointer transition-colors pointer-fine:min-h-8 ${
@@ -637,7 +645,7 @@ export default function ProjectPhasesSidebar({
                         // `group-hover` nu se declanșează pe touch, iar „⋯” e
                         // singura cale spre Redenumește / Duplică / Șterge:
                         // pe telefon rămâne vizibil.
-                        className="md:opacity-0 md:group-hover:opacity-100 pointer-coarse:opacity-100 focus-within:opacity-100 data-[open=true]:opacity-100 transition-opacity"
+                        className="md:opacity-0 md:group-hover:opacity-100 pointer-coarse:opacity-100 has-[:focus-visible]:opacity-100 data-[open=true]:opacity-100 transition-opacity"
                         actions={[
                           {
                             label: 'Redenumește',
@@ -694,7 +702,7 @@ export default function ProjectPhasesSidebar({
                         {/* Rândul întreg duce la activitate; datele și meniul își opresc
                             singure clicul. Numele rămâne întreg, termenul stă la dreapta. */}
                         <div
-                          onClick={() => { if (renamingId !== act.id) onSelectActivity?.(phase.id, act.id) }}
+                          onClick={() => { if (renamingId !== act.id) select(() => onSelectActivity?.(phase.id, act.id)) }}
                           className={`group/act relative flex min-h-11 items-center gap-1.5 rounded-[var(--radius-plate)] py-0.5 pl-2 pr-1 transition-colors pointer-fine:min-h-7 ${
                             onSelectActivity ? 'cursor-pointer hover:bg-[var(--p-surface-2)]' : ''
                           }`}
@@ -762,7 +770,7 @@ export default function ProjectPhasesSidebar({
                               label={`Acțiuni pentru activitatea ${act.name}`}
                               size="sm"
                               busy={duplicatingActivity === act.id || deletingActivity === act.id}
-                              className="md:opacity-0 md:group-hover/act:opacity-100 focus-within:opacity-100 data-[open=true]:opacity-100 transition-opacity"
+                              className="md:opacity-0 md:group-hover/act:opacity-100 pointer-coarse:opacity-100 has-[:focus-visible]:opacity-100 data-[open=true]:opacity-100 transition-opacity"
                               actions={[
                                 {
                                   label: 'Redenumește',
@@ -861,7 +869,7 @@ export default function ProjectPhasesSidebar({
         {/* Cereri generale — secțiune distinctă, separată de faze */}
         <div className="pt-2 mt-2 border-t border-[var(--p-border)]">
           <div
-            onClick={onSelectGeneral}
+            onClick={() => select(onSelectGeneral)}
             data-tooltip="Documentele care nu țin de o anumită fază"
             className={`group flex items-center gap-2 px-2.5 py-2 rounded-[var(--radius-plate)] cursor-pointer transition-colors ${
               isGeneralActive ? 'bg-[var(--p-accent-soft)]' : 'hover:bg-[var(--p-surface-2)]'

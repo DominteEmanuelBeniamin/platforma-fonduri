@@ -397,6 +397,72 @@ test('editorul din interfață: o singură cerere per salvare, de la creare la p
   expect(pageErrors).toEqual([])
 })
 
+test('salvarea nu se poate întrerupe: rămâi în editor, propagarea vine peste el, Anulează întreabă', async ({ page }) => {
+  test.setTimeout(120_000)
+  // Șablon publicat, folosit de un proiect: o cerere nouă are ce propaga.
+  const name = `${PREFIX} salvare`
+  const template = await createTemplate({
+    name,
+    slug: `${STAMP}-salvare`,
+    description: null,
+    phases: [{ id: 'p0', name: 'Faza 1', project_status_id: statusIds[0], activities: [
+      { id: 'p0a0', name: 'Activitate 1', document_requirements: [{ id: 'p0a0d0', name: 'Cerere 1', requirement_type: 'obligatoriu', attachments: [] }] },
+    ] }],
+  })
+  await ok('PATCH', `/api/admin/templates/${template.id}`, { status: 'published' })
+  const projectId = await createProject(`${PREFIX} proiect salvare`)
+  await ok('POST', `/api/projects/${projectId}/import-template`, { template_id: template.id })
+
+  await login(page)
+  await page.goto('/admin/templates', { waitUntil: 'domcontentloaded' })
+  const editorHeading = page.getByRole('heading', { name: 'Editează șablonul' })
+
+  // Fără modificări, „Anulează” închide direct.
+  await page.getByRole('button', { name: `Editează șablonul ${name}` }).click()
+  await expect(editorHeading).toBeVisible()
+  await page.getByRole('button', { name: 'Anulează', exact: true }).click()
+  await expect(editorHeading).toHaveCount(0)
+
+  // Cu modificări, întreabă; „Anulează” din confirmare lasă editorul cum era (D12).
+  await page.getByRole('button', { name: `Editează șablonul ${name}` }).click()
+  await addDoc(page, 0, 'Cerere nouă la salvare')
+  await page.getByRole('button', { name: 'Anulează', exact: true }).click()
+  const discard = page.getByRole('dialog', { name: 'Renunți la modificări?' })
+  await expect(discard).toBeVisible()
+  await discard.getByRole('button', { name: 'Anulează' }).click()
+  await expect(discard).toHaveCount(0)
+  await expect(editorHeading).toBeVisible()
+  await expect(page.getByText('Cerere nouă la salvare', { exact: true })).toBeVisible()
+
+  // Două clicuri pe aceeași poziție a butonului, cu salvarea încă pe drum:
+  // butonul nu se îngustează, deci al doilea clic nu ajunge pe „Anulează”.
+  await page.route(`**/api/admin/templates/${template.id}/tree`, async route => {
+    await new Promise(resolve => setTimeout(resolve, 1500))
+    await route.continue()
+  })
+  const saveButton = page.getByRole('button', { name: 'Salvează modificările' })
+  const before = await saveButton.boundingBox()
+  await page.mouse.click(before!.x + 12, before!.y + before!.height / 2)
+  await page.waitForTimeout(60)
+  const during = await saveButton.boundingBox()
+  expect(during, 'butonul își păstrează locul și lățimea cât se salvează').toEqual(before)
+  await expect(saveButton).toHaveAttribute('aria-busy', 'true')
+  await page.mouse.click(before!.x + 12, before!.y + before!.height / 2)
+  await expect(page.getByRole('button', { name: 'Anulează', exact: true })).toHaveAttribute('aria-disabled', 'true')
+  await expect(editorHeading).toBeVisible()
+
+  // Adminul rămâne în editor; dialogul de propagare se deschide peste el.
+  const propagation = page.getByRole('dialog', { name: 'Propagă modificările template-ului' })
+  await expect(propagation).toBeVisible({ timeout: 30_000 })
+  await expect(editorHeading).toBeVisible()
+  await page.unroute(`**/api/admin/templates/${template.id}/tree`)
+  // „Mai târziu” închide propagarea și abia atunci iese din editor.
+  await propagation.getByRole('button', { name: 'Mai târziu' }).click()
+  await expect(editorHeading).toHaveCount(0)
+  await expect(page.getByRole('button', { name: `Editează șablonul ${name}` })).toBeVisible()
+  expect((await templateTree(template.id))[0].activities[0].docs).toEqual(['Cerere 1', 'Cerere nouă la salvare'])
+})
+
 async function login(page: Page) {
   await page.goto('/login', { waitUntil: 'domcontentloaded' })
   await page.locator('input[type=email]').fill(ADMIN.email)

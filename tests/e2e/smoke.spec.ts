@@ -557,9 +557,12 @@ test.describe('upload real pe proiect efemer', () => {
     await page.waitForTimeout(1500)
     await expect(page.locator('[role=dialog]')).toHaveCount(0)
 
-    await page.locator('input[type=file]:not([webkitdirectory])').first()
+    // Sub rând stă doar butonul; fișierele se aleg în dialogul cererii.
+    await page.getByRole('button', { name: /^(Re)?[îÎ]ncarcă fișiere$/ }).first().click()
+    const uploadDialog = page.getByRole('dialog')
+    await uploadDialog.locator('input[type=file]:not([webkitdirectory])').first()
       .setInputFiles(samplePdf(`smoke-e2e-panel-${fixture!.projectId}.pdf`))
-    await page.getByRole('button', { name: /^Încarcă \(1\)$/ }).first().click()
+    await uploadDialog.getByRole('button', { name: /^Încarcă \(1\)$/ }).click()
     await page.waitForTimeout(12_000)
 
     expect(steps).toEqual([200, 200])

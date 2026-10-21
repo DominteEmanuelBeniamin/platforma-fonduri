@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown, Search, UserRound } from 'lucide-react'
 import { getInitials } from '@/lib/avatar'
@@ -50,6 +50,8 @@ export function AssigneePicker({
   label,
   title = 'Responsabil',
   emptyLabel = 'Neatribuită',
+  allowEmpty = true,
+  emptyBlockedReason = 'Activitatea e vizibilă clientului: trebuie să aibă un responsabil.',
 }: {
   value: string | null | undefined
   /** Persoana aleasă acum, cu numele ei — poate fi și un cont dezactivat. */
@@ -60,6 +62,13 @@ export function AssigneePicker({
   label: string
   title?: string
   emptyLabel?: string
+  /**
+   * `false` pe un element public: „Fără responsabil” rămâne în listă, dar
+   * dezactivat și cu motivul sub el. Serverul refuză oricum golirea (#70), iar
+   * fără asta omul afla abia din eroare că alegerea nu era voie.
+   */
+  allowEmpty?: boolean
+  emptyBlockedReason?: string
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -67,6 +76,7 @@ export function AssigneePicker({
   const rootRef = useRef<HTMLSpanElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const emptyReasonId = useId()
 
   const active = members.filter(m => m.is_active !== false)
   const needle = query.trim().toLowerCase()
@@ -102,7 +112,7 @@ export function AssigneePicker({
 
   useEffect(() => {
     if (!open) return
-    const options = () => [...(panelRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not([disabled])') ?? [])]
+    const options = () => [...(panelRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not([disabled]):not([aria-disabled="true"])') ?? [])]
     const onPointerDown = (event: MouseEvent) => {
       const target = event.target as Node
       if (!rootRef.current?.contains(target) && !panelRef.current?.contains(target)) close(false)
@@ -140,7 +150,9 @@ export function AssigneePicker({
     if (open) panelRef.current?.querySelector<HTMLInputElement>('input')?.focus()
   }, [open])
 
-  const option = (id: string | null, who: Person | null, text: string, disabled = false) => {
+  // `blocked` e `aria-disabled`, nu `disabled`: opțiunea rămâne citită de
+  // cititoarele de ecran, cu motivul legat de ea.
+  const option = (id: string | null, who: Person | null, text: string, disabled = false, blocked = false) => {
     const selected = (value ?? null) === id
     return (
       <button
@@ -149,8 +161,10 @@ export function AssigneePicker({
         role="option"
         aria-selected={selected}
         disabled={disabled}
-        onClick={() => choose(id)}
-        className="flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-[13px] text-ink transition-colors duration-[120ms] hover:bg-paper focus-visible:bg-paper focus-visible:outline-offset-[-2px] disabled:cursor-not-allowed disabled:text-ink-faint pointer-fine:min-h-9"
+        aria-disabled={blocked || undefined}
+        aria-describedby={blocked ? emptyReasonId : undefined}
+        onClick={() => { if (!blocked) choose(id) }}
+        className="flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-[13px] text-ink transition-colors duration-[120ms] hover:bg-paper focus-visible:bg-paper focus-visible:outline-offset-[-2px] disabled:cursor-not-allowed disabled:text-ink-faint aria-disabled:cursor-not-allowed aria-disabled:text-ink-faint aria-disabled:hover:bg-transparent pointer-fine:min-h-9"
       >
         <Initials name={who?.full_name} email={who?.email} muted={!id} />
         <span className={`min-w-0 flex-1 truncate ${id ? '' : 'text-ink-soft'}`}>{text}</span>
@@ -222,7 +236,10 @@ export function AssigneePicker({
             {inactiveCurrent && option(value!, current, profileDisplayName(current), true)}
             {shown.map(m => option(m.id, m, profileDisplayName(m)))}
             <div className="mt-1 border-t border-rule pt-1">
-              {option(null, null, 'Fără responsabil')}
+              {option(null, null, 'Fără responsabil', false, !allowEmpty)}
+              {!allowEmpty && (
+                <p id={emptyReasonId} className="px-3 pb-1.5 text-[11px] leading-4 text-ink-faint">{emptyBlockedReason}</p>
+              )}
             </div>
           </div>
         </div>,

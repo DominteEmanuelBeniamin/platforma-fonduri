@@ -518,7 +518,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                       {latest && isPreviewableFile({ fileName: latest.original_name || latest.storage_path }) && (
                         <button
                           onClick={() => handleOpen(latest.id, latest.original_name || latest.storage_path)}
-                          className="p-2 rounded-full transition-colors opacity-0 group-hover:opacity-100"
+                          className="p-2 rounded-full transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
                           style={{ color: '#5f6368' }}
                           onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
                           onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
@@ -531,7 +531,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                         <button
                           onClick={() => handleDownload(latest.id)}
                           disabled={downloading === latest.id}
-                          className="p-2 rounded-full transition-colors disabled:opacity-40 opacity-0 group-hover:opacity-100"
+                          className="p-2 rounded-full transition-colors disabled:opacity-40 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
                           style={{ color: '#5f6368' }}
                           onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
                           onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}

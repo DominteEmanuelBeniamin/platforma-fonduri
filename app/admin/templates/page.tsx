@@ -16,6 +16,7 @@ import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { useToast } from '@/app/providers/ToastProvider'
 import { buildCopyName } from '@/lib/duplicate-name'
+import { templateFormDirty, type TemplateFormState } from '@/lib/template-form'
 import { serverMessage } from '@/lib/api-error'
 import { mapWithConcurrency } from '@/lib/template-tree'
 import {
@@ -357,10 +358,10 @@ const titleInputErrorClass = 'border-[var(--sg-danger)]! bg-[var(--sg-danger-sof
 /** Mânerul de tras e doar pentru maus: tragerea HTML nu merge la atingere, acolo rămân săgețile. */
 const dragHandleClass = 'hidden shrink-0 cursor-grab p-0.5 text-ink-faint hover:text-ink-soft active:cursor-grabbing pointer-fine:block'
 
-/* Săgețile de reordonare apar la hover sau la focus când există maus; la atingere stau mereu la vedere. */
-const revealOnPhaseHover = 'transition-opacity duration-[120ms] pointer-fine:opacity-0 group-hover/phase:opacity-100! focus-within:opacity-100!'
-const revealOnActivityHover = 'transition-opacity duration-[120ms] pointer-fine:opacity-0 group-hover/act:opacity-100! focus-within:opacity-100!'
-const revealOnDocHover = 'transition-opacity duration-[120ms] pointer-fine:opacity-0 group-hover/doc:opacity-100! focus-within:opacity-100!'
+/* Săgețile de reordonare apar la hover sau la focus de la tastatură când există maus; la atingere stau mereu la vedere. */
+const revealOnPhaseHover = 'transition-opacity duration-[120ms] pointer-fine:opacity-0 group-hover/phase:opacity-100! has-[:focus-visible]:opacity-100!'
+const revealOnActivityHover = 'transition-opacity duration-[120ms] pointer-fine:opacity-0 group-hover/act:opacity-100! has-[:focus-visible]:opacity-100!'
+const revealOnDocHover = 'transition-opacity duration-[120ms] pointer-fine:opacity-0 group-hover/doc:opacity-100! has-[:focus-visible]:opacity-100!'
 
 /** Perechea sus/jos — alternativa la tastatură a tragerii cu mouse-ul, cerută de WCAG 2.1.1. */
 function ReorderButtons({
@@ -400,7 +401,7 @@ function AdminTemplatesContent() {
   const canManageTemplates = isAdmin || (profile?.role === 'consultant' && profile?.consultant_level === 'senior')
   const canEditTemplate = (template: Template) => canManageTemplates || template.status === 'draft'
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
-  const { showToast } = useToast()
+  const { showToast, confirm } = useToast()
 
   const [templates, setTemplates] = useState<Template[]>([])
   const [statuses, setStatuses] = useState<ProjectStatus[]>([])
@@ -414,6 +415,14 @@ function AdminTemplatesContent() {
   const [templateDescription, setTemplateDescription] = useState('')
   const [phases, setPhases] = useState<TemplatePhase[]>([])
   const [saving, setSaving] = useState(false)
+  // Garda salvării, pe lângă `saving`: pe un șablon mare randarea întârzie, iar
+  // un al doilea clic apucă butonul încă activ (S-29).
+  const savingRef = useRef(false)
+  // Formularul de la deschidere (sau de la ultima salvare): „Anulează” întreabă
+  // doar dacă s-a schimbat ceva de atunci (D12).
+  const formSnapshotRef = useRef<TemplateFormState>({ name: '', description: '', phases: [] })
+  // Adminul rămâne în editor până închide propagarea; abia apoi iese în listă.
+  const exitAfterPropagationRef = useRef(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [validationErrors, setValidationErrors] = useState<Set<string>>(new Set())
   const [consultants, setConsultants] = useState<Consultant[]>([])
@@ -900,12 +909,14 @@ function AdminTemplatesContent() {
   }
 
   const openCreateForm = useCallback(() => {
+    formSnapshotRef.current = { name: '', description: '', phases: [] }
     setFormError(null)
     setValidationErrors(new Set())
     setShowForm(true)
   }, [])
 
-  const resetForm = () => {
+  /** Închide editorul fără nicio întrebare; „Anulează” trece prin `requestCancel`. */
+  const closeEditor = () => {
     setTemplateName('')
     setTemplateDescription('')
     setPhases([])
@@ -914,6 +925,30 @@ function AdminTemplatesContent() {
     setValidationErrors(new Set())
     setShowForm(false)
   }
+
+  // Cât se salvează, editorul nu se închide: salvarea ar continua în spate și
+  // propagarea ar apărea peste listă (S-29). Cu modificări nesalvate, întreabă.
+  const requestCancel = async () => {
+    if (savingRef.current) return
+    const current = { name: templateName, description: templateDescription, phases }
+    if (templateFormDirty(formSnapshotRef.current, current) && !(await confirm({
+      title: 'Renunți la modificări?',
+      description: 'Ce ai schimbat de la ultima salvare se pierde.',
+      confirmText: 'Renunță la modificări',
+    }))) return
+    closeEditor()
+  }
+
+  // Și ieșirea din pagină cere confirmare cât timp salvarea e pe drum.
+  useEffect(() => {
+    if (!saving) return
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [saving])
 
   const uploadTemplateFile = async (file: File): Promise<string | null> => {
     try {
@@ -937,7 +972,8 @@ function AdminTemplatesContent() {
     }
   }
 
-  const openTemplatePropagation = async (templateId: string) => {
+  /** `true` dacă s-a deschis dialogul; altfel a spus deja de ce, ca toast. */
+  const openTemplatePropagation = async (templateId: string): Promise<boolean> => {
     const previewRes = await apiFetch(`/api/admin/templates/${templateId}/propagation/preview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -946,7 +982,7 @@ function AdminTemplatesContent() {
     const previewData = await previewRes.json().catch(() => ({}))
     if (!previewRes.ok) {
       showToast('Nu am putut încărca previzualizarea propagării. Reîncearcă.', 'error')
-      return
+      return false
     }
 
     const preview = previewData as TemplatePropagationPreview
@@ -955,13 +991,14 @@ function AdminTemplatesContent() {
 
     if (affectedEligible.length === 0 && ineligible.length === 0) {
       showToast('Nu există proiecte care necesită propagarea modificărilor.', 'info')
-      return
+      return false
     }
 
     setPropagationTemplateId(templateId)
     setPropagationPreview(preview)
     setPropagationSelectedProjectIds(affectedEligible.map(project => project.project_id))
     setPropagationError(null)
+    return true
   }
 
   const closeTemplatePropagation = () => {
@@ -970,6 +1007,11 @@ function AdminTemplatesContent() {
     setPropagationPreview(null)
     setPropagationSelectedProjectIds([])
     setPropagationError(null)
+    // Propagarea deschisă din editor, după salvare: abia acum se iese în listă.
+    if (exitAfterPropagationRef.current) {
+      exitAfterPropagationRef.current = false
+      closeEditor()
+    }
   }
 
   const togglePropagationProject = (projectId: string) => {
@@ -1045,6 +1087,7 @@ function AdminTemplatesContent() {
   }
 
   const handleSave = async () => {
+    if (savingRef.current) return
     const validation = validateTemplateForm()
     if (!validation.ok) {
       setValidationErrors(validation.errors)
@@ -1054,6 +1097,7 @@ function AdminTemplatesContent() {
 
     setFormError(null)
     setValidationErrors(new Set())
+    savingRef.current = true
     setSaving(true)
     try {
       // Fișierele noi urcă direct în storage, câteva în paralel, înainte de
@@ -1130,16 +1174,23 @@ function AdminTemplatesContent() {
 
       if (editingTemplate && editingTemplate.status === 'published') {
         if (isAdmin) {
-          await openTemplatePropagation(saved.id)
+          // Dialogul de propagare se deschide peste editor; editorul se
+          // închide odată cu el (aplicat sau „Mai târziu”).
+          if (await openTemplatePropagation(saved.id)) {
+            exitAfterPropagationRef.current = true
+            formSnapshotRef.current = { name: templateName, description: templateDescription, phases }
+            return
+          }
         } else {
           showToast('Șablonul a fost salvat. Un administrator poate propaga modificările în proiecte.', 'success')
         }
       }
 
-      resetForm()
+      closeEditor()
     } catch (error: any) {
       showToast(error?.message || 'Nu am putut salva template-ul. Reîncearcă.', 'error')
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
@@ -1307,6 +1358,7 @@ function AdminTemplatesContent() {
       })) || []
     })) || []
     setPhases(editablePhases)
+    formSnapshotRef.current = { name: template.name, description: template.description || '', phases: editablePhases }
     setShowForm(true)
   }, [canManageTemplates])
 
@@ -1943,7 +1995,17 @@ function AdminTemplatesContent() {
                 <span className="mt-0.5 block truncate text-xs text-ink-soft">{formSummary}</span>
               </p>
               <div className="flex shrink-0 gap-2">
-                <Button data-tooltip="Închide editorul fără să salvezi" variant="quiet" className="flex-1 sm:flex-none" onClick={resetForm}>
+                {/* Cât se salvează, „Anulează” nu închide nimic, iar butonul de
+                    salvare își păstrează lățimea: doar iconița devine spinner.
+                    Înainte, „Se salvează…” îl îngusta, iar al doilea clic cădea
+                    pe „Anulează” (S-29). */}
+                <Button
+                  data-tooltip={saving ? 'Așteaptă să se termine salvarea' : 'Închide editorul fără să salvezi'}
+                  variant="quiet"
+                  className="flex-1 aria-disabled:cursor-not-allowed aria-disabled:opacity-55 sm:flex-none"
+                  aria-disabled={saving || undefined}
+                  onClick={() => { void requestCancel() }}
+                >
                   Anulează
                 </Button>
                 <Button data-tooltip={editingTemplate ? 'Salvează modificările șablonului' : 'Creează șablonul'}
@@ -1951,9 +2013,10 @@ function AdminTemplatesContent() {
                   className="flex-1 sm:flex-none"
                   onClick={handleSave}
                   disabled={saving || !templateName.trim()}
+                  aria-busy={saving || undefined}
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
-                  {saving ? 'Se salvează…' : (editingTemplate ? 'Salvează modificările' : 'Creează template')}
+                  {editingTemplate ? 'Salvează modificările' : 'Creează template'}
                 </Button>
               </div>
             </div>

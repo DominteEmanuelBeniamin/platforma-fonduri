@@ -213,6 +213,7 @@ export function AssigneeCell({
   canAssign,
   onAssign,
   label = 'Atribuie consultant',
+  allowEmpty = true,
 }: {
   assignedTo: string | null | undefined
   assignedUser: Member | null | undefined
@@ -220,9 +221,11 @@ export function AssigneeCell({
   canAssign: boolean
   onAssign: (id: string | null) => void
   label?: string
+  /** `false` pe o activitate publică: responsabilul se schimbă, nu se scoate. */
+  allowEmpty?: boolean
 }) {
   if (canAssign) {
-    return <AssigneePicker value={assignedTo} person={assignedUser} members={members} onChange={onAssign} label={label} />
+    return <AssigneePicker value={assignedTo} person={assignedUser} members={members} onChange={onAssign} label={label} allowEmpty={allowEmpty} />
   }
   const name = assignedTo ? profileDisplayName(assignedUser) : null
   return (
