@@ -4,6 +4,21 @@ import { requirePrivateConversationParticipant } from '@/app/api/_utils/private-
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { chatTimestampMicroseconds } from '@/lib/chat-timestamp'
 
+type ServiceClient = ReturnType<typeof createSupabaseServiceClient>
+
+/** Ora celui mai nou mesaj din conversație, în ceasul bazei de date (0 dacă nu există sau nu răspunde). */
+async function newestMessageMicroseconds(admin: ServiceClient, conversationId: string) {
+  const { data, error } = await admin
+    .from('private_messages')
+    .select('created_at')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error || !data?.created_at) return 0
+  return chatTimestampMicroseconds(data.created_at)
+}
+
 const MarkReadSchema = z
   .object({
     readThroughAt: z.iso.datetime({ offset: true }).optional(),
@@ -72,8 +87,13 @@ export async function POST(
     }
 
     const readThroughAt = parsed.data?.readThroughAt
+    // Un marcaj din viitor e plafonat. Ora unui mesaj existent e mereu acceptată, chiar dacă
+    // ceasul bazei de date e înaintea celui al serverului de aplicație.
+    const ceiling = readThroughAt
+      ? Math.max(chatTimestampMicroseconds(requestTimeIso), await newestMessageMicroseconds(admin, conversationId))
+      : 0
     const requestedReadThroughAt = readThroughAt &&
-      chatTimestampMicroseconds(readThroughAt) <= chatTimestampMicroseconds(requestTimeIso)
+      chatTimestampMicroseconds(readThroughAt) <= ceiling
       ? readThroughAt
       : requestTimeIso
     const currentLastReadAt = accessRes.participant.last_read_at

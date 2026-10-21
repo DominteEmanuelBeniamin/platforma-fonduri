@@ -646,11 +646,19 @@ export default function PrivateChatView({
           sendingId={textQueue.sendingId}
           failed={textQueue.failed}
           onRetry={textQueue.retry}
+          onDiscard={() => {
+            const discarded = textQueue.discardFailed()
+            if (discarded && !textRef.current.trim()) {
+              textRef.current = discarded
+              setText(discarded)
+            }
+          }}
         />
         <div className="flex items-end gap-2 rounded-[20px] border border-rule bg-paper-sunk p-1.5 shadow-sm transition-all focus-within:border-rule-strong focus-within:bg-white focus-within:ring-2 focus-within:ring-[var(--sg-accent)]">
           <textarea
             ref={textareaRef}
             value={text}
+            maxLength={5000}
             onChange={(e) => {
               textRef.current = e.target.value
               setText(e.target.value)

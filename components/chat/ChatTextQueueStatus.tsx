@@ -7,9 +7,10 @@ type Props = {
   sendingId: number | null
   failed: boolean
   onRetry: () => void
+  onDiscard: () => void
 }
 
-export default function ChatTextQueueStatus({ items, sendingId, failed, onRetry }: Props) {
+export default function ChatTextQueueStatus({ items, sendingId, failed, onRetry, onDiscard }: Props) {
   const first = items[0]
   if (!first) return null
 
@@ -27,14 +28,24 @@ export default function ChatTextQueueStatus({ items, sendingId, failed, onRetry 
         </span>
         {items.length > 1 && <span className="shrink-0">+{items.length - 1} în așteptare</span>}
         {failed && (
-          <button
-            type="button"
-            onClick={onRetry}
-            className="shrink-0 font-semibold text-ink underline"
-            aria-label="Reîncearcă trimiterea mesajului"
-          >
-            Reîncearcă
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="shrink-0 font-semibold text-ink underline"
+              aria-label="Reîncearcă trimiterea mesajului"
+            >
+              Reîncearcă
+            </button>
+            <button
+              type="button"
+              onClick={onDiscard}
+              className="shrink-0 font-semibold text-ink underline"
+              aria-label="Renunță la mesajul netrimis și pune-l înapoi în editor"
+            >
+              Renunță
+            </button>
+          </>
         )}
       </div>
     </div>

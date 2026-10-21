@@ -147,17 +147,31 @@ export function useChatTextQueue(
 
   useEffect(() => {
     if (!scope || !enabled) return
+    // Un sender propriu fiecărei montări, ca o montare nouă să nu fie scoasă de curățarea celei vechi.
+    const sender: QueueSender = (text) => scopedSender(text)
     const senders = queueSenders.get(scope) ?? new Set<QueueSender>()
-    senders.add(scopedSender)
+    senders.add(sender)
     queueSenders.set(scope, senders)
     const store = getStore(scope)
     if (store.items.length && !store.failed) void drainQueue(scope)
 
     return () => {
-      const attachedSenders = queueSenders.get(scope)
-      attachedSenders?.delete(scopedSender)
-      if (attachedSenders?.size === 0) queueSenders.delete(scope)
-      removeEmptyStore(scope, store)
+      const detach = () => {
+        const attachedSenders = queueSenders.get(scope)
+        attachedSenders?.delete(sender)
+        if (attachedSenders?.size === 0) queueSenders.delete(scope)
+        removeEmptyStore(scope, store)
+      }
+      // La schimbarea conversației sau a paginii, textele deja puse în coadă pleacă în continuare.
+      // Dacă scope-ul sau trimiterea s-au schimbat, senderul se oprește singur (pauseQueue).
+      if (!store.inFlight) {
+        detach()
+        return
+      }
+      void (async () => {
+        while (store.inFlight) await store.inFlight
+        detach()
+      })()
     }
   }, [enabled, scope, scopedSender])
 
@@ -185,6 +199,22 @@ export function useChatTextQueue(
     }
   }, [enabled, scope])
 
+  // Scoate din coadă mesajul care nu a putut fi trimis și reia trimiterea celorlalte.
+  // Întoarce textul, ca să poată fi pus înapoi în editor.
+  const discardFailed = useCallback(() => {
+    if (!scope) return null
+    const store = getStore(scope)
+    if (!store.failed || store.inFlight) return null
+    const [first, ...rest] = store.items
+    if (!first) return null
+    store.items = rest
+    store.failed = false
+    publish(store)
+    if (store.items.length) void drainQueue(scope)
+    else removeEmptyStore(scope, store)
+    return first.text
+  }, [scope])
+
   const waitForIdle = useCallback(async () => {
     if (!scope) return true
     const store = getStore(scope)
@@ -199,6 +229,7 @@ export function useChatTextQueue(
     failed: snapshot.failed,
     enqueue,
     retry,
+    discardFailed,
     waitForIdle,
   }
 }

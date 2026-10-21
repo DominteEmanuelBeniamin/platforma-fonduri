@@ -267,7 +267,16 @@ export default function ProjectChatDrawer({
         if (attempt.phase !== 'posting') attempt.controller.abort();
         await attempt.settled;
       }
-      if (!(await waitForTextQueue())) return;
+      if (!(await waitForTextQueue())) {
+        // Coada s-a oprit la un mesaj care nu a putut fi trimis (de exemplu, proiectul a fost
+        // încheiat între timp); chatul trebuie să se poată închide oricum.
+        const closeAnyway = await confirm({
+          title: 'Închizi chatul?',
+          description: 'Unele mesaje nu au fost trimise și vor rămâne netrimise dacă închizi chatul.',
+          confirmText: 'Închide chatul',
+        });
+        if (!closeAnyway) return;
+      }
       onClose();
     })().finally(() => {
       if (closePromiseRef.current === closePromise) closePromiseRef.current = null;
@@ -275,7 +284,7 @@ export default function ProjectChatDrawer({
 
     closePromiseRef.current = closePromise;
     return closePromise;
-  }, [onClose, waitForTextQueue]);
+  }, [confirm, onClose, waitForTextQueue]);
 
   const addFiles = (incoming: File[]) => {
     if (!incoming.length || activeAttemptRef.current || uploading || sending || textQueue.items.length > 0) return;
@@ -647,11 +656,13 @@ export default function ProjectChatDrawer({
         setPreview(null);
         return;
       }
+      // Meniul „…” deschis își tratează singur Escape-ul (îl închide și mută focusul pe buton).
+      if (openMenuId) return;
       if (!editingId) closeDrawer();
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [open, closeDrawer, editingId, preview, searchOpen, stepPreview]);
+  }, [open, closeDrawer, editingId, openMenuId, preview, searchOpen, stepPreview]);
 
   useEffect(() => {
     if (!open) return;
@@ -1017,6 +1028,13 @@ export default function ProjectChatDrawer({
             sendingId={textQueue.sendingId}
             failed={textQueue.failed}
             onRetry={textQueue.retry}
+            onDiscard={() => {
+              const discarded = textQueue.discardFailed();
+              if (discarded && !textRef.current.trim()) {
+                textRef.current = discarded;
+                setText(discarded);
+              }
+            }}
           />
           {!!attachments.length && (
             <div className="mb-2 flex gap-2 overflow-x-auto px-1">
@@ -1085,6 +1103,7 @@ export default function ProjectChatDrawer({
             <textarea
               ref={textareaRef}
               value={text}
+              maxLength={5000}
               onChange={(e) => {
                 textRef.current = e.target.value;
                 setText(e.target.value);

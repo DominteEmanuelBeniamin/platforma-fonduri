@@ -310,13 +310,16 @@ export function usePrivateChat(
 
   const sendMessage = useCallback(
     async (body: string) => {
-      const operation = getCurrentOperation()
-      if (!operation) return false
       const trimmed = body.trim()
       if (!trimmed) return false
+      // Fără o montare activă (utilizatorul a trecut la altă conversație), textul deja pus în
+      // coadă se trimite totuși; doar starea locală a acestei conversații nu se mai actualizează.
+      const operation = getCurrentOperation()
 
-      setSending(true)
-      setError(null)
+      if (operation) {
+        setSending(true)
+        setError(null)
+      }
 
       try {
         const res = await apiFetch(`/api/private-conversations/${conversationId}/messages`, {
@@ -324,7 +327,7 @@ export function usePrivateChat(
           body: JSON.stringify({ body: trimmed }),
         })
         const json = (await res.json().catch(() => null)) as PostMessageResponse | null
-        const isCurrent = isCurrentRequest(operation.authGeneration, operation.effectGeneration)
+        const isCurrent = !!operation && isCurrentRequest(operation.authGeneration, operation.effectGeneration)
         if (!isCurrent) return res.ok
 
         if (!res.ok) {
@@ -336,12 +339,12 @@ export function usePrivateChat(
         if (item) pushOne(item)
         return true
       } catch {
-        if (isCurrentRequest(operation.authGeneration, operation.effectGeneration)) {
+        if (operation && isCurrentRequest(operation.authGeneration, operation.effectGeneration)) {
           setError(userErrorMessage(undefined, 'Nu am putut trimite mesajul.'))
         }
         return false
       } finally {
-        if (isCurrentRequest(operation.authGeneration, operation.effectGeneration)) setSending(false)
+        if (operation && isCurrentRequest(operation.authGeneration, operation.effectGeneration)) setSending(false)
       }
     },
     [apiFetch, conversationId, getCurrentOperation, isCurrentRequest, pushOne]
@@ -491,9 +494,13 @@ export function usePrivateChat(
       if (!canSync()) return false
 
       const existingMessages = messagesRef.current
-      const boundary = mode === 'full'
-        ? existingMessages[0] ?? null
-        : existingMessages[existingMessages.length - 1] ?? null
+      // Până la prima încărcare reușită, mesajele locale (de exemplu unul abia trimis) nu
+      // marchează istoricul: altfel prima pagină ar fi filtrată după ele.
+      const boundary = !hasLoadedRef.current
+        ? null
+        : mode === 'full'
+          ? existingMessages[0] ?? null
+          : existingMessages[existingMessages.length - 1] ?? null
       const collected: PrivateChatMessage[] = []
       const seenCursors = new Set<string>()
       let cursor: string | null = null
@@ -601,7 +608,10 @@ export function usePrivateChat(
         const incoming = { ...existing, ...row, profiles: existing.profiles } as PrivateChatMessage
         upsertOne(incoming)
       }
-      void requestSync('full')
+      // Evenimentul a fost deja aplicat local; ajunge prima pagină pentru mesajele noi.
+      // Parcurgerea completă a istoricului rămâne pentru verificarea periodică, reconectare,
+      // focus și revenirea online.
+      void requestSync('recent')
     }
 
     const onParticipantChange = (payload: { new: unknown }) => {
