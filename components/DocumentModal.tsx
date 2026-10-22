@@ -38,6 +38,8 @@ import ReminderStatus, { getReminderDisplayStatus } from '@/components/ReminderS
 import { profileDisplayName } from '@/lib/profile-display'
 import { REQUIREMENT_LABELS, type RequirementType } from '@/lib/requirement-type'
 import { Signal } from '@/components/ui/Signal'
+import { SensitiveBadge } from '@/components/SensitiveBadge'
+import { SensitiveDocumentPanel } from '@/components/SensitiveDocumentPanel'
 import { canCloseRequest as isClosable, requestCloseConfirm, requestReopenConfirm } from '@/lib/completion'
 import { closedRequestClientNote, displayedRequestStatus, requestStatusInfo, type RequestStatus } from '@/lib/request-status'
 import { formatClosedDate, PROJECT_CLOSED_CLIENT_NOTE, PROJECT_CLOSED_READ_ONLY_MESSAGE } from '@/lib/project-lifecycle'
@@ -56,6 +58,13 @@ interface DocumentRequest {
   name: string
   description: string | null
   requirement_type?: RequirementType
+  /** Date sensibile (copie de buletin, cazier) și termenele lor, calculate de rută. */
+  sensitive_kind?: string | null
+  sensitive_purge_at?: string | null
+  sensitive_purge_due_at?: string | null
+  sensitive_hold_until?: string | null
+  sensitive_hold_reason?: string | null
+  sensitive_purged_at?: string | null
   status: RequestStatus
   /** Starea la care revine o cerere închisă (#109). */
   status_before_close?: 'pending' | 'rejected' | 'approved' | null
@@ -760,6 +769,7 @@ export default function DocumentModal({
               <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${requirementStyle}`}>
                 {REQUIREMENT_LABELS[requirementType]}
               </span>
+              {!isOutgoing && <SensitiveBadge kind={request.sensitive_kind} size="md" />}
             </div>
             <button
               onClick={onClose}
@@ -777,6 +787,16 @@ export default function DocumentModal({
             <p className="text-sm text-ink-soft leading-relaxed whitespace-pre-line break-words max-h-52 overflow-y-auto">
               {request.description}
             </p>
+          )}
+          {!isOutgoing && (
+            <SensitiveDocumentPanel
+              request={request}
+              isStaff={isAdminOrConsultant}
+              isAdmin={profile?.role === 'admin'}
+              apiFetch={apiFetch}
+              onUpdate={onUpdate}
+              onError={message => showToast(message, 'error')}
+            />
           )}
           {readOnly && (
             <div className="flex items-start gap-2 rounded-[var(--radius-plate)] bg-[var(--sg-closed-soft)] px-4 py-3 text-sm text-[var(--sg-closed)]">

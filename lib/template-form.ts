@@ -12,6 +12,7 @@ type DocLike = {
   description?: string | null
   is_outgoing?: boolean
   requirement_type?: string
+  sensitive_kind?: string | null
   templateFiles?: readonly { name: string; size: number }[]
   templateAttachments?: readonly { id?: string; storage_path: string }[]
   templateFileRemoved?: boolean
@@ -55,6 +56,7 @@ function fingerprint(form: TemplateFormState): string {
           description: doc.description ?? '',
           outgoing: !!doc.is_outgoing,
           type: doc.requirement_type ?? null,
+          sensitive: doc.sensitive_kind ?? null,
           attachments: (doc.templateAttachments ?? []).map(attachment => attachment.id ?? attachment.storage_path),
           files: (doc.templateFiles ?? []).map(file => `${file.name}:${file.size}`),
           removed: !!doc.templateFileRemoved,

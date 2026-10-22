@@ -1,4 +1,5 @@
 import type { RequirementType } from '@/lib/requirement-type'
+import type { SensitiveKind } from '@/lib/sensitive-documents'
 import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
 
 /** Starea editorului de șabloane, comună paginii și componentelor lui. */
@@ -20,6 +21,8 @@ export interface DocumentRequirement {
   description: string
   is_outgoing: boolean
   requirement_type: RequirementType
+  /** Copie de buletin sau cazier: fișierele se șterg automat. */
+  sensitive_kind: SensitiveKind | null
   templateFiles: File[]
   templateAttachments: TemplateAttachment[]
   templateFileName: string | null

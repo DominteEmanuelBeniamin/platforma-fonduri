@@ -15,6 +15,9 @@ export const AUDIT_ACTION_LABELS = {
   close: 'Încheiere',
   reopen: 'Redeschidere',
   complete: 'Finalizare',
+  purge: 'Ștergere automată',
+  hold: 'Amânare ștergere',
+  backup: 'Copie a bazei',
 } as const
 
 export const AUDIT_ENTITY_LABELS = {
@@ -48,6 +51,7 @@ export const AUDIT_ENTITY_LABELS = {
   private_message: 'Mesaj privat',
   audit_log: 'Jurnal audit',
   deadline_reminder_digest: 'Digest de remindere',
+  database_backup: 'Copie a bazei de date',
 } as const
 
 export function auditActorEmail(log: {

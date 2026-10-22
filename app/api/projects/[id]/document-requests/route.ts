@@ -7,6 +7,7 @@ import { normalizeRequirementType, requirementTypeToMandatory } from '@/lib/requ
 import { isClientVisibleDocument } from '@/lib/client-visibility'
 import { filterFilesForClient } from '@/lib/document-versions'
 import { selectReviewNotificationCandidates } from '@/lib/review-notification'
+import { parseSensitiveKindInput, sensitivePurgeAt, sensitivePurgeDueAt } from '@/lib/sensitive-documents'
 
 type LatestRejection = {
   reason: string
@@ -27,6 +28,9 @@ export async function GET(
 
     const admin = createSupabaseServiceClient()
 
+    // Încheierea proiectului pornește termenul de ștergere al documentelor sensibile.
+    const projectClosure = admin.from('projects').select('closed_at').eq('id', projectId).maybeSingle()
+
     const { data, error } = await admin
       .from('document_requirements')
       .select(`
@@ -45,6 +49,10 @@ export async function GET(
         is_mandatory,
         is_outgoing,
         requirement_type,
+        sensitive_kind,
+        sensitive_hold_until,
+        sensitive_hold_reason,
+        sensitive_purged_at,
         order_index,
         attachment_path,
         attachment_original_name,
@@ -125,11 +133,41 @@ export async function GET(
         reviewed_version_number: (row as any).reviewed_version_number,
       })
     }
+    const latestApprovals = new Map<string, string>()
+    for (const row of reviewRows ?? []) {
+      if ((row as any).action !== 'approved') continue
+      const requirementId = (row as any).requirement_id
+      if (!latestApprovals.has(requirementId)) latestApprovals.set(requirementId, (row as any).reviewed_at)
+    }
+    const { data: projectRow, error: projectError } = await projectClosure
+    if (projectError) {
+      console.error('document-requests project closure lookup error:', projectError)
+      return NextResponse.json({ error: 'Failed to load project state' }, { status: 500 })
+    }
+    const sensitiveTerms = (row: any) => {
+      if (!row.sensitive_kind) return {}
+      const input = {
+        kind: row.sensitive_kind,
+        status: row.status,
+        approvedAt: latestApprovals.get(row.id) ?? null,
+        projectClosedAt: projectRow?.closed_at ?? null,
+        holdUntil: row.sensitive_hold_until,
+        purgedAt: row.sensitive_purged_at,
+      }
+      return { sensitive_purge_at: sensitivePurgeAt(input), sensitive_purge_due_at: sensitivePurgeDueAt(input) }
+    }
+
     const unnotifiedReviewRequestIds = new Set(reviewSelection.candidates.map(candidate => candidate.requestId))
     const requests = rows.map((row: any) => ({
       ...row,
       // Clientul vede că cererea e închisă, nu și cine a închis-o (#109).
       ...(access.profile.role === 'client' ? { closed_by: null, closer: null } : {}),
+      ...sensitiveTerms(row),
+      // Amânarea e o decizie internă: clientul vede doar regula generală, nu și
+      // datele, din care s-ar vedea o amânare.
+      ...(access.profile.role === 'client'
+        ? { sensitive_hold_until: null, sensitive_hold_reason: null, sensitive_purge_at: null, sensitive_purge_due_at: null }
+        : {}),
       latest_rejection: latestRejections.get(row.id) ?? null,
       has_unnotified_review: unnotifiedReviewRequestIds.has(row.id),
       files: access.profile.role === 'client'
@@ -173,6 +211,12 @@ export async function POST(
     const activity_id = typeof body?.activity_id === 'string' && body.activity_id ? body.activity_id : null
     const is_outgoing = body?.is_outgoing === true
     const requirement_type = normalizeRequirementType(body?.requirement_type, body?.is_mandatory === true)
+    const sensitiveInput = parseSensitiveKindInput(body?.sensitive_kind)
+    if (sensitiveInput === false) {
+      return NextResponse.json({ error: 'Tipul de date sensibile este invalid' }, { status: 400 })
+    }
+    // Un document trimis clientului nu primește fișiere de la el: nu se marchează.
+    const sensitive_kind = is_outgoing ? null : sensitiveInput ?? null
 
     if (!name) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 })
@@ -234,6 +278,7 @@ export async function POST(
       requirement_type,
       is_mandatory: requirementTypeToMandatory(requirement_type),
       is_outgoing,
+      sensitive_kind,
       order_index: (maxOrderRow?.order_index || 0) + 1,
       created_by: access.profile.id,
       status: 'pending',
@@ -254,6 +299,7 @@ export async function POST(
         is_mandatory,
         is_outgoing,
         requirement_type,
+        sensitive_kind,
         order_index,
         attachment_path,
         attachment_original_name,

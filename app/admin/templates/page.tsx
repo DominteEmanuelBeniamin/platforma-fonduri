@@ -11,6 +11,7 @@ import {
 import { useAuth } from '@/app/providers/AuthProvider'
 import { countLabel } from '@/lib/count-label'
 import { RequirementType, normalizeRequirementType } from '@/lib/requirement-type'
+import { normalizeSensitiveKind } from '@/lib/sensitive-documents'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { useToast } from '@/app/providers/ToastProvider'
@@ -71,6 +72,7 @@ interface Template {
           is_mandatory: boolean
           is_outgoing?: boolean | null
           requirement_type?: RequirementType | null
+          sensitive_kind?: string | null
           attachment_original_name?: string | null
           attachment_path: string | null
           attachment_missing_at?: string | null
@@ -457,6 +459,7 @@ function AdminTemplatesContent() {
       description: values.description,
       is_outgoing: values.is_outgoing,
       requirement_type: values.requirement_type,
+      sensitive_kind: values.sensitive_kind,
       templateFiles: values.templateFiles,
       templateAttachments: values.templateAttachments,
       templateFileName: firstAttachmentName || values.templateFiles[0]?.name || null,
@@ -949,6 +952,7 @@ function AdminTemplatesContent() {
               description: doc.description || null,
               is_outgoing: doc.is_outgoing,
               requirement_type: doc.is_outgoing ? 'optional' : doc.requirement_type,
+              sensitive_kind: doc.is_outgoing ? null : doc.sensitive_kind ?? null,
               attachments: [
                 ...(doc.templateFileRemoved ? [] : doc.templateAttachments ?? []),
                 ...(doc.templateFiles ?? []).map(file => uploaded.get(file)),
@@ -1166,6 +1170,7 @@ function AdminTemplatesContent() {
           description: d.description || '',
           is_outgoing: d.is_outgoing === true,
           requirement_type: normalizeRequirementType(d.requirement_type, d.is_mandatory),
+          sensitive_kind: normalizeSensitiveKind(d.sensitive_kind),
           templateFiles: [],
           templateAttachments: d.attachments?.length
             ? d.attachments

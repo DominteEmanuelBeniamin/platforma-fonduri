@@ -7,6 +7,7 @@
 // auditul ei. Modulul e pur (fără I/O), ca să poată fi testat direct.
 
 import { normalizeRequirementType, requirementTypeToMandatory } from './requirement-type.ts'
+import { normalizeSensitiveKind } from './sensitive-documents.ts'
 import {
   isPersistentTemplateId,
   parseTemplateDuplication,
@@ -30,6 +31,7 @@ export interface SaveDocInput {
   description?: string | null
   is_outgoing?: boolean
   requirement_type?: string | null
+  sensitive_kind?: string | null
   attachments?: SaveAttachmentInput[]
   duplication?: unknown
   source_local_id?: string
@@ -334,6 +336,8 @@ export function planTemplateSave(
           is_outgoing: isOutgoing,
           requirement_type: requirementType,
           is_mandatory: requirementTypeToMandatory(requirementType),
+          // Un document de trimis nu primește fișiere de la client.
+          sensitive_kind: isOutgoing ? null : normalizeSensitiveKind(doc.sensitive_kind),
           order_index: dIdx + 1,
         }
 
@@ -348,6 +352,7 @@ export function planTemplateSave(
             description: existing.row.description || null,
             is_outgoing: existing.row.is_outgoing === true,
             requirement_type: normalizeRequirementType(existing.row.requirement_type, existing.row.is_mandatory),
+            sensitive_kind: normalizeSensitiveKind(existing.row.sensitive_kind),
           }
           const update = changedFields(before, fields)
           const attachmentsChanged = attachmentKey(attachments) !== attachmentKey(storedAttachments(existing.row))
