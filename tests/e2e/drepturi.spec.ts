@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { test, expect, type Page, type Browser } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
+import { templateHasAction } from './helpers/sabloane-ui'
 import { ROW, ROWS } from './helpers/matricea-drepturilor'
 
 /**
@@ -1000,11 +1001,12 @@ test('Interfață — șabloanele: seniorul editează, duplică și șterge; nu 
     try {
       await page.goto('/admin/templates')
       await page.getByText(tpl.name).first().waitFor({ timeout: 30_000 })
-      const edit = await page.getByRole('button', { name: `Editează șablonul ${tpl.name}`, exact: true }).count()
-      const duplicate = await page.getByRole('button', { name: `Duplică șablonul ${tpl.name}`, exact: true }).count()
-      const remove = await page.getByRole('button', { name: `Șterge șablonul ${tpl.name}`, exact: true }).count()
-      const publish = await page.getByRole('button', { name: `Publică șablonul ${draft.name}`, exact: true }).count()
-      const editDraft = await page.getByRole('button', { name: `Editează șablonul ${draft.name}`, exact: true }).count()
+      // Acțiunile stau sub „⋯” (S-30): se numără în meniul fiecărui rând.
+      const edit = await templateHasAction(page, tpl.name, 'Editează')
+      const duplicate = await templateHasAction(page, tpl.name, 'Duplică')
+      const remove = await templateHasAction(page, tpl.name, 'Șterge')
+      const publish = await templateHasAction(page, draft.name, 'Publică')
+      const editDraft = await templateHasAction(page, draft.name, 'Editează')
       const senior = who === 'senior'
       fact('s-publicat', who, `butonul „Editează” la un șablon publicat ${senior ? 'apare' : 'lipsește'}`, senior ? edit === 1 : edit === 0, `${edit}`, 'Interfață', senior ? '1' : '0')
       fact('s-duplica', who, `butonul „Duplică” ${senior ? 'apare' : 'lipsește'}`, senior ? duplicate === 1 : duplicate === 0, `${duplicate}`, 'Interfață', senior ? '1' : '0')

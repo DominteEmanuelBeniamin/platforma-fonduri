@@ -7,7 +7,7 @@ import {
   Circle, CheckCircle, PlayCircle, FileEdit, Send, Search,
   FileSignature, Wallet, Eye, Archive, AlertCircle
 } from 'lucide-react'
-import { LocationStrip } from '@/components/ui/LocationStrip'
+import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { useAuth } from '@/app/providers/AuthProvider'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
@@ -196,17 +196,18 @@ export default function AdminStatusesPage() {
   return (
     <div>
       <div className="mx-auto max-w-4xl">
-        <LocationStrip
-          segments={[{ label: 'Bonie', href: '/' }, { label: 'Statusuri' }]}
-          action={
+        <PageHeader
+          title="Statusuri"
+          subtitle="Etapele mari prin care trece un proiect. Ordinea lor e cea în care apar peste tot în platformă."
+          actions={
             <>
               {hasOrderChanges && (
-                <Button variant="primary" aria-label="Salvează ordinea" onClick={handleSaveOrder} disabled={saving}>
+                <Button data-tooltip="Salvează ordinea statusurilor, așa cum le-ai așezat" variant="primary" aria-label="Salvează ordinea" onClick={handleSaveOrder} disabled={saving}>
                   <Save className="h-4 w-4" aria-hidden="true" />
                   <span className="hidden sm:inline">Salvează ordinea</span>
                 </Button>
               )}
-              <Button variant={hasOrderChanges ? 'secondary' : 'primary'} aria-label="Status nou" onClick={() => setShowNewForm(true)}>
+              <Button data-tooltip="Adaugă un status nou pentru faze" variant={hasOrderChanges ? 'secondary' : 'primary'} aria-label="Status nou" onClick={() => setShowNewForm(true)}>
                 <Plus className="h-4 w-4" aria-hidden="true" />
                 <span className="hidden sm:inline">Status nou</span>
               </Button>
@@ -214,17 +215,13 @@ export default function AdminStatusesPage() {
           }
         />
 
-        <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">Statusuri</h1>
-        <p className="mb-8 mt-2 text-sm text-ink-soft">
-          Etapele mari prin care trece un proiect. Ordinea lor e cea în care apar peste tot în platformă.
-        </p>
 
 
         {showNewForm && (
           <div className="mb-6 rounded-[var(--radius-plate)] border border-rule bg-plate p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-ink">Status nou</h3>
-              <button onClick={() => setShowNewForm(false)} className="p-1 text-ink-faint hover:text-ink-soft"><X className="w-5 h-5" /></button>
+              <button aria-label="Închide formularul" onClick={() => setShowNewForm(false)} className="p-1 text-ink-faint hover:text-ink-soft"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleCreateStatus} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -260,7 +257,7 @@ export default function AdminStatusesPage() {
                   <label className="block text-xs font-medium text-ink mb-2">Icon</label>
                   <div className="flex flex-wrap gap-2">
                     {AVAILABLE_ICONS.map(({ name, icon: Icon }) => (
-                      <button key={name} type="button" onClick={() => setNewStatus(prev => ({ ...prev, icon: name }))} className={`w-8 h-8 rounded-lg border flex items-center justify-center ${newStatus.icon === name ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]' : 'border-rule text-ink-soft'}`}>
+                      <button data-tooltip={`Iconița ${name}`} key={name} type="button" onClick={() => setNewStatus(prev => ({ ...prev, icon: name }))} className={`w-8 h-8 rounded-lg border flex items-center justify-center ${newStatus.icon === name ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]' : 'border-rule text-ink-soft'}`}>
                         <Icon className="w-4 h-4" />
                       </button>
                     ))}
@@ -274,8 +271,8 @@ export default function AdminStatusesPage() {
                 </div>
               </div>
               <div className="flex justify-end gap-3 pt-4">
-                <button type="button" onClick={() => setShowNewForm(false)} className="px-4 py-2 border border-rule rounded-lg text-sm">Anulează</button>
-                <button type="submit" disabled={saving || !newStatus.name.trim()} className="px-4 py-2 bg-[var(--sg-accent)] text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-2">
+                <button data-tooltip="Închide fără să creezi statusul" type="button" onClick={() => setShowNewForm(false)} className="px-4 py-2 border border-rule rounded-lg text-sm">Anulează</button>
+                <button data-tooltip="Salvează statusul nou" type="submit" disabled={saving || !newStatus.name.trim()} className="px-4 py-2 bg-[var(--sg-accent)] text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-2">
                   {saving && <Spinner size="sm" on="accent" />}Creează
                 </button>
               </div>
@@ -304,8 +301,8 @@ export default function AdminStatusesPage() {
                           <button key={color} type="button" onClick={() => setEditData(prev => ({ ...prev, color }))} className={`w-6 h-6 rounded ${editData.color === color ? 'ring-2 ring-offset-1 ring-rule-strong' : ''}`} style={{ backgroundColor: color }} />
                         ))}
                       </div>
-                      <button onClick={handleSaveEdit} disabled={saving} className="p-1.5 text-[var(--sg-ok)] hover:bg-[var(--sg-ok-soft)] rounded-lg"><Save className="w-4 h-4" /></button>
-                      <button onClick={() => { setEditingId(null); setEditData({}) }} className="p-1.5 text-ink-faint hover:bg-paper-sunk rounded-lg"><X className="w-4 h-4" /></button>
+                      <button aria-label="Salvează modificările" onClick={handleSaveEdit} disabled={saving} className="p-1.5 text-[var(--sg-ok)] hover:bg-[var(--sg-ok-soft)] rounded-lg"><Save className="w-4 h-4" /></button>
+                      <button aria-label="Renunță la modificări" onClick={() => { setEditingId(null); setEditData({}) }} className="p-1.5 text-ink-faint hover:bg-paper-sunk rounded-lg"><X className="w-4 h-4" /></button>
                     </div>
                   ) : (
                     <>
@@ -316,8 +313,8 @@ export default function AdminStatusesPage() {
                       </div>
                       <code className="px-2 py-1 bg-paper-sunk rounded text-xs text-ink-soft font-mono">{status.slug}</code>
                       <div className="flex items-center gap-1">
-                        <button onClick={() => { setEditingId(status.id); setEditData({ name: status.name, description: status.description, color: status.color, icon: status.icon }) }} className="p-1.5 text-ink-faint hover:text-ink-soft hover:bg-paper-sunk rounded-lg"><FileEdit className="w-4 h-4" /></button>
-                        <button onClick={() => { setStatusToDelete(status); setDeleteModalOpen(true) }} className="p-1.5 text-ink-faint hover:text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)] rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                        <button aria-label="Modifică statusul" onClick={() => { setEditingId(status.id); setEditData({ name: status.name, description: status.description, color: status.color, icon: status.icon }) }} className="p-1.5 text-ink-faint hover:text-ink-soft hover:bg-paper-sunk rounded-lg"><FileEdit className="w-4 h-4" /></button>
+                        <button aria-label="Șterge statusul" onClick={() => { setStatusToDelete(status); setDeleteModalOpen(true) }} className="p-1.5 text-ink-faint hover:text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)] rounded-lg"><Trash2 className="w-4 h-4" /></button>
                       </div>
                     </>
                   )}

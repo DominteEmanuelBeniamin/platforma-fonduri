@@ -124,7 +124,7 @@ export default function CalendarFilters({
           const Icon = KIND_ICONS[kind]
           const on = filters.kinds.includes(kind)
           return (
-            <button
+            <button data-tooltip={`Arată sau ascunde: ${KIND_LABELS[kind].toLowerCase()}`}
               key={kind}
               type="button"
               onClick={() => toggleKind(kind)}
@@ -205,7 +205,7 @@ export default function CalendarFilters({
       {/* 4 — Responsabil: comutator la consultant, listă la administrator */}
       {role === 'consultant' && (
         <div className="flex items-center gap-1 rounded-full border border-[var(--p-border-strong)] bg-[var(--p-surface)] p-0.5">
-          <button
+          <button data-tooltip="Doar termenele de care răspunzi tu"
             type="button"
             onClick={() => set({ owners: [userId] })}
             aria-pressed={isMineOnly}
@@ -215,7 +215,7 @@ export default function CalendarFilters({
           >
             Ale mele
           </button>
-          <button
+          <button data-tooltip="Termenele tuturor, din proiectele tale"
             type="button"
             onClick={() => set({ owners: null })}
             aria-pressed={filters.owners === null}
@@ -249,7 +249,7 @@ export default function CalendarFilters({
           ceva, ca în tabloul de bord: altfel ar fi un control care nu face
           nimic vizibil. */}
       {scope === 'global' && (endedCount > 0 || filters.includeEnded) && (
-        <button
+        <button data-tooltip="Include și termenele proiectelor încheiate"
           type="button"
           onClick={() => set({ includeEnded: !filters.includeEnded })}
           aria-pressed={filters.includeEnded}
@@ -264,7 +264,7 @@ export default function CalendarFilters({
       )}
 
       {resetCount > 0 && (
-        <button
+        <button data-tooltip="Golește filtrele calendarului"
           type="button"
           onClick={() => onChange(defaults)}
           className="flex items-center gap-1 rounded-full px-2.5 py-1.5 text-xs font-semibold text-[var(--p-ink-faint)] transition-colors hover:bg-[var(--p-surface-2)] hover:text-[var(--p-ink)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent,#4A3F7A)]"

@@ -3,6 +3,7 @@ import path from 'node:path'
 import { test, expect, type Browser } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
+import { addEditorPhase, templateAction } from './helpers/sabloane-ui'
 
 /**
  * Regresii în jurul lucrului pentru consultantul senior: ce a atins schimbarea
@@ -341,12 +342,12 @@ test('Editor de șabloane, ca senior: salvează un șablon publicat, fără fere
   const { context, page, errors } = await login(browser, SA.email, PASSWORD)
   try {
     await page.goto('/admin/templates')
-    const strip = page.getByRole('navigation', { name: 'Locație' })
-    await expect(strip.getByRole('link', { name: 'Șabloane' }), 'linkul nu duce la panoul adminului').toHaveAttribute('href', '/admin/templates')
-
-    await page.getByRole('button', { name: `Editează șablonul ${TPL_NAME}`, exact: true }).click()
-    await page.getByRole('button', { name: 'Adaugă fază nouă' }).click()
-    await page.getByLabel('Nume pentru faza 2').fill('Fază adăugată din editor')
+    // Lista e pagină din meniu: fără fâșie. În editor, „Șabloane” duce înapoi
+    // în listă, nu la panoul adminului (S-32).
+    await expect(page.getByRole('navigation', { name: 'Locație' })).toHaveCount(0)
+    await templateAction(page, TPL_NAME, 'Editează')
+    await expect(page.getByRole('navigation', { name: 'Locație' }).getByRole('button', { name: 'Șabloane' })).toBeVisible()
+    await addEditorPhase(page, 'Fază adăugată din editor')
     const saved = page.waitForResponse(res => res.url().endsWith(`/api/admin/templates/${TPL}/tree`) && res.request().method() === 'PUT')
     await page.getByRole('button', { name: 'Salvează modificările' }).click()
     expect((await saved).ok()).toBe(true)
@@ -366,8 +367,9 @@ test('Duplicare din interfață, ca senior: copia apare în listă, ca ciornă',
   const { context, page, errors } = await login(browser, SA.email, PASSWORD)
   try {
     await page.goto('/admin/templates')
-    await page.getByRole('button', { name: `Duplică șablonul ${TPL_NAME}`, exact: true }).click()
-    const copy = `${TPL_NAME} (Copie)`
+    await templateAction(page, TPL_NAME, 'Duplică')
+    // Copia își ia un nume liber, „X (copie)” (Z-01).
+    const copy = `${TPL_NAME} (copie)`
     await expect(page.getByText(copy, { exact: true })).toBeVisible({ timeout: 15_000 })
     const { data } = await service.from('project_templates').select('id, status').eq('name', copy).single()
     if (data) created.templates.add(data.id)
@@ -526,16 +528,22 @@ test('Fâșia de locație: pe desktop acțiunile stau pe un rând și nu ies din
     for (const [url, wait] of [[`/projects/${projectId}`, /^Echipa proiectului/], ['/admin/users', /Adaugă utilizator/], ['/admin/templates', /Șablon nou/], ['/', null]] as const) {
       await page.goto(url)
       if (wait) await page.getByRole('button', { name: wait }).first().waitFor({ timeout: 30_000 })
-      else await page.getByRole('navigation', { name: 'Locație' }).waitFor({ timeout: 30_000 })
+      else await page.getByRole('heading', { level: 1 }).waitFor({ timeout: 30_000 })
       await page.waitForTimeout(500)
       const layout = await page.evaluate(() => {
-        const nav = document.querySelector('nav[aria-label="Locație"]')!
-        const actions = nav.parentElement!.lastElementChild as HTMLElement
-        if (actions === nav) return { rows: 0, clipped: 0 }
+        // Nivelul 2 are fâșia de locație; paginile din meniu, antetul lipit (S-34).
+        const nav = document.querySelector('nav[aria-label="Locație"]')
+        const actions = (nav
+          ? nav.parentElement!.lastElementChild
+          : document.querySelector('main header > div')?.lastElementChild) as HTMLElement | null
+        if (!actions || actions === nav) return { rows: 0, clipped: 0 }
         // Rândurile se numără după centrul vertical: butoanele au înălțimi diferite,
         // deci marginea de sus diferă chiar și pe același rând.
+        // Ce e ascuns (de pildă „Panoul fazelor”, doar pe telefon) nu ocupă rând.
         const centers = [...actions.children]
-          .map(child => { const r = (child as HTMLElement).getBoundingClientRect(); return r.top + r.height / 2 })
+          .map(child => (child as HTMLElement).getBoundingClientRect())
+          .filter(r => r.width > 0 && r.height > 0)
+          .map(r => r.top + r.height / 2)
           .sort((a, b) => a - b)
         const rows = centers.reduce((count, center, i) => (i === 0 || center - centers[i - 1] > 12 ? count + 1 : count), 0)
         const clipped = [...actions.querySelectorAll('button, a')].filter(el => el.getBoundingClientRect().right > window.innerWidth).length

@@ -7,12 +7,16 @@ import { bandVar } from '@/lib/signage'
 export type Segment = {
   label: string
   href?: string
+  /** În locul unui link, când „înapoi” e o stare a aceleiași pagini (editorul de șabloane). */
+  onClick?: () => void
   /** Banda fazei, când segmentul e o aripă a clădirii. */
   band?: number
 }
 
 /**
- * Fâșia de locație — semnul „unde vă aflați” din holul fiecărui etaj.
+ * Fâșia de locație — semnul „unde vă aflați” din holul fiecărui etaj. Doar pe
+ * paginile de nivelul 2 (proiect, dosar nou, utilizator, editorul de șablon),
+ * fără „Bonie”: paginile din meniu au `PageHeader` (S-05, S-32).
  *
  * Nu e un breadcrumb decorativ: e și intrarea pentru tastatură. `Alt+L` o
  * focalizează de oriunde din pagină, iar de acolo Tab parcurge etajele fără
@@ -69,8 +73,16 @@ export function LocationStrip({
                   style={{ background: bandVar(s.band) }}
                 />
               ) : null}
-              {s.href && i !== last ? (
-                <Link
+              {s.onClick && i !== last ? (
+                <button data-tooltip={`Înapoi la ${s.label}`}
+                  type="button"
+                  onClick={s.onClick}
+                  className="truncate rounded-[var(--radius-plate)] px-1 py-0.5 font-medium text-ink-soft transition-colors hover:text-ink hover:underline"
+                >
+                  {s.label}
+                </button>
+              ) : s.href && i !== last ? (
+                <Link data-tooltip={`Înapoi la ${s.label}`}
                   href={s.href}
                   className="truncate rounded-[var(--radius-plate)] px-1 py-0.5 font-medium text-ink-soft transition-colors hover:text-ink hover:underline"
                 >

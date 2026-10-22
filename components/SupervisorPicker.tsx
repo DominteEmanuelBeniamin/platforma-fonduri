@@ -59,7 +59,7 @@ export default function SupervisorPicker({
           {isAdmin ? (
             <>
               Un dosar nu se poate deschide fără supervizor. Promovează un consultant din{' '}
-              <Link href="/admin/users" className="font-semibold text-[var(--sg-accent)] underline underline-offset-2 hover:text-[var(--sg-accent-ink)]">
+              <Link data-tooltip="Deschide pagina Utilizatori" href="/admin/users" className="font-semibold text-[var(--sg-accent)] underline underline-offset-2 hover:text-[var(--sg-accent-ink)]">
                 pagina utilizatorilor
               </Link>
               , apoi revino aici.

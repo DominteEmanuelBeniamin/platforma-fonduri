@@ -295,7 +295,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                 </div>
               </div>
             </div>
-            <button onClick={onClose}
+            <button aria-label="Închide" onClick={onClose}
               className="p-2 rounded-xl text-ink-faint hover:text-ink hover:bg-paper-sunk transition-colors flex-shrink-0">
               <X className="w-4 h-4" />
             </button>
@@ -337,7 +337,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                 onBlur={e => { e.currentTarget.style.backgroundColor = '#f1f3f4'; e.currentTarget.style.boxShadow = 'none' }}
               />
               {search && (
-                <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: '#5f6368' }}>✕</button>
+                <button aria-label="Golește căutarea" onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: '#5f6368' }}>✕</button>
               )}
             </div>
 
@@ -402,7 +402,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
               { key: 'status' as SortKey, label: 'Status' },
               { key: 'date' as SortKey, label: 'Dată' },
             ]).map(col => (
-              <button key={col.key} onClick={() => toggleSort(col.key)}
+              <button data-tooltip={`Ordonează după ${col.label.toLowerCase()}`} key={col.key} onClick={() => toggleSort(col.key)}
                 className="flex items-center gap-1 text-left transition-colors"
                 style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em',
                   color: sortKey === col.key ? '#1a73e8' : '#9aa0a6', textTransform: 'uppercase' }}>
@@ -477,7 +477,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
 
                       <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                         {/* Project */}
-                        <button
+                        <button data-tooltip="Deschide cererea"
                           onClick={() => { onClose(); router.push(`/projects/${req._projectId}`) }}
                           className="flex items-center gap-1 transition-colors hover:underline"
                           style={{ fontSize: '11px', color: '#5f6368' }}
@@ -518,7 +518,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                       {latest && isPreviewableFile({ fileName: latest.original_name || latest.storage_path }) && (
                         <button
                           onClick={() => handleOpen(latest.id, latest.original_name || latest.storage_path)}
-                          className="p-2 rounded-full transition-colors opacity-0 group-hover:opacity-100"
+                          className="p-2 rounded-full transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
                           style={{ color: '#5f6368' }}
                           onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
                           onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
@@ -531,7 +531,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                         <button
                           onClick={() => handleDownload(latest.id)}
                           disabled={downloading === latest.id}
-                          className="p-2 rounded-full transition-colors disabled:opacity-40 opacity-0 group-hover:opacity-100"
+                          className="p-2 rounded-full transition-colors disabled:opacity-40 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
                           style={{ color: '#5f6368' }}
                           onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e8eaed'}
                           onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}

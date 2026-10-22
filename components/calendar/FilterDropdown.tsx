@@ -70,7 +70,7 @@ export default function FilterDropdown({ label, summary, sections, active }: Fil
         }
       }}
     >
-      <button
+      <button data-tooltip={`Filtrează după ${label.toLowerCase()}`}
         type="button"
         onClick={() => setOpen(value => !value)}
         aria-expanded={open}

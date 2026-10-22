@@ -263,7 +263,7 @@ function ChatPageContent() {
                       const initials = getInitials(user.full_name, user.email)
 
                       return (
-                        <button
+                        <button data-tooltip="Începe o conversație cu această persoană"
                           key={user.id}
                           onClick={() => void handleUserPick(user)}
                           className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-paper-sunk"
@@ -332,7 +332,7 @@ function ChatPageContent() {
                 const initials = getInitials(item.other_user?.full_name, item.other_user?.email)
 
                 return (
-                  <button
+                  <button data-tooltip="Deschide conversația"
                     key={item.id}
                     onClick={() => handleOpenConversation(item.id)}
                     className={`mb-1 flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition ${
