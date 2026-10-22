@@ -112,6 +112,15 @@ function validateModelFile(file: File) {
   return null
 }
 
+/**
+ * Acțiunile mici din fișă („Adaugă”, „Modifică”, „Atribuie”, „Descarcă tot”)
+ * au formă de buton, nu de link: ca text subliniat la hover nu păreau apăsabile
+ * (feedback-ul lui Sandu, 22 octombrie 2026).
+ */
+const inlineActionClass =
+  'inline-flex min-h-11 flex-shrink-0 items-center rounded-[var(--radius-plate)] border border-rule bg-plate px-2 text-xs font-semibold ' +
+  'text-[var(--sg-accent)] transition-colors duration-[120ms] hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] pointer-fine:min-h-7'
+
 export default function DocumentModal({
   request,
   projectId,
@@ -904,7 +913,7 @@ export default function DocumentModal({
               <span>Fără termen limită</span>
               <button data-tooltip="Adaugă un termen limită"
                 onClick={() => setEditingDeadline(true)}
-                className="text-xs font-semibold text-[var(--sg-accent)] hover:underline flex-shrink-0"
+                className={inlineActionClass}
               >
                 Adaugă
               </button>
@@ -938,7 +947,7 @@ export default function DocumentModal({
               {canEdit && (
                 <button data-tooltip="Schimbă termenul limită"
                   onClick={() => setEditingDeadline(true)}
-                  className="text-xs font-semibold text-[var(--sg-accent)] hover:underline flex-shrink-0"
+                  className={inlineActionClass}
                 >
                   Modifică
                 </button>
@@ -1000,7 +1009,7 @@ export default function DocumentModal({
                 {canEdit && (
                   <button data-tooltip={localAssignee ? 'Schimbă consultantul care răspunde de cerere' : 'Alege consultantul care răspunde de cerere'}
                     onClick={() => { setAssigneeDraft(localAssignee ?? ''); setEditingAssignee(true) }}
-                    className="text-xs font-semibold text-[var(--sg-accent)] hover:underline flex-shrink-0"
+                    className={inlineActionClass}
                   >
                     {localAssignee ? 'Modifică' : 'Atribuie'}
                   </button>
@@ -1317,7 +1326,7 @@ export default function DocumentModal({
                         <button data-tooltip="Descarcă toate fișierele acestei variante"
                           onClick={() => downloadAllFilesForVersion(group.version)}
                           disabled={downloadingId === opAllId}
-                          className="flex items-center gap-1.5 text-xs font-semibold text-[var(--sg-accent)] hover:underline disabled:opacity-50"
+                          className={`${inlineActionClass} gap-1.5 disabled:opacity-50`}
                         >
                           {downloadingId === opAllId ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />

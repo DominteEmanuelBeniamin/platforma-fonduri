@@ -46,6 +46,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { isRequestFinal, mergeVisibleOrder } from '@/lib/completion'
 import HiddenFinalRow from './HiddenFinalRow'
 import { CELL, DeadlineCell, StatusCell, formatShortDate } from './project-table/cells'
+import { activityColumnsTemplate } from './project-table/TableGroup'
 import { closedRequestClientNote, displayedRequestStatus, requestStatusInfo, type RequestStatus } from '@/lib/request-status'
 import { PROJECT_CLOSED_CLIENT_NOTE } from '@/lib/project-lifecycle'
 
@@ -927,15 +928,10 @@ export default function DocumentRequests({
   const isEmbedded = activityId !== undefined
   // Coloanele sub-tabelului: „Vizibil clientului” e a echipei, acțiunile — ale
   // cui poate modifica. Aceleași condiții desenează antetul și rândurile.
-  const requestColumns = [
-    'minmax(10rem,1fr)',
-    '10rem',
-    '5.75rem',
-    '5.75rem',
-    // Vizibilitatea e ultima înaintea acțiunilor, ca la activități (S-04).
-    isAdminOrConsultant && 'minmax(8rem,10rem)',
-    canChange && '2.5rem',
-  ].filter(Boolean).join(' ')
+  // Aceleași coloane ca rândurile de activitate, ca Status, Documente/Încărcat,
+  // Termen și Vizibil să stea unele sub altele (feedback-ul lui Sandu, 22
+  // octombrie). Numele cererii ia locul „Activitate” + „Responsabil”.
+  const requestColumns = activityColumnsTemplate({ visibility: isAdminOrConsultant, actions: canChange })
 
   // Grila documentelor trimise: Document, Fișiere, Trimis la, Vizibil
   // clientului (echipa), „⋯” (cine poate modifica).
@@ -1110,10 +1106,10 @@ export default function DocumentRequests({
               aria-hidden="true"
               className="hidden h-7 border-b border-rule/70 text-[11px] font-medium text-ink-faint @min-[50rem]:grid @min-[50rem]:grid-cols-(--req-cols)"
             >
-              <span className="flex items-center pl-6">Cerere</span>
+              <span className="col-span-2 flex items-center pl-6">Cerere</span>
               <span className="flex items-center justify-center">Status</span>
-              <span className="flex items-center justify-center">Termen</span>
               <span className="flex items-center justify-center">Încărcat</span>
+              <span className="flex items-center justify-center">Termen</span>
               {isAdminOrConsultant && <span className="flex items-center justify-center">Vizibil clientului</span>}
               {canChange && <span />}
             </div>
@@ -1134,7 +1130,7 @@ export default function DocumentRequests({
                 >
                   <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1.5 px-1 py-2 @min-[50rem]:grid-cols-(--req-cols) @min-[50rem]:gap-0 @min-[50rem]:p-0">
                     {/* Cerere */}
-                    <div className="flex min-w-0 items-start gap-1.5 @min-[50rem]:items-center @min-[50rem]:py-1.5 @min-[50rem]:pl-1 @min-[50rem]:pr-2">
+                    <div className="flex min-w-0 items-start gap-1.5 @min-[50rem]:col-span-2 @min-[50rem]:items-center @min-[50rem]:py-1.5 @min-[50rem]:pl-1 @min-[50rem]:pr-2">
                       {canChange ? (
                         <span
                           draggable
@@ -1161,14 +1157,6 @@ export default function DocumentRequests({
                         <StatusCell tone={statusInfo.tone} label={statusLabel(req)} />
                       </div>
                       <div className={CELL}>
-                        <DeadlineCell
-                          value={req.deadline_at}
-                          done={isRequestFinal(req)}
-                          onSave={canChange && !isClosed ? date => saveRequestDeadline(req.id, date) : undefined}
-                          itemName={req.name}
-                        />
-                      </div>
-                      <div className={CELL}>
                         <span className="inline-flex items-center gap-1 text-xs tabular-nums text-ink-soft" title={uploadedAt ? 'Ultimul fișier încărcat' : undefined}>
                           <Upload className="h-3.5 w-3.5 text-ink-faint @min-[50rem]:hidden" aria-hidden="true" />
                           {uploadedAt ? (
@@ -1183,6 +1171,14 @@ export default function DocumentRequests({
                             </>
                           )}
                         </span>
+                      </div>
+                      <div className={CELL}>
+                        <DeadlineCell
+                          value={req.deadline_at}
+                          done={isRequestFinal(req)}
+                          onSave={canChange && !isClosed ? date => saveRequestDeadline(req.id, date) : undefined}
+                          itemName={req.name}
+                        />
                       </div>
                       {isAdminOrConsultant && (
                         <div className={`${CELL} @min-[50rem]:px-2`}>
@@ -1361,7 +1357,7 @@ export default function DocumentRequests({
               type="button"
               onClick={openCreateForm}
               data-tooltip={activityName && activityId ? `Cere clientului un document nou pentru „${activityName}”` : 'Cere clientului un document nou'}
-              className="flex min-h-11 w-full items-center gap-2 px-3 text-left text-xs text-ink-faint transition-colors duration-[120ms] hover:bg-paper hover:text-[var(--sg-accent)] pointer-fine:min-h-8"
+              className="flex min-h-11 w-full items-center gap-2 px-3 text-left text-xs font-medium text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)] pointer-fine:min-h-8"
             >
               <Plus className="h-3.5 w-3.5" aria-hidden="true" />
               Adaugă cerere de document nouă
@@ -1397,7 +1393,7 @@ export default function DocumentRequests({
           <div className="w-full max-w-lg overflow-hidden rounded-[var(--radius-plate)] bg-white shadow-xl">
             <div className="flex items-start justify-between gap-4 border-b border-rule px-6 py-4">
               <div className="min-w-0">
-                <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-[var(--sg-ok)] bg-[var(--sg-ok-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--sg-ok)]">
+                <div className="mb-2 inline-flex items-center gap-1.5 rounded-[var(--radius-plate)] border border-rule bg-paper-sunk px-2 py-0.5 text-xs font-semibold text-ink-soft">
                   <FolderUp className="w-3 h-3" />
                   Document trimis clientului
                 </div>
@@ -1450,7 +1446,8 @@ export default function DocumentRequests({
                         className={`w-full flex items-center gap-3 rounded-[var(--radius-plate)] border px-4 py-3 text-left transition-colors ${
                           isMissing
                             ? 'border-[var(--sg-warn)] bg-[var(--sg-warn-soft)] text-[var(--sg-warn)]'
-                            : 'border-[var(--sg-ok)] bg-[var(--sg-ok-soft)] text-[var(--sg-ok)] hover:bg-[var(--sg-ok-soft)]'
+                            // Neutru: verdele e semnalul „gata”, nu culoarea unui link.
+                            : 'border-rule bg-plate text-ink hover:bg-paper-sunk'
                         }`}
                       >
                         <button data-tooltip={isMissing ? 'Fișierul nu mai e disponibil' : 'Descarcă fișierul'}
@@ -1461,7 +1458,7 @@ export default function DocumentRequests({
                         >
                           {isMissing ? <AlertCircle className="w-5 h-5 flex-shrink-0" /> : <Download className="w-5 h-5 flex-shrink-0" />}
                           <span className="min-w-0 flex-1 truncate text-left text-sm font-semibold">{label}</span>
-                          <span className="text-xs font-medium">{isMissing ? 'Indisponibil' : 'Descarcă'}</span>
+                          <span className={`text-xs font-semibold ${isMissing ? '' : 'text-[var(--sg-accent)]'}`}>{isMissing ? 'Indisponibil' : 'Descarcă'}</span>
                         </button>
                         {!isMissing && isPreviewableFile({ fileName: label }) && (
                           <button
@@ -1469,7 +1466,7 @@ export default function DocumentRequests({
                             onClick={() => openInNewTab(buildPreviewPageUrl({ type: 'attachment', id: selectedOutgoingDoc.id, name: label, attachmentId: attachment.id }))}
                             title="Deschide"
                             aria-label={`Deschide ${label}`}
-                            className="rounded-[var(--radius-plate)] p-2 hover:bg-[var(--sg-ok-soft)]"
+                            className="rounded-[var(--radius-plate)] p-2 text-ink-soft hover:bg-paper-sunk hover:text-ink"
                           >
                             <Eye className="w-4 h-4" />
                           </button>

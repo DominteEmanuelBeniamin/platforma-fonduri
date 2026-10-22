@@ -111,7 +111,9 @@ export default function PublishStatusControl({
         aria-checked={false}
         onClick={e => { e.stopPropagation(); onPublish() }}
         title="Apasă ca să publici — devine vizibil clientului"
-        className={`inline-flex min-h-6 items-center gap-2 flex-shrink-0 ${textClass}`}
+        // Cu muchie și fundal la hover, ca să se vadă că e un buton
+        // (feedback-ul lui Sandu, 22 octombrie 2026).
+        className={`inline-flex min-h-7 items-center gap-2 flex-shrink-0 rounded-[var(--radius-plate)] border border-rule bg-plate px-1.5 transition-colors duration-[120ms] hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] ${textClass}`}
       >
         {toggleVisual}
         <span className="text-ink-soft">În pregătire</span>

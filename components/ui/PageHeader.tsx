@@ -58,7 +58,7 @@ export function PageHeader({
             </h1>
             {subtitle && <div className="mt-1 text-sm text-ink-soft">{subtitle}</div>}
           </div>
-          {actions && <div className="flex min-w-0 flex-wrap items-center gap-2">{actions}</div>}
+          {actions && <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto">{actions}</div>}
         </div>
       </header>
     </>

@@ -277,6 +277,13 @@ input:-webkit-autofill:active {
 /* 2. Animația "Fade In Up" - pentru încărcarea elegantă a dashboard-ului */
 /* Face ca elementele să apară de jos în sus, fluid */
 /* Tooltip-ul apare scurt, de jos în sus; fără mișcare la cerere. */
+/* Locul barei de derulare rămâne rezervat, iar compensarea pe care o pune
+   blocarea derulării din dialogurile Radix (`margin-right` pe `body`) se
+   anulează: cu amândouă, pagina sărea 5px la stânga la orice dialog deschis
+   (feedback-ul lui Sandu, 22 octombrie 2026). */
+html { scrollbar-gutter: stable; }
+html body[data-scroll-locked] { margin-right: 0 !important; }
+
 /* Tooltip-ul apare fără fade: după o secundă de așteptare, o animație doar îl
    mai întârzie (feedback-ul lui Sandu, 21 octombrie 2026). */
 

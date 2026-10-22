@@ -189,7 +189,9 @@ const ActivityBlock = memo(function ActivityBlock({
         >
           <ChevronRight className={`h-4 w-4 transition-transform duration-[120ms] ${activity.expanded ? 'rotate-90' : ''}`} />
         </IconButton>
-        <Title name={activity.name} invalid={nameError} className="flex-1 px-1 text-sm font-medium text-ink" />
+        {/* Lățime minimă: pe telefon, lista de consultanți coboară pe rândul
+            următor, nu rupe numele literă cu literă. */}
+        <Title name={activity.name} invalid={nameError} className="min-w-[10rem] flex-1 px-1 text-sm font-medium text-ink" />
         <div className="ml-auto flex items-center gap-0.5">
           <select
             value={activity.default_consultant_id ?? ''}

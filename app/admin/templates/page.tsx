@@ -25,7 +25,6 @@ import { serverMessage } from '@/lib/api-error'
 import { mapWithConcurrency } from '@/lib/template-tree'
 import {
   duplicationFromSource,
-  isPersistentTemplateId,
 } from '@/app/api/_utils/template-duplication'
 import { Spinner } from '@/components/ui/Spinner'
 import { LocationStrip } from '@/components/ui/LocationStrip'
@@ -167,10 +166,6 @@ function generateSlug(text: string): string {
     .replace(/^-|-$/g, '') || generateId()
 }
 
-// IDs din DB sunt UUID (36 chars cu cratime), cele locale sunt scurte
-function isDbId(id: string): boolean {
-  return isPersistentTemplateId(id)
-}
 
 function hasPropagationChanges(project: TemplatePropagationPreviewProject) {
   return project.totals.phases + project.totals.activities + project.totals.document_requests > 0
@@ -311,6 +306,9 @@ function AdminTemplatesContent() {
   const [templateName, setTemplateName] = useState('')
   const [templateDescription, setTemplateDescription] = useState('')
   const [phases, setPhases] = useState<TemplatePhase[]>([])
+  // Ultima listă de faze, pentru textele confirmărilor din funcțiile stabile.
+  const phasesRef = useRef(phases)
+  useEffect(() => { phasesRef.current = phases })
   const [saving, setSaving] = useState(false)
   // Garda salvării, pe lângă `saving`: pe un șablon mare randarea întârzie, iar
   // un al doilea clic apucă butonul încă activ (S-29).
@@ -532,7 +530,18 @@ function AdminTemplatesContent() {
       toggleActivity: (phaseId, activityId) => patchActivity(phaseId, activityId, a => ({ ...a, expanded: !a.expanded })),
       renamePhase: phase => setNameDialog({ kind: 'rename-phase', phaseId: phase.id, name: phase.name }),
       renameActivity: (phaseId, activity) => setNameDialog({ kind: 'rename-activity', phaseId, activityId: activity.id, name: activity.name }),
-      duplicatePhase: phaseId => setPhases(current => {
+      // Duplicarea întreabă întâi și spune apoi ce a făcut: un clic greșit în
+      // „⋯” crea o fază întreagă fără niciun semn (feedback-ul lui Sandu, 22
+      // octombrie 2026).
+      duplicatePhase: async phaseId => {
+        const name = phasesRef.current.find(p => p.id === phaseId)?.name || 'fără nume'
+        if (!(await confirm({
+          title: `Duplici faza «${name}»?`,
+          description: 'Copia apare sub ea, cu activitățile și cererile ei. Se salvează odată cu șablonul.',
+          confirmText: 'Duplică',
+        }))) return
+        let copyName = ''
+        setPhases(current => {
         const index = current.findIndex(p => p.id === phaseId)
         if (index === -1) return current
         const source = current[index]
@@ -544,53 +553,61 @@ function AdminTemplatesContent() {
           activities: source.activities.map(activity => cloneActivity(activity, activity.name)),
           ...duplicationFromSource(source, 'template_phase'),
         }
+        copyName = copy.name
         return [...current.slice(0, index + 1), copy, ...current.slice(index + 1)]
-      }),
-      duplicateActivity: (phaseId, activityId) => setPhases(current => current.map(p => {
-        if (p.id !== phaseId) return p
-        const index = p.activities.findIndex(a => a.id === activityId)
-        if (index === -1) return p
-        const source = p.activities[index]
-        const copy = cloneActivity(source, buildCopyName(source.name, p.activities.map(a => a.name)))
-        return { ...p, activities: [...p.activities.slice(0, index + 1), copy, ...p.activities.slice(index + 1)] }
-      })),
+        })
+        showToast(`Am duplicat faza «${name}»${copyName ? `: copia e «${copyName}»` : ''}.`, 'success')
+      },
+      duplicateActivity: async (phaseId, activityId) => {
+        const name = phasesRef.current.find(p => p.id === phaseId)?.activities.find(a => a.id === activityId)?.name || 'fără nume'
+        if (!(await confirm({
+          title: `Duplici activitatea «${name}»?`,
+          description: 'Copia apare sub ea, cu cererile ei. Se salvează odată cu șablonul.',
+          confirmText: 'Duplică',
+        }))) return
+        let copyName = ''
+        setPhases(current => current.map(p => {
+          if (p.id !== phaseId) return p
+          const index = p.activities.findIndex(a => a.id === activityId)
+          if (index === -1) return p
+          const source = p.activities[index]
+          const copy = cloneActivity(source, buildCopyName(source.name, p.activities.map(a => a.name)))
+          copyName = copy.name
+          return { ...p, activities: [...p.activities.slice(0, index + 1), copy, ...p.activities.slice(index + 1)] }
+        }))
+        showToast(`Am duplicat activitatea «${name}»${copyName ? `: copia e «${copyName}»` : ''}.`, 'success')
+      },
       movePhase: (phaseId, direction) => setPhases(current => moveInArray(current, phaseId, direction)),
       moveActivity: (phaseId, activityId, direction) => setPhases(current => current.map(p => p.id === phaseId
         ? { ...p, activities: moveInArray(p.activities, activityId, direction) }
         : p)),
       moveDoc: (phaseId, activityId, docId, direction) => patchDocs(phaseId, activityId, docs => moveInArray(docs, docId, direction)),
-      deletePhase: phase => {
-        setDeleteError(null)
-        setDeleteTarget({
-          type: 'phase',
-          phaseId: phase.id,
-          phaseName: phase.name.trim() || 'Fază fără nume',
-          activityCount: phase.activities.length,
-          documentCount: countPhaseDocuments(phase),
-          persisted: isDbId(phase.id),
-        })
+      // Ștergerile din editor cer o confirmare cu un clic, nu un cuvânt de
+      // tastat: nu ating baza până la salvare (feedback-ul lui Sandu).
+      deletePhase: async phase => {
+        const documents = countPhaseDocuments(phase)
+        if (!(await confirm({
+          title: `Ștergi faza «${phase.name.trim() || 'fără nume'}»?`,
+          description: `Pleacă împreună cu ${countLabel(phase.activities.length, 'activitate', 'activități')} și ${countLabel(documents, 'cerere', 'cereri')}. Se șterge din șablon la salvare.`,
+          confirmText: 'Șterge faza',
+        }))) return
+        removePhase(phase.id)
       },
-      deleteActivity: (phaseId, activity) => {
-        setDeleteError(null)
-        setDeleteTarget({
-          type: 'activity',
-          phaseId,
-          activityId: activity.id,
-          activityName: activity.name.trim() || 'Activitate fără nume',
-          documentCount: activity.document_requirements.length,
-          persisted: isDbId(activity.id),
-        })
+      deleteActivity: async (phaseId, activity) => {
+        if (!(await confirm({
+          title: `Ștergi activitatea «${activity.name.trim() || 'fără nume'}»?`,
+          description: `Pleacă împreună cu ${countLabel(activity.document_requirements.length, 'cerere', 'cereri')}. Se șterge din șablon la salvare.`,
+          confirmText: 'Șterge activitatea',
+        }))) return
+        removeActivity(phaseId, activity.id)
       },
-      deleteDoc: (phaseId, activityId, doc) => {
-        setDeleteError(null)
-        setDeleteTarget({
-          type: 'document',
-          phaseId,
-          activityId,
-          documentId: doc.id,
-          documentName: doc.name.trim() || 'Document fără nume',
-          persisted: isDbId(doc.id),
-        })
+      deleteDoc: async (phaseId, activityId, doc) => {
+        if (!(await confirm({
+          title: `Ștergi cererea «${doc.name.trim() || 'fără nume'}»?`,
+          description: 'Se șterge din șablon la salvare.',
+          confirmText: 'Șterge cererea',
+        }))) return
+        removeDocRequirement(phaseId, activityId, doc.id)
       },
       addActivity: phaseId => setNameDialog({ kind: 'new-activity', phaseId }),
       addDoc: (phaseId, activityId) => setDocDialog({ phaseId, activityId, doc: null }),
@@ -625,7 +642,7 @@ function AdminTemplatesContent() {
         }
       },
     }
-  }, [patchActivity, dropError])
+  }, [patchActivity, dropError, confirm, showToast])
 
   const clearValidationError = (key: string) => {
     setValidationErrors(prev => {
@@ -1272,13 +1289,13 @@ function AdminTemplatesContent() {
             actions={
               <>
                 {templates.length > 0 && (
-                  <div className="w-full sm:w-72">
+                  <div className="min-w-0 flex-1 sm:w-72 sm:flex-none">
                     <SearchInput value={templateSearch} onChange={setTemplateSearch} placeholder="Caută după nume sau descriere…" label="Caută șabloane" />
                   </div>
                 )}
-                <Button data-tooltip="Pornește un șablon nou de faze și activități" variant="primary" onClick={openCreateForm} aria-label="Șablon nou">
+                <Button data-tooltip="Pornește un șablon nou de faze și activități" variant="primary" onClick={openCreateForm}>
                   <Plus className="h-4 w-4" aria-hidden="true" />
-                  <span className="hidden sm:inline">Șablon nou</span>
+                  Șablon nou
                 </Button>
               </>
             }

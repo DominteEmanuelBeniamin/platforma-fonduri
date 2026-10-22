@@ -132,7 +132,8 @@ test.describe('Tabelul proiectului: interacțiuni', () => {
     const header = page.locator('main [id^="activity-"] div[aria-hidden="true"]').filter({ hasText: 'Cerere' }).first()
     await expect(header).toBeVisible()
     const labels = (await header.locator('span').allInnerTexts()).map(t => t.trim()).filter(Boolean)
-    expect(labels).toEqual(['Cerere', 'Status', 'Termen', 'Încărcat', 'Vizibil clientului'])
+    // Aceeași ordine ca la activități: Încărcat sub Documente, Termen sub Termen.
+    expect(labels).toEqual(['Cerere', 'Status', 'Încărcat', 'Termen', 'Vizibil clientului'])
   })
 
   test('S-07: pe calculator nu există butonul „Panoul fazelor” din bara de sus', async ({ page }) => {
@@ -158,6 +159,51 @@ test.describe('Tabelul proiectului: interacțiuni', () => {
       els.map(el => el.getAttribute('data-tooltip') ?? ''))
     expect(tooltips.length).toBeGreaterThan(3)
     for (const t of tooltips) expect(t, 'tooltip-ul „⋯” nu poartă numele elementului').toMatch(/^(Acțiuni( fază| activitate| cerere| document)?|Mai multe acțiuni)$/)
+  })
+})
+
+test.describe('Tabelul proiectului: feedback-ul din 22 octombrie', () => {
+  test.skip(!projectId, 'E2E_PROJECT_ID lipsește')
+
+  test.beforeEach(async ({ page }, info) => {
+    test.skip(info.project.name !== 'desktop', 'coloanele și bara lipită există doar pe ecran lat')
+    await autentifica(page, 'admin')
+    await deschideProiectul(page)
+  })
+
+  test('termenele, stările și documentele cererilor stau sub cele ale activității', async ({ page }) => {
+    const row = page.locator('main [id^="activity-"]').filter({ has: page.locator('[id^="request-"]') }).first()
+      .or(page.locator('main [id^="activity-"]').first())
+    await row.first().getByRole('button', { name: /^Extinde activitatea/ }).click()
+    const activity = page.locator('main [id^="activity-"]').filter({ has: page.locator('[id^="request-"]') }).first()
+    const centru = async (loc: import('@playwright/test').Locator) => { const b = (await loc.boundingBox())!; return b.x + b.width / 2 }
+    const header = activity.locator('xpath=ancestor::section[1]').locator('div[aria-hidden="true"]').first()
+    const subheader = activity.locator('div[aria-hidden="true"]').filter({ hasText: 'Cerere' }).first()
+    for (const [sus, jos] of [['Status', 'Status'], ['Documente', 'Încărcat'], ['Termen', 'Termen'], ['Vizibil clientului', 'Vizibil clientului']]) {
+      const a = await centru(header.getByText(sus, { exact: true }))
+      const b = await centru(subheader.getByText(jos, { exact: true }))
+      expect(Math.abs(a - b), `„${jos}” sub „${sus}”`).toBeLessThan(2)
+    }
+  })
+
+  test('„Cereri generale” arată doar cererile, fără documentele trimise', async ({ page }) => {
+    await page.locator('aside nav').getByText('Cereri generale', { exact: true }).click()
+    await expect(page.locator('main section#phase-__trimise__')).toHaveCount(0)
+    await page.locator('aside nav').getByText('Documente trimise clientului', { exact: true }).click()
+    await expect(page.locator('main section#phase-__trimise__')).toBeVisible()
+  })
+
+  test('altă vedere pornește de sus, iar „Chat” stă în bara lipită', async ({ page }) => {
+    await page.mouse.wheel(0, 2000)
+    await page.waitForTimeout(300)
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(500)
+    await page.getByRole('button', { name: /^Ce ai de făcut/ }).click()
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThan(5)
+    await page.getByRole('button', { name: /^Tabel principal/ }).click()
+    await page.mouse.wheel(0, 2000)
+    await page.waitForTimeout(300)
+    const chat = page.getByRole('button', { name: /^Chat/ })
+    await expect(chat).toBeInViewport()
   })
 })
 

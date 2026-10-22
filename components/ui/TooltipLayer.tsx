@@ -228,7 +228,10 @@ export default function TooltipLayer() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!visible && !showTimer) return
       if (event.key === 'Escape') {
-        // Escape închide întâi tooltip-ul, nu și dialogul de sub el.
+        // Escape închide întâi un tooltip vizibil, nu și dialogul de sub el.
+        // Unul doar programat se anulează, iar tasta merge mai departe: altfel
+        // primul Escape după un clic nu închidea sertarul sau dialogul.
+        if (!visible) { hide(); return }
         event.stopPropagation()
         event.preventDefault()
         hide()

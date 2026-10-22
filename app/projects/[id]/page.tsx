@@ -30,6 +30,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Upload,
+  PanelLeftOpen,
 } from 'lucide-react'
 
 import {
@@ -74,7 +75,7 @@ import { buildProjectChatHref } from '@/lib/project-chat-links'
 import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
 import { publishBlockers } from '@/lib/publish-rules'
 import { serverMessage } from '@/lib/api-error'
-import { activityDuplicatedMessage, phaseDuplicatedMessage } from '@/lib/duplication-summary'
+import { activityDuplicateConfirm, activityDuplicatedMessage, phaseDuplicateConfirm, phaseDuplicatedMessage } from '@/lib/duplication-summary'
 import {
   GENERAL_PHASE_ID,
   clearCalendarParams,
@@ -518,6 +519,7 @@ function ProjectDetailsContent() {
 
   const handleDuplicatePhase = async (phaseId: string, phaseName: string) => {
     if (duplicatingId) return
+    if (!(await confirm(phaseDuplicateConfirm(phaseName)))) return
     setDuplicatingId(phaseId)
     try {
       const res = await apiFetch(`/api/projects/${projectId}/phases/${phaseId}/duplicate`, { method: 'POST' })
@@ -546,6 +548,7 @@ function ProjectDetailsContent() {
 
   const handleDuplicateActivity = async (phaseId: string, activityId: string, activityName: string) => {
     if (duplicatingId) return
+    if (!(await confirm(activityDuplicateConfirm(activityName)))) return
     setDuplicatingId(activityId)
     try {
       const res = await apiFetch(
@@ -974,6 +977,10 @@ function ProjectDetailsContent() {
     revealTarget(`activity-${activityId}`, 120, 'start')
   }
 
+  /** Id-ul e al unui document trimis clientului (grupul lui, nu „Cereri generale”). */
+  const isSentDocument = (id: string | null | undefined) =>
+    !!id && allDocRequests.some((r: any) => r.id === id && r.is_outgoing)
+
   const handleSelectSent = () => {
     selectView('phases')
     setLandingView('table')
@@ -1102,7 +1109,8 @@ function ProjectDetailsContent() {
     setLandingView('table')
     setActivePhaseId(targetPhaseId)
     setExpandedPhases(prev => (prev.has(targetPhaseId) ? prev : new Set(prev).add(targetPhaseId)))
-    focusPhase(targetPhaseId)
+    // Un document trimis clientului stă în grupul lui, nu în „Cereri generale”.
+    focusPhase(targetPhaseId === GENERAL_ID && isSentDocument(targetDocumentId) ? SENT_ID : targetPhaseId)
   }, [targetPhaseId, targetActivityId, targetDocumentId, phases, reveal, focusPhase])
 
   // ─── Deep-link: scroll + highlight zona țintă din URL ───────────────────────
@@ -1133,7 +1141,7 @@ function ProjectDetailsContent() {
     reveal(phaseId, activityId, requestId)
     selectView('phases')
     setLandingView('table')
-    focusPhase(activityId && phaseId ? phaseId : GENERAL_ID)
+    focusPhase(activityId && phaseId ? phaseId : isSentDocument(requestId) ? SENT_ID : GENERAL_ID)
     if (activityId && phaseId) {
       // Document legat de o activitate dintr-o fază
       setActivePhaseId(phaseId)
@@ -1393,7 +1401,8 @@ function ProjectDetailsContent() {
         action={
           <>
             {perms.edit_project && !isEditingTitle && (
-              <IconButton label="Redenumește proiectul" data-tooltip="Schimbă numele proiectului" onClick={() => { setEditTitle(project.title); setIsEditingTitle(true) }}>
+              // Pe telefon, redenumirea stă în „⋯”: bara nu încăpea pe un rând.
+              <IconButton className="max-sm:hidden" label="Redenumește proiectul" data-tooltip="Schimbă numele proiectului" onClick={() => { setEditTitle(project.title); setIsEditingTitle(true) }}>
                 <Pencil className="h-4 w-4" />
               </IconButton>
             )}
@@ -1415,17 +1424,6 @@ function ProjectDetailsContent() {
                 onChange={fetchProjectMembers}
               />
             )}
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleOpenChat}
-              className="relative"
-              data-tooltip={isClient ? 'Scrie-i consultantului despre acest proiect' : 'Discuția proiectului, cu echipa și cu clientul'}
-            >
-              <MessageSquare className="h-4 w-4" aria-hidden="true" />
-              Chat
-              {unreadCount > 0 && <Counter n={unreadCount} label={`${unreadCount} mesaje necitite`} className="ml-1" />}
-            </Button>
             {canChange && (
               <Button
                 variant={hasUnnotifiedUpdates ? 'primary' : 'secondary'}
@@ -1449,7 +1447,8 @@ function ProjectDetailsContent() {
                   title={projectClosed ? PROJECT_CLOSED_REMINDERS_HINT : 'Reminderele automate sunt pornite. Apasă ca să le oprești.'}
                   disabled={togglingReminders || projectClosed}
                   onClick={handleToggleAutomaticReminders}
-                  className="disabled:cursor-not-allowed disabled:opacity-55"
+                  // Pornite, pe telefon stau în „⋯”; oprite, plăcuța rămâne la vedere.
+                  className="disabled:cursor-not-allowed disabled:opacity-55 max-sm:hidden"
                 >
                   {togglingReminders ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
                 </IconButton>
@@ -1480,6 +1479,20 @@ function ProjectDetailsContent() {
               busy={changingLifecycle}
               triggerClassName="inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-ink disabled:opacity-60 pointer-fine:h-9 pointer-fine:w-9"
               actions={[
+                {
+                  label: 'Redenumește proiectul',
+                  icon: <Pencil className="h-4 w-4" />,
+                  hidden: !perms.edit_project || isEditingTitle,
+                  mobileOnly: true,
+                  onSelect: () => { setEditTitle(project.title); setIsEditingTitle(true) },
+                },
+                {
+                  label: remindersActionLabel(true),
+                  icon: <BellOff className="h-4 w-4" />,
+                  hidden: !permissions.edit_project || projectClosed || !automaticRemindersEnabled(project),
+                  mobileOnly: true,
+                  onSelect: () => { void handleToggleAutomaticReminders() },
+                },
                 {
                   label: 'Încheie proiectul',
                   icon: <Archive className="h-4 w-4" />,
@@ -1589,8 +1602,19 @@ function ProjectDetailsContent() {
               Ctrl+F nimic nu se schimbă; doar bara se lipește sub navigare. */}
           <div className="md:sticky md:top-16 md:z-20 md:bg-paper">
           {/* ── Tab switcher ── */}
-          <div className="relative z-10 h-11 bg-[var(--p-surface)] border-b border-[var(--p-border)] md:px-3">
-            <div className="flex h-full gap-1 -mb-px overflow-x-auto">
+          <div className="relative z-10 flex h-11 items-center gap-2 bg-[var(--p-surface)] border-b border-[var(--p-border)] md:px-3">
+            {activeView === 'phases' && sidebarCollapsed && (
+              <button
+                type="button"
+                onClick={() => changeSidebarCollapsed(false)}
+                aria-label="Arată panoul fazelor"
+                data-tooltip="Arată panoul fazelor"
+                className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-plate)] text-ink-soft transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-ink md:inline-flex"
+              >
+                <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
+              </button>
+            )}
+            <div className="flex h-full min-w-0 flex-1 gap-1 -mb-px overflow-x-auto">
               {([
                 { view: 'phases', label: 'Faze & Activități', Icon: Layers, count: 0, urgent: false, hint: '', tip: 'Fazele proiectului, cu activitățile și cererile de documente' },
                 {
@@ -1647,6 +1671,22 @@ function ProjectDetailsContent() {
                 </button>
               ))}
             </div>
+            {/* Chatul stă în bara care rămâne la vedere la derulare: e drumul
+                cel mai des folosit din proiect (feedback-ul lui Sandu, 22
+                octombrie 2026). */}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleOpenChat}
+              className="relative shrink-0"
+              data-tooltip={isClient ? 'Scrie-i consultantului despre acest proiect' : 'Discuția proiectului, cu echipa și cu clientul'}
+              aria-label={unreadCount > 0 ? `Chat, ${unreadCount} mesaje necitite` : 'Chat'}
+            >
+              <MessageSquare className="h-4 w-4" aria-hidden="true" />
+              {/* Pe telefon doar iconița: altfel taburile nu mai încap. */}
+              <span className="hidden sm:inline">Chat</span>
+              {unreadCount > 0 && <Counter n={unreadCount} label={`${unreadCount} mesaje necitite`} className="ml-1" />}
+            </Button>
           </div>
 
             {/* Bara tabelului, ca în monday: vederea la stânga, uneltele la
@@ -1669,7 +1709,12 @@ function ProjectDetailsContent() {
                       data-tooltip={tip}
                       type="button"
                       aria-pressed={landingView === view}
-                      onClick={() => { setRenamingId(null); setLandingView(view) }}
+                      onClick={() => {
+                        setRenamingId(null)
+                        // Altă vedere pornește de sus, nu de la derularea celeilalte.
+                        if (view !== landingView) window.scrollTo({ top: 0 })
+                        setLandingView(view)
+                      }}
                       className={`inline-flex min-h-10 items-center gap-1.5 rounded-[var(--radius-plate)] border px-3 text-[13px] font-semibold transition-colors duration-[120ms] pointer-fine:min-h-8 ${
                         landingView === view
                           ? 'border-rule bg-plate text-ink'
@@ -1976,7 +2021,7 @@ function ProjectDetailsContent() {
                             type="button"
                             onClick={() => setShowAddActivity(prev => ({ ...prev, [phase.id]: true }))}
                             data-tooltip={`Adaugă o activitate nouă în faza „${phase.name}”`}
-                            className="flex min-h-11 w-full items-center gap-2 border-b border-rule px-3 text-left text-[13px] text-ink-faint transition-colors duration-[120ms] hover:bg-paper hover:text-[var(--sg-accent)] pointer-fine:min-h-9"
+                            className="flex min-h-11 w-full items-center gap-2 border-b border-rule px-3 text-left text-[13px] font-medium text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)] pointer-fine:min-h-9"
                           >
                             <Plus className="h-4 w-4" aria-hidden="true" />
                             Adaugă activitate
@@ -2002,9 +2047,10 @@ function ProjectDetailsContent() {
                 />}
 
                 {/* Documentele trimise clientului: grup separat, cu muchie neutră.
-                    Se vede și când e aleasă „Cereri generale”, ca un link vechi
-                    spre un document trimis să-l găsească (S-20). */}
-                {showSentGroup && (!focusId || focusId === SENT_ID || focusId === GENERAL_ID) && (
+                    Ales din panou, arată doar documentele; „Cereri generale”
+                    arată doar cererile (S-20). Un link spre un document trimis
+                    duce aici (`isSentDocument`). */}
+                {showSentGroup && (!focusId || focusId === SENT_ID) && (
                   <TableGroup
                     id={SENT_ID}
                     title={sentTitle}

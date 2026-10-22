@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as Collapsible from '@radix-ui/react-collapsible'
 import { bandFor, bandVar, TONE } from '@/lib/signage'
 import { ToneIcon } from '@/components/ui/ToneIcon'
@@ -19,7 +19,6 @@ import {
   Check,
   AlertTriangle,
   PanelLeftClose,
-  PanelLeftOpen,
 } from 'lucide-react'
 
 import InlineDateEditor from '@/components/InlineDateEditor'
@@ -27,7 +26,7 @@ import InlineInput from '@/components/InlineInput'
 import RowActionsMenu from '@/components/RowActionsMenu'
 import { useToast } from '@/app/providers/ToastProvider'
 import { serverMessage } from '@/lib/api-error'
-import { activityDuplicatedMessage, phaseDuplicatedMessage } from '@/lib/duplication-summary'
+import { activityDuplicateConfirm, activityDuplicatedMessage, phaseDuplicateConfirm, phaseDuplicatedMessage } from '@/lib/duplication-summary'
 import {
   activityDeletionConfirm,
   activityDeletionImpact,
@@ -182,6 +181,7 @@ export default function ProjectPhasesSidebar({
   // `canEdit` ține de ce vede echipa (ciorne, benzi); `canChange`, de ce poate modifica.
   const canChange = canEdit && !readOnly
   const { showToast, confirm } = useToast()
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
   const [showAddPhase, setShowAddPhase] = useState(false)
   const [addingPhase, setAddingPhase] = useState(false)
   const [showAddActivity, setShowAddActivity] = useState<Record<string, boolean>>({})
@@ -218,6 +218,8 @@ export default function ProjectPhasesSidebar({
     }
     window.addEventListener('keydown', handler)
     document.body.style.overflow = 'hidden'
+    // Focusul intră în sertar, pe „Închide”, ca la orice fereastră peste pagină.
+    closeButtonRef.current?.focus()
     return () => {
       window.removeEventListener('keydown', handler)
       document.body.style.overflow = ''
@@ -308,6 +310,7 @@ export default function ProjectPhasesSidebar({
   // lucru posibil — iar focusul aduce copia în ecran.
   const handleDuplicatePhase = async (phase: ProjectPhase) => {
     if (duplicatingPhase) return
+    if (!(await confirm(phaseDuplicateConfirm(phase.name)))) return
     setDuplicatingPhase(phase.id)
     try {
       const res = await apiFetch(`/api/projects/${projectId}/phases/${phase.id}/duplicate`, {
@@ -332,6 +335,7 @@ export default function ProjectPhasesSidebar({
 
   const handleDuplicateActivity = async (phaseId: string, activity: ProjectActivity) => {
     if (duplicatingActivity) return
+    if (!(await confirm(activityDuplicateConfirm(activity.name)))) return
     setDuplicatingActivity(activity.id)
     try {
       const res = await apiFetch(
@@ -497,20 +501,9 @@ export default function ProjectPhasesSidebar({
         />
       )}
 
-      {/* Strâns, panoul lasă în urmă o fâșie cu butonul care îl redeschide. */}
-      {collapsed && !mobileOpen && onCollapsedChange && (
-        <div className="hidden md:sticky md:top-16 md:flex md:self-start md:border-r md:border-rule md:bg-plate md:py-1.5 md:pl-1 md:pr-1">
-          <button
-            type="button"
-            onClick={() => onCollapsedChange(false)}
-            aria-label="Arată panoul fazelor"
-            title="Arată panoul fazelor"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-plate)] text-ink-soft transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-ink"
-          >
-            <PanelLeftOpen className="h-4 w-4" />
-          </button>
-        </div>
-      )}
+      {/* Strâns, panoul nu lasă nicio fâșie: butonul care îl redeschide stă în
+          bara de taburi a paginii, ca bara și tabelul să pornească din aceeași
+          margine (feedback-ul lui Sandu, 22 octombrie 2026). */}
 
       <aside
         className={`fixed inset-y-0 left-0 z-[999999] w-80 max-w-[85vw] min-h-0 flex-shrink-0 flex-col overflow-hidden border-r border-rule bg-plate
@@ -539,6 +532,7 @@ export default function ProjectPhasesSidebar({
           </p>
         )}
         <button
+          ref={closeButtonRef}
           onClick={onMobileClose}
           aria-label="Închide"
           className="md:hidden p-1 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface-2)]"

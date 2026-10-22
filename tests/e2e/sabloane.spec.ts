@@ -320,6 +320,8 @@ test('editorul din interfață: o singură cerere per salvare, de la creare la p
     for (let d = 0; d < 2; d++) await addDoc(page, p, `Cerere UI ${p + 1}.${d + 1}`)
   }
   await editorAction(page, 'activitatea', 'Activitate UI 1', 'Duplică')
+  await page.getByRole('dialog', { name: 'Duplici activitatea «Activitate UI 1»?' }).getByRole('button', { name: 'Duplică' }).click()
+  await expect(page.getByText('Am duplicat activitatea «Activitate UI 1»: copia e «Activitate UI 1 (copie)».')).toBeVisible()
 
   writes.length = 0
   await save(page, name)
@@ -362,7 +364,8 @@ test('editorul din interfață: o singură cerere per salvare, de la creare la p
   await rename.getByRole('textbox').press('Enter')
   await expect(page.getByRole('heading', { level: 3, name: 'Faza UI 1 bis', exact: true })).toBeVisible()
   await editorAction(page, 'activitatea', copyName, 'Șterge')
-  await confirmDialog(page, /^Șterge/)
+  // Ștergerea din editor se confirmă cu un clic, fără cuvânt de tastat.
+  await page.getByRole('dialog', { name: `Ștergi activitatea «${copyName}»?` }).getByRole('button', { name: 'Șterge activitatea' }).click()
 
   writes.length = 0
   await save(page, name)

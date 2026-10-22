@@ -11,6 +11,8 @@ export interface RowAction {
   /** Ascunde acțiunea fără să schimbi structura listei la apelant. */
   hidden?: boolean
   danger?: boolean
+  /** Doar pe ecran îngust: pe lat, acțiunea are butonul ei la vedere. */
+  mobileOnly?: boolean
 }
 
 /** Colțul din care se ancorează meniul, în coordonate de fereastră. */
@@ -138,7 +140,7 @@ export default function RowActionsMenu({
   const iconSize = size === 'sm' ? 'w-3 h-3' : 'w-4 h-4'
 
   return (
-    <div ref={rootRef} data-open={open} className={`flex-shrink-0 ${className}`} onClick={e => e.stopPropagation()}>
+    <div ref={rootRef} data-open={open} className={`flex-shrink-0 ${visible.every(action => action.mobileOnly) ? 'sm:hidden' : ''} ${className}`} onClick={e => e.stopPropagation()}>
       <button
         ref={buttonRef}
         type="button"
@@ -175,7 +177,7 @@ export default function RowActionsMenu({
               // Focusul revine pe „⋯” înainte de acțiune: un dialog deschis de ea
               // știe astfel unde să-l întoarcă, iar un câmp pe loc îl ia singur.
               onClick={() => { setOpen(false); buttonRef.current?.focus(); action.onSelect() }}
-              className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-[var(--p-surface-2)] ${
+              className={`${action.mobileOnly ? 'sm:hidden ' : ''}w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-[var(--p-surface-2)] ${
                 action.danger ? 'text-[var(--p-danger)]' : 'text-[var(--p-ink)]'
               }`}
             >

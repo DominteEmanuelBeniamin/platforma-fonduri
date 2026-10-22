@@ -45,3 +45,24 @@ export function activityDuplicatedMessage(activityName: string, documentRequests
     DRAFT_NOTE,
   ].filter(Boolean).join(' ')
 }
+
+/**
+ * Confirmarea dinaintea duplicării: un clic greșit în „⋯” crea o copie
+ * întreagă (feedback-ul lui Sandu, 22 octombrie 2026). Aceleași texte în
+ * tabel și în panoul fazelor.
+ */
+export function phaseDuplicateConfirm(name: string) {
+  return {
+    title: `Duplici faza «${name}»?`,
+    description: `Copia apare sub ea, cu activitățile și cererile ei. ${CLIENT_FILES_NOTE} ${DRAFT_NOTE}`,
+    confirmText: 'Duplică',
+  }
+}
+
+export function activityDuplicateConfirm(name: string) {
+  return {
+    title: `Duplici activitatea «${name}»?`,
+    description: `Copia apare sub ea, cu cererile ei. ${CLIENT_FILES_NOTE} ${DRAFT_NOTE}`,
+    confirmText: 'Duplică',
+  }
+}
