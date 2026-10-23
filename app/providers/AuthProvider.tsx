@@ -29,7 +29,8 @@ type AuthCtx = {
 }
 
 const Ctx = createContext<AuthCtx | null>(null)
-export const PUBLIC_PATHS = new Set(['/login', '/forgot-password', '/reset-password'])
+// `/confidentialitate` e publică: informarea GDPR o citește și cine nu are încă cont.
+export const PUBLIC_PATHS = new Set(['/login', '/forgot-password', '/reset-password', '/confidentialitate'])
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()

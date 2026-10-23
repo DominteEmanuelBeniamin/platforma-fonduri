@@ -4,6 +4,8 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { X, Paperclip, AlertCircle } from 'lucide-react'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { REQUIREMENT_TYPES, REQUIREMENT_LABELS, type RequirementType } from '@/lib/requirement-type'
+import type { SensitiveKind } from '@/lib/sensitive-documents'
+import { SensitiveKindField } from '@/components/SensitiveKindField'
 import type { TemplateAttachment } from './types'
 import { formatFileSize } from '@/lib/client-upload'
 import { DateField } from '@/components/ui/DatePicker'
@@ -22,6 +24,7 @@ export default function RequestFormDialog({
   name,
   description,
   category, onCategoryChange,
+  sensitiveKind, onSensitiveKindChange,
   deadline, onDeadlineChange,
   templateFiles, onTemplateFilesChange, onPickTemplateFiles,
   templateAttachments, onTemplateAttachmentsChange,
@@ -38,6 +41,7 @@ export default function RequestFormDialog({
   name: string
   description: string
   category: RequirementType; onCategoryChange: (v: RequirementType) => void
+  sensitiveKind: SensitiveKind | null; onSensitiveKindChange: (v: SensitiveKind | null) => void
   deadline: string; onDeadlineChange: (v: string) => void
   templateFiles: File[]
   onTemplateFilesChange: (updater: (current: File[]) => File[]) => void
@@ -135,6 +139,8 @@ export default function RequestFormDialog({
               ))}
             </div>
           </div>
+
+          <SensitiveKindField value={sensitiveKind} onChange={onSensitiveKindChange} name="liveDocSensitive" layout="row" />
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             <label className="flex-1 cursor-pointer">

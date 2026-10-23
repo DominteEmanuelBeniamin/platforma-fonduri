@@ -139,6 +139,12 @@ export default function LoginPage() {
                 </Link>
               </p>
             )}
+            <p className="text-center text-xs leading-relaxed text-ink-faint">
+              Prin autentificare, datele dumneavoastră sunt prelucrate conform{' '}
+              <Link data-tooltip="Ce date personale prelucrăm și ce drepturi aveți" href="/confidentialitate" className="underline underline-offset-4 hover:text-ink">
+                Politicii de confidențialitate
+              </Link>.
+            </p>
           </form>
         </div>
       </div>

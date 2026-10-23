@@ -6,6 +6,7 @@ import { createStoragePathChecker, loadTemplateTree } from '@/app/api/_utils/tem
 import { mapWithConcurrency } from '@/lib/template-tree'
 import { clearTemplateChanged } from '@/app/api/_utils/template-changes'
 import { isProjectActive } from '@/lib/project-lifecycle'
+import { isSensitiveKind } from '@/lib/sensitive-documents'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,6 +33,7 @@ type RollbackTracker = {
     is_outgoing: boolean | null
     is_mandatory: boolean | null
     requirement_type: string | null
+    sensitive_kind: string | null
     attachment_path: string | null
     attachment_original_name: string | null
     attachment_missing_at: string | null
@@ -45,6 +47,7 @@ type RollbackTracker = {
     is_outgoing: boolean | null
     is_mandatory: boolean | null
     requirement_type: string | null
+    sensitive_kind: string | null
     status: string
     order_index: number
     attachment_path: string | null
@@ -163,6 +166,7 @@ async function loadProjectLineage(projectId: string) {
       is_outgoing,
       is_mandatory,
       requirement_type,
+      sensitive_kind,
       status,
       order_index,
       source_template_document_requirement_id,
@@ -273,6 +277,7 @@ async function insertDocs(
         is_outgoing: deletedDoc.is_outgoing ?? null,
         is_mandatory: deletedDoc.is_mandatory ?? null,
         requirement_type: deletedDoc.requirement_type ?? null,
+        sensitive_kind: deletedDoc.sensitive_kind ?? null,
         status: deletedDoc.status,
         order_index: deletedDoc.order_index ?? 0,
         attachment_path: deletedDoc.attachment_path ?? null,
@@ -296,6 +301,7 @@ async function insertDocs(
           is_outgoing: isOutgoing,
           is_mandatory: isOutgoing ? false : tDoc.is_mandatory,
           requirement_type: isOutgoing ? 'optional' : tDoc.requirement_type,
+          sensitive_kind: isOutgoing ? null : tDoc.sensitive_kind ?? null,
           order_index: tDoc.order_index,
           attachment_path: attachmentAvailable ? attachmentPath : null,
           attachment_original_name: attachmentAvailable ? tDoc.attachment_original_name || null : null,
@@ -330,6 +336,7 @@ async function insertDocs(
         is_outgoing: isOutgoing,
         is_mandatory: isOutgoing ? false : tDoc.is_mandatory,
         requirement_type: isOutgoing ? 'optional' : tDoc.requirement_type,
+        sensitive_kind: isOutgoing ? null : tDoc.sensitive_kind ?? null,
         order_index: tDoc.order_index,
         attachment_path: attachmentAvailable ? attachmentPath : null,
         attachment_original_name: attachmentAvailable ? tDoc.attachment_original_name || null : null,
@@ -393,6 +400,7 @@ async function rollbackCreated(rollback: RollbackTracker) {
         is_outgoing: doc.is_outgoing,
         is_mandatory: doc.is_mandatory,
         requirement_type: doc.requirement_type,
+        sensitive_kind: doc.sensitive_kind,
         status: doc.status,
         order_index: doc.order_index,
         attachment_path: doc.attachment_path,
@@ -417,6 +425,7 @@ async function rollbackCreated(rollback: RollbackTracker) {
         is_outgoing: doc.is_outgoing,
         is_mandatory: doc.is_mandatory,
         requirement_type: doc.requirement_type,
+        sensitive_kind: doc.sensitive_kind,
         attachment_path: doc.attachment_path,
         attachment_original_name: doc.attachment_original_name,
         attachment_missing_at: doc.attachment_missing_at,
@@ -602,6 +611,11 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
           const isOutgoing = tDoc.is_outgoing === true
           const shouldMoveToActivity = Boolean(docRow && docRow.activity_id !== activityId)
           const shouldUpdateOutgoing = Boolean(docRow && Boolean(docRow.is_outgoing) !== isOutgoing)
+          // Marcajul de date sensibile coboară din șablon, dar nu se scoate
+          // niciodată de aici: un consultant poate marca o cerere și singur.
+          const shouldUpdateSensitive = Boolean(
+            docRow && !isOutgoing && isSensitiveKind(tDoc.sensitive_kind) && !docRow.sensitive_kind
+          )
           const shouldUpdateAttachment = Boolean(
             docRow && (
               docRow.attachment_path !== attachmentPath ||
@@ -611,7 +625,7 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
             )
           )
 
-          if (!docRow || (!shouldMoveToActivity && !shouldUpdateAttachment && !shouldUpdateOutgoing)) {
+          if (!docRow || (!shouldMoveToActivity && !shouldUpdateAttachment && !shouldUpdateOutgoing && !shouldUpdateSensitive)) {
             continue
           }
 
@@ -653,7 +667,7 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
             })
             await ctx.markTemplateDocMissing(tDoc, checkedAt)
 
-            if (isOutgoing || (!shouldMoveToActivity && !shouldUpdateOutgoing)) {
+            if (isOutgoing || (!shouldMoveToActivity && !shouldUpdateOutgoing && !shouldUpdateSensitive)) {
               totals.skipped += 1
               continue
             }
@@ -665,6 +679,7 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
             is_outgoing: docRow.is_outgoing ?? null,
             is_mandatory: docRow.is_mandatory ?? null,
             requirement_type: docRow.requirement_type ?? null,
+            sensitive_kind: docRow.sensitive_kind ?? null,
             attachment_path: docRow.attachment_path ?? null,
             attachment_original_name: docRow.attachment_original_name ?? null,
             attachment_missing_at: docRow.attachment_missing_at ?? null,
@@ -679,6 +694,11 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
             updatePayload.is_outgoing = isOutgoing
             updatePayload.is_mandatory = isOutgoing ? false : tDoc.is_mandatory
             updatePayload.requirement_type = isOutgoing ? 'optional' : tDoc.requirement_type
+            // Un document de trimis nu poate fi marcat (CHECK în bază).
+            if (isOutgoing) updatePayload.sensitive_kind = null
+          }
+          if (shouldUpdateSensitive) {
+            updatePayload.sensitive_kind = tDoc.sensitive_kind
           }
 
           if (shouldUpdateAttachment && attachmentAvailable) {
@@ -706,7 +726,9 @@ async function applyToProject(projectId: string, templatePhases: any[], actorId:
               is_outgoing: isOutgoing,
               is_mandatory: isOutgoing ? false : tDoc.is_mandatory,
               requirement_type: isOutgoing ? 'optional' : tDoc.requirement_type,
+              ...(isOutgoing ? { sensitive_kind: null } : {}),
             } : {}),
+            ...(shouldUpdateSensitive ? { sensitive_kind: tDoc.sensitive_kind } : {}),
             ...(shouldUpdateAttachment && attachmentAvailable ? {
               attachment_path: attachmentPath,
               attachment_original_name: originalName,

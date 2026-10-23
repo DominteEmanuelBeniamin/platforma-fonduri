@@ -325,6 +325,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             description: tDoc.description,
             is_mandatory: isOutgoing ? false : tDoc.is_mandatory,
             requirement_type: isOutgoing ? 'optional' : tDoc.requirement_type,
+            sensitive_kind: isOutgoing ? null : tDoc.sensitive_kind ?? null,
             is_outgoing: isOutgoing,
             order_index: tDoc.order_index,
             attachment_path: attachmentAvailable ? firstAttachment.storage_path : null,

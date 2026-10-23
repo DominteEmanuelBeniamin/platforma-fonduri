@@ -5,6 +5,7 @@ import { requireAdmin } from '@/app/api/_utils/auth'
 import { loadTemplateTree } from '@/app/api/_utils/template-tree'
 import { mapWithConcurrency } from '@/lib/template-tree'
 import { isProjectActive } from '@/lib/project-lifecycle'
+import { isSensitiveKind } from '@/lib/sensitive-documents'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -76,7 +77,7 @@ async function buildProjectPreview(project: any, template: any) {
 
   const { data: docs, error: docsError } = await supabaseAdmin
     .from('document_requirements')
-    .select('id, activity_id, name, status, source_template_document_requirement_id, attachment_path, attachment_original_name, is_outgoing, attachments:document_requirement_attachments(id, storage_path, original_name, order_index)')
+    .select('id, activity_id, name, status, source_template_document_requirement_id, attachment_path, attachment_original_name, is_outgoing, sensitive_kind, attachments:document_requirement_attachments(id, storage_path, original_name, order_index)')
     .eq('project_id', project.id)
     .is('deleted_at', null)
 
@@ -172,6 +173,8 @@ async function buildProjectPreview(project: any, template: any) {
           activity &&
           (doc.activity_id !== activity.id ||
           Boolean(doc.is_outgoing) !== Boolean(tDoc.is_outgoing) ||
+          // Marcajul de date sensibile coboară din șablon, nu se scoate (ca la aplicare).
+          (!tDoc.is_outgoing && isSensitiveKind(tDoc.sensitive_kind) && !doc.sensitive_kind) ||
           (
             // Un model marcat lipsă nu ajunge în proiect ca `attachment_path`,
             // iar aplicarea îl sare; fără excepția asta, preview-ul l-ar arăta
