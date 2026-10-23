@@ -6,7 +6,7 @@ import { BACKUP_RETENTION_DAYS } from '@/lib/db-backup'
 
 export const metadata: Metadata = {
   title: 'Politică de confidențialitate',
-  description: 'Informații privind prelucrarea datelor cu caracter personal în platforma de management al proiectelor de finanțare.',
+  description: 'Informații privind prelucrarea datelor cu caracter personal în platforma Bonie.',
 }
 
 const LAST_UPDATED = 'octombrie 2026'
@@ -18,7 +18,7 @@ const SECTIONS = [
   { id: 'scopuri', numeral: 'IV', title: 'Scopurile și temeiurile prelucrării' },
   { id: 'sensibile', numeral: 'V', title: 'Date cu caracter special' },
   { id: 'durata', numeral: 'VI', title: 'Durata pentru care vă prelucrăm datele' },
-  { id: 'dezvaluire', numeral: 'VII', title: 'Dezvăluirea datelor cu caracter personal' },
+  { id: 'dezvaluire', numeral: 'VII', title: 'Cine are acces la date' },
   { id: 'transfer', numeral: 'VIII', title: 'Transferul datelor cu caracter personal' },
   { id: 'securitate', numeral: 'IX', title: 'Securitatea datelor' },
   { id: 'drepturi', numeral: 'X', title: 'Drepturile de care beneficiați' },
@@ -61,14 +61,15 @@ function Purpose({ title, basis, consequence }: { title: React.ReactNode; basis:
 }
 
 const linkClass = 'font-semibold text-[var(--sg-accent-ink)] underline underline-offset-4'
+const strong = 'font-semibold text-ink'
 
 /**
- * Politica de confidențialitate (art. 13–14 GDPR), publică, în forma
- * obișnuită a documentelor de acest tip din România. Datele firmei vin din
- * `lib/privacy-operator.ts`. Se validează de un avocat pe protecția datelor.
- *
- * Textul promite doar ce face aplicația: termenele cu cifre sunt cele
- * implementate (documentele sensibile, copiile bazei).
+ * Politica de confidențialitate (art. 13–14 GDPR), publică, în forma clasică
+ * a documentelor din România. Descrie exact ce face aplicația: câmpurile din
+ * `profiles` și `projects`, emailurile trimise (bun venit, resetare parolă,
+ * atribuiri, actualizări, remindere), jurnalul de audit, furnizorii și
+ * stocarea din browser. Dacă se schimbă una dintre ele, se schimbă și textul.
+ * Datele firmei vin din `lib/privacy-operator.ts`.
  */
 export default function PrivacyPage() {
   const operator = privacyOperator()
@@ -111,48 +112,57 @@ export default function PrivacyPage() {
               Confidențialitatea datelor dumneavoastră cu caracter personal reprezintă una dintre preocupările principale ale {operatorName}, cu sediul în {operator.address ?? <Missing what="adresa sediului" />}, înregistrată sub codul unic de înregistrare {operator.cui ?? <Missing what="CUI" />} (denumită în continuare „Operatorul” sau „noi”).
             </p>
             <p>
-              Acest document are rolul de a vă informa, în conformitate cu Regulamentul (UE) 2016/679 („GDPR”) și cu Legea nr. 190/2018, cu privire la prelucrarea datelor dumneavoastră cu caracter personal în contextul utilizării platformei de management al proiectelor de finanțare (denumită în continuare „Platforma”).
+              Acest document are rolul de a vă informa, în conformitate cu Regulamentul (UE) 2016/679 („GDPR”) și cu Legea nr. 190/2018, cu privire la prelucrarea datelor dumneavoastră cu caracter personal în contextul utilizării platformei Bonie, disponibilă la adresa www.kabinet.ro (denumită în continuare „Platforma”).
             </p>
             <p>
-              Platforma este destinată exclusiv clienților noștri, beneficiari sau potențiali beneficiari ai unor finanțări nerambursabile, precum și personalului nostru. Conturile se creează numai de către administratorul Platformei; nu există înregistrare publică.
+              Platforma este folosită de Operator pentru gestionarea proiectelor de finanțare pe care le pregătește și le implementează pentru clienții săi: fazele și activitățile proiectului, documentele cerute clientului și versiunile lor, termenele, discuțiile și istoricul acțiunilor.
+            </p>
+            <p>
+              Platforma are trei tipuri de utilizatori: <strong className={strong}>administratorii</strong> și <strong className={strong}>consultanții</strong> Operatorului, respectiv <strong className={strong}>clienții</strong>, adică reprezentanții beneficiarilor finanțării. Conturile se creează numai de către un administrator; Platforma nu permite înregistrarea publică.
             </p>
           </Section>
 
           <Section index={1}>
-            <Sub label="II.1. Operatorul este operator de date">
+            <Sub label="II.1. Operatorul are calitatea de operator de date">
               <p>
-                Pentru datele contului dumneavoastră de utilizator, pentru datele necesare derulării relației contractuale și pentru datele tehnice înregistrate în jurnalul de securitate al Platformei, {operatorName} are calitatea de operator de date, în sensul art. 4 pct. 7 GDPR.
+                Pentru datele contului dumneavoastră de utilizator, pentru datele necesare derulării relației contractuale, pentru mesajele transmise prin Platformă și pentru datele înregistrate în jurnalul de activitate, {operatorName} are calitatea de operator de date, în sensul art. 4 pct. 7 GDPR.
               </p>
             </Sub>
-            <Sub label="II.2. Operatorul este persoană împuternicită">
+            <Sub label="II.2. Operatorul are calitatea de persoană împuternicită">
               <p>
-                Pentru documentele încărcate în dosarul unui proiect de finanțare care privesc alte persoane decât utilizatorul (de exemplu asociații, reprezentanții legali, angajații sau experții beneficiarului), prelucrăm datele în numele beneficiarului finanțării, în calitate de persoană împuternicită de operator, în sensul art. 28 GDPR, exclusiv pentru pregătirea, depunerea și implementarea proiectului și numai potrivit contractului de consultanță încheiat cu beneficiarul.
+                Pentru documentele încărcate în dosarul unui proiect care privesc alte persoane decât utilizatorul (de exemplu asociații, reprezentanții legali, angajații sau experții beneficiarului), Operatorul prelucrează datele în numele beneficiarului finanțării, în calitate de persoană împuternicită de operator, în sensul art. 28 GDPR, exclusiv pentru pregătirea, depunerea și implementarea proiectului și numai potrivit contractului de consultanță încheiat cu beneficiarul.
               </p>
               <p>
-                În această situație, beneficiarul are calitatea de operator de date și răspunde de informarea persoanelor ale căror date ni le transmite.
+                În această situație, beneficiarul are calitatea de operator de date și răspunde de informarea persoanelor ale căror date le transmite prin Platformă.
               </p>
             </Sub>
           </Section>
 
           <Section index={2}>
-            <Sub label="III.1. Dacă sunteți client al Platformei">
+            <Sub label="III.1. Dacă sunteți client al Operatorului">
               <p>
-                Vom prelucra datele dumneavoastră cu caracter personal, cum ar fi numele și prenumele, adresa de e-mail, numărul de telefon, funcția, denumirea și datele de identificare ale societății pe care o reprezentați (denumire, cod de identificare fiscală, adresa sediului), precum și orice alte date pe care ni le furnizați în mod direct prin intermediul Platformei, inclusiv mesajele transmise în discuțiile de proiect.
+                Prelucrăm datele contului dumneavoastră: numele și prenumele, adresa de e-mail și numărul de telefon, precum și datele societății pe care o reprezentați: denumirea, codul de identificare fiscală, adresa sediului și persoana de contact. Pentru fiecare proiect pot fi înregistrate, în plus, numele, adresa de e-mail și telefonul persoanei de contact a proiectului.
+              </p>
+              <p>
+                Prelucrăm de asemenea documentele pe care le încărcați ca răspuns la cererile consultantului, versiunile succesive ale acestora și eventualele motive de respingere, precum și mesajele și imaginile pe care le transmiteți în discuția proiectului.
               </p>
             </Sub>
-            <Sub label="III.2. Dacă datele dumneavoastră se regăsesc în documentele unui dosar de finanțare">
+            <Sub label="III.2. Dacă datele dumneavoastră se regăsesc în documentele dosarului unui proiect">
               <p>
-                Vom prelucra datele care se regăsesc în documentele încărcate în Platformă de beneficiarul finanțării, precum datele de identificare din actele de identitate (inclusiv codul numeric personal), datele din certificatele de cazier judiciar și fiscal, datele din situațiile financiare, din declarații sau din curriculum vitae, în măsura în care aceste documente sunt cerute de ghidul de finanțare aplicabil.
+                Prelucrăm datele cuprinse în documentele încărcate în Platformă la cererea consultantului, potrivit ghidului de finanțare aplicabil, de exemplu datele din actele de identitate ale asociaților (inclusiv codul numeric personal), din certificatele de cazier judiciar și fiscal, din situațiile financiare sau din declarații.
               </p>
             </Sub>
-            <Sub label="III.3. Dacă sunteți membru al personalului nostru">
+            <Sub label="III.3. Dacă sunteți administrator sau consultant al Operatorului">
               <p>
-                Vom prelucra datele contului dumneavoastră (nume, adresă de e-mail, telefon, departament, specializare, rol) și activitatea desfășurată în Platformă în legătură cu proiectele la care lucrați.
+                Prelucrăm datele contului dumneavoastră (numele, adresa de e-mail, telefonul, departamentul, specializarea, rolul și nivelul de consultant), proiectele, activitățile și cererile care vă sunt atribuite, precum și mesajele transmise în discuțiile de proiect și în conversațiile private dintre membrii echipei.
               </p>
             </Sub>
             <Sub label="III.4. Pentru toți utilizatorii">
               <p>
-                Platforma înregistrează automat acțiunile relevante efectuate de utilizatori (de exemplu încărcarea, descărcarea, aprobarea sau respingerea unui document), împreună cu data și ora, adresa IP și tipul de browser folosit.
+                Platforma înregistrează automat, într-un jurnal de activitate, autentificările și deconectările, precum și acțiunile relevante asupra proiectelor și documentelor (de exemplu crearea, modificarea, publicarea, încărcarea, descărcarea, aprobarea sau respingerea unui document), împreună cu data și ora, adresa IP și tipul de browser folosit. Parola contului nu este cunoscută de Operator: este păstrată de furnizorul de autentificare numai sub formă criptată ireversibil.
+              </p>
+              <p>
+                La solicitarea resetării parolei, Platforma păstrează temporar adresa de e-mail, adresa IP și tipul de browser, pentru a limita încercările abuzive; aceste date se șterg automat la expirarea cererii.
               </p>
             </Sub>
           </Section>
@@ -160,86 +170,99 @@ export default function PrivacyPage() {
           <Section index={3}>
             <p>Operatorul prelucrează datele dumneavoastră cu caracter personal astfel:</p>
             <Purpose
-              title="pentru crearea și administrarea contului de utilizator, pentru accesul la proiectele care vă privesc și pentru desfășurarea relației contractuale dintre dumneavoastră (sau societatea pe care o reprezentați) și Operator, respectiv pregătirea, depunerea și implementarea proiectului de finanțare, transmiterea cererilor de documente și verificarea acestora."
-              basis="Prelucrarea datelor dumneavoastră în acest scop are la bază contractul de consultanță încheiat cu Operatorul, potrivit art. 6 alin. (1) lit. b) GDPR."
-              consequence="Furnizarea datelor dumneavoastră cu caracter personal este necesară pentru executarea acestui contract. Refuzul furnizării datelor poate avea drept consecință imposibilitatea derulării raporturilor contractuale dintre dumneavoastră și Operator."
+              title="pentru crearea și administrarea contului de utilizator, inclusiv transmiterea, la crearea contului, a unui e-mail de bun venit cu o parolă temporară, care trebuie schimbată la prima autentificare, precum și pentru resetarea parolei la cererea dumneavoastră."
+              basis="Prelucrarea are la bază contractul încheiat între dumneavoastră (sau societatea pe care o reprezentați) și Operator, potrivit art. 6 alin. (1) lit. b) GDPR."
+              consequence="Furnizarea adresei de e-mail este necesară pentru crearea contului. Refuzul furnizării ei face imposibilă folosirea Platformei."
             />
             <Purpose
-              title="pentru informarea dumneavoastră, prin e-mail și prin notificări în Platformă, cu privire la documentele solicitate, la termenele proiectului și la stadiul verificării documentelor."
-              basis="Prelucrarea datelor dumneavoastră în acest scop are la bază contractul încheiat cu Operatorul, potrivit art. 6 alin. (1) lit. b) GDPR."
-              consequence="Furnizarea adresei de e-mail este necesară; în lipsa ei nu vă putem anunța termenele, ceea ce poate duce la depășirea lor."
+              title="pentru desfășurarea proiectului de finanțare: transmiterea cererilor de documente, primirea și verificarea documentelor încărcate, comunicarea motivelor de respingere, atribuirea activităților și a cererilor către consultanți și discuțiile din cadrul proiectului."
+              basis="Prelucrarea are la bază contractul de consultanță încheiat cu Operatorul, potrivit art. 6 alin. (1) lit. b) GDPR."
+              consequence="Furnizarea datelor și a documentelor solicitate este necesară pentru executarea contractului. Refuzul poate face imposibilă pregătirea sau depunerea proiectului."
             />
             <Purpose
-              title="pentru prelucrarea documentelor din dosarul de finanțare care privesc alte persoane, în numele beneficiarului finanțării."
-              basis="Prelucrarea are loc pe baza instrucțiunilor documentate ale beneficiarului, potrivit art. 28 GDPR. Beneficiarul prelucrează aceste date în temeiul obligațiilor care îi revin potrivit legislației privind finanțările nerambursabile și ghidului de finanțare aplicabil."
+              title={<>pentru informarea dumneavoastră prin e-mail și prin notificări în Platformă: clienții primesc un e-mail atunci când consultantul publică cereri noi sau verifică documentele trimise, iar consultanții atunci când le este atribuită o cerere sau o activitate. Pentru termenele apropiate, Platforma trimite zilnic remindere automate, cu 7, 3 și 1 zi înainte de termen, în ziua termenului și după depășirea lui; reminderele automate pot fi oprite pentru fiecare proiect.</>}
+              basis="Prelucrarea are la bază contractul încheiat cu Operatorul, potrivit art. 6 alin. (1) lit. b) GDPR."
+              consequence="Fără o adresă de e-mail validă nu vă putem anunța cererile și termenele, ceea ce poate duce la depășirea lor."
+            />
+            <Purpose
+              title="pentru prelucrarea documentelor din dosarul proiectului care privesc alte persoane, în numele beneficiarului finanțării."
+              basis="Prelucrarea are loc pe baza instrucțiunilor beneficiarului, potrivit art. 28 GDPR. Beneficiarul prelucrează aceste date în temeiul obligațiilor care îi revin potrivit legislației privind finanțările nerambursabile și ghidului de finanțare aplicabil."
               consequence="Lipsa documentelor cerute de ghidul de finanțare poate duce la respingerea cererii de finanțare de către autoritatea competentă."
             />
             <Purpose
-              title="pentru asigurarea securității Platformei, prevenirea accesului neautorizat și dovedirea operațiunilor efectuate asupra documentelor."
-              basis="Prelucrarea datelor dumneavoastră în acest scop are la bază interesul legitim al Operatorului de a proteja datele încredințate și de a putea demonstra cine, când și ce operațiune a efectuat, potrivit art. 6 alin. (1) lit. f) GDPR."
-              consequence="Aceste date se înregistrează automat la utilizarea Platformei; puteți formula opoziție în condițiile prevăzute la secțiunea X."
+              title="pentru asigurarea securității Platformei și pentru a putea dovedi cine, când și ce operațiune a efectuat asupra proiectelor și documentelor (jurnalul de activitate)."
+              basis="Prelucrarea are la bază interesul legitim al Operatorului de a proteja datele încredințate și de a putea reconstitui istoricul fiecărui proiect, potrivit art. 6 alin. (1) lit. f) GDPR."
+              consequence="Aceste date se înregistrează automat la folosirea Platformei. Vă puteți opune prelucrării în condițiile descrise în secțiunea X."
             />
             <Purpose
-              title="pentru păstrarea dosarului proiectului după încheierea acestuia, în vederea controalelor și verificărilor efectuate de autoritățile de management și de audit."
+              title="pentru păstrarea dosarului proiectului după încheierea acestuia, în vederea controalelor efectuate de autoritățile de management și de audit."
               basis="Prelucrarea are la bază obligațiile legale ale beneficiarului privind păstrarea documentelor proiectului, potrivit art. 6 alin. (1) lit. c) GDPR, precum și interesul legitim al Operatorului de a constata, exercita sau apăra un drept în instanță."
-              consequence="Furnizarea datelor în acest scop nu presupune nicio acțiune din partea dumneavoastră."
+              consequence="Această prelucrare nu presupune nicio acțiune din partea dumneavoastră."
             />
             <p>
-              Operatorul nu prelucrează datele dumneavoastră în scop de marketing direct, nu le vinde și nu le folosește pentru crearea de profiluri sau pentru decizii individuale automatizate.
+              Operatorul nu prelucrează datele dumneavoastră în scop de marketing, nu le vinde, nu folosește instrumente de analiză a comportamentului utilizatorilor și nu ia decizii individuale automatizate.
             </p>
           </Section>
 
           <Section index={4}>
             <p>
-              În măsura în care ghidul de finanțare o cere, dosarul proiectului poate conține copii ale actelor de identitate, care cuprind codul numeric personal, precum și certificate de cazier judiciar, care conțin date privind condamnări penale, în sensul art. 10 GDPR. Prelucrarea acestor date se face cu respectarea garanțiilor prevăzute de art. 4 din Legea nr. 190/2018, după cum urmează:
+              În măsura în care ghidul de finanțare o cere, dosarul proiectului poate conține copii ale actelor de identitate, care cuprind codul numeric personal, precum și certificate de cazier judiciar, care conțin date privind condamnări penale, în sensul art. 10 GDPR. Prelucrarea acestor date se face cu respectarea garanțiilor prevăzute de art. 4 din Legea nr. 190/2018:
             </p>
             <ul className="list-disc space-y-2 pl-6">
-              <li>cererile de documente care conțin astfel de date sunt marcate distinct în Platformă, iar accesul la ele este limitat la persoanele implicate în proiect;</li>
-              <li>fiecare descărcare a acestor documente este înregistrată în jurnalul de securitate;</li>
+              <li>cererile de documente care primesc astfel de date sunt marcate distinct în Platformă, iar la încărcare clientul este informat despre scopul și termenul de ștergere;</li>
+              <li>fiecare descărcare a documentelor este înregistrată în jurnalul de activitate;</li>
               <li>certificatul de cazier judiciar se șterge automat la împlinirea a {CAZIER_DAYS_AFTER_APPROVAL} de zile de la aprobarea lui sau a {DAYS_AFTER_PROJECT_CLOSURE} de zile de la încheierea proiectului, oricare dintre aceste termene se împlinește primul;</li>
-              <li>copiile actelor de identitate se șterg automat la împlinirea a {DAYS_AFTER_PROJECT_CLOSURE} de zile de la încheierea proiectului.</li>
+              <li>copiile actelor de identitate se șterg automat la împlinirea a {DAYS_AFTER_PROJECT_CLOSURE} de zile de la încheierea proiectului;</li>
+              <li>odată cu fișierele se șterg și denumirile lor, care conțin de regulă numele persoanei.</li>
             </ul>
             <p>
-              Ștergerea poate fi amânată numai printr-o decizie motivată a Operatorului, înregistrată în jurnalul de securitate, de exemplu pe durata unui control al autorității de management.
+              Ștergerea poate fi amânată numai de un administrator, printr-o decizie motivată înregistrată în jurnalul de activitate, de exemplu pe durata unui control al autorității de management.
             </p>
           </Section>
 
           <Section index={5}>
             <p>
-              Ca principiu, Operatorul va prelucra datele dumneavoastră cu caracter personal atât cât este necesar pentru realizarea scopurilor de prelucrare menționate mai sus.
+              Ca principiu, Operatorul prelucrează datele dumneavoastră cu caracter personal atât cât este necesar pentru realizarea scopurilor de prelucrare menționate mai sus, după cum urmează:
             </p>
-            <p>
-              Documentele și istoricul unui proiect de finanțare se păstrează pe durata derulării proiectului și ulterior pe o perioadă de 10 ani de la încheierea acestuia, având în vedere termenele în care autoritățile pot efectua controale asupra proiectelor finanțate și regulile aplicabile ajutorului de stat. Excepție fac datele cu caracter special, care se șterg la termenele menționate în secțiunea V.
-            </p>
-            <p>
-              Datele contului de utilizator se prelucrează pe întreaga durată a raporturilor contractuale și ulterior pe durata termenului general de prescripție de 3 ani, prevăzut de art. 2517 din Codul civil.
-            </p>
-            <p>
-              Copiile de siguranță ale bazei de date se păstrează {BACKUP_RETENTION_DAYS} zile, după care se șterg automat.
-            </p>
+            <ul className="list-disc space-y-2 pl-6">
+              <li>documentele, discuțiile și istoricul unui proiect se păstrează pe durata derulării proiectului și ulterior timp de 10 ani de la încheierea lui, având în vedere termenele în care autoritățile pot controla proiectele finanțate și regulile aplicabile ajutorului de stat; excepție fac datele cu caracter special, care se șterg la termenele din secțiunea V;</li>
+              <li>datele contului de utilizator se păstrează pe durata colaborării; la încheierea ei, contul se dezactivează, iar datele rămân asociate documentelor și istoricului proiectelor pe durata păstrării acestora;</li>
+              <li>înregistrările din jurnalul de activitate se păstrează pe aceeași durată ca proiectul la care se referă;</li>
+              <li>datele aferente cererilor de resetare a parolei se șterg automat la expirarea cererii;</li>
+              <li>copiile de siguranță ale bazei de date se păstrează {BACKUP_RETENTION_DAYS} zile, după care se șterg automat.</li>
+            </ul>
           </Section>
 
           <Section index={6}>
-            <p>
-              Pentru îndeplinirea scopurilor de prelucrare, Operatorul poate dezvălui datele dumneavoastră cu caracter personal către:
-            </p>
+            <p>Accesul la date este stabilit prin rolul fiecărui utilizator și este verificat de Platformă la fiecare operațiune:</p>
             <ul className="list-disc space-y-2 pl-6">
-              <li>membrii personalului Operatorului implicați în proiect și clientul proiectului, fiecare în limita rolului său în Platformă;</li>
-              <li>furnizorii de servicii IT care sprijină Operatorul în funcționarea Platformei și care acționează ca persoane împuternicite, pe bază de contract: Supabase Inc. (baza de date, autentificarea și stocarea fișierelor, cu servere în Irlanda), Vercel Inc. (găzduirea aplicației, cu servere în Irlanda) și Resend Inc. (transmiterea mesajelor de e-mail, cu servere în Statele Unite ale Americii);</li>
-              <li>autoritățile publice centrale sau locale, atunci când dezvăluirea datelor este prevăzută de lege.</li>
+              <li>clientul vede numai proiectele proprii și, în cadrul lor, numai fazele, activitățile și cererile publicate de consultant, precum și ultima versiune a fiecărui document; el vede numele și adresa de e-mail ale consultanților din echipa proiectului;</li>
+              <li>consultantul vede numai proiectele în care este membru al echipei, împreună cu datele clientului acestora;</li>
+              <li>administratorii Operatorului au acces la toate proiectele, conturile și jurnalul de activitate.</li>
             </ul>
+            <p>
+              Pentru funcționarea Platformei, Operatorul folosește următorii furnizori de servicii, care acționează ca persoane împuternicite, pe bază de contract: <strong className={strong}>Supabase Inc.</strong> (baza de date, autentificarea și stocarea fișierelor, cu servere în Irlanda), <strong className={strong}>Vercel Inc.</strong> (găzduirea aplicației, cu servere în Irlanda) și <strong className={strong}>Resend Inc.</strong> (transmiterea mesajelor de e-mail, cu servere în Statele Unite ale Americii).
+            </p>
+            <p>Datele pot fi comunicate autorităților publice numai atunci când legea o impune.</p>
           </Section>
 
           <Section index={7}>
             <p>
-              Datele cu caracter personal sunt stocate pe servere situate în Uniunea Europeană. Întrucât furnizorii menționați în secțiunea VII sunt societăți cu sediul în Statele Unite ale Americii, datele pot fi transferate sau accesate din afara Spațiului Economic European. Orice astfel de transfer are loc în baza deciziei de adecvare a Comisiei Europene privind Cadrul UE–SUA pentru protecția datelor (EU-U.S. Data Privacy Framework), în cazul furnizorilor certificați, și a clauzelor contractuale standard aprobate prin Decizia de punere în aplicare (UE) 2021/914 a Comisiei.
+              Datele și fișierele sunt stocate pe servere situate în Uniunea Europeană (Irlanda). Mesajele de e-mail sunt transmise prin servere din Statele Unite ale Americii, iar furnizorii menționați în secțiunea VII sunt societăți cu sediul în această țară. Orice transfer sau acces din afara Spațiului Economic European are loc în baza deciziei de adecvare a Comisiei Europene privind Cadrul UE–SUA pentru protecția datelor (EU-U.S. Data Privacy Framework), în cazul furnizorilor certificați, și a clauzelor contractuale standard aprobate prin Decizia de punere în aplicare (UE) 2021/914 a Comisiei.
             </p>
           </Section>
 
           <Section index={8}>
-            <p>
-              Operatorul aplică măsuri tehnice și organizatorice adecvate pentru protejarea datelor cu caracter personal, potrivit art. 32 GDPR, printre care: criptarea comunicațiilor, stocarea fișierelor într-un spațiu privat accesibil numai prin legături temporare, controlul accesului în funcție de rol, jurnalul de securitate care nu poate fi modificat, copiile de siguranță ale bazei de date și obligațiile de confidențialitate asumate de personal.
-            </p>
+            <p>Operatorul aplică măsuri tehnice și organizatorice adecvate pentru protejarea datelor cu caracter personal, potrivit art. 32 GDPR, printre care:</p>
+            <ul className="list-disc space-y-2 pl-6">
+              <li>toate comunicațiile cu Platforma sunt criptate (HTTPS), iar datele sunt stocate criptat de furnizor;</li>
+              <li>fișierele sunt păstrate într-un spațiu de stocare privat și pot fi deschise numai prin legături temporare, generate după verificarea dreptului de acces;</li>
+              <li>dreptul de acces se verifică în funcție de rol la fiecare operațiune;</li>
+              <li>conturile se creează numai de administratori, iar parola temporară trebuie schimbată la prima autentificare;</li>
+              <li>cererile de resetare a parolei sunt limitate, pentru a preveni încercările abuzive;</li>
+              <li>jurnalul de activitate nu poate fi modificat ulterior, iar datele de autentificare (parole, chei de acces) nu sunt înregistrate în el;</li>
+              <li>baza de date este copiată automat în fiecare zi.</li>
+            </ul>
             <p>
               În cazul unei încălcări a securității datelor cu caracter personal, Operatorul va notifica Autoritatea Națională de Supraveghere a Prelucrării Datelor cu Caracter Personal în termen de cel mult 72 de ore de la constatare, precum și persoanele vizate, atunci când încălcarea este susceptibilă să genereze un risc ridicat pentru drepturile și libertățile acestora.
             </p>
@@ -250,11 +273,11 @@ export default function PrivacyPage() {
               În condițiile prevăzute de legislația în materia prelucrării datelor cu caracter personal, în calitate de persoane vizate, beneficiați de următoarele drepturi:
             </p>
             <ul className="list-disc space-y-3 pl-6">
-              <li><strong className="font-semibold text-ink">dreptul la informare</strong>, respectiv dreptul de a primi detalii privind activitățile de prelucrare efectuate de Operator, conform celor descrise în prezentul document;</li>
-              <li><strong className="font-semibold text-ink">dreptul de acces la date</strong>, respectiv dreptul de a obține confirmarea din partea Operatorului cu privire la prelucrarea datelor cu caracter personal, precum și detalii privind activitățile de prelucrare, cum ar fi modalitatea în care sunt prelucrate datele, scopul prelucrării și destinatarii datelor;</li>
-              <li><strong className="font-semibold text-ink">dreptul la rectificare</strong>, respectiv dreptul de a obține corectarea, fără întârzieri nejustificate, a datelor cu caracter personal inexacte, precum și completarea datelor incomplete;</li>
+              <li><strong className={strong}>dreptul la informare</strong>, respectiv dreptul de a primi detalii privind activitățile de prelucrare efectuate de Operator, conform celor descrise în prezentul document;</li>
+              <li><strong className={strong}>dreptul de acces la date</strong>, respectiv dreptul de a obține confirmarea din partea Operatorului cu privire la prelucrarea datelor cu caracter personal, precum și detalii privind modalitatea în care sunt prelucrate, scopul prelucrării și destinatarii datelor;</li>
+              <li><strong className={strong}>dreptul la rectificare</strong>, respectiv dreptul de a obține corectarea, fără întârzieri nejustificate, a datelor cu caracter personal inexacte, precum și completarea datelor incomplete;</li>
               <li>
-                <strong className="font-semibold text-ink">dreptul la ștergerea datelor</strong> („dreptul de a fi uitat”), fără întârzieri nejustificate, în cazul în care se aplică unul dintre următoarele motive:
+                <strong className={strong}>dreptul la ștergerea datelor</strong> („dreptul de a fi uitat”), fără întârzieri nejustificate, în cazul în care se aplică unul dintre următoarele motive:
                 <ul className="mt-2 list-[circle] space-y-1 pl-6">
                   <li>datele nu mai sunt necesare pentru îndeplinirea scopurilor pentru care au fost colectate sau prelucrate;</li>
                   <li>persoana vizată se opune prelucrării și nu există motive legitime care să prevaleze;</li>
@@ -264,7 +287,7 @@ export default function PrivacyPage() {
                 <span className="mt-2 block">Dreptul la ștergere nu se aplică în măsura în care prelucrarea este necesară pentru respectarea unei obligații legale sau pentru constatarea, exercitarea ori apărarea unui drept în instanță, potrivit art. 17 alin. (3) GDPR.</span>
               </li>
               <li>
-                <strong className="font-semibold text-ink">dreptul la restricționarea prelucrării</strong>, în măsura în care:
+                <strong className={strong}>dreptul la restricționarea prelucrării</strong>, în măsura în care:
                 <ul className="mt-2 list-[circle] space-y-1 pl-6">
                   <li>persoana contestă exactitatea datelor, pe o perioadă care ne permite verificarea corectitudinii lor;</li>
                   <li>prelucrarea este ilegală, iar persoana vizată se opune ștergerii datelor, solicitând în schimb restricționarea utilizării lor;</li>
@@ -272,10 +295,10 @@ export default function PrivacyPage() {
                   <li>persoana vizată s-a opus prelucrării, pentru intervalul în care se verifică dacă interesele legitime ale Operatorului prevalează.</li>
                 </ul>
               </li>
-              <li><strong className="font-semibold text-ink">dreptul la portabilitatea datelor</strong>, respectiv dreptul de a primi datele cu caracter personal într-un format structurat, utilizat în mod curent și care poate fi citit automat, precum și dreptul ca aceste date să fie transmise de Operator către alt operator, în măsura în care sunt îndeplinite condițiile prevăzute de lege;</li>
-              <li><strong className="font-semibold text-ink">dreptul la opoziție</strong>, respectiv dreptul de a vă opune în orice moment, din motive legate de situația particulară în care vă aflați, prelucrării datelor în temeiul interesului legitim al Operatorului, cu excepția cazurilor în care Operatorul demonstrează motive legitime și imperioase care prevalează sau prelucrarea are ca scop constatarea, exercitarea sau apărarea unui drept în instanță;</li>
-              <li><strong className="font-semibold text-ink">dreptul de a nu fi supus unei decizii individuale automate</strong>, inclusiv crearea de profiluri, care produce efecte juridice sau vă afectează în mod similar într-o măsură semnificativă;</li>
-              <li><strong className="font-semibold text-ink">dreptul de a vă adresa</strong> Autorității Naționale de Supraveghere a Prelucrării Datelor cu Caracter Personal (B-dul G-ral. Gheorghe Magheru nr. 28-30, sector 1, București,{' '}<a className={linkClass} href="https://www.dataprotection.ro" target="_blank" rel="noopener noreferrer">www.dataprotection.ro</a>) sau instanțelor competente, în măsura în care considerați necesar.</li>
+              <li><strong className={strong}>dreptul la portabilitatea datelor</strong>, respectiv dreptul de a primi datele cu caracter personal într-un format structurat, utilizat în mod curent și care poate fi citit automat, precum și dreptul ca aceste date să fie transmise de Operator către alt operator, în măsura în care sunt îndeplinite condițiile prevăzute de lege; documentele pe care le-ați încărcat pot fi descărcate oricând din Platformă;</li>
+              <li><strong className={strong}>dreptul la opoziție</strong>, respectiv dreptul de a vă opune în orice moment, din motive legate de situația particulară în care vă aflați, prelucrării datelor în temeiul interesului legitim al Operatorului, cu excepția cazurilor în care Operatorul demonstrează motive legitime și imperioase care prevalează sau prelucrarea are ca scop constatarea, exercitarea sau apărarea unui drept în instanță;</li>
+              <li><strong className={strong}>dreptul de a nu fi supus unei decizii individuale automate</strong>, inclusiv crearea de profiluri, care produce efecte juridice sau vă afectează în mod similar într-o măsură semnificativă;</li>
+              <li><strong className={strong}>dreptul de a vă adresa</strong> Autorității Naționale de Supraveghere a Prelucrării Datelor cu Caracter Personal (B-dul G-ral. Gheorghe Magheru nr. 28-30, sector 1, București,{' '}<a className={linkClass} href="https://www.dataprotection.ro" target="_blank" rel="noopener noreferrer">www.dataprotection.ro</a>) sau instanțelor competente, în măsura în care considerați necesar.</li>
             </ul>
             <p>
               Pentru documentele din dosarul unui proiect, în privința cărora Operatorul acționează ca persoană împuternicită, cererea dumneavoastră va fi transmisă și beneficiarului finanțării, în calitate de operator, iar Operatorul îl va sprijini în soluționarea ei.
@@ -288,16 +311,21 @@ export default function PrivacyPage() {
 
           <Section index={10}>
             <p>
-              Platforma folosește exclusiv cookie-uri și elemente de stocare locală strict necesare pentru furnizarea serviciului solicitat de dumneavoastră: menținerea sesiunii de autentificare, confirmarea resetării parolei (cookie valabil 24 de ore) și păstrarea preferințelor de afișare alese de dumneavoastră. Platforma nu folosește cookie-uri de analiză, de publicitate sau ale unor terți.
+              Platforma folosește exclusiv cookie-uri și elemente de stocare în browser strict necesare pentru furnizarea serviciului solicitat de dumneavoastră:
             </p>
+            <ul className="list-disc space-y-2 pl-6">
+              <li>sesiunea de autentificare, păstrată în browser până la deconectare;</li>
+              <li>un cookie care confirmă resetarea parolei, valabil 24 de ore;</li>
+              <li>preferințele de afișare alese de dumneavoastră (de exemplu modul de afișare și ordinea proiectelor, starea panoului de faze sau a vederii fișierelor).</li>
+            </ul>
             <p>
-              Potrivit art. 4 alin. (6) din Legea nr. 506/2004, pentru aceste elemente nu este necesar consimțământul dumneavoastră. Le puteți șterge oricând din setările browserului, cu consecința deconectării din Platformă.
+              Platforma nu folosește cookie-uri de analiză, de publicitate sau ale unor terți și nu încarcă resurse de la terți, inclusiv fonturi. Potrivit art. 4 alin. (6) din Legea nr. 506/2004, pentru aceste elemente nu este necesar consimțământul dumneavoastră. Le puteți șterge oricând din setările browserului, cu consecința deconectării din Platformă.
             </p>
           </Section>
 
           <Section index={11}>
             <p>
-              Operatorul poate actualiza prezenta politică ori de câte ori se modifică serviciile oferite prin Platformă sau legislația aplicabilă. Data ultimei actualizări este indicată la începutul documentului. Modificările importante vor fi aduse la cunoștința clienților prin e-mail, înainte de intrarea lor în vigoare.
+              Operatorul poate actualiza prezenta politică ori de câte ori se modifică funcționalitățile Platformei sau legislația aplicabilă. Data ultimei actualizări este indicată la începutul documentului. Modificările importante vor fi aduse la cunoștința clienților prin e-mail, înainte de intrarea lor în vigoare.
             </p>
           </Section>
         </article>
