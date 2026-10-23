@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useRef } from "react"
-import { LogOut, ShieldCheck } from "lucide-react"
+import { LogOut } from "lucide-react"
 import { PUBLIC_PATHS, useAuth } from "@/app/providers/AuthProvider"
 import { usePrivateChatUnread } from "@/hooks/usePrivateChatUnread"
 import { useProjectChatUnread } from "@/app/providers/ProjectChatUnreadProvider"
@@ -164,14 +164,6 @@ export default function Navbar() {
               <p className="hidden max-w-[180px] truncate text-xs font-medium text-ink-soft lg:block">
                 {profile?.email ?? (typeof user === 'object' && user && 'email' in user ? String(user.email) : '')}
               </p>
-              <Link
-                href="/confidentialitate"
-                aria-label="Confidențialitate"
-                data-tooltip="Cum prelucrăm datele personale (GDPR)"
-                className="inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-ink pointer-fine:h-9 pointer-fine:w-9"
-              >
-                <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-              </Link>
               <IconButton label="Deconectare" data-tooltip="Ieși din cont" tone="danger" onClick={handleLogout}>
                 <LogOut className="h-4 w-4" aria-hidden="true" />
               </IconButton>
