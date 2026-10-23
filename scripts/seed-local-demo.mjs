@@ -9,10 +9,11 @@
 import nextEnv from '@next/env'
 import { execFileSync } from 'node:child_process'
 import { createClient } from '@supabase/supabase-js'
+import { fixtureCif, finalizeLocalFixture, localFixtureDatabase } from './local-account-fixtures.mjs'
 
 nextEnv.loadEnvConfig(process.cwd())
 const env = process.env
-if (!env.NEXT_PUBLIC_SUPABASE_URL?.startsWith('http://127.0.0.1')) {
+if (!env.NEXT_PUBLIC_SUPABASE_URL || !['127.0.0.1', 'localhost', '[::1]'].includes(new URL(env.NEXT_PUBLIC_SUPABASE_URL).hostname)) {
   console.error('NEXT_PUBLIC_SUPABASE_URL nu e Supabase-ul local (http://127.0.0.1…). Mă opresc.')
   process.exit(1)
 }
@@ -21,7 +22,7 @@ const APP = env.SEED_APP_URL || 'http://localhost:3000'
 const DB_CONTAINER = env.SEED_DB_CONTAINER || 'supabase_db_platforma-fonduri'
 const PAROLA = 'Parola123!'
 const service = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY)
-const sql = (q) => execFileSync('docker', ['exec', '-i', DB_CONTAINER, 'psql', '-U', 'postgres', '-v', 'ON_ERROR_STOP=1', '-qAt', '-c', q], { encoding: 'utf8' }).trim()
+const sql = (q) => execFileSync('docker', ['exec', '-i', DB_CONTAINER, 'psql', '-U', 'postgres', '-d', localFixtureDatabase(env.E2E_DB_NAME), '-v', 'ON_ERROR_STOP=1', '-qAt', '-c', q], { encoding: 'utf8' }).trim()
 const esc = (s) => s == null ? 'null' : `'${String(s).replace(/'/g, "''")}'`
 const slugify = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
@@ -38,9 +39,9 @@ const users = [
   { key: 'admin', email: 'admin@test.local', role: 'admin', full_name: 'Elena Admin' },
   { key: 'ana', email: 'ana.popescu@test.local', role: 'consultant', full_name: 'Ana Popescu', specializare: 'Fonduri europene' },
   { key: 'mihai', email: 'mihai.ionescu@test.local', role: 'consultant', full_name: 'Mihai Ionescu', specializare: 'Agricultură (AFIR)', consultant_level: 'senior' },
-  { key: 'agro', email: 'client.agroverde@test.local', role: 'client', full_name: 'Ion Vasilescu', nume_firma: 'Agro Verde SRL', cif: 'RO31245678', telefon: '0744123456' },
-  { key: 'brutaria', email: 'client.brutaria@test.local', role: 'client', full_name: 'Maria Stan', nume_firma: 'Brutăria Moldovei SRL', cif: 'RO28765432', telefon: '0755987654' },
-  { key: 'tech', email: 'client.technord@test.local', role: 'client', full_name: 'Andrei Rusu', nume_firma: 'TechNord Solutions SRL', cif: 'RO40123987', telefon: '0766112233' },
+  { key: 'agro', email: 'client.agroverde@test.local', role: 'client', full_name: 'Ion Vasilescu', nume_firma: 'Agro Verde SRL', telefon: '0744123456' },
+  { key: 'brutaria', email: 'client.brutaria@test.local', role: 'client', full_name: 'Maria Stan', nume_firma: 'Brutăria Moldovei SRL', telefon: '0755987654' },
+  { key: 'tech', email: 'client.technord@test.local', role: 'client', full_name: 'Andrei Rusu', nume_firma: 'TechNord Solutions SRL', telefon: '0766112233' },
 ]
 const { data: existing } = await service.auth.admin.listUsers({ perPage: 1000 })
 const id = {}
@@ -52,9 +53,10 @@ for (const u of users) {
     authUser = data.user
   }
   id[u.key] = authUser.id
-  sql(`insert into profiles(id,email,role,consultant_level,full_name,nume_firma,cif,telefon,specializare,is_active)
-       values (${esc(authUser.id)},${esc(u.email)},${esc(u.role)},${esc(u.consultant_level ?? 'junior')},${esc(u.full_name)},${esc(u.nume_firma)},${esc(u.cif)},${esc(u.telefon)},${esc(u.specializare)},true)
-       on conflict (id) do update set role=excluded.role, consultant_level=excluded.consultant_level, full_name=excluded.full_name, nume_firma=excluded.nume_firma, cif=excluded.cif, telefon=excluded.telefon, specializare=excluded.specializare, is_active=true`)
+  const { key: fixtureKey, ...profile } = u
+  await finalizeLocalFixture(service, authUser.id, {
+    ...profile, ...(u.role === 'client' ? { cif: fixtureCif('demo-' + fixtureKey) } : {}),
+  })
 }
 console.log('utilizatori:', Object.keys(id).length)
 
@@ -219,7 +221,7 @@ for (const [title, client, templateSlug, members] of projects) {
   // Mihai e singurul senior din seed, deci supervizează fiecare dosar.
   const { project } = await api('POST', '/api/projects', { title, client_id: id[client], supervisor_ids: [id.mihai] })
   await api('POST', `/api/projects/${project.id}/import-template`, { template_id: created[templateSlug].id })
-  for (const m of members.filter(m => m !== 'mihai')) await api('POST', `/api/projects/${project.id}/members`, { consultant_id: id[m] })
+  // Template import already adds assigned consultants to the project team.
   sql(`update projects set general_consultant_id=${esc(id[members[0]])} where id=${esc(project.id)}`)
   console.log('proiect:', title)
 }
@@ -367,7 +369,6 @@ trailer<</Root 1 0 R>>
   for (const p of projects) {
     const { project } = await api('POST', '/api/projects', { title: p.title, client_id: who[p.client], supervisor_ids: [mihai] })
     await api('POST', `/api/projects/${project.id}/import-template`, { template_id: template.id })
-    for (const m of p.members.filter(m => m !== mihai)) await api('POST', `/api/projects/${project.id}/members`, { consultant_id: m })
 
     const phases = sql(`select id from project_phases where project_id=${esc(project.id)} order by order_index`).split('\n')
     const startedAt = Date.now() - (p.upTo * 45 + 20) * day

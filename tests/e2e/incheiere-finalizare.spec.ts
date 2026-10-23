@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
+import { finalizeLocalFixture } from '../../scripts/local-account-fixtures.mjs'
 import { test, expect, type Browser } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { e2eEnv, requireE2EConfig, serviceClient } from './helpers/project-state'
+import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
 
 /**
  * Încheierea și redeschiderea proiectului, finalizarea fazelor și activităților,
@@ -89,14 +90,10 @@ async function makeConsultant(tag: 'senior' | 'junior' | 'nemembru', level: 'jun
     const { data: existing } = await service.from('profiles').select('id').eq('email', email).maybeSingle()
     if (!existing) throw new Error(`Nu am putut crea ${email}: ${error?.message}`)
     id = existing.id
-    const { error: resetError } = await service.auth.admin.updateUserById(existing.id, { password: PASSWORD })
-    if (resetError) throw new Error(`Parola pentru ${email}: ${resetError.message}`)
+    setLocalFixturePassword(existing.id, PASSWORD)
   }
   testAccounts.add(id!)
-  const { error: profileError } = await service.from('profiles').upsert({
-    id, email, role: 'consultant', consultant_level: level, full_name: name, is_active: true,
-  })
-  if (profileError) throw new Error(`Profil ${email}: ${profileError.message}`)
+  await finalizeLocalFixture(service, id!, { role: 'consultant', consultant_level: level, full_name: name })
   return { id: id!, email, label: `${level} ${tag}`, token: await signIn(email, PASSWORD) }
 }
 

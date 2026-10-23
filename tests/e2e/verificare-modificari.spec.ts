@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type Locator, type Page } from '@playwright/test'
+import { finalizeLocalFixture } from '../../scripts/local-account-fixtures.mjs'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
 import { addEditorPhase, templateAction } from './helpers/sabloane-ui'
@@ -71,7 +72,7 @@ async function fixedConsultant(tag: 'sa' | 'ja' | 'jb' | 'jc', level: 'junior' |
     setLocalFixturePassword(id, PASSWORD)
   }
   accounts.add(id)
-  await service.from('profiles').upsert({ id, email, role: 'consultant', consultant_level: level, full_name: name, is_active: true })
+  await finalizeLocalFixture(service, id, { role: 'consultant', consultant_level: level, full_name: name })
   return { id, email, name, password: PASSWORD, token: await signIn(email, PASSWORD), who }
 }
 

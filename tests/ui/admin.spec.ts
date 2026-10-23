@@ -25,7 +25,8 @@ test.describe('Ecranele de administrare', () => {
     await expect(panou.getByRole('radio', { name: 'Administrator' })).toBeVisible()
     // Ajutorul e text vizibil, nu tooltip la hover.
     await panou.getByRole('radio', { name: 'Client (firmă)' }).check()
-    await expect(panou.getByText('Ex.: RO12345678')).toBeVisible()
+    await expect(panou.getByText(/Exemplu: RO5258486/)).toBeVisible()
+    await expect(panou.getByLabel('Țara firmei')).toHaveValue('RO')
     await panou.getByRole('button', { name: 'Închide panoul' }).click()
     await expect(panou).toBeHidden()
   })

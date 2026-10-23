@@ -25,6 +25,7 @@ interface UserDrawerUser {
   email: string
   full_name: string | null
   is_active?: boolean | null
+  creation_pending?: boolean
   role: 'admin' | 'consultant' | 'client'
   created_at: string
   cif?: string | null
@@ -282,7 +283,8 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                 <p className="text-xs text-ink-faint mt-0.5">{user.email}</p>
                 <div className="mt-2 flex items-center gap-2 flex-wrap">
                   <RoleBadge role={user.role} />
-                  {user.cif && (
+                  {user.creation_pending && <Signal tone="warn">Creare incompletă</Signal>}
+                  {user.role === 'client' && user.cif && (
                     <span className="text-[11px] font-medium bg-paper-sunk text-ink-soft px-2 py-0.5 rounded-full">
                       CIF {user.cif}
                     </span>
@@ -293,6 +295,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                     </span>
                   )}
                 </div>
+                {user.creation_pending && <p className="mt-2 text-sm text-ink-soft">Acces blocat. Verifică acest cont în lista de utilizatori; editarea și reactivarea nu sunt permise până la remediere.</p>}
               </div>
             </div>
             <button aria-label="Închide" onClick={onClose}

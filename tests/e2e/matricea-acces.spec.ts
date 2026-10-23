@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { fixtureCif, finalizeLocalFixture } from '../../scripts/local-account-fixtures.mjs'
 import { test, expect, type Browser, type Locator, type Page } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
@@ -98,7 +99,7 @@ async function fixedConsultant(tag: string, level: 'junior' | 'senior', label: s
     setLocalFixturePassword(id, PASSWORD)
   }
   accounts.add(id)
-  await service.from('profiles').upsert({ id, email, role: 'consultant', consultant_level: level, full_name: name })
+  await finalizeLocalFixture(service, id, { role: 'consultant', consultant_level: level, full_name: name })
   await must(admin, 'POST', '/api/users/' + id + '/reactivate')
   return { id, email, name, password: PASSWORD, token: await signIn(email, PASSWORD), who }
 }
@@ -418,7 +419,7 @@ test('B. Conturi, audit, clienți', async () => {
   verifica(temp, 'autentificarea nouă folosește aceeași parolă', await call(temp, 'GET', '/api/me', undefined, newTempToken), 200)
 
   const tempClientEmail = `matrice.${STAMP}.client-temporar@test.local`
-  const tempClientCreation = await must(admin, 'POST', '/api/users', { email: tempClientEmail, password: PASSWORD, role: 'client', fullName: 'Client temporar', numeFirma: 'Firmă temporară SRL' })
+  const tempClientCreation = await must(admin, 'POST', '/api/users', { email: tempClientEmail, password: PASSWORD, role: 'client', fullName: 'Client temporar', numeFirma: 'Firmă temporară SRL', cif: fixtureCif(tempClientEmail), cifCountry: 'RO' })
   created.users.add(tempClientCreation.userId)
   const tempClient = await existing(tempClientEmail, await fixturePassword(tempClientCreation), 'client temporar')
   created.users.add(tempClient.id)
