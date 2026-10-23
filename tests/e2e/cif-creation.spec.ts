@@ -9,7 +9,11 @@ const env = e2eEnv(), config = requireE2EConfig(env), service = serviceClient()!
 if (!/^issue110_phase5_[a-f0-9]{12}$/.test(env.E2E_DB_NAME || '')) throw new Error('CIF acceptance requires the disposable phase 5 environment')
 let token: string
 const email = () => 'phase5.' + randomUUID() + '@example.invalid'
-const input = (role = 'client') => ({ email: email(), fullName: 'Recepție CIF', role, ...(role === 'client' ? { cif: fixtureCif(randomUUID()), cifCountry: 'RO' } : {}) })
+const input = (role = 'client') => ({
+  email: email(), fullName: 'Recepție CIF', role,
+  ...(role === 'client' ? { cif: fixtureCif(randomUUID()), cifCountry: 'RO', numeFirma: 'Firmă sintetică', adresaFirma: 'Str. Sintetică 1' } : {}),
+  ...(role === 'consultant' ? { specializare: 'PNRR' } : {}),
+})
 const messages = () => fs.readFileSync(env.E2E_RESEND_LOG, 'utf8').trim().split('\n').map(line => JSON.parse(line))
 async function api(method: string, path: string, body?: unknown) {
   const response = await fetch(config.baseUrl + path, { method, headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })
@@ -120,6 +124,7 @@ for (const width of [1440, 390]) test(`real browser at ${width}px creates a clie
     await form.getByRole('textbox', { name: 'Email', exact: true }).fill(address)
     await form.getByRole('textbox', { name: 'Nume complet', exact: true }).fill(body.fullName)
     await form.getByRole('textbox', { name: 'Nume firmă', exact: true }).fill('Firmă sintetică')
+    await form.getByRole('textbox', { name: 'Adresă firmă', exact: true }).fill('Str. Sintetică 1')
     await form.getByRole('textbox', { name: 'CUI / CIF' }).fill(body.cif!)
     return form
   }

@@ -392,7 +392,7 @@ test('B. Conturi, audit, clienți', async () => {
     verifica(person, 'citește impactul unui cont', await call(person, 'GET', `/api/users/${JO.id}/lifecycle-impact`), 403)
   }
   const tempEmail = `matrice.${STAMP}.consultant-temporar@test.local`
-  const tempCreation = await must(admin, 'POST', '/api/users', { email: tempEmail, password: PASSWORD, role: 'consultant', fullName: 'Consultant temporar' })
+  const tempCreation = await must(admin, 'POST', '/api/users', { email: tempEmail, password: PASSWORD, role: 'consultant', fullName: 'Consultant temporar', specializare: 'PNRR' })
   created.users.add(tempCreation.userId)
   const temp = await existing(tempEmail, await fixturePassword(tempCreation), 'consultant temporar')
   created.users.add(temp.id)
@@ -419,7 +419,7 @@ test('B. Conturi, audit, clienți', async () => {
   verifica(temp, 'autentificarea nouă folosește aceeași parolă', await call(temp, 'GET', '/api/me', undefined, newTempToken), 200)
 
   const tempClientEmail = `matrice.${STAMP}.client-temporar@test.local`
-  const tempClientCreation = await must(admin, 'POST', '/api/users', { email: tempClientEmail, password: PASSWORD, role: 'client', fullName: 'Client temporar', numeFirma: 'Firmă temporară SRL', cif: fixtureCif(tempClientEmail), cifCountry: 'RO' })
+  const tempClientCreation = await must(admin, 'POST', '/api/users', { email: tempClientEmail, password: PASSWORD, role: 'client', fullName: 'Client temporar', numeFirma: 'Firmă temporară SRL', adresaFirma: 'Str. Temporară 1', cif: fixtureCif(tempClientEmail), cifCountry: 'RO' })
   created.users.add(tempClientCreation.userId)
   const tempClient = await existing(tempClientEmail, await fixturePassword(tempClientCreation), 'client temporar')
   created.users.add(tempClient.id)
@@ -446,7 +446,7 @@ test('B. Conturi, audit, clienți', async () => {
   noteaza('sistem', 'refuzul nu inventează audit de ștergere', 'zero intrări', `${(selfAudit ?? []).length} intrări`, (selfAudit ?? []).length === 0, 'Bază de date')
 
   const emptyEmail = `matrice.${STAMP}.cont-gol@test.local`
-  const emptyCreated = await must(admin, 'POST', '/api/users', { email: emptyEmail, password: PASSWORD, role: 'consultant', fullName: 'Cont gol' })
+  const emptyCreated = await must(admin, 'POST', '/api/users', { email: emptyEmail, password: PASSWORD, role: 'consultant', fullName: 'Cont gol', specializare: 'PNRR' })
   const emptyId = emptyCreated.user?.id ?? emptyCreated.profile?.id ?? (await service.from('profiles').select('id').eq('email', emptyEmail).single()).data?.id
   expect(emptyId).toBeTruthy()
   created.users.add(emptyId)

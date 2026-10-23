@@ -26,6 +26,17 @@ function appLoginUrl() {
   }
 }
 
+/**
+ * Ce trebuie completat la un cont nou, pe rol (#111). CIF-ul clientului are
+ * validarea lui, mai jos; telefonul și departamentul rămân opționale.
+ * `persoana_contact` nu se mai cere: persoana de contact e chiar titularul.
+ */
+const REQUIRED_BY_ROLE: Record<'client' | 'consultant' | 'admin', { key: string; label: string }[]> = {
+  client: [{ key: 'numeFirma', label: 'numele firmei' }, { key: 'adresaFirma', label: 'adresa firmei' }],
+  consultant: [{ key: 'specializare', label: 'specializarea' }],
+  admin: [],
+}
+
 export async function POST(request: Request) {
   try {
     const ctx = await requireAdmin(request)
@@ -45,13 +56,27 @@ export async function POST(request: Request) {
     const email = typeof input.email === 'string' ? input.email.trim() : ''
     const role = input.role
     const fullName = typeof input.fullName === 'string' ? input.fullName.trim() : ''
-    if (!isValidReminderEmail(email) || !fullName || (role !== 'client' && role !== 'consultant' && role !== 'admin')) {
+    if (role !== 'client' && role !== 'consultant' && role !== 'admin') {
       return NextResponse.json({ error: 'Emailul, numele și rolul trebuie completate corect.' }, { status: 400 })
     }
-    for (const key of ['telefon', 'numeFirma', 'adresaFirma', 'persoanaContact', 'departament', 'specializare']) {
+    if (!fullName) {
+      return NextResponse.json({ code: 'FIELD_REQUIRED', field: 'fullName', message: 'Completează numele complet.' }, { status: 400 })
+    }
+    if (!isValidReminderEmail(email)) {
+      return NextResponse.json({ code: 'FIELD_REQUIRED', field: 'email', message: 'Completează un email valid.' }, { status: 400 })
+    }
+    for (const key of ['telefon', 'numeFirma', 'adresaFirma', 'departament', 'specializare']) {
       if (input[key] !== undefined && input[key] !== null && typeof input[key] !== 'string') {
         return NextResponse.json({ code: 'INVALID_PROFILE_PATCH', message: 'Datele profilului nu sunt valide.' }, { status: 400 })
       }
+    }
+    // Câmpurile obligatorii pe rol (#111); emailul și numele sunt verificate mai sus.
+    const missing = REQUIRED_BY_ROLE[role].find(field => !optionalText(input[field.key]))
+    if (missing) {
+      return NextResponse.json({ code: 'FIELD_REQUIRED', field: missing.key, message: 'Completează ' + missing.label + '.' }, { status: 400 })
+    }
+    if (input.consultantLevel !== undefined && (role !== 'consultant' || (input.consultantLevel !== 'junior' && input.consultantLevel !== 'senior'))) {
+      return NextResponse.json({ code: 'INVALID_PROFILE_PATCH', field: 'consultantLevel', message: 'Nivelul poate fi junior sau senior, doar pentru consultanți.' }, { status: 400 })
     }
     let canonicalCif: string | null = null
     if (role === 'client') {
@@ -71,8 +96,8 @@ export async function POST(request: Request) {
     if (role === 'client') {
       profileUpdate.nume_firma = optionalText(input.numeFirma)
       profileUpdate.adresa_firma = optionalText(input.adresaFirma)
-      profileUpdate.persoana_contact = optionalText(input.persoanaContact)
     } else if (role === 'consultant') {
+      profileUpdate.consultant_level = input.consultantLevel === 'senior' ? 'senior' : 'junior'
       profileUpdate.specializare = optionalText(input.specializare)
       profileUpdate.departament = optionalText(input.departament)
     } else if (role === 'admin') {
@@ -142,8 +167,8 @@ export async function POST(request: Request) {
       auditData.cif = canonicalCif
       auditData.nume_firma = profileUpdate.nume_firma
       auditData.adresa_firma = profileUpdate.adresa_firma
-      auditData.persoana_contact = profileUpdate.persoana_contact
     } else if (role === 'consultant') {
+      auditData.consultant_level = profileUpdate.consultant_level
       auditData.specializare = profileUpdate.specializare
       auditData.departament = profileUpdate.departament
     } else if (role === 'admin') {

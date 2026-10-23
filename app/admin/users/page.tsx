@@ -159,7 +159,7 @@ export default function AdminUsersPage() {
   const createTriggerRef = useRef<HTMLElement | null>(null)
   const [numeFirma, setNumeFirma] = useState('')
   const [adresaFirma, setAdresaFirma] = useState('')
-  const [persoanaContact, setPersoanaContact] = useState('')
+  const [consultantLevel, setConsultantLevel] = useState<'junior' | 'senior'>('junior')
   const [specializare, setSpecializare] = useState('')
   const [departament, setDepartament] = useState('')
   const [isCreating, setIsCreating] = useState(false)
@@ -184,7 +184,7 @@ export default function AdminUsersPage() {
   const clearCreateForm = () => {
     setNewEmail(''); setNewName(''); setTelefon('')
     setCif({ country: 'RO', number: '' }); setCifError(null); setCreateError(null)
-    setNumeFirma(''); setAdresaFirma(''); setPersoanaContact('')
+    setNumeFirma(''); setAdresaFirma(''); setConsultantLevel('junior')
     setSpecializare(''); setDepartament('')
   }
 
@@ -224,7 +224,7 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     setCif({ country: 'RO', number: '' }); setCifError(null)
-    setNumeFirma(''); setAdresaFirma(''); setPersoanaContact('')
+    setNumeFirma(''); setAdresaFirma(''); setConsultantLevel('junior')
     setSpecializare(''); setDepartament('')
   }, [newRole])
 
@@ -268,8 +268,8 @@ export default function AdminUsersPage() {
     setIsCreating(true)
     try {
       const payload: any = { email: newEmail, role: newRole, fullName: newName, telefon: telefon || null }
-      if (newRole === 'client') { payload.cif = cif.number; payload.cifCountry = cif.country; payload.numeFirma = numeFirma || null; payload.adresaFirma = adresaFirma || null; payload.persoanaContact = persoanaContact || null }
-      else if (newRole === 'consultant') { payload.specializare = specializare || null; payload.departament = departament || null }
+      if (newRole === 'client') { payload.cif = cif.number; payload.cifCountry = cif.country; payload.numeFirma = numeFirma || null; payload.adresaFirma = adresaFirma || null }
+      else if (newRole === 'consultant') { payload.consultantLevel = consultantLevel; payload.specializare = specializare || null; payload.departament = departament || null }
       else if (newRole === 'admin') { payload.departament = departament || null }
 
       const res = await apiFetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -279,6 +279,10 @@ export default function AdminUsersPage() {
         if (newRole === 'client' && error?.code?.startsWith('CIF_')) {
           const field = error.field === 'cifCountry' ? 'cifCountry' : 'cif'
           setCifError({ field, message, server: true })
+        } else if (error?.code === 'FIELD_REQUIRED' && error.field) {
+          // Serverul a refuzat un câmp obligatoriu gol (#111): mesajul sus, focusul pe câmp.
+          setCreateError({ message, needsReview: false })
+          createFormRef.current?.querySelector<HTMLElement>(`[name="${error.field}"]`)?.focus()
         } else {
           setCreateError({ message, needsReview: ['ACCOUNT_CREATION_PENDING', 'ACCOUNT_CREATION_UNCONFIRMED', 'ACCOUNT_CREATION_INACTIVE'].includes(error?.code ?? '') })
         }
@@ -836,24 +840,11 @@ export default function AdminUsersPage() {
                   )}
                 </fieldset>
 
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Camp label="Email" required>
-                    <input type="email" required placeholder="user@firma.ro" value={newEmail} onChange={e => setNewEmail(e.target.value)} className={inputClass} />
-                  </Camp>
-                  <Camp label="Nume complet" required>
-                    <input type="text" required placeholder="Ion Popescu" value={newName} onChange={e => setNewName(e.target.value)} className={inputClass} />
-                  </Camp>
-
-                  <Camp label="Telefon">
-                    <input type="tel" placeholder="0740123456" value={telefon} onChange={e => setTelefon(e.target.value)} className={inputClass} />
-                  </Camp>
-                </div>
-
-                <fieldset className="border-t border-rule pt-5">
-                  <legend className="sr-only">Detalii pentru {ROLURI[newRole]}</legend>
-                  <p className="mb-3 text-sm font-semibold text-ink">Detalii pentru {ROLURI[newRole].toLowerCase()}</p>
-
-                  {newRole === 'client' && (
+                {/* Ordinea pe rol (#111): la client firma întâi, apoi persoana
+                    care folosește contul; la echipă persoana, apoi detaliile. */}
+                {newRole === 'client' && (
+                  <fieldset className="border-t border-rule pt-5">
+                    <legend className="mb-3 text-sm font-semibold text-ink">Firma</legend>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div className="sm:col-span-2">
                         <CifInput value={cif} onChange={changeCif} error={cifError} onBlur={() => {
@@ -862,45 +853,82 @@ export default function AdminUsersPage() {
                           setCifError(result.ok ? null : result)
                         }} />
                       </div>
-                      <Camp label="Nume firmă" required>
-                        <input type="text" required placeholder="SC TECH SOLUTIONS SRL" value={numeFirma} onChange={e => setNumeFirma(e.target.value)} className={inputClass} />
-                      </Camp>
                       <div className="sm:col-span-2">
-                        <Camp label="Adresă firmă">
-                          <input type="text" placeholder="Str. Principală nr. 10, București" value={adresaFirma} onChange={e => setAdresaFirma(e.target.value)} className={inputClass} />
+                        <Camp label="Nume firmă" required>
+                          <input type="text" name="numeFirma" required placeholder="SC TECH SOLUTIONS SRL" value={numeFirma} onChange={e => setNumeFirma(e.target.value)} className={inputClass} />
                         </Camp>
                       </div>
                       <div className="sm:col-span-2">
-                        <Camp label="Persoană de contact" hint="Completeaz-o doar dacă diferă de titularul contului.">
-                          <input type="text" placeholder="Ana Popescu" value={persoanaContact} onChange={e => setPersoanaContact(e.target.value)} className={inputClass} />
+                        <Camp label="Adresă firmă" required>
+                          <input type="text" name="adresaFirma" required placeholder="Str. Principală nr. 10, București" value={adresaFirma} onChange={e => setAdresaFirma(e.target.value)} className={inputClass} />
                         </Camp>
                       </div>
                     </div>
-                  )}
+                  </fieldset>
+                )}
 
-                  {newRole === 'consultant' && (
+                <fieldset className="border-t border-rule pt-5">
+                  <legend className="mb-3 text-sm font-semibold text-ink">{newRole === 'client' ? 'Persoana de contact' : 'Persoana'}</legend>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
+                      <Camp label="Nume complet" required>
+                        <input type="text" name="fullName" required placeholder="Ion Popescu" value={newName} onChange={e => setNewName(e.target.value)} className={inputClass} />
+                      </Camp>
+                    </div>
+                    <Camp label="Email" required>
+                      <input type="email" name="email" required placeholder="user@firma.ro" value={newEmail} onChange={e => setNewEmail(e.target.value)} className={inputClass} />
+                    </Camp>
+                    <Camp label="Telefon">
+                      <input type="tel" name="telefon" placeholder="0740123456" value={telefon} onChange={e => setTelefon(e.target.value)} className={inputClass} />
+                    </Camp>
+                  </div>
+                </fieldset>
+
+                {newRole === 'consultant' && (
+                  <fieldset className="border-t border-rule pt-5">
+                    <legend className="mb-3 text-sm font-semibold text-ink">Detalii consultant</legend>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <fieldset className="sm:col-span-2">
+                        <legend className="mb-1.5 text-sm font-semibold text-ink">Nivel</legend>
+                        <div className="flex flex-wrap gap-1">
+                          {(['junior', 'senior'] as const).map((level) => (
+                            <label key={level} className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-[var(--radius-plate)] px-2 transition-colors duration-[120ms] hover:bg-paper-sunk">
+                              <input type="radio" name="consultantLevel" value={level} checked={consultantLevel === level} onChange={() => setConsultantLevel(level)} className="h-4 w-4" />
+                              <span className="text-sm text-ink">{level === 'senior' ? 'Senior' : 'Junior'}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <span className="mt-1 block text-xs text-ink-soft">
+                          {consultantLevel === 'senior'
+                            ? 'Deschide proiecte, gestionează echipa și șabloanele.'
+                            : 'Lucrează în proiectele în care e adăugat.'}
+                        </span>
+                      </fieldset>
                       <Camp label="Specializare" required hint="Ex.: PNRR, Digitalizare IMM">
-                        <input type="text" required placeholder="Digitalizare IMM, PNRR" value={specializare} onChange={e => setSpecializare(e.target.value)} className={inputClass} />
+                        <input type="text" name="specializare" required placeholder="Digitalizare IMM, PNRR" value={specializare} onChange={e => setSpecializare(e.target.value)} className={inputClass} />
                       </Camp>
                       <Camp label="Departament">
-                        <input type="text" placeholder="Departament Proiecte" value={departament} onChange={e => setDepartament(e.target.value)} className={inputClass} />
+                        <input type="text" name="departament" placeholder="Departament Proiecte" value={departament} onChange={e => setDepartament(e.target.value)} className={inputClass} />
                       </Camp>
                     </div>
-                  )}
+                  </fieldset>
+                )}
 
-                  {newRole === 'admin' && (
+                {newRole === 'admin' && (
+                  <fieldset className="border-t border-rule pt-5">
+                    <legend className="mb-3 text-sm font-semibold text-ink">Detalii administrator</legend>
                     <Camp label="Departament">
-                      <input type="text" placeholder="Management, IT" value={departament} onChange={e => setDepartament(e.target.value)} className={inputClass} />
+                      <input type="text" name="departament" placeholder="Management, IT" value={departament} onChange={e => setDepartament(e.target.value)} className={inputClass} />
                     </Camp>
-                  )}
-                </fieldset>
+                  </fieldset>
+                )}
                 </fieldset>
               </div>
 
               <div className="flex items-center justify-between gap-3 border-t border-rule px-5 py-4">
-                <p className="min-w-0 truncate text-sm text-ink-soft">
-                  Creezi <span className="font-semibold text-ink">{newName || 'un cont nou'}</span> ca {ROLURI[newRole].toLowerCase()}.
+                <p className="min-w-0 break-words text-sm text-ink-soft">
+                  Creezi <span className="font-semibold text-ink">{newName.trim() || 'un cont nou'}</span> ca {newRole === 'client' ? 'client' : ROLURI[newRole].toLowerCase()}.
+                  {newEmail.trim() && <> Va primi parola pe email la <span className="font-semibold text-ink">{newEmail.trim()}</span>.</>}
                 </p>
                 <Button data-tooltip="Creează contul; parola temporară pleacă pe email" type="submit" variant="primary" disabled={isCreating || createError?.needsReview}>
                   {isCreating

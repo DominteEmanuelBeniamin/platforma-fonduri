@@ -787,7 +787,7 @@ test('Conturi: creare, roluri, nivel, ștergere — doar adminul', async () => {
     verify('a-conturi', person, 'șterge un cont', await call(person, 'DELETE', `/api/users/${JB.id}`), 'refuzat')
   }
   const email = `drepturi.nou.${STAMP}@test.local`
-  verify('a-conturi', admin, 'creează un cont de consultant', await call(admin, 'POST', '/api/users', { email, password: PASSWORD, role: 'consultant', fullName: `Consultant nou ${STAMP}` }), 'permis')
+  verify('a-conturi', admin, 'creează un cont de consultant', await call(admin, 'POST', '/api/users', { email, password: PASSWORD, role: 'consultant', fullName: `Consultant nou ${STAMP}`, specializare: 'PNRR' }), 'permis')
   const { data: fresh } = await service.from('profiles').select('id, role, consultant_level').eq('email', email).maybeSingle()
   if (fresh) created.users.add(fresh.id)
   fact('r-junior', 'sistem', 'un consultant creat de admin pornește junior', fresh?.consultant_level === 'junior', String(fresh?.consultant_level), 'Bază de date', 'junior')

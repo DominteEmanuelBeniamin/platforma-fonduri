@@ -63,6 +63,7 @@ async function fillClient(page: Page, number = '5258486') {
   await form.getByRole('textbox', { name: 'Email', exact: true }).fill('new@example.invalid')
   await form.getByLabel('Nume complet').fill('Nume de test')
   await form.getByLabel('Nume firmă').fill('Firma de test')
+  await form.getByLabel('Adresă firmă').fill('Adresa de test')
   await form.getByLabel('Telefon', { exact: true }).fill('0700000000')
   await form.getByRole('textbox', { name: 'CUI / CIF' }).fill(number)
   return form
@@ -128,15 +129,13 @@ test('CIF: country changes preserve text, revalidate and send the FR prefix-like
 test('CIF: duplicate message persists beside the field and preserves the whole form', async ({ page }) => {
   const api = await setup(page), form = await fillClient(page)
   api.respond(409, { code: 'CIF_DUPLICATE', message: duplicateMessage, field: 'cif' })
-  await form.getByLabel('Adresă firmă').fill('Adresa de test')
-  await form.getByLabel('Persoană de contact').fill('Contact de test')
   await form.getByRole('button', { name: 'Creează', exact: true }).click()
   const number = form.getByRole('textbox', { name: 'CUI / CIF' })
   await expect(number).toBeFocused(); await expect(number).toHaveAttribute('aria-invalid', 'true')
   await expect(number).toHaveAccessibleDescription(new RegExp(duplicateMessage.replaceAll('.', '\\.')))
   await number.press('Tab')
   await expect(form.getByRole('alert')).toHaveText(duplicateMessage)
-  for (const [label, value] of [['Email', 'new@example.invalid'], ['Nume complet', 'Nume de test'], ['Nume firmă', 'Firma de test'], ['Telefon', '0700000000'], ['Adresă firmă', 'Adresa de test'], ['Persoană de contact', 'Contact de test']]) {
+  for (const [label, value] of [['Email', 'new@example.invalid'], ['Nume complet', 'Nume de test'], ['Nume firmă', 'Firma de test'], ['Telefon', '0700000000'], ['Adresă firmă', 'Adresa de test']]) {
     await expect(form.getByRole('textbox', { name: label })).toHaveValue(value)
   }
   await number.fill('RO18547290')
