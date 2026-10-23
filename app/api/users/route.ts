@@ -7,6 +7,8 @@ import { createSupabaseServiceClient } from '../_utils/supabase'
 import { logUserAction, getClientIP, getUserAgent } from '../_utils/audit'
 import { escapeHtml, isValidReminderEmail, resendFromAddress, resolveReminderDelivery, sanitizeHeaderText } from '../_utils/email'
 import { generateTemporaryPassword } from '@/lib/temporary-password'
+import { validateCif } from '@/lib/cif'
+import { cifForbidden, cifValidationFailure, checkCifAvailable, creationUnconfirmed, finalizeCreatedAccount, persistedAuthTimestamp } from '../_utils/user-creation'
 
 function optionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() || null : null
@@ -24,12 +26,15 @@ function appLoginUrl() {
   }
 }
 
-function partialProfileFailure(userId: string) {
-  return NextResponse.json({
-    code: 'profile_update_failed',
-    error: 'Contul de autentificare a fost creat, dar profilul nu a putut fi actualizat. Este necesară remedierea manuală.',
-    userId,
-  }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
+/**
+ * Ce trebuie completat la un cont nou, pe rol (#111). CIF-ul clientului are
+ * validarea lui, mai jos; telefonul și departamentul rămân opționale.
+ * `persoana_contact` nu se mai cere: persoana de contact e chiar titularul.
+ */
+const REQUIRED_BY_ROLE: Record<'client' | 'consultant' | 'admin', { key: string; label: string }[]> = {
+  client: [{ key: 'numeFirma', label: 'numele firmei' }, { key: 'adresaFirma', label: 'adresa firmei' }],
+  consultant: [{ key: 'specializare', label: 'specializarea' }],
+  admin: [],
 }
 
 export async function POST(request: Request) {
@@ -51,50 +56,71 @@ export async function POST(request: Request) {
     const email = typeof input.email === 'string' ? input.email.trim() : ''
     const role = input.role
     const fullName = typeof input.fullName === 'string' ? input.fullName.trim() : ''
-    if (!isValidReminderEmail(email) || !fullName || (role !== 'client' && role !== 'consultant' && role !== 'admin')) {
+    if (role !== 'client' && role !== 'consultant' && role !== 'admin') {
       return NextResponse.json({ error: 'Emailul, numele și rolul trebuie completate corect.' }, { status: 400 })
     }
-
-    const generatedPassword = generateTemporaryPassword()
-    const admin = createSupabaseServiceClient()
-    const { data: authData, error: authError } = await admin.auth.admin.createUser({
-      email,
-      password: generatedPassword,
-      email_confirm: true,
-    })
-    if (authError || !authData.user) {
-      return NextResponse.json({ error: 'Nu s-a putut crea contul. Verifică datele și dacă emailul există deja.' }, { status: 400 })
+    if (!fullName) {
+      return NextResponse.json({ code: 'FIELD_REQUIRED', field: 'fullName', message: 'Completează numele complet.' }, { status: 400 })
     }
-
-    const userId = authData.user.id
-    const profileUpdate: any = {
-      role,
+    if (!isValidReminderEmail(email)) {
+      return NextResponse.json({ code: 'FIELD_REQUIRED', field: 'email', message: 'Completează un email valid.' }, { status: 400 })
+    }
+    for (const key of ['telefon', 'numeFirma', 'adresaFirma', 'departament', 'specializare']) {
+      if (input[key] !== undefined && input[key] !== null && typeof input[key] !== 'string') {
+        return NextResponse.json({ code: 'INVALID_PROFILE_PATCH', message: 'Datele profilului nu sunt valide.' }, { status: 400 })
+      }
+    }
+    // Câmpurile obligatorii pe rol (#111); emailul și numele sunt verificate mai sus.
+    const missing = REQUIRED_BY_ROLE[role].find(field => !optionalText(input[field.key]))
+    if (missing) {
+      return NextResponse.json({ code: 'FIELD_REQUIRED', field: missing.key, message: 'Completează ' + missing.label + '.' }, { status: 400 })
+    }
+    if (input.consultantLevel !== undefined && (role !== 'consultant' || (input.consultantLevel !== 'junior' && input.consultantLevel !== 'senior'))) {
+      return NextResponse.json({ code: 'INVALID_PROFILE_PATCH', field: 'consultantLevel', message: 'Nivelul poate fi junior sau senior, doar pentru consultanți.' }, { status: 400 })
+    }
+    let canonicalCif: string | null = null
+    if (role === 'client') {
+      const result = validateCif(input.cif, input.cifCountry)
+      if (!result.ok) {
+        const failure = cifValidationFailure(result)
+        return NextResponse.json(failure.body, { status: failure.status })
+      }
+      canonicalCif = result.cif
+    } else if (Object.hasOwn(input, 'cif') || Object.hasOwn(input, 'cifCountry')) {
+      return NextResponse.json(cifForbidden.body, { status: cifForbidden.status })
+    }
+    const profileUpdate: Record<string, string | null> = {
       full_name: fullName,
       telefon: optionalText(input.telefon),
-      must_change_password: true,
     }
     if (role === 'client') {
-      profileUpdate.cif = optionalText(input.cif)
       profileUpdate.nume_firma = optionalText(input.numeFirma)
       profileUpdate.adresa_firma = optionalText(input.adresaFirma)
-      profileUpdate.persoana_contact = optionalText(input.persoanaContact)
     } else if (role === 'consultant') {
+      profileUpdate.consultant_level = input.consultantLevel === 'senior' ? 'senior' : 'junior'
       profileUpdate.specializare = optionalText(input.specializare)
       profileUpdate.departament = optionalText(input.departament)
     } else if (role === 'admin') {
       profileUpdate.departament = optionalText(input.departament)
     }
 
-    try {
-      const { data: updatedProfiles, error: profileError } = await admin
-        .from('profiles')
-        .update(profileUpdate)
-        .eq('id', userId)
-        .select('id')
-      if (profileError || updatedProfiles?.[0]?.id !== userId) return partialProfileFailure(userId)
-    } catch {
-      return partialProfileFailure(userId)
+    const admin = createSupabaseServiceClient()
+    const unavailable = await checkCifAvailable(admin, canonicalCif)
+    if (unavailable) return NextResponse.json(unavailable.body, { status: unavailable.status })
+    const generatedPassword = generateTemporaryPassword()
+    const { data: authData, error: authError } = await admin.auth.admin.createUser({
+      email, password: generatedPassword, email_confirm: true, ban_duration: '87600h',
+    })
+    if (authError || !authData.user) {
+      if (!authError?.status || authError.status >= 500) return NextResponse.json(creationUnconfirmed.body, { status: creationUnconfirmed.status })
+      return NextResponse.json({ code: 'AUTH_CREATE_FAILED', message: 'Nu s-a putut crea contul. Verifică datele și dacă emailul există deja.' }, { status: 400 })
     }
+    const userId = authData.user.id
+    const finalization = await finalizeCreatedAccount(admin, {
+      userId, actorId: ctx.user.id, ban: persistedAuthTimestamp(authData.user.banned_until),
+      role, cif: canonicalCif, profile: profileUpdate,
+    })
+    if (!finalization.ok) return NextResponse.json(finalization.body, { status: finalization.status, headers: { 'Cache-Control': 'no-store' } })
 
     let emailSent = false
     const delivery = resolveReminderDelivery(email)
@@ -138,11 +164,11 @@ export async function POST(request: Request) {
       welcome_email_sent: emailSent,
     }
     if (role === 'client') {
-      auditData.cif = profileUpdate.cif
+      auditData.cif = canonicalCif
       auditData.nume_firma = profileUpdate.nume_firma
       auditData.adresa_firma = profileUpdate.adresa_firma
-      auditData.persoana_contact = profileUpdate.persoana_contact
     } else if (role === 'consultant') {
+      auditData.consultant_level = profileUpdate.consultant_level
       auditData.specializare = profileUpdate.specializare
       auditData.departament = profileUpdate.departament
     } else if (role === 'admin') {
@@ -171,7 +197,7 @@ export async function POST(request: Request) {
       ...(emailSent ? {} : { temporaryPassword: generatedPassword }),
     }, { status: 201, headers: { 'Cache-Control': 'no-store' } })
   } catch {
-    return NextResponse.json({ error: 'Nu s-a putut crea utilizatorul.' }, { status: 500 })
+    return NextResponse.json({ code: 'ACCOUNT_CREATION_UNCONFIRMED', message: 'Nu am putut confirma crearea utilizatorului. Verifică lista de utilizatori înainte de a reîncerca.' }, { status: 503, headers: { 'Cache-Control': 'no-store' } })
   }
 }
 

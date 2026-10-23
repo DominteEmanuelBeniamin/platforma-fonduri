@@ -17,6 +17,8 @@ import { formatDate } from '@/lib/signage'
 import { profileDisplayName } from '@/lib/profile-display'
 import { Signal } from '@/components/ui/Signal'
 import { displayedRequestStatus, requestStatusInfo } from '@/lib/request-status'
+import { FoundIn, Highlight } from '@/components/ui/Highlight'
+import { rangesOf, searchItems, type FieldMatch } from '@/lib/search'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,6 +27,7 @@ interface UserDrawerUser {
   email: string
   full_name: string | null
   is_active?: boolean | null
+  creation_pending?: boolean
   role: 'admin' | 'consultant' | 'client'
   created_at: string
   cif?: string | null
@@ -225,13 +228,12 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
   }, [allDocs])
 
   const filtered = useMemo(() => allDocs.filter(d => {
-    if (search && !d.name.toLowerCase().includes(search.toLowerCase())) return false
     if (filterStatus !== 'all' && d.status !== filterStatus) return false
     if (filterProject !== 'all' && d._projectId !== filterProject) return false
     return true
-  }), [allDocs, search, filterStatus, filterProject])
+  }), [allDocs, filterStatus, filterProject])
 
-  const sorted = useMemo(() => [...filtered].sort((a, b) => {
+  const ordered = useMemo(() => [...filtered].sort((a, b) => {
     let cmp = 0
     if (sortKey === 'name')    cmp = a.name.localeCompare(b.name)
     if (sortKey === 'status')  cmp = a.status.localeCompare(b.status)
@@ -239,6 +241,18 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
     if (sortKey === 'project') cmp = (a._projectTitle ?? '').localeCompare(b._projectTitle ?? '')
     return sortDir === 'asc' ? cmp : -cmp
   }), [filtered, sortKey, sortDir])
+
+  // Căutarea (#112): documentul, fișierele lui, proiectul, codul intern și
+  // starea. Exactele urcă; în rest rămâne sortarea aleasă.
+  const hits = useMemo(() => searchItems(ordered, search, (d: any) => [
+    { key: 'title', label: 'Document', value: d.name },
+    { key: 'files', label: 'Fișier', value: (d.files ?? []).map((f: any) => f.original_name).filter(Boolean).join(', '), shown: false },
+    { key: 'project', label: 'Proiect', value: d._projectTitle },
+    { key: 'cod', label: 'Cod', value: d._projectCodIntern },
+    { key: 'status', label: 'Status', value: requestStatusInfo(displayedRequestStatus(d)).label, shown: false },
+  ]), [ordered, search])
+  const sorted = useMemo(() => hits.map(hit => hit.item), [hits])
+  const matchesOf = useMemo(() => new Map<string, FieldMatch[]>(hits.map(hit => [hit.item.id, hit.matches])), [hits])
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -282,7 +296,8 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                 <p className="text-xs text-ink-faint mt-0.5">{user.email}</p>
                 <div className="mt-2 flex items-center gap-2 flex-wrap">
                   <RoleBadge role={user.role} />
-                  {user.cif && (
+                  {user.creation_pending && <Signal tone="warn">Creare incompletă</Signal>}
+                  {user.role === 'client' && user.cif && (
                     <span className="text-[11px] font-medium bg-paper-sunk text-ink-soft px-2 py-0.5 rounded-full">
                       CIF {user.cif}
                     </span>
@@ -293,6 +308,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                     </span>
                   )}
                 </div>
+                {user.creation_pending && <p className="mt-2 text-sm text-ink-soft">Acces blocat. Verifică acest cont în lista de utilizatori; editarea și reactivarea nu sunt permise până la remediere.</p>}
               </div>
             </div>
             <button aria-label="Închide" onClick={onClose}
@@ -444,6 +460,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
           ) : (
             <div>
               {sorted.map((req, idx) => {
+                const matches = matchesOf.get(req.id) ?? []
                 const latest = [...(req.files ?? [])].sort((a: any, b: any) => b.version_number - a.version_number)[0] ?? null
                 const previewUrl = latest ? previewUrls[latest.id] : undefined
                 const dateStr = latest?.created_at ? formatDate(latest.created_at) : formatDate(req.created_at)
@@ -464,7 +481,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-medium truncate" style={{ fontSize: '13px', color: '#202124' }}>
-                          {req.name}
+                          <Highlight text={req.name} ranges={rangesOf(matches, 'title')} />
                         </p>
                         {latest && <TypeBadge path={latest.storage_path} />}
                         {latest && latest.version_number > 1 && (
@@ -483,9 +500,9 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                           style={{ fontSize: '11px', color: '#5f6368' }}
                         >
                           <ArrowLeft className="w-2.5 h-2.5 rotate-[135deg]" style={{ color: '#9aa0a6' }} />
-                          {req._projectTitle}
+                          <Highlight text={req._projectTitle} ranges={rangesOf(matches, 'project')} />
                           {req._projectCodIntern && (
-                            <span className="font-mono" style={{ color: '#9aa0a6' }}>· {req._projectCodIntern}</span>
+                            <span className="font-mono" style={{ color: '#9aa0a6' }}>· <Highlight text={req._projectCodIntern} ranges={rangesOf(matches, 'cod')} /></span>
                           )}
                           <ExternalLink className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
                         </button>
@@ -501,6 +518,7 @@ export default function UserDrawer({ user, open, onClose }: UserDrawerProps) {
                           </>
                         )}
                       </div>
+                      <FoundIn matches={matches} className="mt-0.5" />
                     </div>
 
                     {/* Status */}

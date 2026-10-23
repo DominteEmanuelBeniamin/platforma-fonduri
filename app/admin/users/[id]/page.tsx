@@ -10,6 +10,8 @@ import { LocationStrip } from '@/components/ui/LocationStrip'
 import DriveFilesView, { DriveRow } from '@/components/DriveFilesView'
 import { Spinner } from '@/components/ui/Spinner'
 import { profileDisplayName } from '@/lib/profile-display'
+import { Signal } from '@/components/ui/Signal'
+import { FeedbackMessage } from '@/components/FeedbackMessage'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -202,14 +204,15 @@ export default function UserFilesPage() {
         action={
           <>
             <RoleBadge role={user.role} />
-            {user.role === 'consultant' && (
+            {user.creation_pending && <Signal tone="warn">Creare incompletă</Signal>}
+            {user.role === 'consultant' && !user.creation_pending && (
               <LevelSwitch
                 level={user.consultant_level === 'senior' ? 'senior' : 'junior'}
                 saving={savingLevel}
                 onChange={level => { void changeLevel(level) }}
               />
             )}
-            {user.cif && (
+            {user.role === 'client' && user.cif && (
               <span className="hidden shrink-0 rounded-[var(--radius-plate)] bg-paper-sunk px-2.5 py-1 text-xs text-ink-soft sm:block">
                 CIF {user.cif}
               </span>
@@ -224,6 +227,9 @@ export default function UserFilesPage() {
       <p className="mb-6 mt-2 text-sm text-ink-soft">
         Fișierele acestui utilizator, din toate proiectele lui.
       </p>
+      {user.creation_pending && <FeedbackMessage variant="warning" className="mb-6">
+        Acces blocat: crearea contului este incompletă. Revino la lista de utilizatori pentru verificare și remediere. Editarea și reactivarea nu sunt permise; ștergerea este disponibilă numai pentru un cont fără date asociate.
+      </FeedbackMessage>}
 
       <div className="pb-10">
         <div className="overflow-hidden rounded-[var(--radius-plate)] border border-rule bg-plate">

@@ -15,6 +15,7 @@ const eslintConfig = defineConfig([
     // Rapoartele generate de Playwright (ignorate și de git).
     "playwright-report/**",
     "test-results/**",
+    "supabase/.temp/**",
   ]),
 ]);
 

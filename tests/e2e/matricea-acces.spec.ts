@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { fixtureCif, finalizeLocalFixture } from '../../scripts/local-account-fixtures.mjs'
 import { test, expect, type Browser, type Locator, type Page } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
@@ -98,7 +99,7 @@ async function fixedConsultant(tag: string, level: 'junior' | 'senior', label: s
     setLocalFixturePassword(id, PASSWORD)
   }
   accounts.add(id)
-  await service.from('profiles').upsert({ id, email, role: 'consultant', consultant_level: level, full_name: name })
+  await finalizeLocalFixture(service, id, { role: 'consultant', consultant_level: level, full_name: name })
   await must(admin, 'POST', '/api/users/' + id + '/reactivate')
   return { id, email, name, password: PASSWORD, token: await signIn(email, PASSWORD), who }
 }
@@ -391,7 +392,7 @@ test('B. Conturi, audit, clienți', async () => {
     verifica(person, 'citește impactul unui cont', await call(person, 'GET', `/api/users/${JO.id}/lifecycle-impact`), 403)
   }
   const tempEmail = `matrice.${STAMP}.consultant-temporar@test.local`
-  const tempCreation = await must(admin, 'POST', '/api/users', { email: tempEmail, password: PASSWORD, role: 'consultant', fullName: 'Consultant temporar' })
+  const tempCreation = await must(admin, 'POST', '/api/users', { email: tempEmail, password: PASSWORD, role: 'consultant', fullName: 'Consultant temporar', specializare: 'PNRR' })
   created.users.add(tempCreation.userId)
   const temp = await existing(tempEmail, await fixturePassword(tempCreation), 'consultant temporar')
   created.users.add(temp.id)
@@ -418,7 +419,7 @@ test('B. Conturi, audit, clienți', async () => {
   verifica(temp, 'autentificarea nouă folosește aceeași parolă', await call(temp, 'GET', '/api/me', undefined, newTempToken), 200)
 
   const tempClientEmail = `matrice.${STAMP}.client-temporar@test.local`
-  const tempClientCreation = await must(admin, 'POST', '/api/users', { email: tempClientEmail, password: PASSWORD, role: 'client', fullName: 'Client temporar', numeFirma: 'Firmă temporară SRL' })
+  const tempClientCreation = await must(admin, 'POST', '/api/users', { email: tempClientEmail, password: PASSWORD, role: 'client', fullName: 'Client temporar', numeFirma: 'Firmă temporară SRL', adresaFirma: 'Str. Temporară 1', cif: fixtureCif(tempClientEmail), cifCountry: 'RO' })
   created.users.add(tempClientCreation.userId)
   const tempClient = await existing(tempClientEmail, await fixturePassword(tempClientCreation), 'client temporar')
   created.users.add(tempClient.id)
@@ -445,7 +446,7 @@ test('B. Conturi, audit, clienți', async () => {
   noteaza('sistem', 'refuzul nu inventează audit de ștergere', 'zero intrări', `${(selfAudit ?? []).length} intrări`, (selfAudit ?? []).length === 0, 'Bază de date')
 
   const emptyEmail = `matrice.${STAMP}.cont-gol@test.local`
-  const emptyCreated = await must(admin, 'POST', '/api/users', { email: emptyEmail, password: PASSWORD, role: 'consultant', fullName: 'Cont gol' })
+  const emptyCreated = await must(admin, 'POST', '/api/users', { email: emptyEmail, password: PASSWORD, role: 'consultant', fullName: 'Cont gol', specializare: 'PNRR' })
   const emptyId = emptyCreated.user?.id ?? emptyCreated.profile?.id ?? (await service.from('profiles').select('id').eq('email', emptyEmail).single()).data?.id
   expect(emptyId).toBeTruthy()
   created.users.add(emptyId)

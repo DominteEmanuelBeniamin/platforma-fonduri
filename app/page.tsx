@@ -31,6 +31,9 @@ import { canCreateProjects } from '@/lib/project-permissions'
 import { ToneIcon } from '@/components/ui/ToneIcon'
 import { profileDisplayName } from '@/lib/profile-display'
 import { Spinner } from '@/components/ui/Spinner'
+import { FoundIn, Highlight } from '@/components/ui/Highlight'
+import { rangesOf, searchItems, type SearchField } from '@/lib/search'
+import { consultantNames, programLabel, projectSearchFields } from '@/lib/search-fields'
 import {
   REMINDERS_ERROR_MESSAGE,
   automaticRemindersEnabled,
@@ -53,7 +56,7 @@ type Att = {
   closed: boolean
 }
 
-type FilterOption = { key: string; name: string; count?: number }
+type FilterOption = { key: string; name: string; count?: number; search?: SearchField[] }
 type FilterGroup = { id: string; title: string; options: FilterOption[]; selected: Set<string>; toggle: (k: string) => void }
 
 const SORT_OPTIONS: { key: string; label: string }[] = [
@@ -90,13 +93,54 @@ const clientKey = (p: any) => p?.client_id || '__none__'
 const clientName = (p: any) => profileDisplayName(p?.profiles, undefined, 'Fără client')
 const templateKey = (p: any) => p?.template?.id || '__none__'
 const templateName = (p: any) => p?.template?.name || 'Fără șablon'
+// În filtre, clientul se caută și după firmă și CIF, șablonul și după program (#112).
+const clientOptionSearch = (p: any): SearchField[] => [
+  { key: 'firma', label: 'Firmă', value: p?.profiles?.nume_firma, shown: false },
+  { key: 'cif', label: 'CIF', value: p?.profiles?.cif, kind: 'cif', shown: false },
+]
+const templateOptionSearch = (p: any): SearchField[] => [
+  { key: 'program', label: 'Program', value: programLabel(p?.template?.measure), shown: false },
+]
+
+/**
+ * Ce se caută la un proiect pe Home (#112). Clientul caută doar în titlu, cod
+ * și consultanți: restul sunt datele lui, pe care le știe.
+ */
+function homeSearchFields(p: any, isClient: boolean): SearchField[] {
+  const consultants = consultantNames([p?.general_consultant, ...(p?.team ?? []).map((m: any) => m?.consultant)])
+  if (isClient) {
+    return [
+      { key: 'title', label: 'Titlu', value: p?.title },
+      { key: 'cod', label: 'Cod', value: p?.cod_intern, shown: false },
+      { key: 'consultanti', label: 'Consultanți', value: consultants.join(', '), shown: false },
+    ]
+  }
+  return projectSearchFields({
+    title: p?.title,
+    client_name: p?.profiles ? clientName(p) : null,
+    search: {
+      cod_intern: p?.cod_intern,
+      firm: p?.profiles?.nume_firma,
+      cif: p?.profiles?.cif,
+      address: p?.profiles?.adresa_firma,
+      consultants,
+      template: p?.template?.name,
+      program: programLabel(p?.template?.measure),
+    },
+  })
+}
 
 // Opțiuni de filtrare (cheie, nume, număr) derivate din proiecte
-function buildOptions(projects: any[], keyFn: (p: any) => string, nameFn: (p: any) => string): FilterOption[] {
+function buildOptions(
+  projects: any[],
+  keyFn: (p: any) => string,
+  nameFn: (p: any) => string,
+  searchFn?: (p: any) => SearchField[],
+): FilterOption[] {
   const m = new Map<string, FilterOption>()
   for (const p of projects) {
     const key = keyFn(p)
-    const cur = m.get(key) ?? { key, name: nameFn(p), count: 0 }
+    const cur = m.get(key) ?? { key, name: nameFn(p), count: 0, search: searchFn?.(p) }
     cur.count = (cur.count ?? 0) + 1
     m.set(key, cur)
   }
@@ -234,8 +278,7 @@ function AdminMenu({
 function CollapsibleSection({ group, defaultOpen }: { group: FilterGroup; defaultOpen: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
   const [q, setQ] = useState('')
-  const query = q.trim().toLowerCase()
-  const opts = query ? group.options.filter((o) => o.name.toLowerCase().includes(query)) : group.options
+  const hits = searchItems(group.options, q, (o) => [{ key: 'name', label: 'Nume', value: o.name }, ...(o.search ?? [])])
 
   return (
     <div className="border-t border-rule">
@@ -261,13 +304,16 @@ function CollapsibleSection({ group, defaultOpen }: { group: FilterGroup; defaul
             />
           </div>
           <div className="max-h-56 overflow-y-auto">
-            {opts.length === 0 ? (
+            {hits.length === 0 ? (
               <p className="py-4 text-center text-xs text-ink-faint">Niciun rezultat</p>
             ) : (
-              opts.map((o) => (
+              hits.map(({ item: o, matches }) => (
                 <button data-tooltip={group.selected.has(o.key) ? 'Scoate din filtru' : 'Adaugă la filtru'} key={o.key} onClick={() => group.toggle(o.key)} aria-pressed={group.selected.has(o.key)} className="flex min-h-11 w-full items-center gap-2.5 rounded-[var(--radius-plate)] px-2 py-2 text-sm transition-colors duration-[120ms] hover:bg-paper-sunk">
                   <Tick on={group.selected.has(o.key)} />
-                  <span className="flex-1 truncate text-left text-ink">{o.name}</span>
+                  <span className="min-w-0 flex-1 text-left">
+                    <span className="block truncate text-ink"><Highlight text={o.name} ranges={rangesOf(matches, 'name')} /></span>
+                    <FoundIn matches={matches} />
+                  </span>
                   {typeof o.count === 'number' && <span className="text-xs font-medium text-ink-faint">{o.count}</span>}
                 </button>
               ))
@@ -610,8 +656,8 @@ export default function Dashboard() {
     return c
   }, [projects, attentionByProject])
 
-  const clientOptions = useMemo(() => buildOptions(projects, clientKey, clientName), [projects])
-  const templateOptions = useMemo(() => buildOptions(projects, templateKey, templateName), [projects])
+  const clientOptions = useMemo(() => buildOptions(projects, clientKey, clientName, clientOptionSearch), [projects])
+  const templateOptions = useMemo(() => buildOptions(projects, templateKey, templateName, templateOptionSearch), [projects])
 
   const attMatch = (att: Att) =>
     (attentionFilter.has('overdue') && att.overdue > 0) ||
@@ -620,13 +666,8 @@ export default function Dashboard() {
     (attentionFilter.has('clean') && att.clean) ||
     (attentionFilter.has('closed') && att.closed)
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
+  const projectHits = useMemo(() => {
     const list = projects.filter((p) => {
-      if (q) {
-        const hay = `${p.title ?? ''} ${p.profiles?.full_name ?? ''} ${p.cod_intern ?? ''}`.toLowerCase()
-        if (!hay.includes(q)) return false
-      }
       if (attentionFilter.size > 0 && !attMatch(attentionByProject.get(p.id)!)) return false
       if (clientFilter.size > 0 && !clientFilter.has(clientKey(p))) return false
       if (templateFilter.size > 0 && !templateFilter.has(templateKey(p))) return false
@@ -643,9 +684,12 @@ export default function Dashboard() {
         return (B.overdue - A.overdue) || (B.total - A.total) || (bUnread - aUnread)
       })
     }
-    return sorted
+    // Căutarea vine la urmă: potrivirile exacte urcă, iar în fiecare grup
+    // rămâne sortarea aleasă (#112).
+    return searchItems(sorted, search, (p) => homeSearchFields(p, isClient))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, search, attentionFilter, clientFilter, templateFilter, sortKey, attentionByProject])
+  }, [projects, search, attentionFilter, clientFilter, templateFilter, sortKey, attentionByProject, isClient])
+  const filtered = useMemo(() => projectHits.map((hit) => hit.item), [projectHits])
 
   const activeFilterCount = attentionFilter.size + clientFilter.size + templateFilter.size
   const anyFilterActive = activeFilterCount > 0 || search.trim() !== ''
@@ -1025,13 +1069,14 @@ export default function Dashboard() {
           ) : view === 'grid' ? (
             /* GRID */
             <div className="grid grid-cols-1 gap-4 pb-10 md:grid-cols-2 lg:grid-cols-3">
-              {filtered.map((project) => {
+              {projectHits.map(({ item: project, matches }) => {
                 const att = attentionByProject.get(project.id)!
                 return (
                   <Plate key={project.id} rail={railFor(att)} interactive className="group">
                     <Link data-tooltip="Deschide proiectul" href={`/projects/${project.id}`} className="flex h-full flex-col p-5 pt-6">
-                      <h3 className="line-clamp-2 pr-10 text-lg font-bold leading-snug text-ink transition-colors duration-[120ms] group-hover:text-[var(--sg-accent)]">{project.title}</h3>
-                      <p className="mt-1.5 text-sm text-ink-soft">{clientName(project)}</p>
+                      <h3 className="line-clamp-2 pr-10 text-lg font-bold leading-snug text-ink transition-colors duration-[120ms] group-hover:text-[var(--sg-accent)]"><Highlight text={project.title} ranges={rangesOf(matches, 'title')} /></h3>
+                      <p className="mt-1.5 text-sm text-ink-soft"><Highlight text={clientName(project)} ranges={rangesOf(matches, 'client')} /></p>
+                      <FoundIn matches={matches} className="mt-1" />
                       <AttentionBadges att={att} isClient={isClient} className="mt-4" />
                     </Link>
                     {isAdmin && (
@@ -1052,14 +1097,15 @@ export default function Dashboard() {
           ) : (
             /* LISTĂ */
             <div className="flex flex-col gap-2 pb-10">
-              {filtered.map((project) => {
+              {projectHits.map(({ item: project, matches }) => {
                 const att = attentionByProject.get(project.id)!
                 return (
                   <Plate key={project.id} rail={railFor(att)} interactive className="group">
                     <Link data-tooltip="Deschide proiectul" href={`/projects/${project.id}`} className="flex items-center gap-4 py-4 pl-5 pr-3 pt-5">
                       <div className="min-w-0 flex-1">
-                        <h3 className="truncate font-semibold text-ink transition-colors duration-[120ms] group-hover:text-[var(--sg-accent)]">{project.title}</h3>
-                        <p className="mt-0.5 truncate text-sm text-ink-soft">{clientName(project)}</p>
+                        <h3 className="truncate font-semibold text-ink transition-colors duration-[120ms] group-hover:text-[var(--sg-accent)]"><Highlight text={project.title} ranges={rangesOf(matches, 'title')} /></h3>
+                        <p className="mt-0.5 truncate text-sm text-ink-soft"><Highlight text={clientName(project)} ranges={rangesOf(matches, 'client')} /></p>
+                        <FoundIn matches={matches} className="mt-0.5" />
                       </div>
                       <AttentionBadges att={att} isClient={isClient} className="hidden sm:flex" />
                       {isAdmin ? (

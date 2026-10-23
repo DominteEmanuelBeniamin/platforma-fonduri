@@ -6,10 +6,15 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { usePrivateConversations } from '@/hooks/usePrivateConversations'
 import { usePrivateChatUsers } from '@/hooks/usePrivateChatUsers'
+import { FoundIn, Highlight } from '@/components/ui/Highlight'
+import { matchFields, rangesOf } from '@/lib/search'
 import PrivateChatView from '@/components/PrivateChatView'
 import { getAvatarColor, getInitials } from '@/lib/avatar'
 import { profileDisplayName } from '@/lib/profile-display'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
+
+/** Cum se numește rolul, ca în SQL-ul căutării (`search_chat_profiles`). */
+const ROLE_LABELS: Record<string, string> = { admin: 'Administrator', consultant: 'Consultant', client: 'Client' }
 
 function formatConversationTime(iso: string | null) {
   if (!iso) return ''
@@ -261,6 +266,13 @@ function ChatPageContent() {
                       const displayName = user.full_name || user.email || 'Utilizator'
                       const color = getAvatarColor(displayName)
                       const initials = getInitials(user.full_name, user.email)
+                      // Serverul a găsit deja omul; aici doar aflăm unde, ca să evidențiem (#112).
+                      const matches = matchFields(searchTerm, [
+                        { key: 'name', label: 'Nume', value: displayName },
+                        { key: 'email', label: 'Email', value: user.email },
+                        { key: 'rol', label: 'Rol', value: ROLE_LABELS[user.role] ?? user.role, shown: false },
+                        { key: 'specializare', label: 'Specializare', value: user.specializare, shown: false },
+                      ])?.matches ?? []
 
                       return (
                         <button data-tooltip="Începe o conversație cu această persoană"
@@ -279,13 +291,14 @@ function ChatPageContent() {
 
                           <div className="min-w-0 flex-1">
                             <div className="truncate text-sm font-medium text-ink">
-                              {displayName}
+                              <Highlight text={displayName} ranges={rangesOf(matches, 'name')} />
                             </div>
                             {user.email && (
                               <div className="truncate text-xs text-ink-soft">
-                                {user.email}
+                                <Highlight text={user.email} ranges={rangesOf(matches, 'email')} />
                               </div>
                             )}
+                            <FoundIn matches={matches} />
                           </div>
 
                           <div className="flex-shrink-0 text-xs text-ink-faint">
@@ -427,6 +440,7 @@ function ChatPageContent() {
     </div>
   )
 }
+
 
 export default function ChatPage() {
   return (

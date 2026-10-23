@@ -1,0 +1,86 @@
+{
+  "date": "2026-10-22T11:48:32.409Z",
+  "authVersion": "v2.197.0",
+  "database": "PostgreSQL 17.6",
+  "isolated": true,
+  "hostedWrites": false,
+  "realEmailDelivery": false,
+  "cases": [
+    {
+      "name": "auth_ban_precision_matches_persisted_microseconds",
+      "passed": true
+    },
+    {
+      "name": "pending_metadata_login_api_rest_rpc",
+      "passed": true
+    },
+    {
+      "name": "pending_reactivation_patch_and_check_refused",
+      "passed": true
+    },
+    {
+      "name": "pending_recovery_skipped_with_enabled_recovery",
+      "passed": true
+    },
+    {
+      "name": "all_roles_finalize_and_gain_real_access",
+      "passed": true
+    },
+    {
+      "name": "duplicate_create_create_one_finalized_one_cancelled",
+      "passed": true
+    },
+    {
+      "name": "pre_finalization_failure_cancels_only_pending_uuid",
+      "passed": true
+    },
+    {
+      "name": "unban_failure_rolls_back_whole_finalization",
+      "passed": true
+    },
+    {
+      "name": "cleanup_failure_remains_blocked_and_visible",
+      "passed": true
+    },
+    {
+      "name": "lost_success_response_reconciles_by_uuid_no_second_finalize",
+      "passed": true
+    },
+    {
+      "name": "concurrent_finalization_same_uuid_runs_once",
+      "passed": true
+    },
+    {
+      "name": "delete_before_finalize_never_recreates_account",
+      "passed": true
+    },
+    {
+      "name": "finalize_before_cleanup_prevents_stale_delete",
+      "passed": true
+    },
+    {
+      "name": "admin_rights_revalidated_after_waiting_for_lock",
+      "passed": true
+    },
+    {
+      "name": "changed_ban_is_never_removed",
+      "passed": true
+    },
+    {
+      "name": "delayed_retry_does_not_reactivate_deactivated_account",
+      "passed": true
+    },
+    {
+      "name": "cleanup_preserves_existing_related_data_blockers",
+      "passed": true
+    },
+    {
+      "name": "prototype_privileges_and_invariants",
+      "passed": true
+    },
+    {
+      "name": "isolated_resources_removed_source_counts_preserved",
+      "passed": true
+    }
+  ]
+}

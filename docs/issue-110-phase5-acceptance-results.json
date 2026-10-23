@@ -1,0 +1,937 @@
+{
+  "date": "2026-10-22T16:15:36.442Z",
+  "isolated": true,
+  "hostedWrites": false,
+  "realEmailDelivery": false,
+  "applicationMode": "production",
+  "recoveryHttpMode": "development",
+  "manualReception": "pending",
+  "manualEnvironmentActive": true,
+  "cleanupPending": true,
+  "sourceMigrationApplied": false,
+  "sourceProfilesUnchanged": true,
+  "previousFullRunCleanupPassed": true,
+  "verification": {
+    "tests": 427,
+    "passed": 427,
+    "failed": 0,
+    "lintErrors": 0,
+    "existingLintWarnings": 3,
+    "buildPassed": true,
+    "typeScriptPassed": true
+  },
+  "recheckedSuites": [
+    "drepturi",
+    "drepturi-interfata"
+  ],
+  "runs": [
+    {
+      "date": "2026-10-22T15:59:17.935Z",
+      "scope": "full",
+      "note": "Two outdated assertions were corrected and revalidated in the later run."
+    },
+    {
+      "date": "2026-10-22T16:14:31.641Z",
+      "scope": "drepturi,drepturi-interfata"
+    }
+  ],
+  "checks": {
+    "passed": 66,
+    "total": 66,
+    "cases": [
+      {
+        "name": "migration_requires_explicit_preflight_and_rolls_back",
+        "passed": true
+      },
+      {
+        "name": "migration_refuses_changed_snapshot_under_lock",
+        "passed": true
+      },
+      {
+        "name": "migration_refuses_noncanonical_data_without_repairing_it",
+        "passed": true
+      },
+      {
+        "name": "preflight_refuses_checksum_missing_and_duplicate_values",
+        "passed": true
+      },
+      {
+        "name": "auth_ban_precision_matches_persisted_microseconds",
+        "passed": true
+      },
+      {
+        "name": "pending_metadata_login_api_rest_rpc",
+        "passed": true
+      },
+      {
+        "name": "pending_reactivation_patch_and_check_refused",
+        "passed": true
+      },
+      {
+        "name": "pending_recovery_skipped_with_enabled_recovery",
+        "passed": true
+      },
+      {
+        "name": "all_roles_finalize_and_gain_real_access",
+        "passed": true
+      },
+      {
+        "name": "duplicate_create_create_one_finalized_one_cancelled",
+        "passed": true
+      },
+      {
+        "name": "pre_finalization_failure_cancels_only_pending_uuid",
+        "passed": true
+      },
+      {
+        "name": "unban_failure_rolls_back_whole_finalization",
+        "passed": true
+      },
+      {
+        "name": "cleanup_failure_remains_blocked_and_visible",
+        "passed": true
+      },
+      {
+        "name": "lost_success_response_reconciles_by_uuid_no_second_finalize",
+        "passed": true
+      },
+      {
+        "name": "concurrent_finalization_same_uuid_runs_once",
+        "passed": true
+      },
+      {
+        "name": "delete_before_finalize_never_recreates_account",
+        "passed": true
+      },
+      {
+        "name": "finalize_before_cleanup_prevents_stale_delete",
+        "passed": true
+      },
+      {
+        "name": "admin_rights_revalidated_after_waiting_for_lock",
+        "passed": true
+      },
+      {
+        "name": "changed_ban_is_never_removed",
+        "passed": true
+      },
+      {
+        "name": "delayed_retry_does_not_reactivate_deactivated_account",
+        "passed": true
+      },
+      {
+        "name": "cleanup_preserves_existing_related_data_blockers",
+        "passed": true
+      },
+      {
+        "name": "prototype_privileges_and_invariants",
+        "passed": true
+      },
+      {
+        "name": "sql_identity_matches_typescript_all_27_countries",
+        "passed": true
+      },
+      {
+        "name": "finalizer_accepts_all_27_validated_country_formats",
+        "passed": true
+      },
+      {
+        "name": "finalizer_saves_profile_temporary_password_and_allows_no_control_fields",
+        "passed": true
+      },
+      {
+        "name": "cif_edit_requires_admin_even_for_null_unchanged_or_wrong_type",
+        "passed": true
+      },
+      {
+        "name": "client_required_and_role_change_preserves_historical_cif",
+        "passed": true
+      },
+      {
+        "name": "normalized_noop_has_no_false_audit_or_timestamp_change",
+        "passed": true
+      },
+      {
+        "name": "uniqueness_covers_inactive_and_historical_other_role",
+        "passed": true
+      },
+      {
+        "name": "privileged_direct_writes_are_normalized_before_unique_index",
+        "passed": true
+      },
+      {
+        "name": "eligible_hard_delete_releases_cif",
+        "passed": true
+      },
+      {
+        "name": "create_edit_and_edit_edit_races_have_exactly_one_winner",
+        "passed": true
+      },
+      {
+        "name": "same_target_concurrent_edits_return_transactional_old_values",
+        "passed": true
+      },
+      {
+        "name": "role_and_admin_rights_rechecked_after_waiting_for_edit_lock",
+        "passed": true
+      },
+      {
+        "name": "last_admin_guard_remains_intact",
+        "passed": true
+      },
+      {
+        "name": "all_new_rpc_privileges_and_private_schema_are_restricted",
+        "passed": true
+      },
+      {
+        "name": "local_sql_lint_and_advisors",
+        "passed": true,
+        "details": {
+          "lint": {
+            "findings": 0,
+            "introduced": 0
+          },
+          "advisors": {
+            "findings": 103,
+            "introduced": 0
+          }
+        }
+      },
+      {
+        "name": "api_post_validation_and_authorization_precede_auth_creation",
+        "passed": true
+      },
+      {
+        "name": "api_post_pending_is_blocked_until_atomic_finalization_and_fallback_works",
+        "passed": true
+      },
+      {
+        "name": "api_post_all_roles_and_fr_prefix_like_key_keep_email_contract",
+        "passed": true
+      },
+      {
+        "name": "api_early_duplicate_is_private_and_reserves_inactive_and_historical_cif",
+        "passed": true
+      },
+      {
+        "name": "api_post_create_create_race_has_one_success_and_cancels_only_loser",
+        "passed": true
+      },
+      {
+        "name": "api_finalization_rollback_cancels_new_uuid_without_email",
+        "passed": true
+      },
+      {
+        "name": "api_failed_cleanup_remains_pending_blocked_and_reports_remediation",
+        "passed": true
+      },
+      {
+        "name": "api_lost_committed_finalization_reply_reconciles_without_retry",
+        "passed": true
+      },
+      {
+        "name": "api_unavailable_reconciliation_preserves_commit_without_success_or_email",
+        "passed": true
+      },
+      {
+        "name": "api_uncertain_pending_never_cancels_or_retries",
+        "passed": true
+      },
+      {
+        "name": "api_patch_client_and_senior_cannot_submit_any_cif_key",
+        "passed": true
+      },
+      {
+        "name": "api_patch_validates_body_final_role_and_pending_state",
+        "passed": true
+      },
+      {
+        "name": "api_patch_role_and_cif_are_atomic_history_is_preserved_and_noop_unaudited",
+        "passed": true
+      },
+      {
+        "name": "api_patch_same_target_concurrency_audits_the_committed_chain",
+        "passed": true
+      },
+      {
+        "name": "api_patch_edit_edit_conflict_uses_unique_index_after_both_prechecks",
+        "passed": true
+      },
+      {
+        "name": "api_create_edit_race_has_one_owner_and_no_orphan_usable_account",
+        "passed": true
+      },
+      {
+        "name": "phase5_isolated_production_build",
+        "passed": true
+      },
+      {
+        "name": "phase5_demo_seed_and_reuse_complete_local_profiles_before_login",
+        "passed": true
+      },
+      {
+        "name": "phase5_bootstrap_internal_roles_without_cif",
+        "passed": true
+      },
+      {
+        "name": "phase5_playwright_recovery-fixtures",
+        "passed": true
+      },
+      {
+        "name": "phase5_playwright_conturi-ui",
+        "passed": true
+      },
+      {
+        "name": "phase5_playwright_cif-creation",
+        "passed": true
+      },
+      {
+        "name": "phase5_playwright_conturi-lifecycle",
+        "passed": true
+      },
+      {
+        "name": "phase5_playwright_incheiere-finalizare",
+        "passed": true
+      },
+      {
+        "name": "phase5_playwright_drepturi",
+        "passed": true,
+        "revalidated": true
+      },
+      {
+        "name": "phase5_playwright_drepturi-interfata",
+        "passed": true,
+        "revalidated": true
+      },
+      {
+        "name": "phase5_playwright_matricea-acces",
+        "passed": true
+      },
+      {
+        "name": "phase5_playwright_regresii-senior",
+        "passed": true
+      },
+      {
+        "name": "phase5_playwright_verificare-modificari",
+        "passed": true
+      }
+    ]
+  },
+  "playwright": {
+    "passed": 122,
+    "total": 122,
+    "suites": 10,
+    "cases": [
+      {
+        "suite": "recovery-fixtures",
+        "name": "reused fixtures and temporary-password markers accept transactionally prepared passwords",
+        "status": "expected"
+      },
+      {
+        "suite": "conturi-ui",
+        "name": "users default to active and explain deletion blockers before confirmation",
+        "status": "expected"
+      },
+      {
+        "suite": "cif-creation",
+        "name": "real HTTP creates every role, completes activation and sends only confirmed credentials",
+        "status": "expected"
+      },
+      {
+        "suite": "cif-creation",
+        "name": "recovery resets a finalized client and keeps pending accounts blocked without email",
+        "status": "expected"
+      },
+      {
+        "suite": "cif-creation",
+        "name": "inactive and historical CIFs stay reserved; create and edit races have exactly one winner",
+        "status": "expected"
+      },
+      {
+        "suite": "cif-creation",
+        "name": "real browser at 1440px creates a client and preserves the form after duplicate refusal",
+        "status": "expected"
+      },
+      {
+        "suite": "cif-creation",
+        "name": "real browser at 390px creates a client and preserves the form after duplicate refusal",
+        "status": "expected"
+      },
+      {
+        "suite": "conturi-lifecycle",
+        "name": "deactivation keeps data, revokes API/REST/RPC/Storage and open realtime channels",
+        "status": "expected"
+      },
+      {
+        "suite": "conturi-lifecycle",
+        "name": "inactive assignment defaults are omitted, explicit choices are correctable and chat history survives",
+        "status": "expected"
+      },
+      {
+        "suite": "conturi-lifecycle",
+        "name": "reactivation keeps identity/password and never restores old session eligibility",
+        "status": "expected"
+      },
+      {
+        "suite": "conturi-lifecycle",
+        "name": "inactive client is skipped before delivery claims and retains project/files",
+        "status": "expected"
+      },
+      {
+        "suite": "conturi-lifecycle",
+        "name": "authentication audit allows empty-account deletion and business or other-target audit remains blocking",
+        "status": "expected"
+      },
+      {
+        "suite": "conturi-lifecycle",
+        "name": "hard delete refuses related accounts and atomically retains an empty account snapshot",
+        "status": "expected"
+      },
+      {
+        "suite": "conturi-lifecycle",
+        "name": "Auth failure keeps an inactive retryable account and audit failure rolls the transition back",
+        "status": "expected"
+      },
+      {
+        "suite": "conturi-lifecycle",
+        "name": "lifecycle impact dialog works with keyboard on desktop and mobile",
+        "status": "expected"
+      },
+      {
+        "suite": "conturi-lifecycle",
+        "name": "concurrent demotions and deactivations always leave an active administrator",
+        "status": "expected"
+      },
+      {
+        "suite": "incheiere-finalizare",
+        "name": "Proiectul: se încheie și se redeschide doar de admin și de seniorul membru",
+        "status": "expected"
+      },
+      {
+        "suite": "incheiere-finalizare",
+        "name": "Un proiect încheiat se poate doar consulta, de oricine; se încheie doar fără documente în verificare (8 octombrie 2026)",
+        "status": "expected"
+      },
+      {
+        "suite": "incheiere-finalizare",
+        "name": "Fazele și activitățile: doar adminul și seniorul membru le finalizează (D1); redeschise, ajung în lucru (D17)",
+        "status": "expected"
+      },
+      {
+        "suite": "incheiere-finalizare",
+        "name": "Cererile: se închid din „De încărcat\", „Respins\" și „Aprobat\", și revin exact la starea dinainte",
+        "status": "expected"
+      },
+      {
+        "suite": "incheiere-finalizare",
+        "name": "O cerere închisă nu se modifică (D13) și nu primește fișiere",
+        "status": "expected"
+      },
+      {
+        "suite": "incheiere-finalizare",
+        "name": "Un proiect încheiat iese din listele „de făcut\" (D5); o cerere închisă nu e o noutate de anunțat",
+        "status": "expected"
+      },
+      {
+        "suite": "incheiere-finalizare",
+        "name": "Propagarea sare proiectele încheiate (D8) și cererile închise (D13), iar restaurarea golește închiderea",
+        "status": "expected"
+      },
+      {
+        "suite": "incheiere-finalizare",
+        "name": "Interfața: meniul „⋯” încheie și redeschide proiectul; badge, remindere, calendar, Home, tablou",
+        "status": "expected"
+      },
+      {
+        "suite": "incheiere-finalizare",
+        "name": "Interfața: faze, activități și cereri se finalizează din meniu și din fișă (D1, D2, D13, D14)",
+        "status": "expected"
+      },
+      {
+        "suite": "incheiere-finalizare",
+        "name": "Interfața: ce e finalizat se ascunde, se arată la cerere și nu strică ordinea (A9, D9, D11)",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Vede proiectul — admin toate; senior și junior doar proiectele lor",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Creează un proiect nou — admin și senior; juniorul nu; cine îl creează devine membru",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Adaugă și modifică faze, activități și cereri — admin; senior și junior doar în proiectele lor",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Aprobă sau respinge documentele — admin; senior și junior doar în proiectele lor",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Schimbă titlul, statusul și reminderele — admin; senior în proiectele lui; junior nu",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Încheie și redeschide proiectul — admin; senior în proiectele lui; junior nu (#109)",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Marchează faze, activități și cereri ca finalizate și le redeschide — admin; senior; junior nu, dar aprobă în continuare (#109)",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Șterge faze și activități — admin și senior în proiectele lui; cererile nu se pierd",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Adaugă colegi în echipă — admin și senior în proiectele lui; junior nu",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Scoate colegi — seniorul doar juniori; nu alt senior, nu pe el, nu consultantul general, nu pe cineva cu sarcini",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Șterge mesajele altora din chat — admin și senior; junior nu",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Modifică textul mesajelor altora — doar adminul; fiecare își modifică propriile mesaje",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Schimbă clientul sau consultantul general — doar adminul",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Șterge proiectul — doar adminul",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Vede șabloanele — toți consultanții; clientul nu",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Creează și modifică ciorne de șablon — toți",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Modifică conținutul unui șablon publicat — admin și senior; junior nu; se vede imediat în proiectele noi",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Duplică un șablon — admin și senior; junior nu",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Șterge un șablon — admin și senior; junior nu; blocat dacă îl folosește un proiect",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Dezactivează un șablon sau îl face implicit — doar adminul",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Publică un șablon — doar adminul",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Aplică modificările în proiectele existente — doar adminul; eticheta „Modificări neaplicate”",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Conturi: creare, roluri, nivel, ștergere — doar adminul",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Statusurile de proiect — doar adminul",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Jurnalul de audit — doar adminul",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Doar adminul schimbă nivelul; consultantul nu și-l poate schimba singur",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Retrogradarea are efect imediat, fără delogare",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Totul rămâne în audit: nivelul și acțiunile seniorului sub numele lui",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Regula adăugată: un proiect nou cere cel puțin un supervizor senior",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Interfață — seniorul în proiectul lui: redenumire, remindere, ștergere faze, echipă doar cu juniori",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Interfață — juniorul în proiectul lui: fără redenumire, fără ștergere, echipă doar de citit",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Interfață — chatul: seniorul șterge mesajele altora dar nu le editează; adminul le editează",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Interfață — șabloanele: seniorul editează, duplică și șterge; nu publică; juniorul doar ciorne",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Interfață — adminul vede eticheta „Modificări neaplicate în proiecte” și o aplică",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Interfață — seniorul nu are acces la conturi, audit, statusuri și tabloul de bord",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Interfață — adminul schimbă nivelul din pagina utilizatorului",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi",
+        "name": "Matricea e respectată — toate verificările de mai sus",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Vede proiectul — adminul toate; seniorul și juniorul doar proiectele lor, și pe prima pagină",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Creează un proiect nou — din „Dosar nou”, admin și senior; juniorul nu are buton și e trimis înapoi",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Adaugă și modifică faze, activități și cereri — din pagina proiectului, pentru toți în proiectul propriu",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Aprobă sau respinge documentele — din fișa cererii, pentru toți în proiectul propriu",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Schimbă titlul, statusul și reminderele — adminul și seniorul din bara proiectului; juniorul nu le are",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Încheie proiectul și finalizează faze și cereri — adminul și seniorul din meniuri și din fișă; juniorul nu le are (#109)",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Șterge faze și activități — „Șterge” apare la admin și senior, nu la junior; activitatea ștearsă își păstrează cererile",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Adaugă colegi — adminul și seniorul din panoul echipei; juniorul doar citește",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Scoate colegi — seniorul primește motivul când încearcă consultantul general sau pe cineva cu sarcini; adminul poate scoate un senior",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Șterge mesajele altora din chat — adminul și seniorul din meniul mesajului; juniorul nu are meniu pe mesajele altora",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Modifică textul mesajelor altora — doar adminul; fiecare își modifică propriile mesaje",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Schimbă clientul sau consultantul general — doar adminul are selectorul de la „Cereri generale”",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Șterge proiectul — doar adminul are „Șterge proiectul” pe prima pagină",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Vede șabloanele — adminul, seniorul și juniorul au lista și meniul; clientul e trimis înapoi",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Creează și modifică ciorne de șablon — toți, din editor",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Modifică un șablon publicat — adminul și seniorul din editor; juniorul nu ajunge în editor",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Duplică un șablon — adminul și seniorul; juniorul nu are butonul",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Șterge un șablon — adminul și seniorul; blocat dacă îl folosește un proiect; juniorul nu are butonul",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Dezactivează un șablon sau îl face implicit — nimeni n-are control în interfață; seniorul și juniorul nu văd nimic de felul ăsta",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Publică un șablon — doar adminul, din listă; fereastra nu contrazice matricea",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Aplică modificările în proiectele existente — doar adminul vede eticheta „Modificări neaplicate” și o aplică",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Conturi — adminul creează, schimbă rolul și șterge din „Utilizatori”; un cont nou pornește junior; consultanții nu ajung acolo",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Statusurile de proiect — adminul adaugă un status din pagină; consultanții sunt trimiși înapoi",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Jurnalul de audit și tabloul de bord — doar adminul; consultanții n-au link și sunt trimiși înapoi",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Doar adminul schimbă nivelul, din pagina utilizatorului; consultanții nu ajung la comutator",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Retrogradarea are efect imediat, la următoarea acțiune, fără delogare",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Totul rămâne în audit — adminul vede în jurnal nivelul schimbat și acțiunile seniorului sub numele lui",
+        "status": "expected"
+      },
+      {
+        "suite": "drepturi-interfata",
+        "name": "Matricea din PDF, în interfață — toate verificările de mai sus",
+        "status": "expected"
+      },
+      {
+        "suite": "matricea-acces",
+        "name": "A. Șabloane și statusuri de proiect",
+        "status": "expected"
+      },
+      {
+        "suite": "matricea-acces",
+        "name": "B. Conturi, audit, clienți",
+        "status": "expected"
+      },
+      {
+        "suite": "matricea-acces",
+        "name": "C. Proiecte, echipă, faze, activități, cereri de documente",
+        "status": "expected"
+      },
+      {
+        "suite": "matricea-acces",
+        "name": "D. Chat, conversații private, notificări",
+        "status": "expected"
+      },
+      {
+        "suite": "matricea-acces",
+        "name": "Interfața, pe roluri: ce vede fiecare în paginile din PDF",
+        "status": "expected"
+      },
+      {
+        "suite": "matricea-acces",
+        "name": "Matricea de acces — fără abateri noi",
+        "status": "expected"
+      },
+      {
+        "suite": "regresii-senior",
+        "name": "Dosar nou din interfață, ca senior: supervizor, șablon și consultanții pe activități",
+        "status": "expected"
+      },
+      {
+        "suite": "regresii-senior",
+        "name": "Dosar nou gol, ca admin: fără faze, cu supervizorul în echipă",
+        "status": "expected"
+      },
+      {
+        "suite": "regresii-senior",
+        "name": "Dosar nou cu un implicit care nu mai e consultant activ: șablonul intră întreg, activitatea rămâne liberă",
+        "status": "expected"
+      },
+      {
+        "suite": "regresii-senior",
+        "name": "Importul unui șablon: doar adminul și seniorul din echipă; activitățile se dau doar consultanților",
+        "status": "expected"
+      },
+      {
+        "suite": "regresii-senior",
+        "name": "Editor de șabloane, ca senior: salvează un șablon publicat, fără fereastra de propagare",
+        "status": "expected"
+      },
+      {
+        "suite": "regresii-senior",
+        "name": "Duplicare din interfață, ca senior: copia apare în listă, ca ciornă",
+        "status": "expected"
+      },
+      {
+        "suite": "regresii-senior",
+        "name": "Șablon ascuns juniorului: deschiderea directă a unui șablon publicat nu intră în editare",
+        "status": "expected"
+      },
+      {
+        "suite": "regresii-senior",
+        "name": "Proiect, ca senior: redenumește, oprește reminderele, șterge o fază, adaugă și scoate un junior",
+        "status": "expected"
+      },
+      {
+        "suite": "regresii-senior",
+        "name": "Chat, ca junior: își editează propriul mesaj din interfață",
+        "status": "expected"
+      },
+      {
+        "suite": "regresii-senior",
+        "name": "Proiect, ca client: fără echipă și fără redenumire, pagina se încarcă fără erori",
+        "status": "expected"
+      },
+      {
+        "suite": "regresii-senior",
+        "name": "Profilurile: din clientul Supabase din browser fiecare își citește doar propriul rând",
+        "status": "expected"
+      },
+      {
+        "suite": "regresii-senior",
+        "name": "Un senior care nu mai e consultant pierde nivelul; la revenire pornește junior",
+        "status": "expected"
+      },
+      {
+        "suite": "regresii-senior",
+        "name": "Listele de consultanți poartă nivelul, pentru formular și pentru echipă",
+        "status": "expected"
+      },
+      {
+        "suite": "regresii-senior",
+        "name": "Fâșia de locație: pe desktop acțiunile stau pe un rând și nu ies din ecran",
+        "status": "expected"
+      },
+      {
+        "suite": "regresii-senior",
+        "name": "Paginile de administrare rămân deschise pentru admin",
+        "status": "expected"
+      },
+      {
+        "suite": "verificare-modificari",
+        "name": "1. Profilurile: din browser, fiecare își citește doar propriul rând",
+        "status": "expected"
+      },
+      {
+        "suite": "verificare-modificari",
+        "name": "2. Juniorul nu deschide dosare: fără buton, trimis înapoi, refuzat de API",
+        "status": "expected"
+      },
+      {
+        "suite": "verificare-modificari",
+        "name": "2b. Juniorul fără proiecte vede un mesaj pentru el, nu pentru client",
+        "status": "expected"
+      },
+      {
+        "suite": "verificare-modificari",
+        "name": "2c. Adminul și seniorul văd „Proiect nou”",
+        "status": "expected"
+      },
+      {
+        "suite": "verificare-modificari",
+        "name": "3. Dosar nou din șablon, ca senior: colegii din afara echipei primesc activitățile într-o singură cerere",
+        "status": "expected"
+      },
+      {
+        "suite": "verificare-modificari",
+        "name": "4. Importul unui șablon: refuzurile nu lasă urme; reușita aduce colegul în echipă",
+        "status": "expected"
+      },
+      {
+        "suite": "verificare-modificari",
+        "name": "5. Crearea proiectului: validările rămân aceleași cu verificările în paralel",
+        "status": "expected"
+      },
+      {
+        "suite": "verificare-modificari",
+        "name": "6. Eticheta „Modificări neaplicate”: doar pe șabloanele publicate",
+        "status": "expected"
+      },
+      {
+        "suite": "verificare-modificari",
+        "name": "7. Atribuirea din pagina proiectului trimite email și notificare",
+        "status": "expected"
+      },
+      {
+        "suite": "verificare-modificari",
+        "name": "Toate punctele de mai sus",
+        "status": "expected"
+      }
+    ]
+  }
+}

@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin, guardToResponse } from '../_utils/auth'
 import { createSupabaseServiceClient } from '../_utils/supabase'
+import type { AuditLog } from '@/lib/database.types'
+
+type AuditLogRow = AuditLog & { user_agent?: string | null }
 
 /**
  * GET /api/audit
@@ -11,7 +14,8 @@ import { createSupabaseServiceClient } from '../_utils/supabase'
  * - user_id: UUID al utilizatorului
  * - from_date: ISO date string (data de început)
  * - to_date: ISO date string (data de sfârșit)
- * - search: text de căutare în description sau entity_name
+ * - search: text de căutare (#112) în descriere, entitate, autor și utilizatorul
+ *   afectat, cu regulile din `lib/search.ts` (fără diacritice, orice ordine, greșeli mici)
  * - page: numărul paginii (default 1)
  * - limit: numărul de rezultate per pagină (default 50, max 100)
  * 
@@ -42,53 +46,65 @@ export async function GET(request: Request) {
 
     const admin = createSupabaseServiceClient()
 
-    // Construim query-ul
-    let query = admin
-      .from('audit_logs')
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false })
+    // Data de sfârșit include toată ziua.
+    const endDate = toDate ? new Date(toDate) : null
+    endDate?.setDate(endDate.getDate() + 1)
 
-    // Aplicăm filtrele
-    if (actionType) {
-      query = query.eq('action_type', actionType)
-    }
+    let logs: AuditLogRow[] | null
+    let count: number | null
 
-    if (entityType) {
-      query = query.eq('entity_type', entityType)
-    }
+    if (search?.trim()) {
+      // Căutarea se face în DB (`search_audit_log_ids`), cu aceleași reguli ca
+      // în interfață; ordinea vine de acolo: potrivirile exacte, apoi cele noi.
+      const { data: matched, error: searchError } = await admin.rpc('search_audit_log_ids', {
+        p_query: search,
+        p_action_type: actionType,
+        p_entity_type: entityType,
+        p_entity_id: entityId,
+        p_user_id: userId,
+        p_from: fromDate,
+        p_to: endDate?.toISOString() ?? null,
+        p_limit: limit,
+        p_offset: offset,
+      })
+      if (searchError) {
+        console.error('Audit logs search error:', searchError)
+        return NextResponse.json({ error: 'Failed to fetch audit logs' }, { status: 500 })
+      }
+      const rows = (matched ?? []) as { id: string; total: number }[]
+      const ids = rows.map(row => row.id)
+      count = rows[0]?.total ?? 0
+      if (ids.length === 0) {
+        logs = []
+      } else {
+        const { data, error } = await admin.from('audit_logs').select('*').in('id', ids)
+        if (error) {
+          console.error('Audit logs fetch error:', error)
+          return NextResponse.json({ error: 'Failed to fetch audit logs' }, { status: 500 })
+        }
+        const byId = new Map(((data ?? []) as AuditLogRow[]).map(log => [log.id, log]))
+        logs = ids.map(id => byId.get(id)).filter((log): log is AuditLogRow => Boolean(log))
+      }
+    } else {
+      let query = admin
+        .from('audit_logs')
+        .select('*', { count: 'exact' })
+        .order('created_at', { ascending: false })
 
-    if (entityId) {
-      query = query.eq('entity_id', entityId)
-    }
+      if (actionType) query = query.eq('action_type', actionType)
+      if (entityType) query = query.eq('entity_type', entityType)
+      if (entityId) query = query.eq('entity_id', entityId)
+      if (userId) query = query.eq('user_id', userId)
+      if (fromDate) query = query.gte('created_at', fromDate)
+      if (endDate) query = query.lt('created_at', endDate.toISOString())
 
-    if (userId) {
-      query = query.eq('user_id', userId)
-    }
-
-    if (fromDate) {
-      query = query.gte('created_at', fromDate)
-    }
-
-    if (toDate) {
-      // Adăugăm o zi pentru a include toată ziua
-      const endDate = new Date(toDate)
-      endDate.setDate(endDate.getDate() + 1)
-      query = query.lt('created_at', endDate.toISOString())
-    }
-
-    if (search) {
-      // Căutăm în description sau entity_name
-      query = query.or(`description.ilike.%${search}%,entity_name.ilike.%${search}%`)
-    }
-
-    // Aplicăm paginarea
-    query = query.range(offset, offset + limit - 1)
-
-    const { data: logs, error, count } = await query
-
-    if (error) {
-      console.error('Audit logs fetch error:', error)
-      return NextResponse.json({ error: 'Failed to fetch audit logs' }, { status: 500 })
+      const result = await query.range(offset, offset + limit - 1)
+      if (result.error) {
+        console.error('Audit logs fetch error:', result.error)
+        return NextResponse.json({ error: 'Failed to fetch audit logs' }, { status: 500 })
+      }
+      logs = result.data
+      count = result.count
     }
 
     const userIds = [...new Set((logs || []).map(log => log.user_id).filter((id): id is string => Boolean(id)))]

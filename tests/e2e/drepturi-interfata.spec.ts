@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { finalizeLocalFixture } from '../../scripts/local-account-fixtures.mjs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { test, expect, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test'
@@ -209,8 +210,7 @@ async function fixedConsultant(tag: 'sa' | 'sb' | 'ja' | 'jb', level: 'junior' |
     setLocalFixturePassword(id, PASSWORD)
   }
   fixedAccounts.add(id)
-  const { error } = await service.from('profiles').upsert({ id, email, role: 'consultant', consultant_level: level, full_name: name, is_active: true })
-  if (error) throw new Error(`Profil ${email}: ${error.message}`)
+  await finalizeLocalFixture(service, id, { role: 'consultant', consultant_level: level, full_name: name })
   return { id, email, name, password: PASSWORD, token: await signIn(email, PASSWORD), who: level }
 }
 
@@ -1265,11 +1265,17 @@ test('Conturi — adminul creează, schimbă rolul și șterge din „Utilizator
     await page.goto('/admin/users')
     await page.getByLabel('Caută utilizatori').fill(email)
     await page.getByLabel(`Rolul lui ${email}`).selectOption('client')
+    await check('a-conturi', 'admin', 'trecerea la client fără CIF valid este explicată înaintea confirmării', 'refuzată', async () => {
+      await expect(page.getByText('Trecerea la client necesită un CIF valid, salvat împreună cu rolul. Editorul datelor firmei nu este încă disponibil.', { exact: true })).toBeVisible()
+      const { data } = await service.from('profiles').select('role').eq('id', userId).single()
+      return { ok: data?.role === 'consultant', actual: String(data?.role) }
+    }, { page })
+    await page.getByLabel(`Rolul lui ${email}`).selectOption('admin')
     await page.getByRole('dialog').getByRole('button', { name: 'Schimbă rolul' }).click()
-    await stored('a-conturi', 'admin', 'schimbă rolul din listă', 'client', async () => {
+    await stored('a-conturi', 'admin', 'schimbă rolul din listă', 'admin', async () => {
       const { data } = await service.from('profiles').select('role').eq('id', userId).single()
       return data?.role as string
-    }, v => v === 'client', v => String(v))
+    }, v => v === 'admin', v => String(v))
 
     await page.getByRole('button', { name: `Șterge definitiv utilizatorul ${email}` }).click()
     await confirmWithWord(page, 'Șterge definitiv utilizatorul', 'sterge', 'Șterge definitiv')

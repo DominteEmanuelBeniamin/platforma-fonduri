@@ -1,0 +1,140 @@
+{
+  "date": "2026-10-22T14:41:02.062Z",
+  "isolated": true,
+  "hostedWrites": false,
+  "databaseWrites": false,
+  "realEmailDelivery": false,
+  "cleanupPassed": true,
+  "cases": [
+    {
+      "name": "CIF: catalog, labels, blur validation, correction and keyboard focus",
+      "project": "desktop",
+      "passed": true
+    },
+    {
+      "name": "CIF: submit focuses the first invalid field and never sends invalid data",
+      "project": "desktop",
+      "passed": true
+    },
+    {
+      "name": "CIF: country changes preserve text, revalidate and send the FR prefix-like key",
+      "project": "desktop",
+      "passed": true
+    },
+    {
+      "name": "CIF: duplicate message persists beside the field and preserves the whole form",
+      "project": "desktop",
+      "passed": true
+    },
+    {
+      "name": "CIF: server country error is associated with and focuses the country control",
+      "project": "desktop",
+      "passed": true
+    },
+    {
+      "name": "CIF: ACCOUNT_CREATION_PENDING shows the actual result and requires list review",
+      "project": "desktop",
+      "passed": true
+    },
+    {
+      "name": "CIF: ACCOUNT_CREATION_UNCONFIRMED shows the actual result and requires list review",
+      "project": "desktop",
+      "passed": true
+    },
+    {
+      "name": "CIF: ACCOUNT_CREATION_INACTIVE shows the actual result and requires list review",
+      "project": "desktop",
+      "passed": true
+    },
+    {
+      "name": "CIF: confirmed email failure shows fallback credentials; incomplete success never does",
+      "project": "desktop",
+      "passed": true
+    },
+    {
+      "name": "CIF: internal roles hide CIF and omit it from the request; role change resets country",
+      "project": "desktop",
+      "passed": true
+    },
+    {
+      "name": "CIF: pending accounts cannot change role or reactivate and deletion stays protected",
+      "project": "desktop",
+      "passed": true
+    },
+    {
+      "name": "CIF: list role transition refuses missing CIF before confirmation",
+      "project": "desktop",
+      "passed": true
+    },
+    {
+      "name": "CIF: long country hints and errors fit narrow phones",
+      "project": "desktop",
+      "passed": true
+    },
+    {
+      "name": "CIF: catalog, labels, blur validation, correction and keyboard focus",
+      "project": "telefon",
+      "passed": true
+    },
+    {
+      "name": "CIF: submit focuses the first invalid field and never sends invalid data",
+      "project": "telefon",
+      "passed": true
+    },
+    {
+      "name": "CIF: country changes preserve text, revalidate and send the FR prefix-like key",
+      "project": "telefon",
+      "passed": true
+    },
+    {
+      "name": "CIF: duplicate message persists beside the field and preserves the whole form",
+      "project": "telefon",
+      "passed": true
+    },
+    {
+      "name": "CIF: server country error is associated with and focuses the country control",
+      "project": "telefon",
+      "passed": true
+    },
+    {
+      "name": "CIF: ACCOUNT_CREATION_PENDING shows the actual result and requires list review",
+      "project": "telefon",
+      "passed": true
+    },
+    {
+      "name": "CIF: ACCOUNT_CREATION_UNCONFIRMED shows the actual result and requires list review",
+      "project": "telefon",
+      "passed": true
+    },
+    {
+      "name": "CIF: ACCOUNT_CREATION_INACTIVE shows the actual result and requires list review",
+      "project": "telefon",
+      "passed": true
+    },
+    {
+      "name": "CIF: confirmed email failure shows fallback credentials; incomplete success never does",
+      "project": "telefon",
+      "passed": true
+    },
+    {
+      "name": "CIF: internal roles hide CIF and omit it from the request; role change resets country",
+      "project": "telefon",
+      "passed": true
+    },
+    {
+      "name": "CIF: pending accounts cannot change role or reactivate and deletion stays protected",
+      "project": "telefon",
+      "passed": true
+    },
+    {
+      "name": "CIF: list role transition refuses missing CIF before confirmation",
+      "project": "telefon",
+      "passed": true
+    },
+    {
+      "name": "CIF: long country hints and errors fit narrow phones",
+      "project": "telefon",
+      "passed": true
+    }
+  ]
+}

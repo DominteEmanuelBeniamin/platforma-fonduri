@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { finalizeLocalFixture, localFixtureDatabase } from '../../scripts/local-account-fixtures.mjs'
 import { execFileSync, spawn } from 'node:child_process'
 import { test, expect } from '@playwright/test'
 import { createClient, type SupabaseClient, type RealtimeChannel } from '@supabase/supabase-js'
@@ -9,6 +10,7 @@ import {
 } from './helpers/project-state'
 
 const config = requireE2EConfig(e2eEnv())
+const database = localFixtureDatabase(e2eEnv().E2E_DB_NAME)
 // This suite exercises Auth and DDL-dependent security on the dedicated local stack.
 if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(config.supabaseUrl).hostname)) {
   throw new Error('Lifecycle acceptance requires explicitly local Supabase')
@@ -28,10 +30,10 @@ const inactiveEvents: string[] = [], activeEvents: string[] = []
 const channels: Array<{ client: SupabaseClient; channel: RealtimeChannel }> = []
 
 function sql(query: string) {
-  return execFileSync('docker', ['exec', 'supabase_db_platforma-fonduri', 'psql', '-U', 'postgres', '-d', 'postgres', '-X', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose', '-At', '-c', query], { encoding: 'utf8', windowsHide: true }).trim()
+  return execFileSync('docker', ['exec', 'supabase_db_platforma-fonduri', 'psql', '-U', 'postgres', '-d', database, '-X', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose', '-At', '-c', query], { encoding: 'utf8', windowsHide: true }).trim()
 }
 function concurrentSql(query: string) {
-  const child = spawn('docker', ['exec', 'supabase_db_platforma-fonduri', 'psql', '-U', 'postgres', '-d', 'postgres', '-X', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose', '-At', '-c', query], { windowsHide: true })
+  const child = spawn('docker', ['exec', 'supabase_db_platforma-fonduri', 'psql', '-U', 'postgres', '-d', database, '-X', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose', '-At', '-c', query], { windowsHide: true })
   let output = ''
   child.stdout.on('data', chunk => { output += String(chunk) })
   child.stderr.on('data', chunk => { output += String(chunk) })
@@ -59,8 +61,7 @@ async function person(role: 'client' | 'consultant' | 'admin') {
   const email = `issue105.${stamp}.${role}.${people.length}@example.invalid`
   const { data, error } = await service.auth.admin.createUser({ email, password, email_confirm: true })
   if (error || !data.user) throw new Error('Fixture account creation failed')
-  const update = await service.from('profiles').update({ role, full_name: 'Issue 105 ' + role, consultant_level: 'junior' }).eq('id', data.user.id)
-  if (update.error) throw update.error
+  await finalizeLocalFixture(service, data.user.id, { role, full_name: 'Issue 105 ' + role, consultant_level: 'junior' })
   const result = await signIn(email, password)
   people.push(result)
   return result
@@ -196,13 +197,16 @@ test('deactivation keeps data, revokes API/REST/RPC/Storage and open realtime ch
   const after = await service.from('project_activities').select('*').eq('id', fixture!.activityId).single()
   expect(after.data).toEqual(before.data)
   expect((await call(junior, 'GET', '/api/me')).status).toBe(401)
-  for (const table of ['projects', 'project_phases', 'project_activities', 'notifications']) {
+  for (const table of ['projects', 'notifications']) {
     const result = await junior.client.from(table).select('id').limit(10)
     expect(result.error).toBeNull()
     expect(result.data, table).toEqual([])
   }
   expect((await junior.client.rpc('current_account_session_active')).data).toBe(false)
-  expect((await junior.client.from('document_requirements').select('id')).error?.code).toBe('42501')
+  // #109 removed direct SELECT on phases/activities; access goes through the API.
+  for (const table of ['project_phases', 'project_activities', 'document_requirements']) {
+    expect((await junior.client.from(table).select('id')).error?.code).toBe('42501')
+  }
   expect((await junior.client.rpc('notification_unread_summary')).error).toBeTruthy()
   const blockedReview = await service.rpc('review_document_request', {
     p_request_id: fixture!.requestId, p_action: 'approved', p_reviewed_by: junior.id,
