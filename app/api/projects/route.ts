@@ -6,6 +6,14 @@ import { createSupabaseServiceClient } from '../_utils/supabase'
 import { inactiveReferenceConflict } from '../_utils/inactive-reference'
 import { logProjectAction, getClientIP, getUserAgent } from '../_utils/audit'
 
+// Firma, CIF-ul, adresa, consultanții și programul vin pentru căutarea de pe
+// Home (#112); toate se văd deja în pagina proiectului pentru aceleași roluri.
+const PROJECT_LIST_SELECT = `*,
+  profiles!projects_client_id_fkey(full_name, cif, nume_firma, adresa_firma, is_active),
+  general_consultant:general_consultant_id(full_name, email),
+  team:project_members(consultant:consultant_id(full_name, email)),
+  template:project_templates(id, name, measure:program_measures(name, program:programs(name)))`
+
 function isNonEmptyString(x: unknown): x is string {
   return typeof x === 'string' && x.trim().length > 0
 }
@@ -24,7 +32,7 @@ export async function GET(request: Request) {
     if (profile.role === 'admin') {
       const { data, error } = await admin
         .from('projects')
-        .select('*, profiles!projects_client_id_fkey(full_name, cif, is_active), template:project_templates(id, name)')
+        .select(PROJECT_LIST_SELECT)
         .order('created_at', { ascending: false })
 
       if (error) return NextResponse.json({ error: error.message }, { status: 400 })
@@ -36,7 +44,7 @@ export async function GET(request: Request) {
     if (profile.role === 'client') {
       const { data, error } = await admin
         .from('projects')
-        .select('*, profiles!projects_client_id_fkey(full_name, cif, is_active), template:project_templates(id, name)')
+        .select(PROJECT_LIST_SELECT)
         .eq('client_id', callerId)
         .order('created_at', { ascending: false })
 
@@ -68,7 +76,7 @@ export async function GET(request: Request) {
 
       const { data, error } = await admin
         .from('projects')
-        .select('*, profiles!projects_client_id_fkey(full_name, cif, is_active), template:project_templates(id, name)')
+        .select(PROJECT_LIST_SELECT)
         .in('id', projectIds)
         .order('created_at', { ascending: false })
 

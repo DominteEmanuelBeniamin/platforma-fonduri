@@ -5,6 +5,8 @@ import { createPortal } from 'react-dom'
 import { Check, ChevronDown, Search, UserRound } from 'lucide-react'
 import { getInitials } from '@/lib/avatar'
 import { profileDisplayName } from '@/lib/profile-display'
+import { filterItems, isEmptyQuery } from '@/lib/search'
+import { Highlight } from '@/components/ui/Highlight'
 
 export type Member = {
   id: string
@@ -79,10 +81,11 @@ export function AssigneePicker({
   const emptyReasonId = useId()
 
   const active = members.filter(m => m.is_active !== false)
-  const needle = query.trim().toLowerCase()
-  const shown = needle
-    ? active.filter(m => profileDisplayName(m).toLowerCase().includes(needle) || m.email.toLowerCase().includes(needle))
-    : active
+  const searching = !isEmptyQuery(query)
+  const shown = filterItems(active, query, m => [
+    { key: 'name', label: 'Nume', value: profileDisplayName(m) },
+    { key: 'email', label: 'Email', value: m.email },
+  ])
   const current = value ? person ?? members.find(m => m.id === value) ?? null : null
   const name = value ? profileDisplayName(current) : null
   // Un responsabil cu contul dezactivat rămâne afișat, dar nu se mai poate alege.
@@ -167,7 +170,7 @@ export function AssigneePicker({
         className="flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-[13px] text-ink transition-colors duration-[120ms] hover:bg-paper focus-visible:bg-paper focus-visible:outline-offset-[-2px] disabled:cursor-not-allowed disabled:text-ink-faint aria-disabled:cursor-not-allowed aria-disabled:text-ink-faint aria-disabled:hover:bg-transparent pointer-fine:min-h-9"
       >
         <Initials name={who?.full_name} email={who?.email} muted={!id} />
-        <span className={`min-w-0 flex-1 truncate ${id ? '' : 'text-ink-soft'}`}>{text}</span>
+        <span className={`min-w-0 flex-1 truncate ${id ? '' : 'text-ink-soft'}`}>{id ? <Highlight text={text} query={query} /> : text}</span>
         {selected && <Check className="h-3.5 w-3.5 shrink-0 text-[var(--sg-accent)]" strokeWidth={2.5} aria-hidden="true" />}
       </button>
     )
@@ -217,7 +220,7 @@ export function AssigneePicker({
                   e.preventDefault()
                   panelRef.current?.querySelector<HTMLButtonElement>('[role="option"]:not([disabled])')?.focus()
                 }
-                if (e.key === 'Enter' && needle && shown[0]) {
+                if (e.key === 'Enter' && searching && shown[0]) {
                   e.preventDefault()
                   choose(shown[0].id)
                 }
@@ -229,7 +232,7 @@ export function AssigneePicker({
           </div>
           {shown.length === 0 && (
             <p className="px-3 py-2 text-xs leading-5 text-ink-faint">
-              {needle ? 'Nimeni din echipa proiectului nu se potrivește.' : 'Echipa proiectului e goală.'} Adaugă oameni din „Echipa”, sus.
+              {searching ? 'Nimeni din echipa proiectului nu se potrivește.' : 'Echipa proiectului e goală.'} Adaugă oameni din „Echipa”, sus.
             </p>
           )}
           <div role="listbox" aria-label={label} className="max-h-64 overflow-y-auto pb-1">

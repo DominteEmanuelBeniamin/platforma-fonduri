@@ -11,6 +11,7 @@ import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
 import { profileDisplayName } from '@/lib/profile-display'
 import { displayedRequestStatus } from '@/lib/request-status'
+import { consultantNames, programLabel, type ProjectSearchInfo } from '@/lib/search-fields'
 import {
   GENERAL_PHASE_ID,
   isActivityDone,
@@ -139,7 +140,7 @@ export async function GET(request: Request) {
           scoped(
             admin
               .from('projects')
-              .select('id, title, client_id, lifecycle_status, automatic_reminders_enabled, general_consultant_id, client:profiles!projects_client_id_fkey(id, full_name, email, is_active)'),
+              .select('id, title, cod_intern, client_id, lifecycle_status, automatic_reminders_enabled, general_consultant_id, client:profiles!projects_client_id_fkey(id, full_name, email, is_active, nume_firma, cif, adresa_firma), template:project_templates(name, measure:program_measures(name, program:programs(name)))'),
             'id',
           )
         ).range(from, to)
@@ -209,10 +210,24 @@ export async function GET(request: Request) {
       if (owner) ownerIds.add(owner)
     }
 
-    const ownerById = new Map<string, { full_name: string | null; email: string | null; is_active: boolean | null }>()
-    if (ownerIds.size > 0) {
+    // Echipa fiecărui proiect, pentru căutarea după consultant (#112). Clientul
+    // nu caută în calendar, deci nici nu primește numele.
+    const profileIds = new Set(ownerIds)
+    if (role !== 'client') {
+      for (const row of members) profileIds.add(row.consultant_id)
+      for (const project of projects) if (project.general_consultant_id) profileIds.add(project.general_consultant_id)
+    }
+
+    const ownerById = new Map<string, {
+      full_name: string | null
+      email: string | null
+      is_active: boolean | null
+      specializare: string | null
+      departament: string | null
+    }>()
+    if (profileIds.size > 0) {
       const owners = await fetchAllRows<any>('profiles', (from, to) =>
-        orderById(admin.from('profiles').select('id, full_name, email, is_active').in('id', [...ownerIds])).range(from, to)
+        orderById(admin.from('profiles').select('id, full_name, email, is_active, specializare, departament').in('id', [...profileIds])).range(from, to)
       )
       for (const owner of owners) ownerById.set(owner.id, owner)
     }
@@ -220,6 +235,23 @@ export async function GET(request: Request) {
     // ── Evenimente ───────────────────────────────────────────────────────────
     const projectOf = (id: string) => projectById.get(id)
     const clientNameOf = (project: any) => displayName(one<any>(project?.client)) ?? null
+
+    const teamOf = new Map<string, string[]>()
+    for (const row of members) teamOf.set(row.project_id, [...(teamOf.get(row.project_id) ?? []), row.consultant_id])
+    const projectSearchOf = (project: any): ProjectSearchInfo => {
+      const client = one<any>(project.client)
+      const template = one<any>(project.template)
+      const team = [project.general_consultant_id, ...(teamOf.get(project.id) ?? [])].filter(Boolean)
+      return {
+        cod_intern: project.cod_intern ?? null,
+        firm: client?.nume_firma ?? null,
+        cif: client?.cif ?? null,
+        address: client?.adresa_firma ?? null,
+        consultants: consultantNames(team.map((id: string) => ownerById.get(id))),
+        template: template?.name ?? null,
+        program: programLabel(one<any>(template?.measure)),
+      }
+    }
 
     const events: CalendarEvent[] = []
 
@@ -304,6 +336,7 @@ export async function GET(request: Request) {
           // `not null default true` în bază; `?? true` e doar plasa de siguranță
           // pentru un rând scris înainte de migrare.
           automatic_reminders_enabled: project.automatic_reminders_enabled ?? true,
+          ...(role === 'client' ? {} : { search: projectSearchOf(project) }),
         }))
         .sort((a, b) => (a.client_name ?? '').localeCompare(b.client_name ?? '', 'ro') || a.title.localeCompare(b.title, 'ro')),
       // Filtrul de fază are sens doar în calendarul unui proiect; în cel general
@@ -313,6 +346,21 @@ export async function GET(request: Request) {
             .filter(phase => role !== 'client' || isClientVisiblePhase(phase))
             .map(phase => ({ id: phase.id, name: phase.name, order_index: phase.order_index ?? 0 }))
         : [],
+      // Tabloul de bord al adminului caută consultanții și după email,
+      // specializare și departament (#112).
+      ...(role === 'admin'
+        ? {
+            people: [...ownerIds].map(id => {
+              const owner = ownerById.get(id)
+              return {
+                id,
+                email: owner?.email ?? null,
+                specializare: owner?.specializare ?? null,
+                departament: owner?.departament ?? null,
+              }
+            }),
+          }
+        : {}),
       role,
       user_id: ctx.profile.id,
     }

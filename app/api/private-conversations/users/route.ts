@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { guardToResponse, requireProfile } from '@/app/api/_utils/auth'
+import { guardToResponse, requireProfile, type AppRole } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { canUsePrivateChat, canChatWithUser } from '@/app/api/_utils/private-chat-access'
 
@@ -33,27 +33,23 @@ export async function GET(request: Request) {
     const { q, limit } = parsed.data
     const admin = createSupabaseServiceClient()
 
-    // 🔍 search profiles
-    let query = admin
-      .from('profiles')
-      .select('id, full_name, email, role, is_active')
-      .neq('id', ctx.user.id)
-      .not('is_active', 'is', 'false')
-
-    if (q) {
-      query = query.or(
-        `full_name.ilike.%${q}%,email.ilike.%${q}%`
-      )
-    }
-
-    const { data: users, error } = await query.limit(limit)
+    // Căutarea (#112): nume, email, rol și specializare, cu regulile din
+    // `lib/search.ts`, aplicate în DB de `search_chat_profiles`.
+    const { data: users, error } = q
+      ? await admin.rpc('search_chat_profiles', { p_query: q, p_exclude: ctx.user.id, p_limit: limit })
+      : await admin
+        .from('profiles')
+        .select('id, full_name, email, role, specializare, is_active')
+        .neq('id', ctx.user.id)
+        .not('is_active', 'is', 'false')
+        .limit(limit)
 
     if (error) {
       console.error('Search users failed:', error)
       return Response.json({ error: 'Failed to search users' }, { status: 500 })
     }
 
-    const eligibleUsers = (users ?? []).filter((u) =>
+    const eligibleUsers = ((users ?? []) as { id: string; full_name: string | null; email: string | null; role: AppRole; specializare: string | null }[]).filter((u) =>
       canChatWithUser(
         { id: ctx.user.id, role: ctx.profile.role },
         { id: u.id, role: u.role }
@@ -98,6 +94,7 @@ export async function GET(request: Request) {
       full_name: u.full_name,
       email: u.email,
       role: u.role,
+      specializare: u.specializare,
       hasConversation: existingMap.has(u.id),
       conversationId: existingMap.get(u.id) ?? null,
     }))

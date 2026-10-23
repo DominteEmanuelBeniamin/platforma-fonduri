@@ -20,6 +20,8 @@ import { Signal } from '@/components/ui/Signal'
 import { profileDisplayName } from '@/lib/profile-display'
 import CifInput, { type CifInputError, type CifInputValue } from '@/components/CifInput'
 import { validateCif } from '@/lib/cif'
+import { FoundIn, Highlight } from '@/components/ui/Highlight'
+import { rangesOf, searchItems, type SearchField } from '@/lib/search'
 
 type Rol = 'admin' | 'consultant' | 'client'
 type UserState = 'active' | 'inactive' | 'all'
@@ -85,6 +87,27 @@ const ROLURI: Record<Rol, string> = {
   client: 'Client (firmă)',
   consultant: 'Consultant',
   admin: 'Administrator',
+}
+
+/**
+ * Ce se caută la un cont (#112). Firma, CIF-ul și adresa doar la client: la
+ * celelalte roluri CIF-ul rămas din trecut nu se arată, deci nici nu se caută.
+ */
+function userSearchFields(u: any): SearchField[] {
+  const client = u.role === 'client'
+  const consultant = u.role === 'consultant'
+  return [
+    { key: 'email', label: 'Email', value: u.email },
+    { key: 'nume', label: 'Nume', value: u.full_name },
+    { key: 'telefon', label: 'Telefon', value: u.telefon, kind: 'phone', shown: false },
+    { key: 'rol', label: 'Rol', value: ROLURI[u.role as Rol], shown: false },
+    { key: 'nivel', label: 'Nivel', value: consultant ? (u.consultant_level === 'senior' ? 'Senior' : 'Junior') : null, shown: false },
+    { key: 'firma', label: 'Firmă', value: client ? u.nume_firma : null, shown: false },
+    { key: 'cif', label: 'CIF', value: client ? u.cif : null, kind: 'cif', shown: false },
+    { key: 'adresa', label: 'Adresă', value: client ? u.adresa_firma : null, shown: false },
+    { key: 'specializare', label: 'Specializare', value: u.specializare, shown: false },
+    { key: 'departament', label: 'Departament', value: u.departament, shown: false },
+  ]
 }
 
 /** Câmpul de formular: etichetă, ajutor vizibil și input. Ajutorul stă sub
@@ -458,14 +481,10 @@ export default function AdminUsersPage() {
     return c
   }, [users])
 
-  const filtrati = useMemo(() => {
-    const q = cauta.trim().toLowerCase()
-    return users.filter((u) => {
-      if (filtruRol !== 'toate' && u.role !== filtruRol) return false
-      if (!q) return true
-      return `${u.email ?? ''} ${u.full_name ?? ''}`.toLowerCase().includes(q)
-    })
-  }, [users, cauta, filtruRol])
+  const filtrati = useMemo(
+    () => searchItems(users.filter((u) => filtruRol === 'toate' || u.role === filtruRol), cauta, userSearchFields),
+    [users, cauta, filtruRol]
+  )
 
   if (authLoading || loading) {
     return (
@@ -593,7 +612,7 @@ export default function AdminUsersPage() {
 
       <div className="flex flex-wrap items-center gap-2 border-b border-rule pb-3">
         <div className="min-w-[220px] flex-1">
-          <SearchInput value={cauta} onChange={setCauta} placeholder="Caută după email sau nume…" label="Caută utilizatori" />
+          <SearchInput value={cauta} onChange={setCauta} placeholder="Caută după nume, email, firmă, CIF, telefon…" label="Caută utilizatori" />
         </div>
         {/* `flex-wrap`: la 320px cele patru filtre nu încap pe un rând, iar
             `overflow-x-hidden` de pe `body` le-ar tăia în tăcere pe ultimul.
@@ -636,7 +655,7 @@ export default function AdminUsersPage() {
               : 'Încearcă alt termen de căutare, sau alege alt rol.'}
           </EmptyState>
         ) : (
-          filtrati.map((user) => (
+          filtrati.map(({ item: user, matches }) => (
             <Plate key={user.id} interactive className="group">
               <div className="flex flex-wrap items-center gap-3 p-4 sm:flex-nowrap">
                 <button data-tooltip="Deschide fișa contului"
@@ -645,11 +664,12 @@ export default function AdminUsersPage() {
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold text-ink transition-colors duration-[120ms] group-hover:text-[var(--sg-accent)]">
-                      {user.email}
+                      <Highlight text={user.email} ranges={rangesOf(matches, 'email')} />
                     </span>
                     <span className="mt-0.5 block truncate text-sm text-ink-soft">
-                      {user.full_name?.trim() || 'Fără nume'} · cont din {formatDate(user.created_at)}
+                      {user.full_name?.trim() ? <Highlight text={user.full_name} ranges={rangesOf(matches, 'nume')} /> : 'Fără nume'} · cont din {formatDate(user.created_at)}
                     </span>
+                    <FoundIn matches={matches} className="mt-0.5" />
                     {user.auth_sync_pending && (
                       <Signal tone="warn" className="mt-2 max-w-full">
                         Acces blocat · sincronizarea autentificării trebuie reîncercată

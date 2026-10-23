@@ -6,7 +6,9 @@ import { Search, X, Layers, ListChecks, FileText } from 'lucide-react'
 import { Signal } from '@/components/ui/Signal'
 import { requestStatusInfo } from '@/lib/request-status'
 import type { SignalTone } from '@/lib/signage'
-import { filterSearchIndex, type SearchResult, type SearchResultType } from '@/lib/projectSearch'
+import { searchIndex, type SearchResult, type SearchResultType } from '@/lib/projectSearch'
+import { FoundIn, Highlight } from '@/components/ui/Highlight'
+import { rangesOf, snippetAround } from '@/lib/search'
 
 interface UnifiedSearchDialogProps {
   open: boolean
@@ -30,33 +32,6 @@ const TYPE_ICON: Record<SearchResultType, typeof Layers> = {
   phase: Layers,
   activity: ListChecks,
   document_request: FileText,
-}
-
-/** Evidențiază prima potrivire a interogării în text (case-insensitive). */
-function highlightMatch(text: string, query: string) {
-  const q = query.trim()
-  if (!q) return text
-  const idx = text.toLowerCase().indexOf(q.toLowerCase())
-  if (idx === -1) return text
-  return (
-    <>
-      {text.slice(0, idx)}
-      <mark className="bg-[var(--sg-warn-soft)] text-[var(--sg-warn)] font-semibold rounded-sm px-0.5">
-        {text.slice(idx, idx + q.length)}
-      </mark>
-      {text.slice(idx + q.length)}
-    </>
-  )
-}
-
-function matchSnippet(text: string | null, query: string, radius = 44) {
-  const q = query.trim()
-  if (!text || !q) return null
-  const idx = text.toLowerCase().indexOf(q.toLowerCase())
-  if (idx === -1) return null
-  const start = Math.max(0, idx - radius)
-  const end = Math.min(text.length, idx + q.length + radius)
-  return `${start > 0 ? '...' : ''}${text.slice(start, end)}${end < text.length ? '...' : ''}`
 }
 
 /** Semnul unui rezultat finalizat: fază sau activitate gata, cerere aprobată sau închisă. */
@@ -83,7 +58,8 @@ export default function UnifiedSearchDialog({
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
 
-  const results = useMemo(() => filterSearchIndex(index, query), [index, query])
+  const hits = useMemo(() => searchIndex(index, query), [index, query])
+  const results = useMemo(() => hits.map(hit => hit.item), [hits])
 
   const resetSearch = () => {
     setQuery('')
@@ -155,7 +131,7 @@ export default function UnifiedSearchDialog({
               </p>
             ) : (
               <ul className="py-2">
-                {results.map((r, i) => {
+                {hits.map(({ item: r, matches }, i) => {
                   const Icon = TYPE_ICON[r.type]
                   const context =
                     r.type === 'phase'
@@ -163,7 +139,8 @@ export default function UnifiedSearchDialog({
                       : r.type === 'activity'
                       ? r.phaseName
                       : [r.phaseName, r.activityName].filter(Boolean).join(' / ') || 'Cerere generală'
-                  const descriptionSnippet = matchSnippet(r.description, query)
+                  const descriptionRanges = rangesOf(matches, 'description')
+                  const snippet = r.description && descriptionRanges.length > 0 ? snippetAround(r.description, descriptionRanges) : null
                   return (
                     <li key={`${r.type}-${r.id}`}>
                       <button
@@ -178,12 +155,13 @@ export default function UnifiedSearchDialog({
                           <Icon className="w-4 h-4 text-[var(--p-ink-soft)]" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-[var(--p-ink)] truncate">{highlightMatch(r.title, query)}</p>
-                          {descriptionSnippet && (
+                          <p className="text-sm font-medium text-[var(--p-ink)] truncate"><Highlight text={r.title} ranges={rangesOf(matches, 'title')} /></p>
+                          {snippet && (
                             <p className="text-xs text-[var(--p-ink-soft)] truncate">
-                              {highlightMatch(descriptionSnippet, query)}
+                              <Highlight text={snippet.text} ranges={snippet.ranges} />
                             </p>
                           )}
+                          <FoundIn matches={matches} />
                           {context && <p className="text-xs text-[var(--p-ink-faint)] truncate">{context}</p>}
                         </div>
                         {/* Ce e finalizat se găsește la fel, dar se spune (#109): în

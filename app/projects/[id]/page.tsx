@@ -1298,7 +1298,10 @@ function ProjectDetailsContent() {
     return signals
   }, [requestsByPhase, todayTs, projectClosed, isClient])
 
-  const searchIndex = useMemo(() => buildSearchIndex(phases, allDocRequests), [phases, allDocRequests])
+  const searchIndex = useMemo(
+    () => buildSearchIndex(phases, allDocRequests, { isClient, todayTs }),
+    [phases, allDocRequests, isClient, todayTs]
+  )
 
   const handleSearchSelect = (result: SearchResult) => {
     if (result.type === 'phase') {

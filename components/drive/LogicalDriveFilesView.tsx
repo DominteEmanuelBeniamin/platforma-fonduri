@@ -8,6 +8,9 @@ import {
 } from 'lucide-react'
 import { isPreviewableFile, buildPreviewPageUrl, openInNewTab, downloadUrl } from '@/lib/file-preview'
 import { useToast } from '@/app/providers/ToastProvider'
+import { useAuth } from '@/app/providers/AuthProvider'
+import { FoundIn, Highlight } from '@/components/ui/Highlight'
+import { rangesOf, searchItems, type FieldMatch, type SearchField } from '@/lib/search'
 import type {
   DriveAsset, DriveDocument,
   DriveLogicalProps,
@@ -17,7 +20,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { formatDate } from '@/lib/signage'
 import {
   FilePreview, StatusPill, PublicationPill,
-  getAssetDisplayName, assetActionId,
+  getAssetDisplayName, assetActionId, driveStatusLabel,
 } from './parts'
 
 /**
@@ -35,6 +38,8 @@ export default function LogicalDriveFilesView({
   onRetry,
 }: Omit<DriveLogicalProps, 'rows' | 'secondaryColumnLabel' | 'emptyText' | 'standalone'>) {
   const { showToast } = useToast()
+  const { profile } = useAuth()
+  const isClient = profile?.role === 'client'
   const [browseMode, setBrowseMode] = useState<'folders' | 'flat'>('folders')
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
@@ -77,23 +82,11 @@ export default function LogicalDriveFilesView({
   }, [activeFolderId, folders, onFolderChange, selectedFolder])
 
   const filteredDocuments = useMemo(() => {
-    const query = search.trim().toLowerCase()
     const source = !hasSearch && browseMode === 'folders' && effectiveFolderId
       ? documents.filter(document => document.folderId === effectiveFolderId)
       : documents
-
-    return source.filter(document => {
-      if (filterStatus !== 'all' && document.docStatus !== filterStatus) return false
-      if (!query) return true
-      const assetNames = [
-        ...document.attachments,
-        ...document.versions.flatMap(version => version.assets),
-      ].map(getAssetDisplayName).join(' ')
-      return `${document.docName} ${document.folderName} ${document.activityName || ''} ${assetNames}`
-        .toLowerCase()
-        .includes(query)
-    })
-  }, [browseMode, documents, effectiveFolderId, filterStatus, hasSearch, search])
+    return source.filter(document => filterStatus === 'all' || document.docStatus === filterStatus)
+  }, [browseMode, documents, effectiveFolderId, filterStatus, hasSearch])
 
   const sortedDocuments = useMemo(() => [...filteredDocuments].sort((a, b) => {
     let comparison = 0
@@ -105,6 +98,22 @@ export default function LogicalDriveFilesView({
     }
     return sortDir === 'asc' ? comparison : -comparison
   }), [filteredDocuments, sortDir, sortKey])
+
+  // Căutarea (#112): cererea, dosarul, activitatea, starea și numele tuturor
+  // fișierelor vizibile, din toate versiunile. Potrivirile exacte urcă, iar în
+  // fiecare grup rămâne sortarea aleasă.
+  const documentHits = useMemo(() => searchItems(sortedDocuments, search, (document): SearchField[] => {
+    const [current, ...older] = document.versions
+    const names = (assets: DriveAsset[]) => assets.map(getAssetDisplayName).join(', ')
+    return [
+      { key: 'title', label: 'Cerere', value: document.docName },
+      { key: 'folder', label: 'Dosar', value: document.folderName },
+      { key: 'activity', label: 'Activitate', value: document.activityName },
+      { key: 'files', label: 'Fișiere', value: names([...document.attachments, ...(current?.assets ?? [])]) },
+      { key: 'older', label: 'Versiuni vechi', value: names(older.flatMap(version => version.assets)), shown: false },
+      { key: 'status', label: 'Status', value: driveStatusLabel(document.docStatus, isClient), shown: false },
+    ]
+  }), [sortedDocuments, search, isClient])
 
   // Un singur pas înapoi: întâi ieșim din căutare, apoi din folder.
   const goBack = () => {
@@ -149,7 +158,7 @@ export default function LogicalDriveFilesView({
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <FilePreview path={asset.storagePath} previewUrl={asset.fileId ? previewUrls[asset.fileId] : undefined} size="sm" />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-ink">{getAssetDisplayName(asset)}</p>
+            <p className="truncate text-sm font-medium text-ink"><Highlight text={getAssetDisplayName(asset)} query={search} /></p>
             <p className="truncate text-xs text-ink-faint">
               {asset.entryLabel || (asset.downloadKind === 'requestAttachment' ? 'Atașament' : 'Fișier încărcat')}
               {asset.versionNumber ? ` · v${asset.versionNumber}` : ''}
@@ -174,7 +183,7 @@ export default function LogicalDriveFilesView({
     document.onRowClick?.()
   }
 
-  const renderDocument = (document: DriveDocument) => {
+  const renderDocument = (document: DriveDocument, matches: FieldMatch[] = []) => {
     const currentVersion = document.versions[0]
     const currentAssets = [...document.attachments, ...(currentVersion?.assets ?? [])]
     const hasHistory = document.versions.length > 1
@@ -192,20 +201,21 @@ export default function LogicalDriveFilesView({
             />
             <div className="min-w-0 flex-1">
               <button type="button" onClick={() => selectDocument(document)} className="block w-full cursor-pointer text-left" aria-label={`Deschide cererea ${document.docName}`} title="Deschide cererea de document">
-                <p className="break-words text-sm font-semibold text-ink hover:text-[var(--sg-accent)] hover:underline sm:truncate">{document.docName}</p>
+                <p className="break-words text-sm font-semibold text-ink hover:text-[var(--sg-accent)] hover:underline sm:truncate"><Highlight text={document.docName} ranges={rangesOf(matches, 'title')} /></p>
               </button>
               <div className="flex min-w-0 items-center gap-1 truncate text-xs text-ink-soft">
-                <span className="truncate">{document.folderName}</span>
+                <span className="truncate"><Highlight text={document.folderName} ranges={rangesOf(matches, 'folder')} /></span>
                 {document.activityName && (
                   <>
                     <span aria-hidden="true">·</span>
-                    <span className="truncate">{document.activityName}</span>
+                    <span className="truncate"><Highlight text={document.activityName} ranges={rangesOf(matches, 'activity')} /></span>
                   </>
                 )}
                 {currentVersion?.version ? <><span aria-hidden="true">·</span><span>v{currentVersion.version}</span></> : null}
                 <span aria-hidden="true">·</span>
                 <span className="whitespace-nowrap">{formatDate(document.uploadedAt)}</span>
               </div>
+              <FoundIn matches={matches} className="mt-0.5" />
             </div>
           </div>
           <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
@@ -286,7 +296,7 @@ export default function LogicalDriveFilesView({
           <option value="status:asc">După status</option>
         </select>
         <span className="flex-1" />
-        <span className="text-xs text-ink-soft">{sortedDocuments.length} {sortedDocuments.length === 1 ? 'document' : 'documente'}</span>
+        <span className="text-xs text-ink-soft">{documentHits.length} {documentHits.length === 1 ? 'document' : 'documente'}</span>
       </div>
     </div>
   )
@@ -314,7 +324,7 @@ export default function LogicalDriveFilesView({
   }
 
   const showFolders = browseMode === 'folders' && !effectiveFolderId && !hasSearch
-  const noResults = sortedDocuments.length === 0
+  const noResults = documentHits.length === 0
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-white" style={{ fontFamily: "'Google Sans', Roboto, Arial, sans-serif" }}>
@@ -366,7 +376,7 @@ export default function LogicalDriveFilesView({
         ) : noResults ? (
           <div className="flex flex-col items-center justify-center py-24 text-center"><FolderOpen className="mb-4 h-16 w-16 text-ink-faint" /><p className="font-semibold text-ink">{hasSearch || filterStatus !== 'all' ? 'Niciun rezultat' : 'Folder gol'}</p><p className="text-sm text-ink-soft">{hasSearch || filterStatus !== 'all' ? 'Încearcă să modifici filtrele.' : 'Fișierele vor apărea aici când vor fi încărcate.'}</p></div>
         ) : (
-          <div className="space-y-3">{sortedDocuments.map(document => renderDocument(document))}</div>
+          <div className="space-y-3">{documentHits.map(({ item, matches }) => renderDocument(item, matches))}</div>
         )}
       </div>
     </div>

@@ -18,14 +18,14 @@ import {
   UserX,
 } from 'lucide-react'
 
+import { FoundIn, Highlight } from '@/components/ui/Highlight'
+import { rangesOf, type FieldMatch } from '@/lib/search'
 import {
   SEARCH_THRESHOLD,
   WAITING_LABELS,
   buildConsultantDashboardRows,
   buildProjectDashboardRows,
   countLabel,
-  filterConsultantRows,
-  filterProjectRows,
   formatRelativeDeadline,
   formatShortDate,
   nextConsultantSort,
@@ -37,6 +37,8 @@ import {
   readProjectSort,
   readSearch,
   readShowEnded,
+  searchConsultantRows,
+  searchProjectRows,
   sortConsultantRows,
   sortProjectRows,
   summarizeRows,
@@ -277,10 +279,13 @@ function ProjectDashboardContent() {
     [allProjects, showEnded]
   )
 
-  const projectRows = useMemo(
-    () => sortProjectRows(filterProjectRows(inScope, draft), projectSort.sort, projectSort.direction),
+  // Sortarea aleasă rămâne ordinea din fiecare grup de potriviri (#112):
+  // întâi cele exacte, apoi restul.
+  const projectHits = useMemo(
+    () => searchProjectRows(sortProjectRows(inScope, projectSort.sort, projectSort.direction), draft),
     [inScope, draft, projectSort]
   )
+  const projectRows = useMemo(() => projectHits.map(hit => hit.item), [projectHits])
 
   // Consultanții se strâng peste exact proiectele vizibile alături: cu comutatorul
   // oprit, cele două tabele n-au voie să descrie mulțimi diferite.
@@ -288,10 +293,11 @@ function ProjectDashboardContent() {
     () => (payload ? buildConsultantDashboardRows(payload, new Set(inScope.map(row => row.id))) : []),
     [payload, inScope]
   )
-  const consultantRows = useMemo(
-    () => sortConsultantRows(filterConsultantRows(allConsultants, draft), consultantSort.sort, consultantSort.direction),
-    [allConsultants, draft, consultantSort]
+  const consultantHits = useMemo(
+    () => searchConsultantRows(sortConsultantRows(allConsultants, consultantSort.sort, consultantSort.direction), draft, payload?.people),
+    [allConsultants, draft, consultantSort, payload]
   )
+  const consultantRows = useMemo(() => consultantHits.map(hit => hit.item), [consultantHits])
 
   // Munca fără responsabil e grămada rămasă pe dinafară, nu un consultant: stă
   // în capul tabelului, dar n-are ce căuta nici în numărătoarea de consultanți,
@@ -433,8 +439,8 @@ function ProjectDashboardContent() {
             onSort={column => syncUrl(next => writeProjectSort(next, nextProjectSort(projectSort, column)))}
           />
           <tbody>
-            {projectRows.map(row => (
-              <ProjectRow key={row.id} row={row} open={open === row.id} onToggle={() => toggle(row.id)} />
+            {projectHits.map(({ item: row, matches }) => (
+              <ProjectRow key={row.id} row={row} matches={matches} open={open === row.id} onToggle={() => toggle(row.id)} />
             ))}
           </tbody>
         </TableFrame>
@@ -446,8 +452,8 @@ function ProjectDashboardContent() {
             onSort={column => syncUrl(next => writeConsultantSort(next, nextConsultantSort(consultantSort, column)))}
           />
           <tbody>
-            {consultantRows.map(row => (
-              <ConsultantRow key={row.id} row={row} open={open === row.id} onToggle={() => toggle(row.id)} ended={showEnded} />
+            {consultantHits.map(({ item: row, matches }) => (
+              <ConsultantRow key={row.id} row={row} matches={matches} open={open === row.id} onToggle={() => toggle(row.id)} ended={showEnded} />
             ))}
           </tbody>
         </TableFrame>
@@ -746,10 +752,12 @@ function ExpandButton({
 
 function ProjectRow({
   row,
+  matches,
   open,
   onToggle,
 }: {
   row: ProjectDashboardRow
+  matches: FieldMatch[]
   open: boolean
   onToggle: () => void
 }) {
@@ -777,7 +785,7 @@ function ProjectRow({
               onClick={event => event.stopPropagation()}
               className="inline-flex min-h-6 min-w-6 items-center font-medium text-ink underline-offset-4 hover:underline"
             >
-              {row.label}
+              <Highlight text={row.label} ranges={rangesOf(matches, 'title')} />
             </Link>
 
             {!row.active && <Signal tone="closed" className="ml-1">Încheiat</Signal>}
@@ -796,10 +804,11 @@ function ProjectRow({
               </span>
             )}
           </div>
+          <FoundIn matches={matches} className="mt-0.5 pl-[1.875rem]" />
         </td>
 
         <td className={`px-4 py-3.5 text-[var(--p-ink-soft)] ${HIDE.client}`}>
-          {row.client_name ?? <span className={FAINT}>—</span>}
+          {row.client_name ? <Highlight text={row.client_name} ranges={rangesOf(matches, 'client')} /> : <span className={FAINT}>—</span>}
         </td>
 
         <td
@@ -849,11 +858,13 @@ function ProjectRow({
 
 function ConsultantRow({
   row,
+  matches,
   open,
   onToggle,
   ended,
 }: {
   row: ConsultantDashboardRow
+  matches: FieldMatch[]
   open: boolean
   onToggle: () => void
   /** Tabloul numără și proiectele încheiate: calendarul le arată și el (#109). */
@@ -881,14 +892,15 @@ function ConsultantRow({
                 sfârșit: e un rând ca oricare, fiindcă azi e cel mai încărcat
                 dintre toate. */}
             {row.assigned ? (
-              <span className="font-medium text-[var(--p-ink)]">{row.label}</span>
+              <span className="font-medium text-[var(--p-ink)]"><Highlight text={row.label} ranges={rangesOf(matches, 'nume')} /></span>
             ) : (
               <span className={`flex items-center gap-1.5 ${FAINT}`}>
                 <UserX className="h-3.5 w-3.5" aria-hidden />
-                {row.label}
+                <Highlight text={row.label} ranges={rangesOf(matches, 'nume')} />
               </span>
             )}
           </div>
+          <FoundIn matches={matches} className="mt-0.5 pl-[1.875rem]" />
         </td>
 
         <td className={`px-4 py-3.5 text-right tabular-nums whitespace-nowrap text-[var(--p-ink-soft)] ${HIDE.projects}`}>
