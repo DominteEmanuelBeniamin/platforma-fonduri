@@ -1299,8 +1299,12 @@ function ProjectDetailsContent() {
   }, [requestsByPhase, todayTs, projectClosed, isClient])
 
   const searchIndex = useMemo(
-    () => buildSearchIndex(phases, allDocRequests, { isClient, todayTs }),
-    [phases, allDocRequests, isClient, todayTs]
+    () => buildSearchIndex(phases, allDocRequests, {
+      isClient,
+      todayTs,
+      generalConsultant: projectMembers.find(member => member.id === project?.general_consultant_id),
+    }),
+    [phases, allDocRequests, isClient, todayTs, projectMembers, project?.general_consultant_id]
   )
 
   const handleSearchSelect = (result: SearchResult) => {

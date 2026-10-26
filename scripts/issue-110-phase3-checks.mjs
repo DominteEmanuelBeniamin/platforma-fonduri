@@ -22,7 +22,15 @@ export async function checkPhase3(ctx) {
   }
   const audit = id => JSON.parse(sql("SELECT coalesce(jsonb_agg(jsonb_build_object('action',action_type,'old',old_values,'new',new_values)),'[]'::jsonb) FROM public.audit_logs WHERE entity_type='user' AND entity_id=" + q(id)))
   const absent = id => assert.equal(sql('SELECT count(*) FROM auth.users WHERE id=' + q(id)), '0', 'Only the newly created UUID was removed')
-  const input = (overrides = {}) => ({ email: 'issue110.api.' + randomUUID() + '@example.invalid', fullName: 'API probe', role: 'client', cif: cif(), ...overrides })
+  const input = (overrides = {}) => {
+    const role = overrides.role ?? 'client'
+    return {
+      email: 'issue110.api.' + randomUUID() + '@example.invalid', fullName: 'API probe', role,
+      ...(role === 'client' ? { cif: cif(), numeFirma: 'API probe SRL', adresaFirma: 'Str. Probei 1' }
+        : role === 'consultant' ? { specializare: 'PNRR' } : {}),
+      ...overrides,
+    }
+  }
   function api(options = {}) {
     const created = [], emails = [], calls = []
     const wrapped = {

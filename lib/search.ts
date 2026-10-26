@@ -124,7 +124,7 @@ function prefixLength(compact: string, kind: SearchFieldKind): number {
   if (kind === 'phone') {
     // „0040 722…" și „+40 722…" sunt același număr cu „0722…".
     if (compact.startsWith('0040')) return 3
-    if (/^40\d{9}$/.test(compact)) return 1
+    if (/^40\d/.test(compact)) return 1
   }
   return 0
 }
@@ -146,12 +146,18 @@ export interface ParsedQuery {
   tokens: string[]
   /** Toată interogarea fără separatori, pentru CIF și telefon scrise cu spații. */
   compact: string
+  /** Grupuri numerice, inclusiv când se caută și un nume în aceeași interogare. */
+  phoneGroups: { compact: string; tokens: string[] }[]
 }
 
 export function parseQuery(query: string): ParsedQuery {
   const folded = foldText(query.trim())
   const tokens = [...new Set(wordsOf(folded).map(w => w.text))]
-  return { raw: query, tokens, compact: folded.replace(/[^\p{L}\p{N}]/gu, '') }
+  const phoneGroups = [...folded.matchAll(/\d(?:[\d\s.()/-]*\d)?/g)].map(([value]) => ({
+    compact: compactText(value),
+    tokens: wordsOf(value).map(w => w.text),
+  }))
+  return { raw: query, tokens, compact: folded.replace(/[^\p{L}\p{N}]/gu, ''), phoneGroups }
 }
 
 export function isEmptyQuery(query: string | ParsedQuery): boolean {
@@ -245,7 +251,8 @@ function matchCompact(token: string, f: PreparedField): WordMatch | null {
   if (!token) return null
   const body = compact.slice(f.prefix)
   if (compact === token) return { tier: 0, start: 0, end: compact.length }
-  if (body === token) return { tier: 0, start: f.prefix, end: compact.length }
+  if (f.kind === 'phone') token = token.slice(prefixLength(token, 'phone'))
+  if (body === token) return { tier: 0, start: f.kind === 'phone' ? 0 : f.prefix, end: compact.length }
   if (body.startsWith(token)) return { tier: 1, start: f.prefix, end: f.prefix + token.length }
   if (compact.startsWith(token)) return { tier: 1, start: 0, end: token.length }
   if (token.length >= INFIX_MIN_LENGTH) {
@@ -323,10 +330,23 @@ export function matchFields(
     }
   }
 
+  const phoneTiers = new Map<string, MatchTier>()
+  for (const group of q.phoneGroups) {
+    for (const f of prepared) {
+      if (f.kind !== 'phone') continue
+      const m = matchCompact(group.compact, f)
+      if (!m) continue
+      add(f, [toOriginal(f.compact!, m.start, m.end)])
+      for (const token of group.tokens) {
+        phoneTiers.set(token, Math.min(phoneTiers.get(token) ?? m.tier, m.tier) as MatchTier)
+      }
+    }
+  }
+
   let worst: MatchTier = 0
   let allTokens = true
   for (const token of q.tokens) {
-    let best: MatchTier | null = null
+    let best: MatchTier | null = phoneTiers.get(token) ?? null
     for (const f of prepared) {
       const m = matchTokenInField(token, f)
       if (!m) continue
@@ -395,6 +415,12 @@ export function findRanges(text: string | null | undefined, query: string | Pars
   if (!f || q.tokens.length === 0) return []
   const ranges: MatchRange[] = []
   for (const token of q.tokens) ranges.push(...(matchTokenInField(token, f)?.ranges ?? []))
+  if (f.kind === 'phone') {
+    for (const group of q.phoneGroups) {
+      const m = matchCompact(group.compact, f)
+      if (m) ranges.push(toOriginal(f.compact!, m.start, m.end))
+    }
+  }
   if (f.compact && q.tokens.length > 1) {
     const m = matchCompact(q.compact, f)
     if (m) ranges.push(toOriginal(f.compact, m.start, m.end))
