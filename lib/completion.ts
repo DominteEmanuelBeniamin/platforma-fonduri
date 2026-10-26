@@ -118,6 +118,35 @@ export function requestReopenRefusal(
   return null
 }
 
+/**
+ * De ce nu se poate redeschide cererea din cauza părinților; `null` dacă se
+ * poate (#120). O activitate finalizată are toate cererile finalizate, iar o
+ * fază finalizată toate activitățile: o cerere redeschisă sub ele ar strica
+ * regula, deci se redeschide întâi faza, apoi activitatea, apoi cererea.
+ * O cerere generală (fără activitate) nu are părinți.
+ */
+export function requestReopenParentRefusal(
+  activity: { name?: string | null; status?: string | null } | null,
+  phase: { name?: string | null; status?: string | null } | null,
+): TransitionRefusal | null {
+  if (phase && isPhaseFinal(phase)) {
+    return { status: 409, message: `Faza „${phase.name ?? ''}” e finalizată. Readu întâi faza și activitatea în lucru, apoi redeschide cererea.` }
+  }
+  if (activity && isActivityFinal(activity)) {
+    return { status: 409, message: `Activitatea „${activity.name ?? ''}” e finalizată. Readu-o întâi în lucru, apoi redeschide cererea.` }
+  }
+  return null
+}
+
+/** De ce nu se poate readuce activitatea în lucru din cauza fazei; `null` dacă se poate (#120). */
+export function activityReopenParentRefusal(
+  phase: { name?: string | null; status?: string | null } | null,
+): TransitionRefusal | null {
+  return phase && isPhaseFinal(phase)
+    ? { status: 409, message: `Faza „${phase.name ?? ''}” e finalizată. Readu întâi faza în lucru, apoi activitatea.` }
+    : null
+}
+
 type ItemKind = 'phase' | 'activity'
 
 const ITEM_WORDS: Record<ItemKind, { subject: string }> = {
@@ -321,8 +350,9 @@ export function mergeVisibleOrder(fullIds: readonly string[], visibleNewOrder: r
 //
 // Decizia din 7 octombrie 2026: o activitate se finalizează doar cu toate
 // cererile ei aprobate sau închise, iar o fază doar cu toate activitățile ei
-// finalizate. Doar blocare: nimic nu se finalizează singur, iar ce se redeschide
-// după aceea nu atinge elementul de deasupra. Documentele trimise clientului
+// finalizate. Doar blocare: nimic nu se finalizează singur. Invers, sub un
+// element finalizat nu se redeschide nimic (#120): întâi se redeschide el.
+// Documentele trimise clientului
 // nu așteaptă nimic de la el, deci nu blochează. Aceeași regulă în interfață
 // (mesajul de dinainte de apel) și pe server (409).
 

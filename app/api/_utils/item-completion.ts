@@ -8,7 +8,7 @@ import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectManager } from './auth'
 import { logAction } from './audit'
 import { createSupabaseServiceClient } from './supabase'
-import { activityCompletionBlocker, completeRefusal, phaseCompletionBlocker, reopenRefusal } from '@/lib/completion'
+import { activityCompletionBlocker, activityReopenParentRefusal, completeRefusal, phaseCompletionBlocker, reopenRefusal } from '@/lib/completion'
 import { isUuid } from '@/lib/notification-utils'
 
 type Target =
@@ -39,7 +39,7 @@ export async function changeItemCompletion(request: Request, target: Target, act
 
     const { data: phase, error: phaseError } = await admin
       .from('project_phases')
-      .select('id, name')
+      .select('id, name, status')
       .eq('id', target.phaseId)
       .eq('project_id', target.projectId)
       .maybeSingle()
@@ -60,6 +60,14 @@ export async function changeItemCompletion(request: Request, target: Target, act
       : reopenRefusal(target.kind, before.status)
     if (refusal) {
       return NextResponse.json({ error: 'Invalid status transition', message: refusal.message }, { status: refusal.status })
+    }
+
+    // Într-o fază finalizată activitatea nu se readuce în lucru (#120): întâi faza.
+    if (action === 'reopen' && target.kind === 'activity') {
+      const parentRefusal = activityReopenParentRefusal(phase)
+      if (parentRefusal) {
+        return NextResponse.json({ error: 'Parent completed', message: parentRefusal.message }, { status: parentRefusal.status })
+      }
     }
 
     // Finalizarea cere ca tot ce e dedesubt să fie gata (decizia din 7 octombrie

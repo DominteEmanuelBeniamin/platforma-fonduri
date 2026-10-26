@@ -87,6 +87,7 @@ import { Signal } from '@/components/ui/Signal'
 import HiddenFinalRow from '@/components/HiddenFinalRow'
 import {
   activityCompletionBlocker,
+  activityReopenParentRefusal,
   activityCompletionConfirm,
   activityProgress,
   countHiddenRoots,
@@ -802,6 +803,13 @@ function ProjectDetailsContent() {
         ? activityCompletionConfirm(activity, allDocRequests)
         : phaseCompletionConfirm(phase, allDocRequests)
       if (!(await confirm(dialog))) return
+    } else if (activity) {
+      // Într-o fază finalizată, întâi faza (#120): aceeași regulă ca pe server.
+      const refusal = activityReopenParentRefusal(phase)
+      if (refusal) {
+        showToast(refusal.message, 'warning')
+        return
+      }
     }
     const base = activity
       ? `/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`

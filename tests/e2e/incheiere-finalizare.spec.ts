@@ -555,6 +555,40 @@ test('Cererile: se închid din „De încărcat", „Respins" și „Aprobat", �
   expectStatus(await call(admin, 'POST', `/api/document-requests/${removed}/close`), 409, 'închiderea unei cereri șterse')
 })
 
+test('Sub o activitate sau fază finalizată nu se redeschide nimic (#120)', async () => {
+  const projectId = await createProject('redeschidere sub părinte finalizat')
+  const phaseId = await addPhase(projectId, 'Depunere')
+  const activityId = await addActivity(projectId, phaseId, 'Dosarul de finanțare')
+  const requestId = await addRequest(projectId, activityId, 'Certificat fiscal')
+  const phaseBase = `/api/projects/${projectId}/phases/${phaseId}`
+  const activityBase = `${phaseBase}/activities/${activityId}`
+  const reopenRequest = `/api/document-requests/${requestId}/reopen`
+
+  await must(admin, 'POST', `/api/document-requests/${requestId}/close`)
+  await must(admin, 'POST', `${activityBase}/complete`)
+  await must(admin, 'POST', `${phaseBase}/complete`)
+
+  // Faza finalizată: nici cererea, nici activitatea nu se redeschid.
+  const underPhase = await call(admin, 'POST', reopenRequest)
+  expectStatus(underPhase, 409, 'redeschiderea cererii într-o fază finalizată')
+  expect.soft(underPhase.json.message).toMatch(/^Faza „Depunere” e finalizată/)
+  const activityUnderPhase = await call(admin, 'POST', `${activityBase}/reopen`)
+  expectStatus(activityUnderPhase, 409, 'readucerea activității într-o fază finalizată')
+  expect.soft(activityUnderPhase.json.message).toMatch(/^Faza „Depunere” e finalizată/)
+
+  // Faza în lucru, activitatea încă finalizată: cererea tot nu se redeschide.
+  await must(admin, 'POST', `${phaseBase}/reopen`)
+  const underActivity = await call(admin, 'POST', reopenRequest)
+  expectStatus(underActivity, 409, 'redeschiderea cererii într-o activitate finalizată')
+  expect.soft(underActivity.json.message).toMatch(/^Activitatea „Dosarul de finanțare” e finalizată/)
+  expect.soft((await requestRow(requestId)).status).toBe('closed')
+
+  // În ordine, de sus în jos, merge.
+  await must(admin, 'POST', `${activityBase}/reopen`)
+  expectStatus(await call(admin, 'POST', reopenRequest), 200, 'redeschiderea cererii după activitate')
+  expect.soft((await requestRow(requestId)).status).toBe('pending')
+})
+
 test('O cerere închisă nu se modifică (D13) și nu primește fișiere', async () => {
   const projectId = await createProject('cerere închisă')
   const phaseId = await addPhase(projectId, 'Implementare')
