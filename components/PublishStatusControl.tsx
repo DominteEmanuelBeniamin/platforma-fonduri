@@ -78,15 +78,9 @@ export default function PublishStatusControl({
     )
   }
 
-  // „Vizibil clientului” e starea obișnuită, deci stă discret, fără casetă;
-  // „În pregătire” e excepția și își păstrează conturul întrerupt.
   if (!canPublish || !isDraft) {
     return (
-      <span className={`inline-flex flex-shrink-0 items-center gap-1 ${textClass} ${
-        isDraft
-          ? 'rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-1.5 py-0.5 text-ink-faint'
-          : 'text-ink-faint'
-      }`}>
+      <span className={`inline-flex flex-shrink-0 items-center gap-1 text-ink-faint ${textClass}`}>
         {isDraft
           ? <CircleDashed className="h-3 w-3 shrink-0" aria-hidden="true" />
           : <Eye className="h-3 w-3 shrink-0" aria-hidden="true" />}
@@ -111,9 +105,7 @@ export default function PublishStatusControl({
         aria-checked={false}
         onClick={e => { e.stopPropagation(); onPublish() }}
         title="Apasă ca să publici — devine vizibil clientului"
-        // Cu muchie și fundal la hover, ca să se vadă că e un buton
-        // (feedback-ul lui Sandu, 22 octombrie 2026).
-        className={`inline-flex min-h-7 items-center gap-2 flex-shrink-0 rounded-[var(--radius-plate)] border border-rule bg-plate px-1.5 transition-colors duration-[120ms] hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] ${textClass}`}
+        className={`inline-flex min-h-7 items-center gap-2 flex-shrink-0 rounded-[var(--radius-plate)] bg-transparent px-1.5 transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)] ${textClass}`}
       >
         {toggleVisual}
         <span className="text-ink-soft">În pregătire</span>

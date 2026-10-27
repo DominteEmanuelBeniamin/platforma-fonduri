@@ -76,7 +76,7 @@ export default function ActivityRow({
     <div id={`activity-${activity.id}`} className="scroll-mt-24 border-b border-rule/70 md:scroll-mt-48">
       <div
         onClick={onToggle}
-        className="group/row grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-2 px-2 py-2.5 transition-colors duration-[120ms] hover:bg-paper/60 @min-[50rem]:grid-cols-(--cols) @min-[50rem]:gap-0 @min-[50rem]:p-0"
+        className="group/row grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-2 bg-paper-sunk/50 px-2 py-2.5 transition-colors duration-[120ms] hover:bg-paper-sunk/75 @min-[50rem]:grid-cols-(--cols) @min-[50rem]:gap-0 @min-[50rem]:p-0"
       >
         {/* Activitate */}
         <div className="flex min-w-0 items-start gap-1 @min-[50rem]:items-center @min-[50rem]:py-1.5 @min-[50rem]:pl-1 @min-[50rem]:pr-2">
@@ -160,12 +160,14 @@ export default function ActivityRow({
         )}
       </div>
 
+      {/* Linia de indentare nu îngustează grila cererilor față de cea a activității. */}
       {open && (
         <div
-          className="mb-3 ml-5 border-l pl-2 @min-[50rem]:ml-[1.3rem] @min-[50rem]:pl-3"
+          className="relative mb-3 ml-5 border-l pl-2 @min-[50rem]:ml-0 @min-[50rem]:border-l-0 @min-[50rem]:pl-0"
           style={{ borderColor: band ? `color-mix(in srgb, ${bandVar(band)} 45%, transparent)` : 'var(--sg-rule)' }}
         >
           {children}
+          <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-[1.3rem] hidden border-l border-inherit @min-[50rem]:block" />
         </div>
       )}
     </div>

@@ -1280,10 +1280,9 @@ function ProjectDetailsContent() {
     return [...byLabel.values()].sort((a, b) => order.indexOf(a.tone) - order.indexOf(b.tone))
   }
 
-  // Grupurile de la coadă apar cui are ce vedea acolo, sau cui poate adăuga:
-  // cererile generale și, separat, documentele trimise clientului (S-20).
-  const showGeneralGroup = canChange || allDocRequests.some((r: any) => !r.deleted_at && !r.is_outgoing && !(r.activity?.id ?? r.activity_id))
-  const showSentGroup = canChange || allDocRequests.some((r: any) => !r.deleted_at && r.is_outgoing)
+  // Un grup selectat rămâne vizibil și gol, ca să poată explica lipsa conținutului.
+  const showGeneralGroup = focusId === GENERAL_ID || canChange || allDocRequests.some((r: any) => !r.deleted_at && !r.is_outgoing && !(r.activity?.id ?? r.activity_id))
+  const showSentGroup = focusId === SENT_ID || canChange || allDocRequests.some((r: any) => !r.deleted_at && r.is_outgoing)
   const sentTitle = isClient ? 'Documente de la consultant' : 'Documente trimise clientului'
   const [sendOpen, setSendOpen] = useState(false)
 
@@ -1806,9 +1805,11 @@ function ProjectDetailsContent() {
             <div className="@container py-4 md:px-6">
               {phases.length === 0 && !focusId && (
                 <div className="mb-7 rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-6 py-12 text-center">
-                  <p className="text-base font-semibold text-ink">Proiectul n-are încă faze</p>
+                  <p className="text-base font-semibold text-ink">{isClient ? 'Nicio fază publicată încă' : 'Proiectul n-are încă faze'}</p>
                   <p className="mx-auto mt-2 max-w-[52ch] text-sm leading-6 text-ink-soft">
-                    Importă un șablon ca să apară fazele și activitățile, cu cererile de documente organizate pe ele.
+                    {isClient
+                      ? 'Fazele și activitățile vor apărea aici după ce sunt publicate.'
+                      : 'Importă un șablon ca să apară fazele și activitățile, cu cererile de documente organizate pe ele.'}
                   </p>
                 </div>
               )}
@@ -1900,7 +1901,7 @@ function ProjectDetailsContent() {
                       ) : undefined}
                     >
                       {activities.length === 0 && !canChange && (
-                        <p className="px-3 py-3 text-sm text-ink-faint">Nicio activitate în această fază.</p>
+                        <p className="px-3 py-3 text-sm text-ink-soft">{isClient ? 'Nicio activitate publicată în această fază încă.' : 'Nicio activitate în această fază.'}</p>
                       )}
                       {shownActivities.map(activity => (
                         <ActivityRow

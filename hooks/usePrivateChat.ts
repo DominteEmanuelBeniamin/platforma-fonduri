@@ -146,8 +146,8 @@ export function usePrivateChat(
       const json = (await res.json().catch(() => null)) as GetMessagesResponse | null
 
       if (!res.ok) {
-        setError(userErrorMessage(res.status, 'Nu am putut încărca mesajele.'))
         resetState()
+        setError(userErrorMessage(res.status, 'Nu am putut încărca mesajele.'))
         return
       }
 

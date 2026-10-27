@@ -1026,8 +1026,8 @@ export default function DocumentRequests({
           // neutră: verdele e semnalul „gata”, nu decor (S-20, Z-05).
           <div style={{ '--sent-cols': sentColumns } as CSSProperties}>
             {outgoingDocs.length === 0 ? (
-              <p className="px-3 py-2.5 text-xs text-ink-faint">
-                {canChange ? 'Niciun document trimis încă. Trimite-le cu „Trimite documente”, sus.' : 'Niciun document de la consultant încă.'}
+              <p className="px-3 py-3 text-sm text-ink-soft">
+                {isClient ? 'Niciun document publicat de consultant încă.' : canChange ? 'Niciun document trimis încă. Trimite-le cu „Trimite documente”, sus.' : 'Niciun document trimis încă.'}
               </p>
             ) : (
               <>
@@ -1102,8 +1102,8 @@ export default function DocumentRequests({
         ) : (
         <div style={{ '--req-cols': requestColumns } as CSSProperties}>
           {requests.length === 0 ? (
-            <p className="px-3 py-2.5 text-xs text-ink-faint">
-              {isClient ? 'Nicio cerere aici încă. Vei fi anunțat când apar.' : 'Nicio cerere de document încă.'}
+            <p className={`px-3 py-3 text-sm text-ink-soft ${activityId ? '@min-[50rem]:pl-9' : ''}`}>
+              {isClient ? 'Nicio cerere publicată încă. Cererile de documente vor apărea aici după ce sunt publicate.' : 'Nicio cerere de document încă.'}
             </p>
           ) : (
             <>
@@ -1140,7 +1140,7 @@ export default function DocumentRequests({
                 >
                   <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1.5 px-1 py-2 @min-[50rem]:grid-cols-(--req-cols) @min-[50rem]:gap-0 @min-[50rem]:p-0">
                     {/* Cerere */}
-                    <div className="flex min-w-0 items-start gap-1.5 @min-[50rem]:col-span-2 @min-[50rem]:items-center @min-[50rem]:py-1.5 @min-[50rem]:pl-1 @min-[50rem]:pr-2">
+                    <div className={`flex min-w-0 items-start gap-1.5 @min-[50rem]:col-span-2 @min-[50rem]:items-center @min-[50rem]:py-1.5 @min-[50rem]:pr-2 ${activityId ? '@min-[50rem]:pl-9' : '@min-[50rem]:pl-1'}`}>
                       {canChange ? (
                         <span
                           draggable
@@ -1355,7 +1355,7 @@ export default function DocumentRequests({
           )}
           {hiddenHere > 0 && onRevealRequests && (
             <HiddenFinalRow
-              className="border-b border-rule px-3 py-1"
+              className={`border-b border-rule px-3 py-1 ${activityId ? '@min-[50rem]:pl-9' : ''}`}
               hiddenCount={hiddenHere}
               total={requests.length}
               singular="cerere"
@@ -1369,7 +1369,7 @@ export default function DocumentRequests({
               type="button"
               onClick={openCreateForm}
               data-tooltip={activityName && activityId ? `Cere clientului un document nou pentru „${activityName}”` : 'Cere clientului un document nou'}
-              className="flex min-h-11 w-full items-center gap-2 px-3 text-left text-xs font-medium text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)] pointer-fine:min-h-8"
+              className={`flex min-h-11 w-full items-center gap-2 px-3 text-left text-xs font-medium text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)] pointer-fine:min-h-8 ${activityId ? '@min-[50rem]:pl-9' : ''}`}
             >
               <Plus className="h-3.5 w-3.5" aria-hidden="true" />
               Adaugă cerere de document nouă

@@ -559,7 +559,7 @@ export default function ProjectPhasesSidebar({
         {phases.length === 0 && !showAddPhase && (
           <div className="p-6 text-center">
             <FolderOpen className="w-8 h-8 text-[var(--p-ink-faint)] mx-auto mb-2" />
-            <p className="text-xs text-[var(--p-ink-faint)]">Nicio fază adăugată</p>
+            <p className="text-xs text-[var(--p-ink-soft)]">{canEdit ? 'Nicio fază adăugată' : 'Nicio fază publicată încă'}</p>
           </div>
         )}
 
@@ -680,6 +680,11 @@ export default function ProjectPhasesSidebar({
               <Collapsible.Content>
                 {/* Activitățile atârnă sub pastila fazei, pe o linie subțire. */}
                 <div className="mb-1 ml-[11px] border-l border-rule pl-2">
+                  {!phase.activities?.length && !canChange && (
+                    <p className="px-2.5 py-2 text-xs text-[var(--p-ink-soft)]">
+                      {canEdit ? 'Nicio activitate în această fază.' : 'Nicio activitate publicată încă.'}
+                    </p>
+                  )}
                   {displayActivities(phase)?.map(act => {
                     const isEditingThisDeadline = editingDeadline === act.id
                     const currentDeadline = act.deadline_at

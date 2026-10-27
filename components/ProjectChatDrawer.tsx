@@ -113,6 +113,7 @@ const imageRetryKey = (messageId: string, image: ChatImage) =>
 import ImagePreviewDialog from './chat/ImagePreviewDialog'
 import ChatMessageList from './chat/ChatMessageList'
 import { Spinner } from '@/components/ui/Spinner'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 export default function ProjectChatDrawer({
   open,
@@ -948,6 +949,12 @@ export default function ProjectChatDrawer({
           )}
 
           {error && <FeedbackMessage variant="error" className="mb-4">{error}</FeedbackMessage>}
+
+          {!loading && !error && messages.length === 0 && (
+            <EmptyState title="Niciun mesaj în acest proiect încă">
+              {readOnly ? 'Proiectul este încheiat. Nu au fost trimise mesaje.' : 'Scrie primul mesaj pentru a începe conversația despre proiect.'}
+            </EmptyState>
+          )}
 
           <ChatMessageList
             messages={messages}

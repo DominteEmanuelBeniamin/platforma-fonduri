@@ -150,7 +150,7 @@ export function DeadlineCell({
   }
 
   const display: ReactNode = value ? (
-    <span className={`inline-flex items-center gap-1 text-xs tabular-nums ${burning ? 'font-semibold' : ''}`} style={{ color }}>
+    <span className={`inline-flex items-center gap-1 whitespace-nowrap text-xs tabular-nums ${burning ? 'font-semibold' : ''}`} style={{ color }}>
       {burning && (signal.tone === 'danger'
         ? <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden="true" />
         : <Clock className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden="true" />)}
@@ -177,15 +177,14 @@ export function DeadlineCell({
           onClick={() => setEditing(open => !open)}
           aria-label={value ? `Schimbă termenul pentru ${itemName}: ${formatShortDate(value)}` : `Adaugă termen pentru ${itemName}`}
           data-tooltip={value ? `${burning ? `${signal.label}. ` : ''}Schimbă termenul` : 'Adaugă termen limită'}
-          className="group/deadline inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-[var(--radius-plate)] px-2 transition-colors duration-[120ms] hover:bg-paper-sunk aria-expanded:bg-paper-sunk pointer-fine:min-h-7 pointer-fine:min-w-8"
+          className="group/deadline relative inline-flex min-h-11 min-w-11 items-center justify-center rounded-[var(--radius-plate)] px-4 transition-colors duration-[120ms] hover:bg-paper-sunk aria-expanded:bg-paper-sunk pointer-fine:min-h-7 pointer-fine:min-w-8"
         >
           {display}
-          {/* Creionul arată că data se poate schimba (D3): la hover pe rând și la
-              focus de la tastatură; pe touch, mereu. Locul îi rămâne rezervat. */}
+          {/* Creionul nu participă la centrare, ca data să rămână sub antet. */}
           {value && (
             <Pencil
               aria-hidden="true"
-              className="h-3 w-3 shrink-0 text-ink-faint opacity-0 transition-opacity duration-[120ms] group-hover:opacity-100 group-hover/row:opacity-100 group-focus-visible/deadline:opacity-100 group-aria-expanded/deadline:opacity-100 pointer-coarse:opacity-100"
+              className="absolute right-0 top-1/2 h-3 w-3 -translate-y-1/2 text-ink-faint opacity-0 transition-opacity duration-[120ms] group-hover:opacity-100 group-hover/row:opacity-100 group-focus-visible/deadline:opacity-100 group-aria-expanded/deadline:opacity-100 pointer-coarse:opacity-100"
             />
           )}
         </button>

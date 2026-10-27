@@ -16,6 +16,7 @@ import { getAvatarColor, getInitials } from '@/lib/avatar'
 import { profileDisplayName } from '@/lib/profile-display'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { Spinner } from '@/components/ui/Spinner'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 type Props = {
   conversationId: string
@@ -382,6 +383,12 @@ export default function PrivateChatView({
         )}
 
         {error && <FeedbackMessage variant="error" className="mb-4">{error}</FeedbackMessage>}
+
+        {!loading && !error && messages.length === 0 && (
+          <EmptyState title="Niciun mesaj încă">
+            Scrie primul mesaj pentru a începe conversația.
+          </EmptyState>
+        )}
 
         {messages.map((m, idx) => {
           const prev = idx > 0 ? messages[idx - 1] : null
