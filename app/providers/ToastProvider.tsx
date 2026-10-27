@@ -41,13 +41,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   // Ce era focalizat când s-a cerut confirmarea: acolo se întoarce focusul.
   // Radix îl duce doar pe un `Dialog.Trigger`, iar confirmarea n-are unul.
   const returnFocus = useRef<HTMLElement | null>(null)
+  // Momentul cererii. O confirmare cerută chiar dintr-un Escape (chatul de proiect, la închidere)
+  // se desenează cât acel Escape încă se propagă, iar Radix, abia montat, îl prindea pe `document`
+  // și o închidea pe loc. Doar o tastă apăsată după cerere o închide.
+  const requestedAt = useRef(0)
   const confirm = useCallback((options: ConfirmOptions) => new Promise<boolean>(resolve => {
     returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    requestedAt.current = performance.now()
     // Escape se ascultă de la cerere, nu de când își înregistrează Radix
     // stratul (un efect, după desenare): un Escape apăsat imediat ajungea la
     // dialogul de dedesubt, care îl ignora, iar confirmarea rămânea deschisă.
     const onEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
+      if (event.key !== 'Escape' || event.timeStamp < requestedAt.current) return
       event.preventDefault()
       event.stopPropagation()
       done(false)
@@ -89,6 +94,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-[1000001]" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }} />
           <Dialog.Content
+            onEscapeKeyDown={event => { if (event.timeStamp < requestedAt.current) event.preventDefault() }}
             onCloseAutoFocus={event => {
               event.preventDefault()
               if (returnFocus.current?.isConnected) returnFocus.current.focus()

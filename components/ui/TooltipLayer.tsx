@@ -15,7 +15,8 @@ import { usePathname } from 'next/navigation'
  *   3. `aria-label` — numele unui buton doar cu iconiță (lupă, ⋯, coș),
  *      când textul vizibil nu spune deja același lucru.
  * `data-tooltip=""` sau `data-tooltip-off` pe un element (sau pe un părinte)
- * îl opresc.
+ * îl opresc. Într-un meniu (`role="menu"`) nu apare: opțiunile își scriu deja
+ * numele, iar tooltip-ul uneia ar acoperi opțiunea vecină.
  *
  * Apare după o secundă, fără animație (D6). Imediat apare doar când treci de
  * la un buton mic la altul, cu un tooltip abia închis: o plimbare peste
@@ -46,7 +47,7 @@ function normalize(text: string) {
 
 /** Ce scrie în tooltip pentru un element, sau `null` dacă n-are nimic de adăugat. */
 function tooltipText(el: HTMLElement): string | null {
-  if (el.closest('[data-tooltip-off]')) return null
+  if (el.closest('[data-tooltip-off], [role="menu"]')) return null
   const explicit = el.getAttribute('data-tooltip')
   if (explicit !== null) return explicit.trim() || null
   const title = el.getAttribute('title') ?? el.getAttribute('data-tooltip-title')
