@@ -879,8 +879,11 @@ test('Interfața: faze, activități și cereri se finalizează din meniu și di
     await expect.soft(page.locator(`#activity-${activityId}`).getByText('Singura cerere e finalizată.')).toBeVisible()
     await page.getByLabel('Arată și ce e finalizat').check()
     const requestRow = page.locator('[id^="request-"]').filter({ hasText: requestName })
-    await expect.soft(requestRow.getByRole('button', { name: 'Modifică cererea' }), 'iconița „Modifică" dispare').toHaveCount(0)
-    await expect.soft(requestRow.getByRole('button', { name: 'Șterge din proiect' }), 'ștergerea rămâne').toHaveCount(1)
+    // Acțiunile cererii stau sub „⋯” (S-12): „Modifică” lipsește, ștergerea rămâne.
+    await requestRow.getByRole('button', { name: /^Acțiuni pentru cererea/ }).click()
+    await expect.soft(page.getByRole('menuitem', { name: 'Modifică cererea' }), '„Modifică” dispare').toHaveCount(0)
+    await expect.soft(page.getByRole('menuitem', { name: 'Șterge din proiect' }), 'ștergerea rămâne').toHaveCount(1)
+    await page.keyboard.press('Escape')
     await expect.soft(page.locator(`#activity-${activityId}`).getByText('1 din 1 cerere finalizată')).toBeVisible()
 
     // Activitatea, acum că singura ei cerere e gata: confirmare, semn, contor.

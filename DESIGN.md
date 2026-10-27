@@ -25,7 +25,7 @@ colors:
   warn-soft: "#F4EBDC"
   danger: "#9B2C21"
   danger-soft: "#F5E4E1"
-  draft: "#6B7079"
+  draft: "#61666E"
   draft-soft: "#EAE9E5"
 typography:
   display:
@@ -168,7 +168,7 @@ Riscul asumat: un program instituțional poate aluneca în „portal guvernament
 
 **Cele șase benzi de fază** sunt fixe și ordonate: petrol, ocru, cărămidă, prună, măsliniu, ardezie. Se atribuie după **poziția fazei în proiect** (`bandFor(index)` în `lib/signage.ts`), ca într-un program de semnalizare adevărat, unde culorile aripilor sunt poziționale. Rotația pe șase dă distribuție egală și garantează că două faze vecine nu poartă niciodată aceeași culoare. Varianta pe id — un hash — a fost măsurată și respinsă: pe 14 faze dădea în medie 2,3 perechi de vecini identici și o distribuție strâmbă, adică exact opusul tezei. `bandFor(string)` rămâne pentru suprafețele care n-au poziția la îndemână. Fiecare bandă poartă text alb la ≥6,3:1 și se citește pe hârtie la ≥5,7:1.
 
-**Semnalele sunt rezervate.** `ok` verde pentru finalizat, `warn` chihlimbar pentru termen apropiat, `danger` roșu pentru depășit, respins sau eroare, `draft` gri pentru nepublicat. Niciuna nu se folosește vreodată ca accent de brand. Roșul înseamnă că ceva arde — mesajele necitite nu ard, ele primesc accentul.
+**Semnalele sunt rezervate.** `ok` verde pentru finalizat, `warn` chihlimbar pentru termen apropiat, `danger` roșu pentru depășit, respins sau eroare, `draft` gri pentru nepublicat. Griul lui `draft` e puțin mai închis decât `ink-faint`: pe fondul `draft-soft`, `ink-faint` dădea doar 4,10:1, iar `#61666E` dă 4,76:1. Niciuna nu se folosește vreodată ca accent de brand. Roșul înseamnă că ceva arde — mesajele necitite nu ard, ele primesc accentul.
 
 **`closed` e pentru ce s-a încheiat fără să mai aștepte nimic**: cererea de documente închisă, proiectul încheiat (#109). Are culorile lui `neutral` — nicio nuanță nouă, contrastul e cel deja măsurat — dar iconița proprie, cutia de arhivă. Cu ceasul lui `neutral`, care înseamnă „la client”, o cerere închisă s-ar fi citit pe „Panoul cu chei” drept una care încă așteaptă clientul. Nu e verde: o cerere închisă poate să nu fi primit niciodată documentul, iar verdele ar fi spus „aprobat”.
 
@@ -186,11 +186,13 @@ Cifre tabulare peste tot, activate pe `body`. Într-un sistem de semnalizare, nu
 
 Scara: display 1,875–2,25rem/700 pentru titlul paginii · heading 1,125rem/700 pentru titlul unei plăcuțe · body 0,875rem/400 · label 0,75rem/600. Măsura textului de citit stă între 52 și 75 de caractere.
 
+Tabelul proiectului e dens și are trei trepte ale lui, doar acolo: 15px/700 pentru titlul unui grup, 13px/500 pentru numele unei activități sau cereri, 11px/600 pentru antetul coloanelor și cifrele mărunte.
+
 ## Layout
 
 Un singur container: `max-w-[1400px]`, cu `px-4 / sm:px-6 / lg:px-10`. Modulul de spațiere e 4px.
 
-Ordinea verticală a fiecărui ecran e fixă și nu se negociază: **fâșia de locație** sus, apoi titlul, apoi bara de unelte, apoi conținutul. Fâșia de locație e primul lucru de pe pagină pentru că e răspunsul la prima întrebare.
+Ordinea verticală a fiecărui ecran e fixă și nu se negociază: locul sus, apoi titlul, apoi bara de unelte, apoi conținutul. Pe paginile din meniul de sus (Proiecte, Șabloane, Tablou de bord, Utilizatori, Audit, Notificări, Cereri de documente, Statusuri), meniul spune deja unde ești, deci pagina începe cu **antetul** ei (`components/ui/PageHeader.tsx`): titlul, rândul cu cifre și acțiunile la dreapta. Pe paginile de nivelul 2 (un proiect, dosarul nou, un utilizator, editorul de șablon), primul lucru e **fâșia de locație**, fără „Bonie” (feedback-ul lui Sandu, 21 octombrie 2026).
 
 Pe telefon, bara de unelte se rupe în rânduri, iar plăcuțele trec pe o coloană. Nimic nu se ascunde în spatele unui meniu hamburger — graful complet al fazelor rămâne vizibil la orice lățime. Corpul paginii nu derulează niciodată orizontal; ce e prea lat derulează în propriul container.
 
@@ -206,6 +208,8 @@ Semnalizarea e dreaptă. `plate` 2px, `plate-lg` 3px pentru suprafețele care pl
 
 Banda de fază e o **fâșie plină de 4px pe muchia de sus** a plăcuței. Niciodată un `border-left` colorat: acela e tiparul leneș pe care sistemul îl refuză explicit.
 
+**O singură excepție, cerută de client (20 octombrie 2026): tabelul proiectului**, făcut după monday. Acolo fiecare fază e un grup, iar banda ei devine **muchia stângă a grupului, de 4px** — coloana vertebrală care leagă antetul, rândurile și sumarul, nu decorul unui rând. Faza în pregătire are muchia întreruptă. Excepția nu se extinde la carduri, rânduri sau alerte de pe alte ecrane.
+
 Plăcuța nemontată — starea „în lucru” — are contur întrerupt, fond transparent și nicio bandă. Se citește imediat ca ceva ce încă nu e prins pe perete.
 
 ## Components
@@ -216,9 +220,19 @@ Plăcuța nemontată — starea „în lucru” — are contur întrerupt, fond 
 
 **Butonul** (`components/ui/Button.tsx`) are patru variante — primary, secondary, quiet, danger — și două dimensiuni. Înălțimea minimă e 44px pe aparatele fără maus și 40px acolo unde există cursor: peste minimul de 24×24 al WCAG 2.5.8, pentru că acolo lucrează degetul. Pragul e `pointer: coarse`, nu o lățime — o tabletă de 768px n-are maus, dar trece de orice breakpoint pe care l-am folosi ca înlocuitor.
 
-**Fâșia de locație** (`components/ui/LocationStrip.tsx`) e interacțiunea-semnătură. Un `<nav aria-label="Locație">` cu segmente ordonate, ultimul purtând `aria-current="page"`, plus acțiunea primară la dreapta. `Alt+L` o focalizează de oriunde din pagină; de acolo Tab parcurge etajele fără mouse. Folosește modificator, deci nu încalcă WCAG 2.1.4.
+**Fâșia de locație** (`components/ui/LocationStrip.tsx`) stă doar pe paginile de nivelul 2: „Proiecte / <proiect>”, „Proiecte / Dosar nou”, „Utilizatori / <nume>”, „Șabloane / <nume>”. Un `<nav aria-label="Locație">` cu segmente ordonate, ultimul purtând `aria-current="page"` și niciodată link, plus acțiunile paginii la dreapta. Linkurile spun „Înapoi la <segment>”; unde „înapoi” e o stare a aceleiași pagini (editorul de șabloane), segmentul e un buton. Nicio pagină nu are link spre ea însăși, iar „Bonie” nu apare. `Alt+L` o focalizează de oriunde din pagină; de acolo Tab parcurge etajele fără mouse. Folosește modificator, deci nu încalcă WCAG 2.1.4.
+
+**Antetul paginii** (`components/ui/PageHeader.tsx`) e locul paginilor din meniu: titlul (`h1`), dedesubt rândul cu cifre, acțiunile la dreapta (căutarea, butonul principal). De la `md` în sus rămâne lipit sub meniu (`top-16`, fundal `paper`) la derulare, ca „Șablon nou” sau „Proiect nou” să fie mereu la îndemână; linia de jos apare doar cât e lipit. Pe telefon derulează cu pagina: lipit, ar mânca un sfert din ecran.
 
 **Ecranul gol** (`components/ui/EmptyState.tsx`) spune ce lipsește și ce urmează. Fără ilustrație și fără glumă.
+
+**Calendarul** (`components/ui/DatePicker.tsx`) e singurul fel în care se alege un termen: `react-day-picker`, biblioteca din spatele componentei `Calendar` din shadcn/ui, desenat în paleta aplicației — luni la început, în română, ziua de azi subliniată în accent, ziua aleasă plină în accent. Plutește lângă celulă sau lângă plăcuța cu data (`DatePopover`, folosit de `InlineDateEditor`); în formularele din dialoguri se deschide sub câmp (`DateField`), fiindcă un panou plutitor s-ar tăia la marginea dialogului. O zi aleasă se salvează pe loc. Câmpul de dată al browserului nu se mai folosește pentru termene.
+
+**Tooltip-urile** (`components/ui/TooltipLayer.tsx`) sunt un singur strat, montat o dată în `app/layout.tsx`, care explică orice buton: textul vine din `data-tooltip` (explicația scrisă anume), apoi din `title` (pe care îl desenează în locul browserului), apoi din `aria-label`-ul butoanelor doar cu iconiță. Plăcuță de cerneală cu text alb, 12px, cu `--sg-lift` — plutește. Apare după 1 s, fără animație; imediat doar când treci de la un buton mic la altul cu un tooltip abia închis, niciodată pe rânduri (o plimbare prin panou nu aprinde tooltip-uri). Apare și la focus de la tastatură, se închide cu Escape, nu apare pe touch, iar mausul poate trece pe el fără să dispară (WCAG 1.4.13). Cu `data-tooltip-side="right"` (pe element sau pe un părinte) stă în dreapta, centrat vertical: în panoul fazelor nu acoperă rândul vecin. Dacă nu încape, revine deasupra sau dedesubt. Un buton nou primește tooltip fără nimic în plus; o explicație mai bună decât numele se scrie în `data-tooltip`. Nimic esențial nu stă doar în tooltip.
+
+**Alegătorul de persoane** (`components/project-table/AssigneePicker.tsx`) înlocuiește `select`-ul nativ pentru responsabil: căutare, inițiale, bifă pe cel ales, „Fără responsabil” la coadă.
+
+**Tabelul proiectului** (`components/project-table/`) e vederea „Tabel principal” din pagina proiectului, în gramatica lui monday: fiecare fază e un grup cu titlul în culoarea benzii ei, activitățile sunt rânduri pe coloane (Activitate · Responsabil · Status · Documente · Termen · Vizibil clientului · ⋯), iar cererile de documente sunt sub-rânduri, indentate, cu antetul lor. Sub fiecare grup stă un rând de sumar: o baterie subțire a stărilor, cererile gata și intervalul termenelor deschise; grupul strâns rămâne doar cu titlul și sumarul. Tabelul e liniștit, la cererea clientului („mai elegant, mai minimalist”, 20 octombrie 2026): fără linii verticale între celule, statusul e o etichetă în nuanța deschisă a semnalului (culoare, iconiță, cuvânt), lată fix ca să se alinieze pe coloană, „Vizibil clientului” e doar un ochi (iese în evidență doar ce e în pregătire), iar „⋯” și editarea cererilor apar la trecerea mausului. O primă variantă, cu celule de status pline și text alb, a fost respinsă ca prea grea. Starea activității vine din `lib/activity-status.ts` și spune întâi ce arde. Forma tabelului se alege după lățimea containerului (`@container`, prag 50rem), nu a ecranului: sub prag, fiecare rând devine o fișă.
 
 **Navigarea** e o fâșie de material cu o linie sub ea. Etajul curent poartă banda accentului dedesubt și fondul `accent-soft`. Fără pastile, fără sticlă mată.
 
@@ -229,7 +243,10 @@ Plăcuța nemontată — starea „în lucru” — are contur întrerupt, fond 
 ## Do's and Don'ts
 
 **Do**
-- Pornește orice ecran cu fâșia de locație, apoi titlul, apoi uneltele, apoi conținutul.
+- Pornește orice ecran din meniu cu `PageHeader` (titlul și uneltele, lipite de la `md` în sus), iar orice ecran de nivelul 2 cu fâșia de locație, apoi titlul, apoi uneltele, apoi conținutul.
+- Pune toate acțiunile unui rând (tabelul proiectului, cererile, lista de șabloane, editorul de șabloane) sub un singur „⋯” (`RowActionsMenu`): tooltip scurt („Acțiuni fază”, „Acțiuni cerere”, „Acțiuni șablon”), `aria-label` lung, cu numele elementului. Pe calculator „⋯” apare la hover, cât meniul e deschis și la focus de la tastatură; pe touch stă la vedere.
+- Dă mânerului de tras coloana lui, în flux, la stânga rândului: nu se suprapune pe nume, iar ascuns își păstrează locul.
+- Clientul încarcă fișiere dintr-un dialog al fiecărei cereri (`components/document-requests/ClientUploadDialog.tsx`): zonă de tras, listă, total, „Adaugă mai multe”, „Încarcă (N)”; închiderea cu fișiere alese și neîncărcate cere confirmare.
 - Ia banda unei faze din `bandFor(poziția ei)`. Niciodată o culoare aleasă de mână.
 - Pune întotdeauna cuvântul și iconița lângă culoare. `Signal` și `ToneIcon` fac asta din construcție; folosește-le în loc să desenezi o pastilă nouă.
 - Măsoară contrastul înainte să adaugi o culoare. Pragurile sunt 4,5:1 pentru text și 3:1 pentru componente.
@@ -238,7 +255,7 @@ Plăcuța nemontată — starea „în lucru” — are contur întrerupt, fond 
 
 **Don't**
 - Fără umbre pe plăcuțe. `--sg-lift` e doar pentru dialoguri, sertare și meniuri.
-- Fără `border-left` colorat pe carduri, rânduri sau alerte. Banda stă sus.
+- Fără `border-left` colorat pe carduri, rânduri sau alerte. Banda stă sus. (Singura excepție: muchia grupului din tabelul proiectului.)
 - Fără etichetă mică tracked deasupra unui titlu. Titlul se descurcă singur.
 - Fără nuanțe din afara paletei. Cele opt culori rătăcite din vechiul cod — purple, violet, rose, sky, blue, cyan, orange — nu se întorc.
 - Fără roșu pentru altceva decât ce chiar arde.

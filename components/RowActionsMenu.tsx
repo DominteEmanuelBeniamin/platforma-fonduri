@@ -11,6 +11,8 @@ export interface RowAction {
   /** Ascunde acțiunea fără să schimbi structura listei la apelant. */
   hidden?: boolean
   danger?: boolean
+  /** Doar pe ecran îngust: pe lat, acțiunea are butonul ei la vedere. */
+  mobileOnly?: boolean
 }
 
 /** Colțul din care se ancorează meniul, în coordonate de fereastră. */
@@ -30,14 +32,20 @@ type MenuPosition = { right: number; top?: number; bottom?: number }
  */
 export default function RowActionsMenu({
   label,
+  tooltip = 'Acțiuni',
   actions,
   busy = false,
   size = 'md',
   className = '',
   triggerClassName,
 }: {
-  /** Ce apare în `aria-label`: „Acțiuni pentru faza X”. */
+  /**
+   * Ce apare în `aria-label`: „Acțiuni pentru faza X”. Lung, cu numele, fiindcă
+   * cititoarele de ecran au nevoie de nume diferite pentru zeci de „⋯”.
+   */
   label: string
+  /** Tooltip-ul, scurt: „Acțiuni fază”. Numele întreg era prea lung de citit (S-18). */
+  tooltip?: string
   actions: RowAction[]
   busy?: boolean
   /** Doar iconița e mai mică pe rândurile de activitate; ținta rămâne 32 px. */
@@ -132,7 +140,7 @@ export default function RowActionsMenu({
   const iconSize = size === 'sm' ? 'w-3 h-3' : 'w-4 h-4'
 
   return (
-    <div ref={rootRef} data-open={open} className={`flex-shrink-0 ${className}`} onClick={e => e.stopPropagation()}>
+    <div ref={rootRef} data-open={open} className={`flex-shrink-0 ${visible.every(action => action.mobileOnly) ? 'sm:hidden' : ''} ${className}`} onClick={e => e.stopPropagation()}>
       <button
         ref={buttonRef}
         type="button"
@@ -143,10 +151,11 @@ export default function RowActionsMenu({
         }}
         disabled={busy}
         aria-label={label}
+        data-tooltip={tooltip}
         aria-haspopup="menu"
         aria-expanded={open}
         data-open={open}
-        className={triggerClassName ?? `${size === 'sm' ? 'p-2.5' : 'p-2'} rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface-2)] disabled:opacity-60`}
+        className={triggerClassName ?? `${size === 'sm' ? 'p-2.5' : 'p-2'} inline-flex items-center justify-center pointer-coarse:min-h-11 pointer-coarse:min-w-11 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface-2)] disabled:opacity-60`}
       >
         {busy
           ? <Loader2 className={`${iconSize} animate-spin`} />
@@ -165,8 +174,10 @@ export default function RowActionsMenu({
               key={action.label}
               type="button"
               role="menuitem"
-              onClick={() => { setOpen(false); action.onSelect() }}
-              className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-[var(--p-surface-2)] ${
+              // Focusul revine pe „⋯” înainte de acțiune: un dialog deschis de ea
+              // știe astfel unde să-l întoarcă, iar un câmp pe loc îl ia singur.
+              onClick={() => { setOpen(false); buttonRef.current?.focus(); action.onSelect() }}
+              className={`${action.mobileOnly ? 'sm:hidden ' : ''}w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-[var(--p-surface-2)] ${
                 action.danger ? 'text-[var(--p-danger)]' : 'text-[var(--p-ink)]'
               }`}
             >

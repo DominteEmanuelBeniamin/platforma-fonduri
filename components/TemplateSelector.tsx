@@ -64,7 +64,7 @@ export default function TemplateSelector({ selectedTemplateId, onSelect }: Templ
         Template proiect <span className="text-ink-faint font-normal">(opțional)</span>
       </label>
 
-      <button
+      <button data-tooltip="Alege șablonul din care pornește proiectul"
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-left ${
@@ -91,7 +91,7 @@ export default function TemplateSelector({ selectedTemplateId, onSelect }: Templ
         </div>
         <div className="flex items-center gap-2">
           {selectedTemplate && (
-            <button type="button" onClick={(e) => { e.stopPropagation(); onSelect(null) }} className="p-1 text-ink-faint hover:text-ink-soft hover:bg-paper-sunk rounded">
+            <button aria-label="Fără șablon" type="button" onClick={(e) => { e.stopPropagation(); onSelect(null) }} className="p-1 text-ink-faint hover:text-ink-soft hover:bg-paper-sunk rounded">
               <X className="w-4 h-4" />
             </button>
           )}
@@ -103,7 +103,7 @@ export default function TemplateSelector({ selectedTemplateId, onSelect }: Templ
         <>
           <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
           <div className="absolute z-20 w-full mt-2 bg-white rounded-xl border border-rule shadow-lg max-h-80 overflow-y-auto">
-            <button
+            <button data-tooltip="Proiectul pornește gol, fără faze"
               type="button"
               onClick={() => { onSelect(null); setIsOpen(false) }}
               className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-paper-sunk text-left ${!selectedTemplateId ? 'bg-paper-sunk' : ''}`}
@@ -124,7 +124,7 @@ export default function TemplateSelector({ selectedTemplateId, onSelect }: Templ
               <div className="px-4 py-6 text-center text-sm text-ink-soft">Nu există template-uri</div>
             ) : (
               templates.map((template) => (
-                <button
+                <button data-tooltip="Pornește proiectul din acest șablon"
                   key={template.id}
                   type="button"
                   onClick={() => { onSelect(template.id); setIsOpen(false) }}

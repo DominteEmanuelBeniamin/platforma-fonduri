@@ -167,11 +167,11 @@ export default function ConfirmDeleteModal({
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-rule bg-paper-sunk flex gap-3">
-          <Button variant="secondary" onClick={handleClose} disabled={loading} className="flex-1">
+          <Button data-tooltip="Închide fără să ștergi" variant="secondary" onClick={handleClose} disabled={loading} className="flex-1">
             {canConfirm ? 'Anulează' : 'Închide'}
           </Button>
 
-          {canConfirm && <Button
+          {canConfirm && <Button data-tooltip="Confirmă ștergerea"
             variant="danger"
             onClick={handleConfirm}
             disabled={!isConfirmEnabled || loading}

@@ -47,7 +47,7 @@ export interface SaveActivityInput {
 export interface SavePhaseInput {
   id: string
   name: string
-  project_status_id: string
+  project_status_id?: string | null
   duplication?: unknown
   source_local_id?: string
   activities?: SaveActivityInput[]
@@ -238,9 +238,9 @@ export function planTemplateSave(
     const phase = input.phases[pIdx]
     const phaseName = phase.name?.trim()
     if (!phaseName) return { ok: false, error: 'Fiecare fază trebuie să aibă un nume.' }
-    // Fiecare fază are un status de proiect: îl primește proiectul la import.
-    const statusId = phase.project_status_id
-    if (!statusId) return { ok: false, error: `Faza "${phaseName}" nu are status.` }
+    // Statusul fazei nu se mai alege în editor. Coloana rămâne: faza își
+    // păstrează statusul pe care îl are, iar una fără status rămâne fără.
+    const statusId = phase.project_status_id || null
 
     let phaseId: string
     if (isPersistentTemplateId(phase.id)) {

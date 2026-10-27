@@ -251,6 +251,20 @@ export function countHiddenRoots(
 }
 
 /**
+ * Proiectul are măcar o fază, o activitate sau o cerere finalizată. De asta
+ * depinde dacă apare comutatorul „Arată și ce e finalizat”, nu de câte ascunde
+ * acum: o activitate finalizată cu cereri încă deschise rămâne la vedere, deci
+ * cifra poate fi 0, iar comutatorul nu trebuie să dispară la propriul clic.
+ */
+export function hasFinalItems(phases: readonly PhaseLike[], requests: readonly RequestLike[]): boolean {
+  for (const phase of phases) {
+    if (isPhaseFinal(phase)) return true
+    if ((phase.activities ?? []).some(isActivityFinal)) return true
+  }
+  return requests.some(request => !request.deleted_at && isRequestFinal(request))
+}
+
+/**
  * Rândul care ține locul celor ascunse dintr-o listă (D9: și la client). Toate
  * cuvintele sunt de genul feminin — fază, activitate, cerere — deci acordul e
  * mereu „finalizată / finalizate".

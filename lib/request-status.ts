@@ -23,8 +23,10 @@ export type RequestStatusInfo = {
 export const REQUEST_STATUS_INFO: Record<RequestStatus, RequestStatusInfo> = {
   // Ceasul: mingea e la client.
   pending: { label: 'Așteaptă răspuns', clientLabel: 'De încărcat', tone: 'pending' },
-  // Ochiul: e rândul echipei să se uite.
-  review: { label: 'În verificare', clientLabel: 'În verificare', tone: 'review' },
+  // Ochiul: e rândul echipei să se uite. Pentru echipă, același cuvânt ca la
+  // activitate („De verificat”): două cuvinte pentru aceeași stare se citeau
+  // ca două stări (feedback-ul lui Sandu, 22 octombrie 2026).
+  review: { label: 'De verificat', clientLabel: 'În verificare', tone: 'review' },
   approved: { label: 'Aprobat', clientLabel: 'Aprobat', tone: 'ok' },
   rejected: { label: 'Respins', clientLabel: 'Respins', tone: 'danger' },
   // Separată de „Aprobat": cererea s-a încheiat fără să mai aștepte nimic.

@@ -320,8 +320,8 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
       const json = (await res.json().catch(() => null)) as GetResponse | null
 
       if (!res.ok) {
-        setError(userErrorMessage(res.status, 'Nu am putut încărca mesajele.'))
         resetState()
+        setError(userErrorMessage(res.status, 'Nu am putut încărca mesajele.'))
         return
       }
 

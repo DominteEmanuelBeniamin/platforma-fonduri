@@ -115,6 +115,7 @@ import ChatMessageList from './chat/ChatMessageList'
 import ChatTextQueueStatus from './chat/ChatTextQueueStatus'
 import { Spinner } from '@/components/ui/Spinner'
 import { useChatTextQueue } from '@/hooks/useChatTextQueue'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 export default function ProjectChatDrawer({
   open,
@@ -971,7 +972,7 @@ export default function ProjectChatDrawer({
           )}
           {hasMore && (
             <div className="flex justify-center pb-4 pt-2">
-              <button
+              <button data-tooltip="Încarcă mesajele mai vechi"
                 onClick={() => {
                   prevScrollHeightRef.current =
                     listRef.current?.scrollHeight || null;
@@ -986,6 +987,12 @@ export default function ProjectChatDrawer({
           )}
 
           {error && <FeedbackMessage variant="error" className="mb-4">{error}</FeedbackMessage>}
+
+          {!loading && !error && messages.length === 0 && (
+            <EmptyState title="Niciun mesaj în acest proiect încă">
+              {readOnly ? 'Proiectul este încheiat. Nu au fost trimise mesaje.' : 'Scrie primul mesaj pentru a începe conversația despre proiect.'}
+            </EmptyState>
+          )}
 
           <ChatMessageList
             messages={messages}
@@ -1063,7 +1070,7 @@ export default function ProjectChatDrawer({
             <div className="mb-2 rounded-lg bg-[var(--sg-danger-soft)] px-3 py-2 text-xs text-[var(--sg-danger)]">
               <p>{composerError}</p>
               {showRequestCta && (
-                <button type="button" onClick={openDocumentRequestSearch} className="mt-1 font-semibold underline">
+                <button data-tooltip="Alege cererea de document despre care scrii" type="button" onClick={openDocumentRequestSearch} className="mt-1 font-semibold underline">
                   Alege cererea potrivită
                 </button>
               )}
@@ -1127,7 +1134,7 @@ export default function ProjectChatDrawer({
               className="flex-1 bg-transparent resize-none px-3 py-2.5 text-sm text-ink placeholder:text-ink-faint outline-none focus-visible:outline-none! max-h-[120px]"
               rows={1}
             />
-            <button
+            <button data-tooltip="Trimite mesajul"
               type="button"
               onClick={handleSend}
               disabled={!canSend}

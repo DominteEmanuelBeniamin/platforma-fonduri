@@ -19,6 +19,7 @@ import ChatActionMenu from '@/components/chat/ChatActionMenu'
 import ChatTextQueueStatus from '@/components/chat/ChatTextQueueStatus'
 import { Spinner } from '@/components/ui/Spinner'
 import { useChatTextQueue } from '@/hooks/useChatTextQueue'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 type Props = {
   conversationId: string
@@ -380,7 +381,7 @@ export default function PrivateChatView({
       >
         {hasMore && (
           <div className="flex justify-center pb-4 pt-2">
-            <button
+            <button data-tooltip="Încarcă mesajele mai vechi din conversație"
               onClick={() => {
                 prevScrollHeightRef.current = listRef.current?.scrollHeight || null
                 void loadMore()
@@ -394,6 +395,12 @@ export default function PrivateChatView({
         )}
 
         {error && <FeedbackMessage variant="error" className="mb-4">{error}</FeedbackMessage>}
+
+        {!loading && !error && messages.length === 0 && (
+          <EmptyState title="Niciun mesaj încă">
+            Scrie primul mesaj pentru a începe conversația.
+          </EmptyState>
+        )}
 
         {messages.map((m, idx) => {
           const prev = idx > 0 ? messages[idx - 1] : null
@@ -521,13 +528,13 @@ export default function PrivateChatView({
                           className="min-h-[100px] w-full resize-none bg-transparent px-4 py-3 text-[14px] text-ink focus:outline-none"
                         />
                         <div className="flex justify-end gap-2 border-t border-rule bg-paper-sunk p-2">
-                          <button
+                          <button data-tooltip="Renunță la modificare"
                             onClick={cancelEdit}
                             className="rounded-lg px-3 py-1.5 text-xs font-bold text-ink-soft hover:bg-paper"
                           >
                             Anulează
                           </button>
-                          <button
+                          <button data-tooltip="Salvează mesajul modificat"
                             onClick={() => void saveEdit(m.id)}
                             className="rounded-lg bg-ink px-3 py-1.5 text-xs font-bold text-white shadow-md hover:brightness-90"
                           >
@@ -575,7 +582,7 @@ export default function PrivateChatView({
                                 openMenuId === m.id ? 'bg-paper text-ink' : 'text-ink-faint hover:bg-paper hover:text-ink'
                               }`}
                           >
-                                <button
+                                <button data-tooltip="Modifică mesajul"
                                   type="button"
                                   role="menuitem"
                                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-ink hover:bg-paper-sunk"
@@ -588,7 +595,7 @@ export default function PrivateChatView({
                                   Editează
                                 </button>
 
-                                <button
+                                <button data-tooltip="Șterge mesajul"
                                   type="button"
                                   role="menuitem"
                                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)]"
@@ -668,7 +675,7 @@ export default function PrivateChatView({
             className="max-h-[120px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm text-ink outline-none focus-visible:outline-none! placeholder:text-ink-faint"
             rows={1}
           />
-          <button
+          <button data-tooltip="Trimite mesajul"
             onClick={() => void handleSend()}
             disabled={!canSend}
             className={`mb-0.5 mr-0.5 flex h-[38px] flex-shrink-0 items-center gap-2 rounded-2xl px-4 text-sm font-semibold transition-all ${

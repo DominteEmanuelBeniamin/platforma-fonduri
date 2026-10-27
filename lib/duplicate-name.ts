@@ -1,5 +1,9 @@
-/** Sufixul pe care îl pune chiar funcția asta: „ (copie)” sau „ (copie 7)”. */
-const COPY_SUFFIX = /\s*\(copie(?:\s+\d+)?\)$/
+/**
+ * Sufixul pe care îl pune chiar funcția asta: „ (copie)” sau „ (copie 7)”. Fără
+ * diferențe de majuscule, ca să recunoască și „ (Copie)” pus de duplicarea
+ * veche a șabloanelor (Z-01).
+ */
+const COPY_SUFFIX = /\s*\(copie(?:\s+\d+)?\)$/i
 
 /**
  * Numele unei copii, în stilul „X (copie)” / „X (copie 2)”.
@@ -16,7 +20,10 @@ export function buildCopyName(
   existingNames: Iterable<string | null | undefined>,
 ): string {
   const trimmed = (originalName ?? '').trim()
-  const base = trimmed.replace(COPY_SUFFIX, '').trim() || 'Fără nume'
+  // Toate sufixele: o copie veche poate fi deja „X (Copie) (Copie)”.
+  let base = trimmed
+  while (COPY_SUFFIX.test(base)) base = base.replace(COPY_SUFFIX, '').trim()
+  base = base || 'Fără nume'
 
   const taken = new Set<string>()
   for (const name of existingNames) {

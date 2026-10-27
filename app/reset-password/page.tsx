@@ -290,14 +290,14 @@ export default function ResetPasswordPage() {
         {view === 'temporary' && (
           <div className="space-y-4">
             <p role="alert" aria-live="assertive" className="text-sm text-[var(--sg-danger)]">{error ?? TEMPORARY_MESSAGE}</p>
-            <Button type="button" variant="secondary" onClick={retryCheck} className="w-full">Încearcă din nou</Button>
+            <Button data-tooltip="Verifică din nou linkul primit pe email" type="button" variant="secondary" onClick={retryCheck} className="w-full">Încearcă din nou</Button>
           </div>
         )}
 
         {view === 'invalid' && (
           <div className="space-y-4">
             <p role="alert" aria-live="assertive" className="text-sm text-[var(--sg-danger)]">{INVALID_MESSAGE}</p>
-            <ButtonLink href="/forgot-password" variant="primary" className="w-full">Solicită un link nou</ButtonLink>
+            <ButtonLink data-tooltip="Primești pe email un link nou de resetare" href="/forgot-password" variant="primary" className="w-full">Solicită un link nou</ButtonLink>
           </div>
         )}
 
@@ -367,14 +367,14 @@ export default function ResetPasswordPage() {
 
             {error && <p id="reset-password-error" role="alert" aria-live="assertive" className="text-sm text-[var(--sg-danger)]">{error}</p>}
 
-            <Button type="submit" variant="primary" disabled={busy} className="w-full">
+            <Button data-tooltip="Salvează parola nouă" type="submit" variant="primary" disabled={busy} className="w-full">
               {busy ? 'Se salvează…' : 'Schimbă parola'}
             </Button>
           </form>
         )}
 
         <p className="mt-6 text-center text-sm">
-          <Link href={view === 'completed' ? '/login?recovery=complete' : '/login'} className="font-semibold text-[var(--sg-accent-ink)] underline underline-offset-4">Înapoi la autentificare</Link>
+          <Link data-tooltip="Înapoi la pagina de intrare în cont" href={view === 'completed' ? '/login?recovery=complete' : '/login'} className="font-semibold text-[var(--sg-accent-ink)] underline underline-offset-4">Înapoi la autentificare</Link>
         </p>
       </section>
     </div>

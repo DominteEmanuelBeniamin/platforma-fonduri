@@ -171,6 +171,8 @@ test.describe('duplicare cu scriere reală în proiect efemer', () => {
       && response.url().includes(`/api/projects/${fixture!.projectId}/phases/`)
       && response.url().endsWith('/duplicate'))
     await page.getByRole('menuitem', { name: 'Duplică' }).first().click()
+    // Duplicarea cere confirmare: un clic greșit în meniu nu mai creează nimic.
+    await page.getByRole('dialog', { name: /^Duplici / }).getByRole('button', { name: 'Duplică' }).click()
     const response = await duplicateResponse
     const body = await response.json()
     registerCreatedPhase(copies!, body.phase?.id)
@@ -218,6 +220,8 @@ test.describe('duplicare cu scriere reală în proiect efemer', () => {
       && response.url().includes(`/api/projects/${fixture!.projectId}/phases/${target.phaseId}/activities/`)
       && response.url().endsWith('/duplicate'))
     await page.getByRole('menuitem', { name: 'Duplică' }).first().click()
+    // Duplicarea cere confirmare: un clic greșit în meniu nu mai creează nimic.
+    await page.getByRole('dialog', { name: /^Duplici / }).getByRole('button', { name: 'Duplică' }).click()
     const response = await duplicateResponse
     const body = await response.json()
     registerCreatedActivity(copies!, body.activity?.id, target.phaseId)

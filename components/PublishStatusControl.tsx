@@ -1,9 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { CalendarClock, UserRound } from 'lucide-react'
+import { CalendarClock, CircleDashed, Eye, UserRound } from 'lucide-react'
 import { BLOCKER_ASSIGNEE, BLOCKER_DEADLINE, PUBLISH_BLOCKERS } from '@/lib/publish-rules'
 import InlineDateEditor from '@/components/InlineDateEditor'
+
+const PUBLISH_BLOCKERS_SHORT: Record<string, string> = Object.fromEntries(
+  Object.entries(PUBLISH_BLOCKERS as Record<string, { short: string }>).map(([key, value]) => [key, value.short]),
+)
 
 interface PublishStatusControlProps {
   status: 'draft' | 'published'
@@ -20,6 +24,14 @@ interface PublishStatusControlProps {
   /** Dacă e dat, termenul se completează pe loc, fără a pleca din pagină. */
   onSetDeadline?: (value: string) => Promise<void> | void
   size?: 'sm' | 'md'
+  /**
+   * Într-o celulă de tabel: ce lipsește se spune pe un singur rând, fără
+   * butoane. Termenul și responsabilul au acolo coloanele lor, care se
+   * completează pe loc.
+   */
+  compact?: boolean
+  /** Tooltip-ul ochiului din forma compactă. */
+  visibleTooltip?: string
 }
 
 /**
@@ -38,6 +50,8 @@ export default function PublishStatusControl({
   blockers = [],
   onSetDeadline,
   size = 'md',
+  compact = false,
+  visibleTooltip = 'Vizibil clientului: clientul vede acest element',
 }: PublishStatusControlProps) {
   const [editingDeadline, setEditingDeadline] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -50,14 +64,26 @@ export default function PublishStatusControl({
   // condiția se sprijinea tăcut pe filtrarea draft-urilor de pe server.
   if (!canPublish && !showPublishedStatus) return null
 
+  // În tabel, „Vizibil clientului” e starea obișnuită a aproape fiecărui rând:
+  // rămâne doar ochiul, cu cuvântul în tooltip și pentru cititoare. Ce iese
+  // în evidență e excepția — ce încă nu vede clientul.
+  if (compact && !isDraft) {
+    return (
+      // Ținta e cât un buton mic, nu cât iconița de 14 px: tooltip-ul nu apărea
+      // decât dacă nimereai exact ochiul (S-03).
+      <span data-tooltip={visibleTooltip} className="inline-flex min-h-6 min-w-6 items-center justify-center p-1.5 text-ink-faint">
+        <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+        <span className="sr-only">Vizibil clientului</span>
+      </span>
+    )
+  }
+
   if (!canPublish || !isDraft) {
     return (
-      <span className={`inline-flex flex-shrink-0 items-center gap-1.5 rounded-[var(--radius-plate)] border px-2 py-0.5 ${textClass} ${
-        isDraft
-          ? 'border-dashed border-rule-strong text-ink-faint'
-          : 'border-rule bg-paper-sunk text-ink-soft'
-      }`}>
-        <span aria-hidden="true" className="font-bold">{isDraft ? '◌' : '●'}</span>
+      <span className={`inline-flex flex-shrink-0 items-center gap-1 text-ink-faint ${textClass}`}>
+        {isDraft
+          ? <CircleDashed className="h-3 w-3 shrink-0" aria-hidden="true" />
+          : <Eye className="h-3 w-3 shrink-0" aria-hidden="true" />}
         {isDraft ? 'În pregătire' : 'Vizibil clientului'}
       </span>
     )
@@ -79,11 +105,28 @@ export default function PublishStatusControl({
         aria-checked={false}
         onClick={e => { e.stopPropagation(); onPublish() }}
         title="Apasă ca să publici — devine vizibil clientului"
-        className={`inline-flex items-center gap-2 flex-shrink-0 ${textClass}`}
+        className={`inline-flex min-h-7 items-center gap-2 flex-shrink-0 rounded-[var(--radius-plate)] bg-transparent px-1.5 transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)] ${textClass}`}
       >
         {toggleVisual}
         <span className="text-ink-soft">În pregătire</span>
       </button>
+    )
+  }
+
+  if (compact) {
+    const missing = blockers.map(blocker => PUBLISH_BLOCKERS_SHORT[blocker] ?? blocker)
+    return (
+      <span
+        role="switch"
+        aria-checked={false}
+        aria-disabled
+        onClick={e => e.stopPropagation()}
+        title={`Nu poate fi publicat: lipsește ${missing.join(' și ')}`}
+        className="inline-flex cursor-not-allowed items-center gap-2 text-[11px] leading-tight text-ink-faint"
+      >
+        <span className="opacity-60">{toggleVisual}</span>
+        <span>Lipsă: {missing.join(', ')}</span>
+      </span>
     )
   }
 
@@ -104,7 +147,7 @@ export default function PublishStatusControl({
 
   const labels: Record<string, { short: string; long: string }> = PUBLISH_BLOCKERS
   const missingLabel = (blocker: string) => labels[blocker]?.short ?? blocker
-  const chipClass = 'inline-flex min-h-6 items-center gap-1 rounded-md border border-dashed border-rule-strong px-1.5 py-0.5 text-ink-soft transition-colors'
+  const chipClass = 'inline-flex min-h-6 items-center gap-1 rounded-[var(--radius-plate)] border border-dashed border-rule-strong px-1.5 py-0.5 text-ink-soft transition-colors'
 
   return (
     // Oprim propagarea și pentru taste: controlul stă în interiorul unor rânduri
@@ -119,7 +162,7 @@ export default function PublishStatusControl({
         aria-checked={false}
         aria-disabled
         title={`Nu poate fi publicat: lipsește ${blockers.map(missingLabel).join(' și ')}`}
-        className="inline-flex items-center gap-2 opacity-60 cursor-not-allowed"
+        className="inline-flex min-h-6 items-center gap-2 opacity-60 cursor-not-allowed"
       >
         {toggleVisual}
         <span className="text-ink-soft">În pregătire</span>

@@ -62,7 +62,7 @@
   --sg-pending-soft: #F3EAE2;
   --sg-closed:       #625E59;  /* închis, arhivat */
   --sg-closed-soft:  #EAE7E2;
-  --sg-draft:        #6B7079;  /* în lucru, nepublicat */
+  --sg-draft:        #61666E;  /* în lucru, nepublicat — 4.76:1 pe draft-soft; ink-faint dădea 4.10:1 */
   --sg-draft-soft:   #EAE9E5;
 
   /* --- Geometrie: semnalizarea e dreaptă ---------------------------------- */
@@ -276,6 +276,21 @@ input:-webkit-autofill:active {
 
 /* 2. Animația "Fade In Up" - pentru încărcarea elegantă a dashboard-ului */
 /* Face ca elementele să apară de jos în sus, fluid */
+/* Tooltip-ul apare scurt, de jos în sus; fără mișcare la cerere. */
+/* Locul barei de derulare rămâne rezervat, iar compensarea pe care o pune
+   blocarea derulării din dialogurile Radix (`margin-right` pe `body`) se
+   anulează: cu amândouă, pagina sărea 5px la stânga la orice dialog deschis
+   (feedback-ul lui Sandu, 22 octombrie 2026). */
+html { scrollbar-gutter: stable; }
+/* Meniul de sus (64px) și, de la md în sus, antetul paginii stau lipite: un
+   element focalizat cu tastatura se oprește sub ele, nu dedesubt (WCAG 2.4.11).
+   `--antet-lipit` îl pune `PageHeader` cât e pe pagină. */
+html { scroll-padding-top: calc(4rem + var(--antet-lipit, 0px) + 0.5rem); }
+html body[data-scroll-locked] { margin-right: 0 !important; }
+
+/* Tooltip-ul apare fără fade: după o secundă de așteptare, o animație doar îl
+   mai întârzie (feedback-ul lui Sandu, 21 octombrie 2026). */
+
 @keyframes fadeInUp {
   from {
     opacity: 0;

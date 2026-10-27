@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
+import { buildCopyName } from '@/lib/duplicate-name'
 import { createClient } from '@supabase/supabase-js'
 import { requireTemplateManager } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
@@ -64,10 +65,18 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       counter++
     }
 
+    // Copia își ia un nume liber, „X (copie)”, „X (copie 2)”, nu încă un
+    // „(Copie)” lipit de coadă (Z-01): numele șabloanelor sunt unice (D10).
+    const { data: allTemplates, error: namesError } = await supabaseAdmin
+      .from('project_templates')
+      .select('name')
+    if (namesError) throw namesError
+    const copyName = buildCopyName(original.name, (allTemplates ?? []).map(template => template.name))
+
     const { data: newTemplate, error: createError } = await supabaseAdmin
       .from('project_templates')
       .insert({
-        name: `${original.name} (Copie)`,
+        name: copyName,
         slug: newSlug,
         description: original.description,
         measure_id: original.measure_id,
