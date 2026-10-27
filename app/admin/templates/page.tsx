@@ -358,7 +358,7 @@ function AdminTemplatesContent() {
   // Drag & drop reorder — doar în array-urile locale; handleSave persistă
   // order_index = index + 1. Elementul tras stă într-un ref, ca funcțiile de
   // tras să rămână stabile pentru rândurile `memo`; `dragId` doar îl estompează.
-  const dragRef = useRef<{ kind: DragKind; parentKey: string; id: string } | null>(null)
+  const dragRef = useRef<{ kind: DragKind; parentKey: string; id: string; targetId?: string } | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
@@ -632,6 +632,9 @@ function AdminTemplatesContent() {
         // Doar în aceeași listă: același nivel și același părinte.
         if (!drag || drag.kind !== kind || drag.parentKey !== parentKey) return
         event.preventDefault()
+        // Evenimentele repetate înainte de randare ar inversa aceeași mutare.
+        if (drag.targetId === targetId) return
+        drag.targetId = targetId
         if (drag.id === targetId) return
         if (kind === 'phase') setPhases(current => reorderList(current, drag.id, targetId))
         else if (kind === 'activity') {
@@ -1368,7 +1371,7 @@ function AdminTemplatesContent() {
                                     {template.description && (
                                       <span className="mt-0.5 text-xs leading-5 text-ink-soft line-clamp-1" title={template.description}>{template.description}</span>
                                     )}
-                                    <span className="mt-0.5 block text-xs text-ink-faint lg:hidden">
+                                    <span className="mt-0.5 block text-xs text-ink-soft lg:hidden">
                                       {countLabel(phaseCount, 'fază', 'faze')} · {countLabel(activityCount, 'activitate', 'activități')} · {countLabel(countTemplateDocuments(template), 'document', 'documente')}
                                     </span>
                                   </div>
@@ -1432,9 +1435,9 @@ function AdminTemplatesContent() {
                                           className="mt-1 h-3.5 w-[var(--sg-rail)] shrink-0 self-start rounded-[1px]"
                                           style={{ background: bandVar(bandFor(index)) }}
                                         />
-                                        <span className="w-5 shrink-0 tabular-nums text-ink-faint">{index + 1}.</span>
+                                        <span className="w-5 shrink-0 tabular-nums text-ink-soft">{index + 1}.</span>
                                         <span className="min-w-0 flex-1 font-medium text-ink">{phase.name}</span>
-                                        <span className="shrink-0 text-xs text-ink-faint">
+                                        <span className="shrink-0 text-xs text-ink-soft">
                                           {countLabel(phase.activities?.length || 0, 'activitate', 'activități')}
                                         </span>
                                       </li>

@@ -140,3 +140,52 @@ test('statusul activității, produs prin acțiuni reale, cu ordinea corectă la
   await table.showFinal.check()
   await expect(table.activityStatus(activityId)).toHaveText('Finalizată')
 })
+
+test('proiectul așteaptă profilul clientului și arată erorile de profil', async ({ team, as, seeds }) => {
+  const project = await seedProject({
+    label: 'profil client',
+    client: team.client,
+    members: [team.senior],
+    phases: [{ name: 'Faza', activities: [{ name: 'Activitate', requests: [{ name: 'Document' }] }] }],
+  })
+  seeds.projects.add(project.id)
+  const page = await as(team.client)
+  let releaseProfile!: () => void
+  const heldProfile = new Promise<void>(resolve => { releaseProfile = resolve })
+  await page.route('**/api/me', async route => {
+    await heldProfile
+    await route.continue()
+  })
+  const responses = ['', '/phases', '/document-requests'].map(suffix =>
+    page.waitForResponse(response => response.url().endsWith(`/api/projects/${project.id}${suffix}`) && response.ok()),
+  )
+  try {
+    await page.goto(`/projects/${project.id}`)
+    await Promise.all((await Promise.all(responses)).map(response => response.finished()))
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await expect(page.getByText('Se încarcă proiectul…')).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Echipa proiectului/ })).toHaveCount(0)
+    await expect(page.getByText('La client', { exact: true })).toHaveCount(0)
+  } finally {
+    releaseProfile()
+  }
+  const table = new ProjectTablePage(page)
+  await expect(table.activityStatus(project.activities.get('Activitate')!)).toHaveText('De încărcat')
+  await expect(page.getByRole('button', { name: /^Echipa proiectului/ })).toHaveCount(0)
+
+  const failed = await as(team.client)
+  await failed.route('**/api/me', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }))
+  await failed.goto(`/projects/${project.id}`)
+  await expect(failed.getByRole('alert').getByText('Nu am putut încărca profilul tău.')).toBeVisible()
+  const reload = failed.getByRole('button', { name: 'Reîncarcă pagina' })
+  await expect(reload).toBeVisible()
+  if (await failed.evaluate(() => matchMedia('(pointer: coarse)').matches)) {
+    const bounds = await reload.boundingBox()
+    expect(bounds!.height).toBeGreaterThanOrEqual(44)
+    expect(bounds!.width).toBeGreaterThanOrEqual(44)
+  }
+  await expect(failed.getByRole('button', { name: /^Echipa proiectului/ })).toHaveCount(0)
+  await failed.unroute('**/api/me')
+  await reload.click()
+  await expect(new ProjectTablePage(failed).activityStatus(project.activities.get('Activitate')!)).toHaveText('De încărcat')
+})

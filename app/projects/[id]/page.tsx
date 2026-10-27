@@ -159,7 +159,7 @@ function ProjectDetailsContent() {
     return typeof id === 'string' && id.trim().length > 0 ? id : null
   }, [params])
 
-  const { loading: authLoading, token, apiFetch, profile } = useAuth()
+  const { loading: authLoading, token, apiFetch, profile, profileError } = useAuth()
   const { showToast, confirm } = useToast()
   const patchField = usePatchField()
 
@@ -1121,7 +1121,7 @@ function ProjectDetailsContent() {
       return
     }
     if (handledDeepLink.current === deepLinkKey) return
-    if (loading || activePhaseId !== targetPhaseId) return
+    if (authLoading || loading || !profile || profileError || activePhaseId !== targetPhaseId) return
     const anchor = targetDocumentId
       ? `request-${targetDocumentId}`
       : targetActivityId
@@ -1132,7 +1132,7 @@ function ProjectDetailsContent() {
     handledDeepLink.current = deepLinkKey
     revealTarget(anchor, 250)
     if (targetDocumentId) setSelectedDocumentRequestId(targetDocumentId)
-  }, [loading, targetActivityId, targetPhaseId, targetDocumentId, activePhaseId, revealTarget])
+  }, [authLoading, loading, profile, profileError, targetActivityId, targetPhaseId, targetDocumentId, activePhaseId, revealTarget])
 
   // Sari direct la o activitate (din panoul "Ce e de făcut"), fără reload.
   // Cu requestId, deschide direct fișa cererii — zero click-uri suplimentare
@@ -1357,7 +1357,22 @@ function ProjectDetailsContent() {
 
   // ─── Loading / error ──────────────────────────────────────────────────────
 
-  if (authLoading || loading) {
+  if (!authLoading && profileError) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-paper" role="alert">
+        <div className="text-center">
+          <AlertCircle className="mx-auto mb-3 h-12 w-12" style={{ color: 'var(--sg-danger)' }} aria-hidden="true" />
+          <h2 className="mb-4 text-lg font-semibold text-ink">Nu am putut încărca profilul tău.</h2>
+          <button type="button" onClick={() => window.location.reload()}
+            className="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-plate)] bg-[var(--sg-accent)] px-4 text-sm font-semibold text-white pointer-fine:min-h-10">
+            Reîncarcă pagina
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (authLoading || loading || !profile) {
     return (
       <div className="flex h-screen items-center justify-center bg-paper" role="status" aria-live="polite">
         <div className="flex flex-col items-center gap-3">

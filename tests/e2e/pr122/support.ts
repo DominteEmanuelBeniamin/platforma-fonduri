@@ -35,7 +35,7 @@ export const q = (value: string) => "'" + value.replaceAll("'", "''") + "'"
 /** SQL pe baza locală; folosit numai pentru seed înainte de acțiune și pentru verificări după ea. */
 export function sql(query: string): string {
   try {
-    return execFileSync('docker', ['exec', '-i', 'supabase_db_platforma-fonduri', 'psql', '-U', 'postgres', '-d', 'postgres', '-X', '-v', 'ON_ERROR_STOP=1', '-qAt'], {
+    return execFileSync('docker', ['exec', '-i', process.env.E2E_DB_CONTAINER || 'supabase_db_platforma-fonduri', 'psql', '-U', 'postgres', '-d', 'postgres', '-X', '-v', 'ON_ERROR_STOP=1', '-qAt'], {
       input: "set statement_timeout='15s'; " + query,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],

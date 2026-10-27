@@ -107,7 +107,7 @@ export function setLocalFixturePassword(userId: string, password: string, env: R
   const literal = "'" + password.replaceAll("'", "''") + "'"
   const tag = '$fixture_' + randomUUID().replaceAll('-', '') + '$'
   try {
-    execFileSync('docker', ['exec', '-i', 'supabase_db_platforma-fonduri', 'psql', '-U', 'postgres', '-d', 'postgres', '-X', '-v', 'ON_ERROR_STOP=1', '-qAt'], {
+    execFileSync('docker', ['exec', '-i', process.env.E2E_DB_CONTAINER || 'supabase_db_platforma-fonduri', 'psql', '-U', 'postgres', '-d', 'postgres', '-X', '-v', 'ON_ERROR_STOP=1', '-qAt'], {
       input: `set log_min_error_statement='panic'; set log_parameter_max_length_on_error=0; set standard_conforming_strings=on;
         do ${tag} begin
           perform pg_advisory_xact_lock(105, 1);

@@ -22,6 +22,7 @@ type AuthCtx = {
   userId: string | null
   user: unknown | null
   profile: Profile
+  profileError: boolean
   loading: boolean
   apiFetch: (input: RequestInfo, init?: RequestInit) => Promise<Response>
   installSession: (session: { access_token: string; refresh_token: string }, expectedUserId: string) => Promise<boolean>
@@ -44,6 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userId, setUserId] = useState<string | null>(null)
   const [user, setUser] = useState<unknown | null>(null)
   const [profile, setProfile] = useState<Profile>(null)
+  const [profileError, setProfileError] = useState(false)
   const [loading, setLoading] = useState(true)
   const sessionFailureHandled = useRef(false)
   const activeTokenRef = useRef<string | null>(null)
@@ -61,6 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (identityRef.current !== nextUserId) {
       identityRef.current = nextUserId
       setProfile(null)
+      setProfileError(false)
       // Doar canalele de acum, ale identității vechi. removeAllChannels() golea
       // la final lista și închidea socketul, inclusiv canalele pe care providerii
       // remontați le deschideau între timp pentru noua identitate.
@@ -218,13 +221,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Token invalid / expiră / alte erori -> logout "soft"
           if (res.status !== 401) console.warn('Failed to load /api/me:', json)
           setProfile(null)
+          setProfileError(true)
           return
         }
 
         // Acceptăm fie { profile }, fie { user, profile }
         setProfile(json?.profile ?? null)
+        setProfileError(!json?.profile?.role)
       } catch {
-        if (!cancelled) setProfile(null)
+        if (!cancelled) {
+          setProfile(null)
+          setProfileError(true)
+        }
       }
     }
 
@@ -259,8 +267,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [applySession, router, token])
 
   const value = useMemo(
-    () => ({ token, userId, user, profile, loading, apiFetch, installSession, signOut }),
-    [token, userId, user, profile, loading, apiFetch, installSession, signOut]
+    () => ({ token, userId, user, profile, profileError, loading, apiFetch, installSession, signOut }),
+    [token, userId, user, profile, profileError, loading, apiFetch, installSession, signOut]
   )
 
   return (

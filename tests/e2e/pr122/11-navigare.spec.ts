@@ -29,7 +29,8 @@ async function focusedObscuredBy(page: Page) {
     if (!el || el === document.body) return null
     const r = el.getBoundingClientRect()
     const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
-    if (!hit || el.contains(hit) || hit.contains(el)) return null
+    if (!hit) return `${el.getAttribute('aria-label') ?? el.textContent?.trim().slice(0, 40)} în afara ecranului`
+    if (el.contains(hit) || hit.contains(el)) return null
     const cover = hit.closest('nav, header, [class*="sticky"]') ?? hit
     return `${el.getAttribute('aria-label') ?? el.textContent?.trim().slice(0, 40)} acoperit de <${cover.tagName.toLowerCase()} ${cover.getAttribute('aria-label') ?? ''}>`
   })
@@ -70,13 +71,14 @@ test.describe('Flux 11 — navigarea', () => {
       await page.mouse.click(2, 400)
       await page.keyboard.press('End')
       await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(300)
-      const problems: string[] = []
       for (let i = 0; i < 25; i++) {
         await page.keyboard.press('Shift+Tab')
-        const obscured = await focusedObscuredBy(page)
-        if (obscured) problems.push(obscured)
+        // WebKit poate termina derularea pentru focus după evenimentul de tastatură.
+        await expect.poll(() => focusedObscuredBy(page), {
+          message: 'element cu focus ascuns sub barele lipite',
+          timeout: 1000,
+        }).toBeNull()
       }
-      expect(problems, 'elemente cu focus ascunse sub barele lipite').toEqual([])
     })
   }
 

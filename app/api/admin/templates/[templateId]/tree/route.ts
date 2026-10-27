@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { requireTemplateAccess } from '@/app/api/_utils/auth'
 import { saveTemplateTree, TemplateSaveError } from '@/app/api/_utils/template-save'
 import { markTemplateChanged } from '@/app/api/_utils/template-changes'
-import { templateNameRefusal } from '@/app/api/_utils/template-name'
+import { templateNameErrorResponse, templateNameRefusal } from '@/app/api/_utils/template-name'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -44,6 +44,8 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       : template
     return NextResponse.json({ template: saved })
   } catch (error: any) {
+    const nameError = templateNameErrorResponse(error)
+    if (nameError) return nameError
     if (error instanceof TemplateSaveError) {
       return NextResponse.json({ error: error.message }, { status: error.status })
     }

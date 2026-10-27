@@ -48,7 +48,7 @@ const errorKey = {
 function Title({ name, invalid, className }: { name: string; invalid: boolean; className: string }) {
   if (name.trim()) return <span className={`min-w-0 break-words ${className}`}>{name}</span>
   return (
-    <span className={`min-w-0 ${className} ${invalid ? 'text-[var(--sg-danger)]' : 'text-ink-faint'}`}>
+    <span className={`min-w-0 ${className} ${invalid ? 'text-[var(--sg-danger)]' : 'text-ink-soft'}`}>
       Fără nume
     </span>
   )
@@ -295,7 +295,7 @@ const PhaseCard = memo(function PhaseCard({
         <h3 className="flex min-w-[10rem] flex-1 px-1 text-[15px] font-semibold text-ink">
           <Title name={phase.name} invalid={nameError} className="" />
         </h3>
-        <span className="hidden shrink-0 px-1 text-xs text-ink-faint md:inline">
+        <span className="hidden shrink-0 px-1 text-xs text-ink-soft md:inline">
           {countLabel(phase.activities.length, 'activitate', 'activități')} · {countLabel(countPhaseDocuments(phase), 'document', 'documente')}
         </span>
         <RowActionsMenu

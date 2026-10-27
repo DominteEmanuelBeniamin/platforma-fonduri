@@ -5,7 +5,7 @@ import { canReadTemplate, requireProfile } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { loadTemplateTrees } from '@/app/api/_utils/template-tree'
 import { saveTemplateTree, TemplateSaveError } from '@/app/api/_utils/template-save'
-import { templateNameRefusal } from '@/app/api/_utils/template-name'
+import { templateNameErrorResponse, templateNameRefusal } from '@/app/api/_utils/template-name'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -118,6 +118,8 @@ export async function POST(req: NextRequest) {
     if (createdTemplateId) {
       await supabaseAdmin.from('project_templates').delete().eq('id', createdTemplateId)
     }
+    const nameError = templateNameErrorResponse(error)
+    if (nameError) return nameError
     if (error instanceof TemplateSaveError) {
       return NextResponse.json({ error: error.message }, { status: error.status })
     }

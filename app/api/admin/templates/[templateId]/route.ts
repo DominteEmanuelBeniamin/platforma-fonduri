@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
-import { templateNameRefusal } from '@/app/api/_utils/template-name'
+import { templateNameErrorResponse, templateNameRefusal } from '@/app/api/_utils/template-name'
 import { createClient } from '@supabase/supabase-js'
 import { requireTemplateAccess, requireTemplateManager } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
@@ -116,6 +116,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ template })
   } catch (error: any) {
+    const nameError = templateNameErrorResponse(error)
+    if (nameError) return nameError
     console.error('PATCH /api/admin/templates/[templateId] error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

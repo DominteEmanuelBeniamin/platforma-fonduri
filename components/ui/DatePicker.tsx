@@ -36,7 +36,7 @@ function startOfToday() {
 }
 
 const NAV_BUTTON =
-  'inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-plate)] text-ink-soft transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-ink disabled:opacity-40'
+  'inline-flex h-8 w-8 pointer-coarse:h-11 pointer-coarse:w-11 items-center justify-center rounded-[var(--radius-plate)] text-ink-soft transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-ink disabled:opacity-40'
 
 /** Calendarul propriu-zis: o lună, săptămâna de luni, în română. */
 export function Calendar({
@@ -69,18 +69,18 @@ export function Calendar({
         root: 'relative w-fit text-ink',
         months: 'relative flex flex-col',
         month: 'flex flex-col gap-1',
-        month_caption: 'flex h-8 items-center justify-center',
+        month_caption: 'flex h-8 pointer-coarse:h-11 items-center justify-center',
         caption_label: 'text-[13px] font-semibold capitalize text-ink',
-        nav: 'absolute inset-x-0 top-0 z-10 flex h-8 items-center justify-between',
+        nav: 'absolute inset-x-0 top-0 z-10 flex h-8 pointer-coarse:h-11 items-center justify-between',
         button_previous: NAV_BUTTON,
         button_next: NAV_BUTTON,
         month_grid: 'border-collapse',
         weekdays: 'flex',
-        weekday: 'flex h-7 w-9 items-center justify-center text-[11px] font-medium lowercase text-ink-faint',
+        weekday: 'flex h-7 w-9 pointer-coarse:w-11 items-center justify-center text-[11px] font-medium lowercase text-ink-faint',
         week: 'flex',
         day: 'p-0 text-center',
         day_button:
-          'inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-plate)] text-[13px] tabular-nums text-ink transition-colors duration-[120ms] hover:bg-paper-sunk focus-visible:outline-offset-0 disabled:cursor-not-allowed disabled:hover:bg-transparent',
+          'inline-flex h-9 w-9 pointer-coarse:h-11 pointer-coarse:w-11 items-center justify-center rounded-[var(--radius-plate)] text-[13px] tabular-nums text-ink transition-colors duration-[120ms] hover:bg-paper-sunk focus-visible:outline-offset-0 disabled:cursor-not-allowed disabled:hover:bg-transparent',
         today: '[&>button]:font-bold [&>button]:text-[var(--sg-accent)] [&>button]:underline [&>button]:underline-offset-4',
         selected:
           '[&>button]:bg-[var(--sg-accent)] [&>button]:font-semibold [&>button]:text-white! [&>button]:no-underline [&>button]:hover:bg-[var(--sg-accent-ink)]',
@@ -117,7 +117,7 @@ function CalendarPanel({
           type="button"
           disabled={saving}
           onClick={() => onSelect(toDayString(startOfToday()))}
-          className="inline-flex min-h-8 items-center rounded-[var(--radius-plate)] px-2 text-xs font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)] disabled:opacity-50"
+          className="inline-flex min-h-8 pointer-coarse:min-h-11 pointer-coarse:min-w-11 items-center rounded-[var(--radius-plate)] px-2 text-xs font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)] disabled:opacity-50"
         >
           Azi
         </button>
@@ -130,7 +130,7 @@ function CalendarPanel({
           <button data-tooltip="Șterge termenul"
             type="button"
             onClick={onClear}
-            className="inline-flex min-h-8 items-center gap-1 rounded-[var(--radius-plate)] px-2 text-xs text-ink-soft transition-colors duration-[120ms] hover:bg-[var(--sg-danger-soft)] hover:text-[var(--sg-danger)]"
+            className="inline-flex min-h-8 pointer-coarse:min-h-11 pointer-coarse:min-w-11 items-center gap-1 rounded-[var(--radius-plate)] px-2 text-xs text-ink-soft transition-colors duration-[120ms] hover:bg-[var(--sg-danger-soft)] hover:text-[var(--sg-danger)]"
           >
             <X className="h-3.5 w-3.5" aria-hidden="true" />
             Fără termen
@@ -222,17 +222,23 @@ export function DatePopover({
     if (!anchor) return
     const target = floatingHost(anchor)
     const r = anchor.getBoundingClientRect()
-    const below = r.bottom + 4 + PANEL_HEIGHT <= window.innerHeight - 8 || r.top < PANEL_HEIGHT
-    const viewportLeft = Math.max(8, Math.min(r.left, window.innerWidth - PANEL_WIDTH - 8))
-    const viewportTop = below ? r.bottom + 4 : r.top - 4 - PANEL_HEIGHT
+    const coarse = window.matchMedia('(pointer: coarse)').matches
+    const narrow = coarse && window.innerWidth < 350
+    const width = narrow ? 310 : coarse ? 334 : PANEL_WIDTH
+    const height = coarse ? 432 : PANEL_HEIGHT
+    const below = r.bottom + 4 + height <= window.innerHeight - 8 || r.top < height
+    const margin = narrow ? 4 : 8
+    const viewportLeft = Math.max(margin, Math.min(r.left, window.innerWidth - width - margin))
+    const viewportTop = below ? r.bottom + 4 : r.top - 4 - height
     if (target === document.body) {
-      setStyle({ position: 'fixed', left: viewportLeft, top: Math.max(8, viewportTop) })
+      setStyle({ position: 'fixed', left: viewportLeft, top: Math.max(8, viewportTop), width })
     } else {
       // În dialog, coordonatele sunt ale dialogului: acela poate fi
       // transformat (centrat cu `translate`) și se poate derula.
       const c = target.getBoundingClientRect()
       setStyle({
         position: 'absolute',
+        width,
         left: viewportLeft - c.left + target.scrollLeft,
         top: Math.max(8, viewportTop) - c.top + target.scrollTop,
       })
@@ -263,8 +269,8 @@ export function DatePopover({
       role="dialog"
       aria-label={label}
       onClick={e => e.stopPropagation()}
-      style={{ ...style, width: PANEL_WIDTH }}
-      className="z-[1000000] rounded-[var(--radius-plate-lg)] border border-rule bg-plate p-3 shadow-[var(--sg-lift)]"
+      style={style}
+      className="z-[1000000] rounded-[var(--radius-plate-lg)] border border-rule bg-plate p-3 shadow-[var(--sg-lift)] max-[350px]:pointer-coarse:p-0"
     >
       <CalendarPanel value={value} onSelect={onSelect} minToday={minToday} allowClear={allowClear} onClear={onClear} saving={saving} />
     </div>,
@@ -328,7 +334,7 @@ export function DateField({
           ref={panelRef}
           role="dialog"
           aria-label={label}
-          className="mt-2 w-fit rounded-[var(--radius-plate-lg)] border border-rule bg-plate p-3"
+          className="mt-2 w-fit rounded-[var(--radius-plate-lg)] border border-rule bg-plate p-3 pointer-coarse:p-0"
         >
           <CalendarPanel
             value={value}

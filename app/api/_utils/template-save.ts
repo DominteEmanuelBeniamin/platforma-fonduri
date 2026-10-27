@@ -137,6 +137,10 @@ export async function saveTemplateTree(
       const rows = plan.docInserts.flatMap(doc => attachmentRows(doc.row.id, doc.attachments, actorId))
       if (rows.length > 0) orThrow(await supabase.from('document_requirement_attachments').insert(rows))
     }
+    // Check the name before changing existing children; failures clean up the new rows.
+    if (plan.templateUpdate) {
+      orThrow(await supabase.from('project_templates').update(plan.templateUpdate).eq('id', templateId))
+    }
   } catch (error) {
     // Rândurile noi se șterg de tot (cascada ia și copiii și atașamentele);
     // nimic existent n-a fost atins încă.
@@ -150,7 +154,6 @@ export async function saveTemplateTree(
   }
 
   const updates = [
-    ...(plan.templateUpdate ? [{ table: 'project_templates', id: templateId, update: plan.templateUpdate }] : []),
     ...plan.phaseUpdates.map(item => ({ table: 'template_phases', id: item.id, update: item.update })),
     ...plan.activityUpdates.map(item => ({ table: 'template_activities', id: item.id, update: item.update })),
     ...plan.docUpdates.map(item => ({ table: 'template_document_requirements', id: item.id, update: item.update })),
