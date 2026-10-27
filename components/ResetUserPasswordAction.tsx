@@ -18,7 +18,7 @@ type ResetTarget = {
 }
 
 type DeliveryStatus = 'sent' | 'failed' | 'unknown' | 'skipped'
-type Phase = 'confirm' | 'pending' | 'unknown' | 'rejected' | 'completed'
+type Phase = 'confirm' | 'pending' | 'unknown' | 'rejected' | 'busy' | 'completed'
 
 type CompletedResult = {
   attemptId: string
@@ -35,8 +35,9 @@ const DELIVERY_STATUSES = new Set<DeliveryStatus>(['sent', 'failed', 'unknown', 
 // Ruta răspunde cu aceste coduri numai înainte de commit. Orice alt eșec (500, 502, 504…)
 // poate veni după ce parola a fost deja schimbată, deci rezultatul rămâne necunoscut.
 const DEFINITE_REFUSAL_STATUSES = new Set([400, 401, 403, 404, 409])
-/** Cât timp după „Confirmă resetarea” dialogul nu se închide (al doilea click dintr-un dublu click). */
-const CLOSE_GUARD_MS = 600
+/** Al doilea tap dintr-un dublu tap vine în același loc, la câteva sute de milisecunde după primul. */
+const GHOST_TAP_MS = 600
+const GHOST_TAP_PX = 24
 
 function bodyMessage(body: unknown) {
   if (!body || typeof body !== 'object') return null
@@ -70,8 +71,10 @@ export function ResetUserPasswordAction({
   const passwordInputRef = useRef<HTMLInputElement | null>(null)
 
   const inFlightRef = useRef(false)
-  // Momentul în care a pornit cererea: o închidere imediat după e al doilea click dintr-un dublu click.
-  const pendingSinceRef = useRef(0)
+  // Locul și momentul clicului pe „Confirmă resetarea”, ca să recunoaștem al doilea tap al unui dublu tap.
+  const confirmTapRef = useRef<{ x: number; y: number; at: number } | null>(null)
+  // Între clic și lacătul dintre file, cât încă nu rulează cererea.
+  const startingRef = useRef(false)
   const requestSequenceRef = useRef(0)
   const activeControllerRef = useRef<AbortController | null>(null)
   const attemptIdRef = useRef<string | null>(null)
@@ -127,29 +130,30 @@ export function ResetUserPasswordAction({
     openTargetRef.current = null
   }, [])
 
-  // Pe telefon dialogul se micșorează când intră în așteptare, iar „Închide” ajunge sub degetul
-  // care a apăsat „Confirmă resetarea”; închiderea ar anula cererea. Un dublu click nu închide.
-  const closeUnlessJustConfirmed = useCallback(() => {
-    if (inFlightRef.current && Date.now() - pendingSinceRef.current < CLOSE_GUARD_MS) return
-    clearDialog(true)
-  }, [clearDialog])
+  // Pe telefon dialogul își schimbă înălțimea după „Confirmă resetarea”, iar al doilea tap al unui
+  // dublu tap poate nimeri „Închide” sau „Gata” apărute sub deget; închiderea ar anula cererea sau
+  // ar pierde parola temporară. Un clic voit pe ele vine din alt loc, deci rămâne valabil.
+  const isGhostTap = (event: { clientX: number; clientY: number }) => {
+    const tap = confirmTapRef.current
+    return !!tap && Date.now() - tap.at < GHOST_TAP_MS
+      && Math.hypot(event.clientX - tap.x, event.clientY - tap.y) < GHOST_TAP_PX
+  }
 
-  // Al doilea click dintr-un dublu click pe „Confirmă resetarea” poate nimeri butonul de închidere
-  // apărut în locul lui, chiar dacă răspunsul a sosit deja; Radix nu închide un click cu preventDefault.
-  const ignoreRepeatedClick = (event: MouseEvent) => {
-    if (event.detail > 1) event.preventDefault()
+  // Radix nu închide dialogul la un clic cu preventDefault.
+  const ignoreGhostTap = (event: MouseEvent) => {
+    if (isGhostTap(event)) event.preventDefault()
   }
 
   const handleOpenChange = useCallback((nextOpen: boolean) => {
     if (!nextOpen) {
-      closeUnlessJustConfirmed()
+      clearDialog(true)
       return
     }
     clearDialog(false)
     openRef.current = true
     openTargetRef.current = targetIdentityRef.current
     setOpen(true)
-  }, [clearDialog, closeUnlessJustConfirmed])
+  }, [clearDialog])
 
   const runAttempt = useCallback(async (id: string, verification: VerificationKind = null) => {
     if (inFlightRef.current || !openRef.current) return
@@ -160,7 +164,6 @@ export function ResetUserPasswordAction({
     const controller = new AbortController()
     activeControllerRef.current = controller
     inFlightRef.current = true
-    pendingSinceRef.current = Date.now()
     if (verification !== 'audit') setPhase('pending')
     setPending(true)
     setVerificationKind(verification)
@@ -271,12 +274,33 @@ export function ResetUserPasswordAction({
     }
   }, [apiFetch, onReset, target.email, target.id])
 
-  const confirmReset = () => {
-    if (inFlightRef.current || phase !== 'confirm') return
+  const confirmReset = (event: MouseEvent) => {
+    if (inFlightRef.current || startingRef.current || phase !== 'confirm') return
+    confirmTapRef.current = { x: event.clientX, y: event.clientY, at: Date.now() }
     const id = crypto.randomUUID()
     attemptIdRef.current = id
     setAttemptId(id)
-    void runAttempt(id)
+    const locks = typeof navigator === 'undefined' ? undefined : navigator.locks
+    if (!locks) {
+      void runAttempt(id)
+      return
+    }
+    // Două file ale aceluiași browser care confirmă împreună ar face două resetări (a doua o
+    // înlocuiește pe prima, cu încă un email). Lacătul ține cât rulează cererea din fila care l-a luat.
+    startingRef.current = true
+    void locks.request(`bonie:reset-password:${target.id}`, { ifAvailable: true }, async lock => {
+      startingRef.current = false
+      if (!lock) {
+        if (attemptIdRef.current !== id) return
+        attemptIdRef.current = null
+        setAttemptId(null)
+        setPhase('busy')
+        return
+      }
+      await runAttempt(id)
+    }).catch(() => {
+      startingRef.current = false
+    })
   }
 
   const verifyAttempt = () => {
@@ -336,7 +360,9 @@ export function ResetUserPasswordAction({
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[999999] backdrop-blur-sm" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }} />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-[1000000] max-h-[calc(100dvh_-_2rem)] w-[calc(100%_-_2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 focus:outline-none">
+        <Dialog.Content
+          onPointerDownOutside={event => { if (isGhostTap(event.detail.originalEvent)) event.preventDefault() }}
+          className="fixed left-1/2 top-1/2 z-[1000000] max-h-[calc(100dvh_-_2rem)] w-[calc(100%_-_2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 focus:outline-none">
           <FloatingSurface className="max-h-[calc(100dvh_-_2rem)] overflow-y-auto rounded-[var(--radius-plate-lg)]">
             <div className="flex items-start justify-between gap-4 border-b border-rule px-5 py-4">
               <div className="min-w-0">
@@ -348,6 +374,7 @@ export function ResetUserPasswordAction({
                     : 'Se procesează resetarea. Poți închide dialogul; rezultatul nu va mai fi afișat aici.')}
                   {phase === 'unknown' && 'Rezultatul resetării nu este confirmat. Verificarea va folosi aceeași încercare.'}
                   {phase === 'rejected' && 'Serverul a refuzat resetarea; parola contului nu a fost schimbată.'}
+                  {phase === 'busy' && 'Resetarea parolei acestui cont rulează deja în altă filă.'}
                   {phase === 'completed' && (result?.superseded
                     ? 'Resetarea a fost confirmată, dar contul a fost schimbat ulterior.'
                     : 'Resetarea parolei a fost confirmată.')}
@@ -374,6 +401,12 @@ export function ResetUserPasswordAction({
               {phase === 'rejected' && (
                 <FeedbackMessage variant="error">
                   {notice || 'Serverul a refuzat resetarea. Parola contului nu a fost schimbată.'}
+                </FeedbackMessage>
+              )}
+
+              {phase === 'busy' && (
+                <FeedbackMessage variant="info">
+                  Nu am pornit o a doua resetare. Rezultatul apare în fila în care ai confirmat; dacă e nevoie de o resetare nouă, încearcă din nou după ce se termină acolo.
                 </FeedbackMessage>
               )}
 
@@ -454,10 +487,10 @@ export function ResetUserPasswordAction({
                   <Button variant="danger" disabled={pending} onClick={confirmReset}>Confirmă resetarea</Button>
                 </>
               )}
-              {/* „Confirmă resetarea” rămâne pe loc, dezactivat; „Închide” ignoră al doilea click dintr-un dublu click. */}
+              {/* „Confirmă resetarea” rămâne pe loc, dezactivat; „Închide” ignoră al doilea tap al unui dublu tap. */}
               {phase === 'pending' && (
                 <>
-                  <Button variant="secondary" onClick={event => { if (event.detail < 2) closeUnlessJustConfirmed() }}>Închide</Button>
+                  <Button variant="secondary" onClick={event => { if (!isGhostTap(event)) clearDialog(true) }}>Închide</Button>
                   {verificationKind === 'unknown' ? (
                     <Button variant="primary" disabled><Spinner size="sm" on="accent" />Verifică rezultatul</Button>
                   ) : (
@@ -468,16 +501,16 @@ export function ResetUserPasswordAction({
               {phase === 'unknown' && (
                 <>
                   <Button variant="secondary" onClick={beginNewReset}>Începe o resetare nouă</Button>
-                  <Dialog.Close asChild><Button variant="secondary" onClick={ignoreRepeatedClick}>Închide</Button></Dialog.Close>
+                  <Dialog.Close asChild><Button variant="secondary" onClick={ignoreGhostTap}>Închide</Button></Dialog.Close>
                   <Button variant="primary" disabled={pending || !attemptId} onClick={verifyAttempt}>
                     {pending ? <Spinner size="sm" on="accent" /> : null}Verifică rezultatul
                   </Button>
                 </>
               )}
-              {phase === 'rejected' && (
+              {(phase === 'rejected' || phase === 'busy') && (
                 <>
-                  <Button variant="secondary" onClick={beginNewReset}>Începe o resetare nouă</Button>
-                  <Dialog.Close asChild><Button variant="secondary" onClick={ignoreRepeatedClick}>Închide</Button></Dialog.Close>
+                  <Button variant="secondary" onClick={beginNewReset}>{phase === 'busy' ? 'Încearcă din nou' : 'Începe o resetare nouă'}</Button>
+                  <Dialog.Close asChild><Button variant="secondary" onClick={ignoreGhostTap}>Închide</Button></Dialog.Close>
                 </>
               )}
               {phase === 'completed' && (
@@ -487,7 +520,7 @@ export function ResetUserPasswordAction({
                       {pending && verificationKind === 'audit' ? <Spinner size="sm" /> : null}Verifică înregistrarea
                     </Button>
                   )}
-                  <Dialog.Close asChild><Button variant="primary" onClick={ignoreRepeatedClick}>Gata</Button></Dialog.Close>
+                  <Dialog.Close asChild><Button variant="primary" onClick={ignoreGhostTap}>Gata</Button></Dialog.Close>
                 </>
               )}
             </div>
