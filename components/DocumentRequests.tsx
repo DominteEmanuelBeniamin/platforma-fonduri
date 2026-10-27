@@ -44,6 +44,7 @@ import {
 import { RequirementType } from '@/lib/requirement-type'
 import { Spinner } from '@/components/ui/Spinner'
 import { isRequestFinal, mergeVisibleOrder } from '@/lib/completion'
+import { countLabel } from '@/lib/count-label'
 import HiddenFinalRow from './HiddenFinalRow'
 import { CELL, DeadlineCell, StatusCell, formatShortDate } from './project-table/cells'
 import { activityColumnsTemplate } from './project-table/TableGroup'
@@ -125,6 +126,11 @@ function getRequestAttachments(request: DocumentRequest) {
         missing_at: request.attachment_missing_at || null,
       }]
     : []
+}
+
+/** Câte fișiere a încărcat clientul la cerere (fără cele șterse). */
+function uploadedFileCount(request: DocumentRequest): number {
+  return (request.files ?? []).filter(file => !file.deleted_at).length
 }
 
 /** Când a încărcat clientul ultimul fișier — „Data realizare” din monday. */
@@ -928,7 +934,7 @@ export default function DocumentRequests({
   const isEmbedded = activityId !== undefined
   // Coloanele sub-tabelului: „Vizibil clientului” e a echipei, acțiunile — ale
   // cui poate modifica. Aceleași condiții desenează antetul și rândurile.
-  // Aceleași coloane ca rândurile de activitate, ca Status, Documente/Încărcat,
+  // Aceleași coloane ca rândurile de activitate, cu aceleași nume, ca Status, Documente,
   // Termen și Vizibil să stea unele sub altele (feedback-ul lui Sandu, 22
   // octombrie). Numele cererii ia locul „Activitate” + „Responsabil”.
   const requestColumns = activityColumnsTemplate({ visibility: isAdminOrConsultant, actions: canChange })
@@ -1101,18 +1107,22 @@ export default function DocumentRequests({
             </p>
           ) : (
             <>
-            {/* Antetul sub-tabelului, ca la subitemii din monday — doar pe coloane. */}
-            <div
-              aria-hidden="true"
-              className="hidden h-7 border-b border-rule/70 text-[11px] font-medium text-ink-faint @min-[50rem]:grid @min-[50rem]:grid-cols-(--req-cols)"
-            >
-              <span className="col-span-2 flex items-center pl-6">Cerere</span>
-              <span className="flex items-center justify-center">Status</span>
-              <span className="flex items-center justify-center">Încărcat</span>
-              <span className="flex items-center justify-center">Termen</span>
-              {isAdminOrConsultant && <span className="flex items-center justify-center">Vizibil clientului</span>}
-              {canChange && <span />}
-            </div>
+            {/* Sub o activitate, cererile stau direct sub antetul ei: aceleași
+                coloane, un singur antet. Doar „Cereri generale”, fără rând de
+                activitate deasupra, are antetul lui — doar pe coloane. */}
+            {!activityId && (
+              <div
+                aria-hidden="true"
+                className="hidden h-7 border-b border-rule/70 text-[11px] font-medium text-ink-faint @min-[50rem]:grid @min-[50rem]:grid-cols-(--req-cols)"
+              >
+                <span className="col-span-2 flex items-center pl-6">Cerere</span>
+                <span className="flex items-center justify-center">Status</span>
+                <span className="flex items-center justify-center">Documente</span>
+                <span className="flex items-center justify-center">Termen</span>
+                {isAdminOrConsultant && <span className="flex items-center justify-center">Vizibil clientului</span>}
+                {canChange && <span />}
+              </div>
+            )}
             {displayRequests.map((req) => {
               const statusInfo = requestStatusInfo(displayedRequestStatus(req))
               const isClosed = req.status === 'closed'
@@ -1157,12 +1167,14 @@ export default function DocumentRequests({
                         <StatusCell tone={statusInfo.tone} label={statusLabel(req)} />
                       </div>
                       <div className={CELL}>
-                        <span className="inline-flex items-center gap-1 text-xs tabular-nums text-ink-soft" title={uploadedAt ? 'Ultimul fișier încărcat' : undefined}>
+                        {/* Sub „Documente”, ca la activitate: câte fișiere are cererea.
+                            Data ultimei încărcări rămâne în tooltip. */}
+                        <span className="inline-flex items-center gap-1 text-xs tabular-nums text-ink-soft" data-tooltip={uploadedAt ? `Ultimul fișier încărcat pe ${formatShortDate(uploadedAt)}` : undefined}>
                           <Upload className="h-3.5 w-3.5 text-ink-faint @min-[50rem]:hidden" aria-hidden="true" />
                           {uploadedAt ? (
                             <>
-                              <span className="sr-only">Încărcat la </span>
-                              {formatShortDate(uploadedAt)}
+                              {countLabel(uploadedFileCount(req), 'fișier', 'fișiere')}
+                              <span className="sr-only">, ultimul încărcat pe {formatShortDate(uploadedAt)}</span>
                             </>
                           ) : (
                             <>

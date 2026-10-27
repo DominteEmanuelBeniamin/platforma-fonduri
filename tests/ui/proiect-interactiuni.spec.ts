@@ -127,13 +127,11 @@ test.describe('Tabelul proiectului: interacțiuni', () => {
     await expect(group.locator('[role="img"][data-tooltip^="Activitățile pe stări:"]')).toHaveCount(1)
   })
 
-  test('S-04: la cereri, „Vizibil clientului” e ultima coloană, ca la activități', async ({ page }) => {
+  test('S-04: sub o activitate, cererile n-au antet propriu: stau sub antetul activității', async ({ page }) => {
     await page.getByRole('button', { name: /^Extinde activitatea/ }).first().click()
-    const header = page.locator('main [id^="activity-"] div[aria-hidden="true"]').filter({ hasText: 'Cerere' }).first()
-    await expect(header).toBeVisible()
-    const labels = (await header.locator('span').allInnerTexts()).map(t => t.trim()).filter(Boolean)
-    // Aceeași ordine ca la activități: Încărcat sub Documente, Termen sub Termen.
-    expect(labels).toEqual(['Cerere', 'Status', 'Încărcat', 'Termen', 'Vizibil clientului'])
+    const activity = page.locator('main [id^="activity-"]').filter({ has: page.locator('[id^="request-"]') }).first()
+    await expect(activity.locator('[id^="request-"]').first()).toBeVisible()
+    await expect(activity.locator('div[aria-hidden="true"]').filter({ hasText: 'Cerere' })).toHaveCount(0)
   })
 
   test('S-07: pe calculator nu există butonul „Panoul fazelor” din bara de sus', async ({ page }) => {
@@ -178,11 +176,17 @@ test.describe('Tabelul proiectului: feedback-ul din 22 octombrie', () => {
     const activity = page.locator('main [id^="activity-"]').filter({ has: page.locator('[id^="request-"]') }).first()
     const centru = async (loc: import('@playwright/test').Locator) => { const b = (await loc.boundingBox())!; return b.x + b.width / 2 }
     const header = activity.locator('xpath=ancestor::section[1]').locator('div[aria-hidden="true"]').first()
-    const subheader = activity.locator('div[aria-hidden="true"]').filter({ hasText: 'Cerere' }).first()
-    for (const [sus, jos] of [['Status', 'Status'], ['Documente', 'Încărcat'], ['Termen', 'Termen'], ['Vizibil clientului', 'Vizibil clientului']]) {
-      const a = await centru(header.getByText(sus, { exact: true }))
-      const b = await centru(subheader.getByText(jos, { exact: true }))
-      expect(Math.abs(a - b), `„${jos}” sub „${sus}”`).toBeLessThan(2)
+    const request = activity.locator('[id^="request-"]').first()
+    // Celulele cererii, sub coloanele din antetul activității (singurul antet).
+    const celule: [string, import('@playwright/test').Locator][] = [
+      ['Status', request.locator('span[data-tooltip]').filter({ hasText: /\S/ }).first()],
+      ['Documente', request.locator('span.tabular-nums').filter({ hasText: /fișier/ }).first()],
+      ['Termen', request.getByRole('button', { name: /termen/i }).first()],
+    ]
+    for (const [coloana, celula] of celule) {
+      const sus = (await header.getByText(coloana, { exact: true }).boundingBox())!
+      const b = await centru(celula)
+      expect(Math.abs(sus.x + sus.width / 2 - b), `„${coloana}” la cerere nu stă sub antetul activității`).toBeLessThan(sus.width / 2)
     }
   })
 

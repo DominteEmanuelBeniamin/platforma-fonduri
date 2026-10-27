@@ -78,9 +78,25 @@ test.describe('Flux 5 — pagina proiectului ca tabel, ca echipă', () => {
       expect(Math.abs(centerX(box) - centerX(column)), `celula „${label}” nu stă sub coloana ei`).toBeLessThan(column.width / 2)
     }
 
-    // La cereri, „Vizibil clientului” e tot ultima coloană, ca la activități (S-04).
+    // Un singur antet: cererile de sub activitate n-au antet propriu, iar
+    // celulele lor stau sub aceleași coloane ca ale activității.
     await table.expandActivity(studiu, 'Studiu')
-    expect(await table.requestHeaderLabels(table.activity(studiu))).toEqual(['Cerere', 'Status', 'Încărcat', 'Termen', 'Vizibil clientului', ''])
+    await expect(table.activity(studiu).locator('div[aria-hidden="true"]').filter({ hasText: 'Cerere' })).toHaveCount(0)
+    const request = table.request(project.requests.get('Extras CF')!)
+    const requestColumns: [string, Locator][] = [
+      ['Status', request.getByText('Așteaptă răspuns', { exact: true })],
+      ['Documente', request.locator('span.tabular-nums').filter({ hasText: /fișier/ })],
+      ['Termen', request.getByRole('button', { name: /^Adaugă termen pentru Extras CF/ })],
+      ['Vizibil clientului', request.locator('[data-tooltip^="Vizibil clientului"]')],
+    ]
+    for (const [label, cell] of requestColumns) {
+      const column = (await header.getByText(label, { exact: true }).boundingBox())!
+      const box = (await cell.boundingBox())!
+      expect(Math.abs(centerX(box) - centerX(column)), `la cerere, „${label}” nu stă sub coloana activității`).toBeLessThan(column.width / 2)
+    }
+    // „Cereri generale” n-are rând de activitate deasupra, deci își păstrează antetul.
+    const general = table.group('Cereri generale')
+    expect(await table.requestHeaderLabels(general)).toEqual(['Cerere', 'Status', 'Documente', 'Termen', 'Vizibil clientului', ''])
 
     // Sumarul: „Total”, bateria pe stări, cererile gata din total, intervalul termenelor deschise.
     const counts = sqlJson<{ done: number; total: number }>(`select json_build_object('done', count(*) filter (where d.status in ('approved','closed')), 'total', count(*))
