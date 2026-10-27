@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { userErrorMessage } from '@/lib/user-error'
 import type { ChatImage, ChatImageReference } from '@/lib/project-chat-contracts'
+import { announceChatRead, PROJECT_CHAT_READ_EVENT } from '@/lib/chat-read-events'
 
 export type ChatProfile = {
   id: string
@@ -208,6 +209,7 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
         const json = (await res.json().catch(() => null)) as ReadResponse | null
 
         if (!res.ok || !json?.ok) return
+        announceChatRead(PROJECT_CHAT_READ_EVENT)
 
         setLastReadAt((prev) => maxIso(prev, json.lastReadAt))
         setReadStates(json.readStates ?? [])

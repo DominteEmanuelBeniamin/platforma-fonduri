@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { userErrorMessage } from '@/lib/user-error'
 import { chatTimestampMicroseconds } from '@/lib/chat-timestamp'
+import { announceChatRead, PRIVATE_CHAT_READ_EVENT } from '@/lib/chat-read-events'
 
 export type PrivateChatProfile = {
   id: string
@@ -428,6 +429,7 @@ export function usePrivateChat(
         body: JSON.stringify({ readThroughAt: readThroughAt ?? undefined }),
       })
       const json = (await res.json().catch(() => null)) as ReadResponse | null
+      if (res.ok && json?.ok) announceChatRead(PRIVATE_CHAT_READ_EVENT)
       if (!isCurrentRequest(operation.authGeneration, operation.effectGeneration)) return
 
       if (!res.ok || !json?.ok || !json.lastReadAt) return

@@ -29,6 +29,8 @@ export type UnreadSummaryOptions<TState extends object> = {
   sources: UnreadRealtimeSource[]
   /** Activează reîmprospătarea la focus și la revenirea în tab. */
   refreshOnWindowFocus?: boolean
+  /** Eveniment `window` care cere un refresh imediat (de exemplu după o citire reușită). */
+  refreshEvent?: string
 }
 
 export type UnreadSummaryValue<TState> = TState & {
@@ -214,6 +216,7 @@ export function createUnreadSummaryProvider<TState extends object>(options: Unre
       }
       window.addEventListener('online', onOnline)
       window.addEventListener('offline', onOffline)
+      if (options.refreshEvent) window.addEventListener(options.refreshEvent, refreshIfCurrent)
 
       let channel = supabase.channel(options.channelName(userId))
       for (const source of options.sources) {
@@ -238,6 +241,7 @@ export function createUnreadSummaryProvider<TState extends object>(options: Unre
         }
         window.removeEventListener('online', onOnline)
         window.removeEventListener('offline', onOffline)
+        if (options.refreshEvent) window.removeEventListener(options.refreshEvent, refreshIfCurrent)
         if (activeEffectGenerationRef.current === effectGeneration) {
           activeEffectGenerationRef.current = null
           refreshQueuedRef.current = null

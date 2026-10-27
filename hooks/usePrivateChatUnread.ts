@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { PRIVATE_CHAT_READ_EVENT } from '@/lib/chat-read-events'
 
 type UnreadSummaryResponse = {
   hasUnread?: boolean
@@ -165,6 +166,7 @@ export function usePrivateChatUnread(enabled: boolean) {
     document.addEventListener('visibilitychange', onVisibilityChange)
     window.addEventListener('online', onOnline)
     window.addEventListener('offline', onOffline)
+    window.addEventListener(PRIVATE_CHAT_READ_EVENT, refreshIfCurrent)
 
     const channel = supabase
       .channel(`private-chat-unread-${userId}`)
@@ -198,6 +200,7 @@ export function usePrivateChatUnread(enabled: boolean) {
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('online', onOnline)
       window.removeEventListener('offline', onOffline)
+      window.removeEventListener(PRIVATE_CHAT_READ_EVENT, refreshIfCurrent)
       if (activeEffectGenerationRef.current === effectGeneration) {
         activeEffectGenerationRef.current = null
         refreshQueuedRef.current = null
