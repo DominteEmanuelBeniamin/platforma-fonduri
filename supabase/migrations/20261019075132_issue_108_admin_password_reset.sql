@@ -293,11 +293,14 @@ BEGIN
   END IF;
 
   -- Two tabs (or two admins) confirming together carry different attempt ids; the lock
-  -- above serializes them, and the later one must not reset the account a second time.
+  -- above serializes them, and the later one must not reset the account while the first
+  -- is still delivering. A finished reset (sent, failed, unknown) does not block a new one;
+  -- the 60-second bound matches the abandoned-delivery reconciliation.
   PERFORM 1
   FROM account_recovery.admin_password_resets AS r
   WHERE r.user_id = p_target_id
     AND r.is_current IS TRUE
+    AND r.delivery_status = 'pending'
     AND r.created_at > clock_timestamp() - interval '60 seconds';
   IF FOUND THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'RECENT_RESET_EXISTS';

@@ -190,7 +190,7 @@ function initialRpcFailure(error: unknown) {
     case 'EXPECTED_EMAIL_MISMATCH':
       return failure('conflict', 'Adresa contului s-a schimbat. Reîncarcă pagina și încearcă din nou.', 409)
     case 'RECENT_RESET_EXISTS':
-      return failure('conflict', 'Parola acestui cont tocmai a fost resetată, probabil dintr-o altă filă. Nu am făcut o a doua resetare; dacă e nevoie, încearcă din nou peste un minut.', 409)
+      return failure('conflict', 'Parola acestui cont tocmai a fost resetată, probabil dintr-o altă filă, iar resetarea aceea încă se finalizează. Nu am făcut o a doua resetare; reîncarcă pagina peste câteva secunde și verifică rezultatul.', 409)
     case 'ATTEMPT_CONFLICT':
     case 'RESET_ATTEMPT_NOT_FOUND':
       return failure('conflict', 'Această încercare nu mai poate fi folosită. Reîncarcă pagina pentru a începe una nouă.', 409)
