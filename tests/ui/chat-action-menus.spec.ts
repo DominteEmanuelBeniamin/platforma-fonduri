@@ -309,6 +309,34 @@ async function setMessageScrollerEdge(messageText: Locator, edge: 'top' | 'botto
   if (!found) throw new Error('Firul de mesaje nu are un scroller vertical')
 }
 
+/**
+ * Așteaptă ca firul să nu se mai miște: după încărcare, conversația mai crește
+ * cu câțiva pixeli (stări de citire, imagini), iar lipirea de capăt o urmează.
+ * Altfel prima măsurătoare prinde scrollerul cu 2–3 px înainte de capăt.
+ */
+async function waitForStableScroller(messageText: Locator) {
+  let previous = ''
+  await expect.poll(async () => {
+    const current = await messageText.evaluate((messageElement) => new Promise<string>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        let element = messageElement.parentElement
+        while (element) {
+          const overflowY = getComputedStyle(element).overflowY
+          if ((overflowY === 'auto' || overflowY === 'scroll') && element.scrollHeight > element.clientHeight) {
+            resolve(`${element.scrollHeight}:${element.scrollTop}`)
+            return
+          }
+          element = element.parentElement
+        }
+        resolve('')
+      }))
+    }))
+    const stable = current !== '' && current === previous
+    previous = current
+    return stable
+  }, { message: 'firul de mesaje nu se mai mișcă' }).toBe(true)
+}
+
 async function scrollMetrics(messageText: Locator) {
   return messageText.evaluate((messageElement) => {
     let element = messageElement.parentElement
@@ -378,6 +406,7 @@ async function checkMenuAtEdge(
   const row = messageRow(messageText)
   const trigger = row.locator('button').first()
   await messageText.hover()
+  await waitForStableScroller(messageText)
   const before = await scrollMetrics(messageText)
   if (!before) throw new Error('Nu am putut citi poziția scrollerului de mesaje')
   const pageScrollBefore = await page.evaluate(() => window.scrollY)
