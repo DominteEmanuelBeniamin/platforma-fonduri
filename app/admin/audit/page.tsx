@@ -540,16 +540,17 @@ export default function AuditPage() {
   const selectedEntityLabel = entityId ? `id: ${entityId.slice(0, 8)}…` : null
 
   return (
-    <div className="flex flex-col gap-6 pb-10">
-      {/* Învelit: santinela antetului nu trebuie să primească și ea `gap-6`. */}
-      <div className="-mb-6">
-        <PageHeader
-          title="Jurnal de audit"
-          subtitle={statsLoading || !stats
-            ? 'Toate acțiunile din sistem, în ordine cronologică.'
-            : `${stats.totalLogs.toLocaleString('ro-RO')} de acțiuni înregistrate, din care ${stats.recentLogs.toLocaleString('ro-RO')} în ultima săptămână. ${(stats.byAction.login || 0).toLocaleString('ro-RO')} autentificări, ${(stats.byAction.update || 0).toLocaleString('ro-RO')} modificări.`}
-        />
-      </div>
+    <div className="pb-10">
+      {/* Antetul stă direct în pagină, nu într-un înveliș de înălțimea lui:
+          lipit, nu poate ieși din părinte, iar învelit se derula odată cu
+          pagina. `gap-6` e doar al conținutului de sub el, nu și al santinelei. */}
+      <PageHeader
+        title="Jurnal de audit"
+        subtitle={statsLoading || !stats
+          ? 'Toate acțiunile din sistem, în ordine cronologică.'
+          : `${stats.totalLogs.toLocaleString('ro-RO')} de acțiuni înregistrate, din care ${stats.recentLogs.toLocaleString('ro-RO')} în ultima săptămână. ${(stats.byAction.login || 0).toLocaleString('ro-RO')} autentificări, ${(stats.byAction.update || 0).toLocaleString('ro-RO')} modificări.`}
+      />
+      <div className="flex flex-col gap-6">
 
       <div className="space-y-4 rounded-[var(--radius-plate)] border border-rule bg-plate p-4 sm:p-5">
         <div className="flex min-w-0 flex-col md:flex-row md:items-center gap-3">
@@ -764,7 +765,7 @@ export default function AuditPage() {
       {pagination && pagination.totalPages > 1 && (
         <Paginator pagination={pagination} onPageChange={fetchLogs} />
       )}
-
+      </div>
     </div>
   )
 }

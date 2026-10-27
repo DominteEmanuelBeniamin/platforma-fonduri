@@ -197,7 +197,7 @@ const ActivityBlock = memo(function ActivityBlock({
             value={activity.default_consultant_id ?? ''}
             onChange={e => actions.setConsultant(phaseId, activity.id, e.target.value || undefined)}
             aria-label={`Consultant implicit pentru activitatea ${activityLabel}`}
-            className="mr-1 h-10 w-44 rounded-[var(--radius-plate)] border border-rule bg-plate px-2 text-xs text-ink-soft transition-colors duration-[120ms] hover:border-rule-strong focus:border-[var(--sg-accent)] pointer-fine:h-8"
+            className="mr-1 h-11 w-44 rounded-[var(--radius-plate)] border border-rule bg-plate px-2 text-xs text-ink-soft transition-colors duration-[120ms] hover:border-rule-strong focus:border-[var(--sg-accent)] pointer-fine:h-8"
           >
             <option value="">Consultant implicit</option>
             {inactive && <option value={activity.default_consultant_id} disabled>{profileDisplayName(inactive)}</option>}
@@ -242,7 +242,7 @@ const ActivityBlock = memo(function ActivityBlock({
               <button data-tooltip="Adaugă o cerere de document în această activitate"
                 type="button"
                 onClick={() => actions.addDoc(phaseId, activity.id)}
-                className="flex min-h-9 w-full items-center gap-1.5 px-3 py-2 text-left text-xs font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)]"
+                className="flex min-h-11 w-full items-center gap-1.5 px-3 py-2 text-left text-xs font-semibold pointer-fine:min-h-9 text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)]"
               >
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Adaugă cerere document
               </button>
@@ -333,7 +333,7 @@ const PhaseCard = memo(function PhaseCard({
           <button data-tooltip="Adaugă o activitate nouă în această fază"
             type="button"
             onClick={() => actions.addActivity(phase.id)}
-            className="inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-plate)] px-2 text-sm font-semibold text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)]"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-plate)] px-2 text-sm font-semibold pointer-fine:min-h-9 text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)]"
           >
             <Plus className="h-4 w-4" aria-hidden="true" /> Adaugă activitate
           </button>

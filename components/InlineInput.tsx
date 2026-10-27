@@ -68,7 +68,6 @@ export default function InlineInput({
       <input
         ref={inputRef}
         autoFocus
-        title={initialValue || undefined}
         aria-label={label}
         value={value}
         onChange={e => setValue(e.target.value)}

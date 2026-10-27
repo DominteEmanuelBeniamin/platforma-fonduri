@@ -282,6 +282,10 @@ input:-webkit-autofill:active {
    anulează: cu amândouă, pagina sărea 5px la stânga la orice dialog deschis
    (feedback-ul lui Sandu, 22 octombrie 2026). */
 html { scrollbar-gutter: stable; }
+/* Meniul de sus (64px) și, de la md în sus, antetul paginii stau lipite: un
+   element focalizat cu tastatura se oprește sub ele, nu dedesubt (WCAG 2.4.11).
+   `--antet-lipit` îl pune `PageHeader` cât e pe pagină. */
+html { scroll-padding-top: calc(4rem + var(--antet-lipit, 0px) + 0.5rem); }
 html body[data-scroll-locked] { margin-right: 0 !important; }
 
 /* Tooltip-ul apare fără fade: după o secundă de așteptare, o animație doar îl

@@ -43,7 +43,22 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const returnFocus = useRef<HTMLElement | null>(null)
   const confirm = useCallback((options: ConfirmOptions) => new Promise<boolean>(resolve => {
     returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    setConfirmation({ ...options, resolve })
+    // Escape se ascultă de la cerere, nu de când își înregistrează Radix
+    // stratul (un efect, după desenare): un Escape apăsat imediat ajungea la
+    // dialogul de dedesubt, care îl ignora, iar confirmarea rămânea deschisă.
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      done(false)
+      setConfirmation(null)
+    }
+    const done = (value: boolean) => {
+      window.removeEventListener('keydown', onEscape, true)
+      resolve(value)
+    }
+    window.addEventListener('keydown', onEscape, true)
+    setConfirmation({ ...options, resolve: done })
   }), [])
   const closeConfirmation = useCallback((confirmed: boolean) => {
     if (!confirmation) return

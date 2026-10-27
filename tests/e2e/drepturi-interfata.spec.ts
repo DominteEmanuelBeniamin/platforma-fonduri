@@ -601,7 +601,8 @@ test('Adaugă și modifică faze, activități și cereri — din pagina proiect
       await openProject(page, OWN, deepLink(phaseId))
       await main.getByRole('button', { name: `Acțiuni pentru faza ${phaseName}` }).first().click()
       await page.getByRole('menuitem', { name: /Redenumește/ }).click()
-      const input = main.locator(`input[title="${phaseName}"]`)
+      const input = main.getByPlaceholder('Nume fază...')
+      await expect(input).toHaveValue(phaseName)
       await input.fill(renamed)
       await input.press('Enter')
       await stored('p-continut', person.who, 'redenumește faza din meniul ei', renamed, async () => {

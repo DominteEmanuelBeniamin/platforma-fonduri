@@ -155,7 +155,7 @@ export default function RowActionsMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         data-open={open}
-        className={triggerClassName ?? `${size === 'sm' ? 'p-2.5' : 'p-2'} rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface-2)] disabled:opacity-60`}
+        className={triggerClassName ?? `${size === 'sm' ? 'p-2.5' : 'p-2'} inline-flex items-center justify-center pointer-coarse:min-h-11 pointer-coarse:min-w-11 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface-2)] disabled:opacity-60`}
       >
         {busy
           ? <Loader2 className={`${iconSize} animate-spin`} />

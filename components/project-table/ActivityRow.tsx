@@ -85,7 +85,7 @@ export default function ActivityRow({
             onClick={e => { e.stopPropagation(); onToggle() }}
             aria-expanded={open}
             aria-label={open ? `Restrânge activitatea ${activity.name}` : `Extinde activitatea ${activity.name}`}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-ink pointer-fine:h-7 pointer-fine:w-7"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint transition-colors duration-[120ms] hover:bg-paper-sunk hover:text-ink pointer-fine:h-7 pointer-fine:w-7"
           >
             <ChevronRight className={`h-4 w-4 transition-transform duration-[160ms] ${open ? 'rotate-90' : ''}`} />
           </button>

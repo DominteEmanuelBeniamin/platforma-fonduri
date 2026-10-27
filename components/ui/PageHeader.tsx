@@ -19,12 +19,15 @@ export function PageHeader({
   subtitle,
   actions,
   titleProps,
+  className = 'mb-6',
 }: {
   title: ReactNode
   subtitle?: ReactNode
   actions?: ReactNode
   /** Pentru paginile care mută focusul pe titlu (`id`, `tabIndex`). */
   titleProps?: { id?: string; tabIndex?: number }
+  /** Spațiul de sub antet; o pagină cu `gap` propriu îl pune pe zero. */
+  className?: string
 }) {
   const sentinelRef = useRef<HTMLDivElement>(null)
   const [stuck, setStuck] = useState(false)
@@ -41,12 +44,38 @@ export function PageHeader({
     return () => observer.disconnect()
   }, [])
 
+  // Cât stă lipit (de la md în sus), antetul își spune înălțimea în
+  // `--antet-lipit`, din care `html` își face `scroll-padding-top`: un element
+  // focalizat cu Tab sau Shift+Tab nu mai ajunge sub meniu și sub antet
+  // (WCAG 2.4.11).
+  const headerRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const header = headerRef.current
+    if (!header || typeof ResizeObserver === 'undefined') return
+    const root = document.documentElement
+    const wide = window.matchMedia('(min-width: 768px)')
+    const update = () => {
+      if (wide.matches) root.style.setProperty('--antet-lipit', `${header.offsetHeight}px`)
+      else root.style.removeProperty('--antet-lipit')
+    }
+    const resize = new ResizeObserver(update)
+    resize.observe(header)
+    wide.addEventListener('change', update)
+    update()
+    return () => {
+      resize.disconnect()
+      wide.removeEventListener('change', update)
+      root.style.removeProperty('--antet-lipit')
+    }
+  }, [])
+
   return (
     <>
       <div ref={sentinelRef} aria-hidden="true" className="h-0" />
       <header
+        ref={headerRef}
         data-stuck={stuck || undefined}
-        className="mb-6 border-b border-transparent bg-paper md:sticky md:top-16 md:z-30 md:-mx-6 md:px-6 md:py-3 lg:-mx-10 lg:px-10 md:data-[stuck]:border-rule"
+        className={`${className} border-b border-transparent bg-paper md:sticky md:top-16 md:z-30 md:-mx-6 md:px-6 md:py-3 lg:-mx-10 lg:px-10 md:data-[stuck]:border-rule`}
       >
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
           <div className="min-w-0">

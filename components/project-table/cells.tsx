@@ -177,7 +177,7 @@ export function DeadlineCell({
           onClick={() => setEditing(open => !open)}
           aria-label={value ? `Schimbă termenul pentru ${itemName}: ${formatShortDate(value)}` : `Adaugă termen pentru ${itemName}`}
           data-tooltip={value ? `${burning ? `${signal.label}. ` : ''}Schimbă termenul` : 'Adaugă termen limită'}
-          className="group/deadline inline-flex min-h-8 min-w-8 items-center justify-center gap-1 rounded-[var(--radius-plate)] px-2 transition-colors duration-[120ms] hover:bg-paper-sunk aria-expanded:bg-paper-sunk pointer-fine:min-h-7"
+          className="group/deadline inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-[var(--radius-plate)] px-2 transition-colors duration-[120ms] hover:bg-paper-sunk aria-expanded:bg-paper-sunk pointer-fine:min-h-7 pointer-fine:min-w-8"
         >
           {display}
           {/* Creionul arată că data se poate schimba (D3): la hover pe rând și la

@@ -123,6 +123,9 @@ export function AssigneePicker({
       // deschis. Focusul revine pe buton, iar Tab-ul continuă de acolo.
       if (event.key === 'Tab') { close(); return }
       if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+      // ↓ din căutare a mutat deja focusul pe prima persoană; încă un pas aici
+      // o sărea, iar cu o singură potrivire ajungea pe „Fără responsabil”.
+      if (event.defaultPrevented) return
       const items = options()
       if (items.length === 0) return
       event.preventDefault()
@@ -188,7 +191,7 @@ export function AssigneePicker({
           place()
           setOpen(true)
         }}
-        className="group/assignee inline-flex min-h-8 min-w-0 max-w-full items-center gap-2 rounded-[var(--radius-plate)] px-1.5 text-left text-xs transition-colors duration-[120ms] hover:bg-paper-sunk data-[open=true]:bg-paper-sunk pointer-fine:min-h-7"
+        className="group/assignee inline-flex min-h-11 min-w-0 max-w-full items-center gap-2 rounded-[var(--radius-plate)] px-1.5 text-left text-xs transition-colors duration-[120ms] hover:bg-paper-sunk data-[open=true]:bg-paper-sunk pointer-fine:min-h-7"
       >
         <Initials name={current?.full_name} email={current?.email} muted={!value} />
         <span className={`min-w-0 truncate ${value ? 'text-ink-soft' : 'text-ink-faint'}`}>{name ?? emptyLabel}</span>
