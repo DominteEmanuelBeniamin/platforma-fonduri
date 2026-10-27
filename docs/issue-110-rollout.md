@@ -1,5 +1,11 @@
 # Recepție și rollout #110
 
+Pentru mediul local curent, folosește comenzile `db:reset:local`, `dev:local` și
+`seed:local` din [README](../README.md#mediul-local). Resetarea aplică migrarea
+cu preflight pe baza goală și pregătește schema pentru datele demo sintetice.
+Verificarea curentă a conturilor este `test:e2e:local-conturi`, cu configurația
+`.env.e2e.localdb`. Această procedură nu activează și nu publică nimic pe hosted.
+
 Faza 5 verifică sursele curente într-o bază temporară fără conturile sursă, cu Auth v2.197.0, REST, Storage, Realtime și Resend simulat. Nu aplică migrarea pe baza locală sursă sau hosted. Editorul complet al CIF-ului rămâne în #106.
 
 Regresiile de interfață și proiect rulează pe `next build` / `next start` într-o copie a surselor, cu Turbopack ca în `npm run build`. Numai configurația copiei primește rădăcina workspace-ului pentru rezolvarea junction-ului `node_modules`; configurația aplicației sursă rămâne cea din repository. Proba HTTP de recovery folosește o a doua copie în development, pe aceeași bază izolată: #107 refuză intenționat HTTP și furnizorii simulați în producție. Gărzile aplicației rămân active; testarea HTTPS și livrabilitatea reală se recepționează în preview.

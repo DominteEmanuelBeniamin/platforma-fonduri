@@ -2,6 +2,21 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 
+/** The reset and development commands target only this project's local stack. */
+export function assertLocalStack(env) {
+  assert.notEqual(env.NODE_ENV, 'production', 'Local commands refuse production')
+  assert.ok(!env.VERCEL_ENV || env.VERCEL_ENV === 'development', 'Local commands refuse hosted environments')
+  const urls = ['SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL'].map(key => {
+    assert.ok(env[key], 'Missing local configuration: ' + key)
+    const url = new URL(env[key])
+    assert.ok(url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)
+      && url.port === '54321' && url.pathname === '/' && !url.username && !url.password && !url.search && !url.hash,
+    key + ' must use the local Supabase stack on port 54321')
+    return url.origin
+  })
+  assert.equal(urls[0], urls[1], 'Server and browser must use the same local Supabase')
+}
+
 export function localFixtureDatabase(name = 'postgres') {
   assert.ok(name === 'postgres' || /^issue110_phase5_[a-f0-9]{12}$/.test(name), 'Unexpected local fixture database')
   return name

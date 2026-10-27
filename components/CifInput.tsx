@@ -32,7 +32,7 @@ export default function CifInput({ value, onChange, onBlur, error, disabled = fa
           <label htmlFor={`${id}-number`} className="mb-1.5 block text-sm font-semibold text-ink">{value.country === 'RO' ? 'CUI / CIF' : 'Număr TVA'} <span aria-hidden="true" className="text-[var(--sg-danger)]">*</span></label>
           <input id={`${id}-number`} name="cif" type="text" inputMode={value.country === 'RO' ? 'numeric' : 'text'} required disabled={disabled}
             value={value.number} onChange={event => onChange({ ...value, number: event.target.value })} onBlur={onBlur}
-            autoCapitalize="characters" autoComplete="off" spellCheck={false} placeholder={country.example.slice(country.prefix.length)}
+            autoCapitalize="characters" autoComplete="off" spellCheck={false} placeholder={value.country === 'RO' ? 'Introdu CUI-ul firmei' : 'Introdu numărul TVA al firmei'}
             aria-invalid={error?.field === 'cif'} aria-describedby={description} className={`${inputClass} ${error?.field === 'cif' ? 'border-[var(--sg-danger)]' : ''}`} />
         </div>
       </div>
@@ -41,7 +41,7 @@ export default function CifInput({ value, onChange, onBlur, error, disabled = fa
         {value.country === 'RO'
           ? 'CUI pentru firme plătitoare sau neplătitoare de TVA. Prefixul RO nu atestă statutul TVA.'
           : `Format: ${country.format}. Pentru firmele din alte țări UE este necesar un identificator TVA; firmele fără unul nu sunt încă acceptate.`}
-        {' '}Poți lipi numărul cu prefix. Exemplu: {country.example}.
+        {' '}Poți lipi numărul cu prefix.
       </p>
     </div>
   )

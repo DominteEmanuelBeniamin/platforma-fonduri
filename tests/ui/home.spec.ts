@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test'
 import { autentifica, ascultaErorile, ecranSanatos, uiConfig } from './helpers'
 
+// Headless ascunde implicit bara; o păstrăm ca să detectăm salturile de layout.
+test.use({ launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'] } })
+
 test.describe('Home — panoul-director', () => {
   test.beforeEach(async ({ page }) => { await autentifica(page, 'staff') })
 
@@ -79,8 +82,80 @@ test.describe('Home — panoul-director', () => {
     const legenda = page.getByRole('button', { name: 'Ce înseamnă semnele' })
     await expect(legenda).toBeVisible()
     await legenda.click()
-    await expect(page.getByRole('heading', { name: 'Ce înseamnă semnele' })).toBeVisible()
-    await expect(page.getByText('Cu termen depășit').or(page.getByText('Depășite'))).toBeVisible()
+    const dialog = page.getByRole('dialog', { name: 'Ce înseamnă semnele' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('Depășite', { exact: true })).toBeVisible()
+    await dialog.getByRole('button', { name: 'Închide explicațiile semnelor' }).click()
+    await expect(dialog).toBeHidden()
+    await expect(legenda).toBeFocused()
+    await legenda.press('Enter')
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect(legenda).toBeFocused()
+  })
+
+  test('legenda încape în ecran după scroll și redimensionare, inclusiv pe telefon orizontal', async ({ page }) => {
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+    await page.getByRole('button', { name: 'Ce înseamnă semnele' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Ce înseamnă semnele' })
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 320, height: 568 },
+      { width: 844, height: 390 },
+      { width: 320, height: 240 },
+    ]) {
+      await page.setViewportSize(viewport)
+      await expect(dialog).toBeInViewport({ ratio: 1 })
+      const bounds = await dialog.boundingBox()
+      expect(bounds!.x).toBeGreaterThanOrEqual(8)
+      expect(bounds!.y).toBeGreaterThanOrEqual(8)
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewport.width - 8)
+      expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewport.height - 8)
+      expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+      const explanation = dialog.getByText('Banda de sus a plăcuței preia semnul cel mai urgent al proiectului.')
+      await explanation.scrollIntoViewIfNeeded()
+      await expect(explanation).toBeInViewport({ ratio: 1 })
+      await expect(dialog.getByRole('button', { name: 'Închide explicațiile semnelor' })).toBeInViewport({ ratio: 1 })
+    }
+    await page.mouse.click(4, 4)
+    await expect(dialog).toBeHidden()
+  })
+
+  test.describe('legenda cu bară de scroll vizibilă', () => {
+    test('deschiderea și închiderea nu deplasează pagina sau navigarea', async ({ page }) => {
+      const content = page.locator('main > div').first()
+      const navigation = page.locator('nav').first()
+      for (const viewport of [
+        { width: 1440, height: 720 },
+        { width: 1280, height: 720 },
+        { width: 390, height: 844 },
+      ]) {
+        await page.setViewportSize(viewport)
+        await page.getByRole('button', { name: 'Ce înseamnă semnele' }).scrollIntoViewIfNeeded()
+        const elements = [content, navigation]
+        const before = await Promise.all(elements.map(element => element.boundingBox()))
+        await page.getByRole('button', { name: 'Ce înseamnă semnele' }).click()
+        const dialog = page.getByRole('dialog', { name: 'Ce înseamnă semnele' })
+        await expect(dialog).toBeVisible()
+        for (let i = 0; i < elements.length; i++) {
+          const during = await elements[i].boundingBox()
+          expect(Math.abs(during!.x - before[i]!.x)).toBeLessThan(0.5)
+          expect(Math.abs(during!.width - before[i]!.width)).toBeLessThan(0.5)
+        }
+        const scroll = await page.evaluate(() => window.scrollY)
+        await page.mouse.move(4, 4)
+        await page.mouse.wheel(0, 500)
+        expect(await page.evaluate(() => window.scrollY)).toBe(scroll)
+        await page.keyboard.press('Escape')
+        await expect(dialog).toBeHidden()
+        for (let i = 0; i < elements.length; i++) {
+          const after = await elements[i].boundingBox()
+          expect(Math.abs(after!.x - before[i]!.x)).toBeLessThan(0.5)
+          expect(Math.abs(after!.width - before[i]!.width)).toBeLessThan(0.5)
+        }
+      }
+    })
   })
 
   test('filtrele se deschid, se aplică și se pot șterge', async ({ page }) => {

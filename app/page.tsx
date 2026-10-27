@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
+import * as Dialog from '@radix-ui/react-dialog'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from './providers/AuthProvider'
@@ -591,7 +592,6 @@ export default function Dashboard() {
   const [templateFilter, setTemplateFilter] = useState<Set<string>>(new Set())
   const [sortOpen, setSortOpen] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
-  const [legendOpen, setLegendOpen] = useState(false)
 
   const isAdmin = currentUser?.role === 'admin'
   const canCreateProject = canCreateProjects(currentUser)
@@ -786,12 +786,12 @@ export default function Dashboard() {
 
   // Închide meniuri la click în afară
   useEffect(() => {
-    const close = () => { setOpenMenuId(null); setSortOpen(false); setLegendOpen(false) }
-    if (openMenuId || sortOpen || legendOpen) {
+    const close = () => { setOpenMenuId(null); setSortOpen(false) }
+    if (openMenuId || sortOpen) {
       document.addEventListener('click', close)
       return () => document.removeEventListener('click', close)
     }
-  }, [openMenuId, sortOpen, legendOpen])
+  }, [openMenuId, sortOpen])
 
   useEffect(() => {
     if (authLoading) return
@@ -1006,34 +1006,45 @@ export default function Dashboard() {
                 </button>
               </div>
 
-              <div className="relative">
-                <IconButton
-                  label="Ce înseamnă semnele"
-                  aria-expanded={legendOpen}
-                  onClick={(e) => { e.stopPropagation(); setLegendOpen((v) => !v) }}
-                >
-                  <Info className="h-4 w-4" />
-                </IconButton>
-                {legendOpen && (
-                  <FloatingSurface
-                    onClick={(e) => e.stopPropagation()}
-                    className="absolute left-0 top-full z-40 mt-2 w-72 rounded-[var(--radius-plate-lg)] p-3"
+              <Dialog.Root>
+                <Dialog.Trigger asChild>
+                  <IconButton type="button" label="Ce înseamnă semnele">
+                    <Info className="h-4 w-4" aria-hidden="true" />
+                  </IconButton>
+                </Dialog.Trigger>
+                <Dialog.Portal>
+                  <Dialog.Overlay className="fixed inset-0 z-[999999]" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }} />
+                  <Dialog.Content
+                    className="fixed left-1/2 top-1/2 z-[1000000] flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-plate-lg)] border border-rule bg-plate focus:outline-none"
+                    style={{ boxShadow: 'var(--sg-lift)' }}
                   >
-                    <h3 className="px-1 pb-1.5 text-sm font-semibold text-ink">Ce înseamnă semnele</h3>
-                    <div className="flex flex-col gap-0.5">
-                      {legendItems.map((it) => (
-                        <div key={it.label} className="flex items-center gap-2.5 px-1 py-1.5">
-                          <ToneDot tone={it.tone} />
-                          <span className="text-sm font-semibold text-ink">{it.label}</span>
-                          <span className="truncate text-xs text-ink-soft">— {it.desc}</span>
-                        </div>
-                      ))}
+                    <div className="flex shrink-0 items-center gap-3 px-4 pb-2 pt-3">
+                      <Dialog.Title className="min-w-0 flex-1 text-sm font-semibold text-ink">Ce înseamnă semnele</Dialog.Title>
+                      <Dialog.Close asChild>
+                        <IconButton type="button" label="Închide explicațiile semnelor">
+                          <X className="h-4 w-4" aria-hidden="true" />
+                        </IconButton>
+                      </Dialog.Close>
                     </div>
-                    <div className="my-1.5 border-t border-rule" />
-                    <p className="px-1 text-xs leading-relaxed text-ink-soft">Banda de sus a plăcuței preia semnul cel mai urgent al proiectului.</p>
-                  </FloatingSurface>
-                )}
-              </div>
+                    <div className="min-h-0 overflow-y-auto overscroll-contain px-4 pb-4">
+                      <div className="flex flex-col gap-0.5">
+                        {legendItems.map((it) => (
+                          <div key={it.label} className="flex items-start gap-2.5 py-1.5">
+                            <ToneDot tone={it.tone} />
+                            <p className="min-w-0 text-sm leading-relaxed">
+                              <span className="font-semibold text-ink">{it.label}</span>
+                              <span className="text-ink-soft"> — {it.desc}</span>
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                      <Dialog.Description className="mt-2 border-t border-rule pt-3 text-xs leading-relaxed text-ink-soft">
+                        Banda de sus a plăcuței preia semnul cel mai urgent al proiectului.
+                      </Dialog.Description>
+                    </div>
+                  </Dialog.Content>
+                </Dialog.Portal>
+              </Dialog.Root>
 
             </div>
 
