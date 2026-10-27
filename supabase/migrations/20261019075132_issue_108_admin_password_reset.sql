@@ -291,6 +291,18 @@ BEGIN
   IF v_target.id IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'USER_NOT_FOUND';
   END IF;
+
+  -- Two tabs (or two admins) confirming together carry different attempt ids; the lock
+  -- above serializes them, and the later one must not reset the account a second time.
+  PERFORM 1
+  FROM account_recovery.admin_password_resets AS r
+  WHERE r.user_id = p_target_id
+    AND r.is_current IS TRUE
+    AND r.created_at > clock_timestamp() - interval '60 seconds';
+  IF FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'RECENT_RESET_EXISTS';
+  END IF;
+
   IF v_target.is_active IS DISTINCT FROM true OR coalesce(v_target.auth_sync_pending, false)
      OR v_auth.id IS NULL OR lower(btrim(v_target.email)) IS DISTINCT FROM lower(btrim(v_auth.email))
      OR NOT account_recovery.recovery_auth_eligible(v_auth.id, lower(btrim(v_auth.email))) THEN

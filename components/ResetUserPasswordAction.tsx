@@ -64,6 +64,8 @@ export function ResetUserPasswordAction({
   const [notice, setNotice] = useState<string | null>(null)
   const [result, setResult] = useState<CompletedResult | null>(null)
   const [fallbackPassword, setFallbackPassword] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const passwordInputRef = useRef<HTMLInputElement | null>(null)
 
   const inFlightRef = useRef(false)
   const requestSequenceRef = useRef(0)
@@ -96,6 +98,7 @@ export function ResetUserPasswordAction({
     setNotice(null)
     setResult(null)
     setFallbackPassword(null)
+    setCopied(false)
     if (close) setOpen(false)
   }, [])
 
@@ -269,6 +272,24 @@ export function ResetUserPasswordAction({
     void runAttempt(result.attemptId, 'audit')
   }
 
+  // Safari pe iOS ignoră select() pe un input readonly; setSelectionRange funcționează la atingere.
+  const selectAll = (input: HTMLInputElement) => {
+    input.select()
+    input.setSelectionRange(0, input.value.length)
+  }
+
+  const copyPassword = async () => {
+    const input = passwordInputRef.current
+    if (!input) return
+    selectAll(input)
+    try {
+      await navigator.clipboard.writeText(input.value)
+      setCopied(true)
+    } catch {
+      // Fără acces la clipboard, parola rămâne selectată pentru copiere manuală.
+    }
+  }
+
   const beginNewReset = () => {
     if (inFlightRef.current) return
     attemptIdRef.current = null
@@ -276,6 +297,7 @@ export function ResetUserPasswordAction({
     setNotice(null)
     setResult(null)
     setFallbackPassword(null)
+    setCopied(false)
     setPhase('confirm')
   }
 
@@ -378,16 +400,21 @@ export function ResetUserPasswordAction({
                       <p className="text-sm font-semibold text-ink">Parolă temporară, disponibilă numai acum</p>
                       <p className="text-sm text-ink-soft">Copiaz-o și transmite-o utilizatorului printr-un canal sigur. Este temporară; dacă dorește, poate alege o altă parolă prin „Am uitat parola”.</p>
                       <label className="block text-sm font-semibold text-ink" htmlFor="reset-temporary-password">Parolă temporară</label>
-                      <input
-                        id="reset-temporary-password"
-                        type="text"
-                        readOnly
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={fallbackPassword}
-                        onFocus={event => event.currentTarget.select()}
-                        className="h-11 w-full select-all rounded-[var(--radius-plate)] border border-rule-strong bg-plate px-3 font-mono text-sm text-ink"
-                      />
+                      <div className="flex gap-2">
+                        <input
+                          ref={passwordInputRef}
+                          id="reset-temporary-password"
+                          type="text"
+                          readOnly
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={fallbackPassword}
+                          onFocus={event => selectAll(event.currentTarget)}
+                          onClick={event => selectAll(event.currentTarget)}
+                          className="h-11 min-w-0 flex-1 select-all rounded-[var(--radius-plate)] border border-rule-strong bg-plate px-3 font-mono text-sm text-ink"
+                        />
+                        <Button variant="secondary" onClick={() => void copyPassword()}>{copied ? 'Copiată' : 'Copiază'}</Button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -401,7 +428,17 @@ export function ResetUserPasswordAction({
                   <Button variant="danger" disabled={pending} onClick={confirmReset}>Confirmă resetarea</Button>
                 </>
               )}
-              {phase === 'pending' && <Button variant="secondary" onClick={() => clearDialog(true)}>Închide</Button>}
+              {/* „Confirmă resetarea” rămâne pe loc, dezactivat: al doilea click dintr-un dublu click nu nimerește „Închide”. */}
+              {phase === 'pending' && (
+                <>
+                  <Button variant="secondary" onClick={() => clearDialog(true)}>Închide</Button>
+                  {verificationKind === 'unknown' ? (
+                    <Button variant="primary" disabled><Spinner size="sm" on="accent" />Verifică rezultatul</Button>
+                  ) : (
+                    <Button variant="danger" disabled><Spinner size="sm" on="accent" />Confirmă resetarea</Button>
+                  )}
+                </>
+              )}
               {phase === 'unknown' && (
                 <>
                   <Button variant="secondary" onClick={beginNewReset}>Începe o resetare nouă</Button>
