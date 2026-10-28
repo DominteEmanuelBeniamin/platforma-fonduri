@@ -340,13 +340,14 @@ async function messageMenu(page: Page, text: string) {
   await bubble.waitFor({ timeout: 30_000 })
   await bubble.hover()
   const options = bubble.getByRole('button', { name: 'Opțiuni mesaj' })
-  if (await options.count() === 0) return { bubble, menu: false, edit: false, remove: false }
+  if (await options.count() === 0) return { bubble, option: (name: string) => page.getByRole('menu').getByRole('menuitem', { name, exact: true }), menu: false, edit: false, remove: false }
   await options.click({ force: true })
   // Opțiunile sunt `menuitem` în meniul „…” al mesajului, desenat într-un portal, în afara bulei.
   const option = (name: string) => page.getByRole('menu').getByRole('menuitem', { name, exact: true })
   await option('Șterge').waitFor({ timeout: 5_000 }).catch(() => {})
   return {
     bubble,
+    option,
     menu: true,
     edit: await option('Editează').count() > 0,
     remove: await option('Șterge').count() > 0,
@@ -880,7 +881,7 @@ test('Șterge mesajele altora din chat — adminul și seniorul din meniul mesaj
     const menu = await messageMenu(page, byJunior)
     await check('p-chat-sterge', 'senior', 'meniul mesajului unui junior are „Șterge”', 'vizibil', async () => ({ ok: menu.remove, actual: menu.remove ? 'vizibil' : menu.menu ? 'lipsește' : 'fără meniu' }), { page })
     if (menu.remove) {
-      await menu.bubble.getByRole('button', { name: 'Șterge', exact: true }).click()
+      await menu.option('Șterge').click()
       await page.getByRole('button', { name: 'Șterge mesajul' }).click()
       await stored('p-chat-sterge', 'senior', 'mesajul altcuiva se șterge din interfață', 'șters', async () => {
         const { data, error } = await service.from('project_chat_messages').select('deleted_at').eq('id', byJuniorId).maybeSingle()
@@ -916,7 +917,7 @@ test('Modifică textul mesajelor altora — doar adminul; fiecare își modific�
     const menu = await messageMenu(page, forAdmin)
     await check('p-chat-editeaza', 'admin', 'meniul mesajului altcuiva are „Editează”', 'vizibil', async () => ({ ok: menu.edit, actual: menu.edit ? 'vizibil' : 'lipsește' }), { page })
     if (menu.edit) {
-      await menu.bubble.getByRole('button', { name: 'Editează', exact: true }).click()
+      await menu.option('Editează').click()
       await page.locator('textarea').first().fill(`${forAdmin} (corectat)`)
       await page.getByRole('button', { name: 'Salvează', exact: true }).click()
       await stored('p-chat-editeaza', 'admin', 'textul corectat ajunge în bază', `${forAdmin} (corectat)`, async () => {
