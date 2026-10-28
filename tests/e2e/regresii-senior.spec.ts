@@ -452,7 +452,7 @@ test('Chat, ca junior: își editează propriul mesaj din interfață', async ({
     await bubble.waitFor({ timeout: 30_000 })
     await bubble.hover()
     await page.getByRole('button', { name: 'Opțiuni mesaj' }).last().click({ force: true })
-    await page.getByRole('button', { name: /^Editează$/ }).click()
+    await page.getByRole('menuitem', { name: /^Editează$/ }).click()
     // Câmpul de editare stă în bula mesajului, înaintea câmpului de scriere de jos.
     await page.locator('textarea').first().fill(`${text} (corectat)`)
     await page.getByRole('button', { name: 'Salvează', exact: true }).click()
