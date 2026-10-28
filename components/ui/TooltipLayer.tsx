@@ -18,10 +18,8 @@ import { usePathname } from 'next/navigation'
  * îl opresc. Într-un meniu (`role="menu"`) nu apare: opțiunile își scriu deja
  * numele, iar tooltip-ul uneia ar acoperi opțiunea vecină.
  *
- * Apare după o secundă, fără animație (D6). Imediat apare doar când treci de
- * la un buton mic la altul, cu un tooltip abia închis: o plimbare peste
- * rânduri (fazele din panou, pastilele de stare) nu mai aprinde câte un
- * tooltip pe fiecare. Apare și la focus de la tastatură; Escape îl închide;
+ * Apare după o secundă de hover, fără animație (D6), sau imediat la focus de
+ * la tastatură; Escape îl închide;
  * cursorul poate trece pe el fără să dispară (WCAG 1.4.13). Pe touch nu
  * apare — acolo nu există hover, deci nimic esențial nu stă doar în tooltip.
  *
@@ -31,15 +29,10 @@ import { usePathname } from 'next/navigation'
  */
 
 const SHOW_DELAY = 1000
-/** Cât timp după ce s-a ascuns un tooltip următorul apare fără întârziere. */
-const SKIP_DELAY = 400
 /** Răgazul în care cursorul poate trece de pe buton pe tooltip. */
 const HIDE_GRACE = 120
 const TOOLTIP_ID = 'sg-tooltip'
 const CANDIDATES = '[data-tooltip],[title],button,a[href],[role="button"],[role="switch"],[role="tab"]'
-/** Butoanele mici, între care tooltip-ul trece fără întârziere. */
-const SMALL_CONTROL = 'button,a[href],[role="button"],[role="switch"],[role="tab"]'
-const isSmallControl = (el: Element) => el.matches(SMALL_CONTROL)
 
 function normalize(text: string) {
   return text.toLowerCase().replace(/[.:…,]/g, '').replace(/\s+/g, ' ').trim()
@@ -79,9 +72,6 @@ export default function TooltipLayer() {
     let visible = false
     /** Textul tooltip-ului vizibil, ca să-l poată muta la derulare. */
     let shownText = ''
-    let lastHiddenAt = 0
-    /** Ultimul tooltip văzut era al unui buton mic, nu al unui rând. */
-    let lastWasSmall = false
     /** După un clic, butonul apăsat nu-și mai arată tooltip-ul până nu-l părăsește cursorul. */
     let suppressed: HTMLElement | null = null
     /** Elementul căruia i-am scos temporar `title`, ca browserul să nu-și deseneze propriul tooltip. */
@@ -122,7 +112,6 @@ export default function TooltipLayer() {
 
     const hide = () => {
       clearTimers()
-      if (visible) lastHiddenAt = Date.now()
       visible = false
       target = null
       unmark()
@@ -139,7 +128,6 @@ export default function TooltipLayer() {
       el.setAttribute('data-tooltip-state', 'open')
       shownOn = el
       shownText = text
-      lastWasSmall = isSmallControl(el)
       // Tooltip-ul descrie elementul cât se vede, ca la Radix — dacă spune
       // altceva decât numele lui.
       if (normalize(text) !== normalize(el.getAttribute('aria-label') ?? '')) {
@@ -158,7 +146,7 @@ export default function TooltipLayer() {
         unmark()
         dropDescription()
         restoreTitle()
-        if (visible) { visible = false; lastHiddenAt = Date.now(); setTip(null) }
+        if (visible) { visible = false; setTip(null) }
       }
       target = el
       if (via === 'pointer' && el.hasAttribute('title')) {
@@ -166,9 +154,7 @@ export default function TooltipLayer() {
         el.removeAttribute('title')
         stashed = el
       }
-      const immediate = via === 'focus'
-        || (Date.now() - lastHiddenAt < SKIP_DELAY && lastWasSmall && isSmallControl(el))
-      showTimer = setTimeout(() => show(el, text), immediate ? 0 : SHOW_DELAY)
+      showTimer = setTimeout(() => show(el, text), via === 'focus' ? 0 : SHOW_DELAY)
     }
 
     const candidateOf = (node: EventTarget | null) =>

@@ -99,8 +99,13 @@ export async function autentifica(page: Page, rol: Rol) {
   await page.goto('/login', { waitUntil: 'networkidle' })
   await page.fill('input[type="email"]', cont.email)
   await page.fill('input[type="password"]', cont.password)
+  const loginAudit = page.waitForResponse(response =>
+    new URL(response.url()).pathname === '/api/auth/audit' && response.request().method() === 'POST')
   await page.getByRole('button', { name: /Intră în cont/ }).click()
+  await loginAudit
   await page.waitForURL(url => !url.pathname.includes('/login'), { timeout: 30_000 })
+  // Loginul redirecționează și după audit; WebKit poate pleca prea devreme spre test.
+  await expect(page.getByRole('heading', { level: 1, name: /^Salut/ })).toBeVisible()
   await page.waitForLoadState('networkidle')
 }
 

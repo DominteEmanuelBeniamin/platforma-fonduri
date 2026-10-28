@@ -582,7 +582,7 @@ export default function ProjectChatDrawer({
           label:
             readByCount >= otherParticipantCount
               ? "Citit de toți"
-              : `Citit de ${readByCount}`,
+              : `Citit de ${readByCount} ${readByCount === 1 ? "persoană" : "persoane"}`,
         };
       }
     }
@@ -1131,7 +1131,7 @@ export default function ProjectChatDrawer({
                 }
               }}
               placeholder="Scrie un mesaj..."
-              className="flex-1 bg-transparent resize-none px-3 py-2.5 text-sm text-ink placeholder:text-ink-faint outline-none focus-visible:outline-none! max-h-[120px]"
+              className="flex-1 bg-transparent resize-none px-3 py-2.5 text-sm text-ink placeholder:text-ink-faint placeholder-shown:h-auto! outline-none focus-visible:outline-none! max-h-[120px]"
               rows={1}
             />
             <button data-tooltip="Trimite mesajul"

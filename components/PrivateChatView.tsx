@@ -515,7 +515,7 @@ export default function PrivateChatView({
                   )}
 
                     <div
-                        className={`relative group/bubble flex items-center gap-2 ${
+                        className={`relative group/bubble flex min-w-0 items-center gap-2 ${
                             isMe ? 'flex-row-reverse' : 'flex-row'
                         }`}
                     >
@@ -551,7 +551,7 @@ export default function PrivateChatView({
                               setOpenMenuId(m.id)
                             }
                           }}
-                          className={`relative px-4 py-2.5 text-[14px] leading-relaxed shadow-sm transition-all ${
+                          className={`relative min-w-0 px-4 py-2.5 text-[14px] leading-relaxed shadow-sm transition-all ${
                             isMe
                               ? 'bg-ink text-white'
                               : 'border border-rule bg-white text-ink'
@@ -672,7 +672,7 @@ export default function PrivateChatView({
             }}
             onKeyDown={onTextareaKeyDown}
             placeholder="Scrie un mesaj..."
-            className="max-h-[120px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm text-ink outline-none focus-visible:outline-none! placeholder:text-ink-faint"
+            className="max-h-[120px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm text-ink outline-none focus-visible:outline-none! placeholder:text-ink-faint placeholder-shown:h-auto!"
             rows={1}
           />
           <button data-tooltip="Trimite mesajul"

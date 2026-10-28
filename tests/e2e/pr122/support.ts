@@ -170,8 +170,7 @@ function must<T>(result: { data: T | null; error: { message: string } | null }, 
 }
 
 /** Proiectul de test, scris direct în bază: e starea de pornire, nu ce verifică testul. */
-export async function seedProject(seed: ProjectSeed): Promise<SeededProject> {
-  const id = randomUUID()
+export async function seedProject(seed: ProjectSeed, id = randomUUID()): Promise<SeededProject> {
   const title = `${PREFIX} ${seed.label} ${id.slice(0, 6)}`
   const actor = seed.members[0]?.id ?? null
   must(await service.from('projects').insert({

@@ -88,7 +88,7 @@ export default function RowActionsMenu({
       if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setOpen(false); buttonRef.current?.focus(); return }
+      if (event.key === 'Escape') { event.stopPropagation(); setOpen(false); buttonRef.current?.focus(); return }
       // Lista stă în `body`, la finalul documentului: ordinea naturală de
       // tabulare ar sări peste ea și ar lăsa meniul deschis în urmă. Focusul se
       // întoarce pe trigger *fără* `preventDefault`, deci Tab-ul continuă de
@@ -172,7 +172,7 @@ export default function RowActionsMenu({
           ref={menuRef}
           role="menu"
           style={{ position: 'fixed', top: position.top, bottom: position.bottom }}
-          className="z-50 min-w-[11rem] py-1 rounded-lg border border-[var(--p-border)] bg-[var(--p-surface)] shadow-[0_8px_24px_-8px_rgba(15,23,42,0.25)]"
+          className="z-[1000000] min-w-[11rem] py-1 rounded-lg border border-[var(--p-border)] bg-[var(--p-surface)] shadow-[0_8px_24px_-8px_rgba(15,23,42,0.25)]"
         >
           {visible.map(action => (
             <button

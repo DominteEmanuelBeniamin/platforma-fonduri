@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { useProjectChatUnread } from '@/app/providers/ProjectChatUnreadProvider'
 import { userErrorMessage } from '@/lib/user-error'
 import type { ChatImage, ChatImageReference } from '@/lib/project-chat-contracts'
 import { announceChatRead, PROJECT_CHAT_READ_EVENT } from '@/lib/chat-read-events'
@@ -108,6 +109,7 @@ const normalizeMessage = (message: ChatMessage): ChatMessage => ({
 
 export function useProjectChat(projectId: string, opts: UseProjectChatOptions = {}) {
   const { apiFetch, loading: authLoading, userId } = useAuth()
+  const { unreadProjects } = useProjectChatUnread()
   const initialLimit = opts.initialLimit ?? 50
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -133,20 +135,7 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
     setReadStates([])
   }, [])
 
-  const unreadCount = useMemo(() => {
-    if (!lastReadAt) {
-      return messages.filter((m) => !m.deleted_at && m.created_by !== userId).length
-    }
-
-    const lastReadTime = new Date(lastReadAt).getTime()
-
-    return messages.filter(
-      (m) =>
-        !m.deleted_at &&
-        m.created_by !== userId &&
-        new Date(m.created_at).getTime() > lastReadTime
-    ).length
-  }, [lastReadAt, messages, userId])
+  const unreadCount = unreadProjects.find((project) => project.projectId === projectId)?.unreadMessageCount ?? 0
 
   const upsertOne = useCallback((m: ChatMessage) => {
     idsRef.current.add(m.id)

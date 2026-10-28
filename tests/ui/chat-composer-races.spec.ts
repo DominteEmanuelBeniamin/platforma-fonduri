@@ -486,3 +486,115 @@ test.describe('Compunerea mesajelor în chatul proiectului', () => {
     }
   })
 })
+
+async function expectComposerResize(scope: Locator, state: MockState) {
+  const composer = scope.getByPlaceholder('Scrie un mesaj...')
+  const singleLineHeight = await composer.evaluate(el => el.getBoundingClientRect().height)
+  state.holdFirstPost = true
+  try {
+    await composer.fill(Array(9).fill('linie').join('\n'))
+    await expect.poll(() => composer.evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThan(singleLineHeight)
+    await scope.getByRole('button', { name: 'Trimite', exact: true }).click()
+    await state.firstPostStarted.promise
+    await expect(composer).toHaveValue('')
+    await expect.poll(() => composer.evaluate(el => el.getBoundingClientRect().height)).toBeLessThanOrEqual(singleLineHeight + 1)
+    await composer.evaluate(el => { el.style.height = '140px' })
+    await expect.poll(() => composer.evaluate(el => el.getBoundingClientRect().height)).toBeLessThanOrEqual(singleLineHeight + 1)
+    await composer.fill('draft nou\nîncă o linie')
+    await expect.poll(() => composer.evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThan(singleLineHeight)
+    state.releaseFirstPost.resolve()
+    await expect(composer).toHaveValue('draft nou\nîncă o linie')
+  } finally {
+    state.releaseFirstPost.resolve()
+  }
+}
+
+async function expectWrapped(scope: Locator, text: string) {
+  const message = scope.getByText(text, { exact: true })
+  await expect(message).toBeVisible()
+  const geometry = await message.evaluate(el => {
+    const box = el.getBoundingClientRect()
+    const container = el.closest('.group\\/row')!.getBoundingClientRect()
+    return { width: box.width, height: box.height, containerWidth: container.width, left: box.left, right: box.right, containerLeft: container.left, containerRight: container.right }
+  })
+  expect(geometry.width).toBeLessThanOrEqual(geometry.containerWidth)
+  expect(geometry.left).toBeGreaterThanOrEqual(geometry.containerLeft - 1)
+  expect(geometry.right).toBeLessThanOrEqual(geometry.containerRight + 1)
+  expect(geometry.height).toBeGreaterThan(40)
+}
+
+test('chatul privat încadrează textul lung și micșorează compozitorul', async ({ page }) => {
+  const state = mockState()
+  const api = await installPrivateMocks(page, state)
+  await autentifica(page, 'admin')
+  const userId = await signedInUserId(page)
+  api.setFixture(userId)
+  const longText = 'Q'.repeat(1500)
+  api.messages.get(CONVERSATION_A)!.push(makeMessage(900, longText, PEER_A, CONVERSATION_A, 'private'))
+  api.messages.get(CONVERSATION_A)!.push(makeMessage(901, 'R'.repeat(1500), userId, CONVERSATION_A, 'private'))
+  await page.goto('/chat', { waitUntil: 'networkidle' })
+  await page.locator('aside').getByRole('button', { name: /Test Partner One/ }).click()
+  const scope = page.getByPlaceholder('Scrie un mesaj...').locator('xpath=ancestor::section[1]')
+  await expectWrapped(scope, longText)
+  await expectWrapped(scope, 'R'.repeat(1500))
+  await expectComposerResize(scope, state)
+})
+
+test('chatul proiectului folosește totalul complet, încadrează textul și micșorează compozitorul', async ({ page }) => {
+  test.skip(!projectId, 'E2E_PROJECT_ID lipsește din configurația UI')
+  const id = projectId!
+  const state = mockState()
+  const api = await installProjectMocks(page, id, state)
+  await autentifica(page, 'admin')
+  const userId = await signedInUserId(page)
+  state.userId = userId
+  const longText = 'Q'.repeat(1500)
+  for (let i = 0; i < 50; i++) {
+    api.messages.push(makeMessage(1000 + i, i === 49 ? longText : i === 0 ? 'R'.repeat(1500) : `mesaj-${i}`, i === 0 ? userId : PROJECT_PEER, id, 'project'))
+  }
+  let unread = 123
+  await page.route('**/api/projects/chat/unread', route => json(route, 200, {
+    hasUnread: unread > 0, unreadProjectCount: unread > 0 ? 1 : 0, unreadMessageCount: unread,
+    unreadProjects: unread > 0 ? [{ projectId: id, unreadMessageCount: unread }] : [],
+  }))
+  await page.route(`**/api/projects/${id}/chat/read`, async route => {
+    if (route.request().method() === 'POST') unread = 0
+    return json(route, 200, { ok: true, lastReadAt: null, readStates: [] })
+  })
+  await page.goto(`/projects/${id}`, { waitUntil: 'networkidle' })
+  const chatButton = page.getByRole('button', { name: /^Chat/ }).first()
+  await expect(chatButton).toHaveAttribute('aria-label', 'Chat, 123 mesaje necitite')
+  await expect(chatButton.getByText('99+')).toBeVisible()
+  await chatButton.click()
+  const scope = page.locator('aside').filter({ has: page.getByRole('heading', { name: 'Chat proiect' }) })
+  await expectWrapped(scope, longText)
+  await expectWrapped(scope, 'R'.repeat(1500))
+  await expect(chatButton).toHaveAttribute('aria-label', 'Chat')
+  await expectComposerResize(scope, state)
+})
+
+test('confirmarea de citire folosește singularul, pluralul și «toți»', async ({ page }) => {
+  test.skip(!projectId, 'E2E_PROJECT_ID lipsește din configurația UI')
+  const id = projectId!
+  const state = mockState()
+  const api = await installProjectMocks(page, id, state)
+  await autentifica(page, 'admin')
+  const userId = await signedInUserId(page)
+  api.messages.push(makeMessage(2000, 'mesaj cu confirmare', userId, id, 'project'))
+  let readers = 1
+  await page.route(`**/api/projects/${id}/chat/read`, route => json(route, 200, {
+    ok: true,
+    lastReadAt: null,
+    readStates: [userId, PEER_A, PEER_B, PROJECT_PEER, uuid(404)].map((reader, index) => ({
+      project_id: id,
+      user_id: reader,
+      last_read_at: index > 0 && index <= readers ? '2100-01-01T00:00:00.000Z' : null,
+    })),
+  }))
+  for (const [count, label] of [[1, 'Citit de 1 persoană'], [3, 'Citit de 3 persoane'], [4, 'Citit de toți']] as const) {
+    readers = count
+    await page.goto(`/projects/${id}`, { waitUntil: 'networkidle' })
+    await page.getByRole('button', { name: /^Chat/ }).first().click()
+    await expect(page.getByText(label, { exact: true })).toBeVisible()
+  }
+})

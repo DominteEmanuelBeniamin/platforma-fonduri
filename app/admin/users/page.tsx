@@ -574,7 +574,7 @@ export default function AdminUsersPage() {
               size="sm"
               aria-pressed={filtruRol === r}
               onClick={() => setFiltruRol(r)}
-              className={filtruRol === r ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : ''}
+              className="aria-pressed:border-[var(--sg-accent)] aria-pressed:bg-[var(--sg-accent-soft)] aria-pressed:text-[var(--sg-accent-ink)]"
             >
               {r === 'toate' ? 'Toate' : ROLURI[r].replace(' (firmă)', '')}
             </Button>
@@ -585,8 +585,8 @@ export default function AdminUsersPage() {
       <div className="mt-3 flex flex-wrap items-center gap-1" role="group" aria-label="Filtrează după starea contului">
         {(['active', 'inactive', 'all'] as const).map((state) => (
           <Button data-tooltip={state === 'active' ? 'Doar conturile active' : state === 'inactive' ? 'Doar conturile dezactivate' : 'Conturile active și dezactivate'} key={state} variant="secondary" size="sm" aria-pressed={filtruStare === state} onClick={() => setFiltruStare(state)}
-            className={filtruStare === state ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : ''}>
-            {state === 'active' ? 'Active' : state === 'inactive' ? 'Dezactivate' : 'Toate stările'}
+            className="aria-pressed:border-[var(--sg-accent)] aria-pressed:bg-[var(--sg-accent-soft)] aria-pressed:text-[var(--sg-accent-ink)]">
+            {state === 'active' ? 'Activi' : state === 'inactive' ? 'Dezactivați' : 'Toți'}
           </Button>
         ))}
       </div>
@@ -681,6 +681,7 @@ export default function AdminUsersPage() {
                   )}
                   <IconButton
                     label={'Șterge definitiv utilizatorul ' + user.email}
+                    data-tooltip="Șterge utilizatorul"
                     tone="danger"
                     disabled={changingStateId !== null}
                     onClick={(event) => { lifecycleFocusReturnRef.current = event.currentTarget; setDeleteError(null); setDeleteBlockers([]); setDeleteHasRelatedData(false); setCheckingDelete(true); setUserToDelete({ id: user.id, email: user.email, is_active: user.is_active !== false }); setDeleteModalOpen(true) }}

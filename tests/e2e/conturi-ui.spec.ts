@@ -47,10 +47,10 @@ test('users default to active and explain deletion blockers before confirmation'
   await page.waitForURL(url => !url.pathname.startsWith('/login'))
   await page.goto('/admin/users')
   const filters = page.getByRole('group', { name: 'Filtrează după starea contului' })
-  await expect(filters.getByRole('button', { name: 'Active', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(filters.getByRole('button', { name: 'Activi', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('button', { name: 'Șterge definitiv utilizatorul ' + active.email, exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Șterge definitiv utilizatorul ' + inactive.email, exact: true })).toHaveCount(0)
-  await filters.getByRole('button', { name: 'Dezactivate', exact: true }).click()
+  await filters.getByRole('button', { name: 'Dezactivați', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Șterge definitiv utilizatorul ' + active.email, exact: true })).toHaveCount(0)
 
   for (const width of [1440, 390]) {
@@ -90,7 +90,7 @@ test('users default to active and explain deletion blockers before confirmation'
   expect(deletions).toEqual(['/api/users/' + empty.id])
   await page.keyboard.press('Escape')
 
-  await filters.getByRole('button', { name: 'Toate stările', exact: true }).click()
+  await filters.getByRole('button', { name: 'Toți', exact: true }).click()
   await page.getByRole('button', { name: 'Șterge definitiv utilizatorul ' + active.email, exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveAccessibleName('Utilizatorul nu poate fi șters')
   await expect(page.getByRole('dialog').getByText('Contul este deja dezactivat.', { exact: false })).toHaveCount(0)

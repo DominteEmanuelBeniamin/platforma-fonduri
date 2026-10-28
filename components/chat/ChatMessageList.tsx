@@ -196,7 +196,7 @@ export default function ChatMessageList({
 
             {/* Conținut mesaj (bula sau editorul) */}
             <div
-              className={`relative group/bubble flex items-center gap-2 ${
+              className={`relative group/bubble flex min-w-0 items-center gap-2 ${
                 isMe ? "flex-row-reverse" : "flex-row"
               }`}
             >
@@ -208,7 +208,7 @@ export default function ChatMessageList({
                       setOpenMenuId(`message:${m.id}`);
                     }
                   }}
-                  className={`flex flex-col gap-1.5 ${isMe ? "items-end" : "items-start"}`}
+                  className={`flex min-w-0 max-w-full flex-col gap-1.5 ${isMe ? "items-end" : "items-start"}`}
                 >
                   {m.deleted_at ? (
                     <div
@@ -249,7 +249,7 @@ export default function ChatMessageList({
                           </div>
                         </div>
                       ) : (m.body || m.body_masked) && (
-                        <div className="group/message relative">
+                        <div className="group/message relative max-w-full">
                           <div
                             className={`px-4 py-2.5 text-[14px] leading-relaxed transition-colors ${
                               m.body_masked

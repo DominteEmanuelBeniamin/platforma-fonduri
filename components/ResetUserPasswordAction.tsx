@@ -38,6 +38,7 @@ const DEFINITE_REFUSAL_STATUSES = new Set([400, 401, 403, 404, 409])
 /** Al doilea tap dintr-un dublu tap vine în același loc, la câteva sute de milisecunde după primul. */
 const GHOST_TAP_MS = 600
 const GHOST_TAP_PX = 24
+const CONFIRM_DELAY_MS = 2000
 
 function bodyMessage(body: unknown) {
   if (!body || typeof body !== 'object') return null
@@ -62,6 +63,7 @@ export function ResetUserPasswordAction({
   const [open, setOpen] = useState(false)
   const [phase, setPhase] = useState<Phase>('confirm')
   const [pending, setPending] = useState(false)
+  const [confirmReady, setConfirmReady] = useState(false)
   const [verificationKind, setVerificationKind] = useState<VerificationKind>(null)
   const [attemptId, setAttemptId] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -69,6 +71,8 @@ export function ResetUserPasswordAction({
   const [fallbackPassword, setFallbackPassword] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const passwordInputRef = useRef<HTMLInputElement | null>(null)
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const resetMarkerRef = useRef<string | null | undefined>(undefined)
 
   const inFlightRef = useRef(false)
   // Locul și momentul clicului pe „Confirmă resetarea”, ca să recunoaștem al doilea tap al unui dublu tap.
@@ -91,6 +95,9 @@ export function ResetUserPasswordAction({
   const dialogOpen = open && openTargetRef.current === targetIdentity
 
   const clearDialog = useCallback((close: boolean) => {
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current)
+    confirmTimerRef.current = null
+    setConfirmReady(false)
     requestSequenceRef.current += 1
     activeControllerRef.current?.abort()
     activeControllerRef.current = null
@@ -121,6 +128,7 @@ export function ResetUserPasswordAction({
   }, [allowed, clearDialog])
 
   useEffect(() => () => {
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current)
     requestSequenceRef.current += 1
     activeControllerRef.current?.abort()
     activeControllerRef.current = null
@@ -144,6 +152,20 @@ export function ResetUserPasswordAction({
     if (isGhostTap(event)) event.preventDefault()
   }
 
+  const prepareConfirmation = useCallback(() => {
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current)
+    setConfirmReady(false)
+    try {
+      resetMarkerRef.current = localStorage.getItem(`bonie:reset-password:${target.id}`)
+    } catch {
+      resetMarkerRef.current = undefined
+    }
+    confirmTimerRef.current = setTimeout(() => {
+      confirmTimerRef.current = null
+      setConfirmReady(true)
+    }, CONFIRM_DELAY_MS)
+  }, [target.id])
+
   const handleOpenChange = useCallback((nextOpen: boolean) => {
     if (!nextOpen) {
       clearDialog(true)
@@ -152,8 +174,9 @@ export function ResetUserPasswordAction({
     clearDialog(false)
     openRef.current = true
     openTargetRef.current = targetIdentityRef.current
+    prepareConfirmation()
     setOpen(true)
-  }, [clearDialog])
+  }, [clearDialog, prepareConfirmation])
 
   const runAttempt = useCallback(async (id: string, verification: VerificationKind = null) => {
     if (inFlightRef.current || !openRef.current) return
@@ -275,15 +298,37 @@ export function ResetUserPasswordAction({
   }, [apiFetch, onReset, target.email, target.id])
 
   const confirmReset = (event: MouseEvent) => {
-    if (inFlightRef.current || startingRef.current || phase !== 'confirm') return
+    if (inFlightRef.current || startingRef.current || phase !== 'confirm' || !confirmReady) return
     confirmTapRef.current = { x: event.clientX, y: event.clientY, at: Date.now() }
+    const locks = navigator.locks
+    if (!locks) {
+      setNotice('Browserul nu poate coordona resetările între file. Folosește un browser care permite această funcție și încearcă din nou.')
+      setPhase('busy')
+      return
+    }
     const id = crypto.randomUUID()
     attemptIdRef.current = id
     setAttemptId(id)
-    const locks = typeof navigator === 'undefined' ? undefined : navigator.locks
-    if (!locks) {
-      void runAttempt(id)
-      return
+    const start = async () => {
+      if (attemptIdRef.current !== id || !openRef.current || openTargetRef.current !== targetIdentityRef.current) return
+      try {
+        const key = `bonie:reset-password:${target.id}`
+        if (resetMarkerRef.current === undefined) throw new Error('Storage unavailable')
+        if (localStorage.getItem(key) !== resetMarkerRef.current) {
+          attemptIdRef.current = null
+          setAttemptId(null)
+          setPhase('busy')
+          return
+        }
+        localStorage.setItem(key, id)
+      } catch {
+        attemptIdRef.current = null
+        setAttemptId(null)
+        setNotice('Nu am putut verifica celelalte file. Verifică setările de stocare ale browserului și încearcă din nou.')
+        setPhase('busy')
+        return
+      }
+      await runAttempt(id)
     }
     // Două file ale aceluiași browser care confirmă împreună ar face două resetări (a doua o
     // înlocuiește pe prima, cu încă un email). Lacătul ține cât rulează cererea din fila care l-a luat.
@@ -297,16 +342,49 @@ export function ResetUserPasswordAction({
         setPhase('busy')
         return
       }
-      await runAttempt(id)
+      await start()
     }).catch(() => {
       startingRef.current = false
+      if (attemptIdRef.current !== id || !openRef.current) return
+      attemptIdRef.current = null
+      setAttemptId(null)
+      setNotice('Nu am putut coordona resetarea între file. Resetarea nu a fost pornită; încearcă din nou.')
+      setPhase('busy')
     })
   }
 
   const verifyAttempt = () => {
     const id = attemptIdRef.current
-    if (!id || inFlightRef.current || phase !== 'unknown') return
-    void runAttempt(id, 'unknown')
+    if (!id || inFlightRef.current || startingRef.current || phase !== 'unknown') return
+    const locks = navigator.locks
+    if (!locks) {
+      setNotice('Browserul nu poate coordona resetările între file. Verificarea nu a fost pornită.')
+      return
+    }
+    startingRef.current = true
+    void locks.request(`bonie:reset-password:${target.id}`, { ifAvailable: true }, async lock => {
+      startingRef.current = false
+      if (attemptIdRef.current !== id || !openRef.current || openTargetRef.current !== targetIdentityRef.current) return
+      if (!lock) {
+        setNotice('O altă resetare este în curs. Așteaptă să se termine înainte de a verifica această încercare.')
+        return
+      }
+      try {
+        if (localStorage.getItem(`bonie:reset-password:${target.id}`) !== id) {
+          setNotice('O altă încercare de resetare a fost pornită între timp. Rezultatul acestei încercări rămâne necunoscut; verificarea ei nu a fost pornită.')
+          return
+        }
+      } catch {
+        setNotice('Nu am putut verifica celelalte file. Verificarea nu a fost pornită; verifică setările de stocare ale browserului.')
+        return
+      }
+      await runAttempt(id, 'unknown')
+    }).catch(() => {
+      startingRef.current = false
+      if (attemptIdRef.current === id && openRef.current) {
+        setNotice('Nu am putut coordona verificarea între file. Verificarea nu a fost pornită.')
+      }
+    })
   }
 
   const verifyDeliveryAudit = () => {
@@ -348,6 +426,7 @@ export function ResetUserPasswordAction({
     setResult(null)
     setFallbackPassword(null)
     setCopied(false)
+    prepareConfirmation()
     setPhase('confirm')
   }
 
@@ -374,7 +453,7 @@ export function ResetUserPasswordAction({
                     : 'Se procesează resetarea. Poți închide dialogul; rezultatul nu va mai fi afișat aici.')}
                   {phase === 'unknown' && 'Rezultatul resetării nu este confirmat. Verificarea va folosi aceeași încercare.'}
                   {phase === 'rejected' && 'Serverul a refuzat resetarea; parola contului nu a fost schimbată.'}
-                  {phase === 'busy' && 'Resetarea parolei acestui cont rulează deja în altă filă.'}
+                  {phase === 'busy' && 'Resetarea nu a fost pornită.'}
                   {phase === 'completed' && (result?.superseded
                     ? 'Resetarea a fost confirmată, dar contul a fost schimbat ulterior.'
                     : 'Resetarea parolei a fost confirmată.')}
@@ -406,7 +485,7 @@ export function ResetUserPasswordAction({
 
               {phase === 'busy' && (
                 <FeedbackMessage variant="info">
-                  Nu am pornit o a doua resetare. Rezultatul apare în fila în care ai confirmat; dacă e nevoie de o resetare nouă, încearcă din nou după ce se termină acolo.
+                  {notice || 'Nu am pornit o a doua resetare. Verifică rezultatul în cealaltă filă; dacă este nevoie, poți începe apoi o resetare nouă.'}
                 </FeedbackMessage>
               )}
 
@@ -484,7 +563,7 @@ export function ResetUserPasswordAction({
               {phase === 'confirm' && (
                 <>
                   <Dialog.Close asChild><Button variant="secondary">Anulează</Button></Dialog.Close>
-                  <Button variant="danger" disabled={pending} onClick={confirmReset}>Confirmă resetarea</Button>
+                  <Button variant="danger" disabled={pending || !confirmReady} onClick={confirmReset}>Confirmă resetarea</Button>
                 </>
               )}
               {/* „Confirmă resetarea” rămâne pe loc, dezactivat; „Închide” ignoră al doilea tap al unui dublu tap. */}
