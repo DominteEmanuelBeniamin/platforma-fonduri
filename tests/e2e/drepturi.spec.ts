@@ -981,8 +981,8 @@ test('Interfață — chatul: seniorul șterge mesajele altora dar nu le editeaz
           opened = true
         }
       }
-      const hasDelete = opened && await visible(page, page.getByRole('button', { name: /^Șterge$/ }))
-      const hasEdit = opened && await page.getByRole('button', { name: /^Editează$/ }).count() > 0
+      const hasDelete = opened && await visible(page, page.getByRole('menuitem', { name: /^Șterge$/ }))
+      const hasEdit = opened && await page.getByRole('menuitem', { name: /^Editează$/ }).count() > 0
       fact('p-chat-sterge', who, 'meniul mesajului altcuiva are „Șterge”', hasDelete, hasDelete ? 'vizibil' : (opened ? 'lipsește' : 'meniul nu s-a deschis'), 'Interfață', 'vizibil')
       fact('p-chat-editeaza', who, who === 'admin' ? 'meniul mesajului altcuiva are „Editează”' : 'meniul mesajului altcuiva nu are „Editează”', who === 'admin' ? hasEdit : (opened && !hasEdit), hasEdit ? 'vizibil' : 'ascuns', 'Interfață', who === 'admin' ? 'vizibil' : 'ascuns')
       await page.screenshot({ path: path.join(REPORT_DIR, `chat-${who}.png`) })

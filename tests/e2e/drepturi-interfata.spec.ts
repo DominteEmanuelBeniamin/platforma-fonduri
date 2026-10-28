@@ -334,12 +334,14 @@ async function messageMenu(page: Page, text: string) {
   const options = bubble.getByRole('button', { name: 'Opțiuni mesaj' })
   if (await options.count() === 0) return { bubble, menu: false, edit: false, remove: false }
   await options.click({ force: true })
-  await bubble.getByRole('button', { name: 'Șterge', exact: true }).waitFor({ timeout: 5_000 }).catch(() => {})
+  // Opțiunile sunt `menuitem` în meniul „…” al mesajului.
+  const option = (name: string) => bubble.getByRole('menuitem', { name, exact: true })
+  await option('Șterge').waitFor({ timeout: 5_000 }).catch(() => {})
   return {
     bubble,
     menu: true,
-    edit: await bubble.getByRole('button', { name: 'Editează', exact: true }).count() > 0,
-    remove: await bubble.getByRole('button', { name: 'Șterge', exact: true }).count() > 0,
+    edit: await option('Editează').count() > 0,
+    remove: await option('Șterge').count() > 0,
   }
 }
 
