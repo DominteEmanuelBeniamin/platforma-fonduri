@@ -356,7 +356,7 @@ export function ResetUserPasswordAction({
   return (
     <Dialog.Root open={dialogOpen} onOpenChange={handleOpenChange}>
       <Dialog.Trigger asChild>
-        <Button variant="secondary">Resetează parola</Button>
+        <Button data-tooltip="Închide sesiunile contului și îi trimite o parolă temporară pe email" variant="secondary">Resetează parola</Button>
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[999999] backdrop-blur-sm" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }} />
