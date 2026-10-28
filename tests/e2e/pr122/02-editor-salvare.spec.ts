@@ -135,3 +135,36 @@ test('editorul: de la deschidere la salvare, baza și Storage sunt exact ce e pe
   expect(error, 'fișierul-model lipsește din Storage').toBeNull()
   expect(Buffer.from(await data!.arrayBuffer()).equals(model.buffer), 'Storage are alt conținut decât fișierul ales').toBe(true)
 })
+
+test('repeated dragover on one activity moves it only once', async ({ team, as, seeds }) => {
+  const template = await seedTemplate({
+    label: `drag repetat ${tag()}`,
+    phases: [{ name: 'Faza', activities: [{ name: 'Prima', requests: [] }, { name: 'A doua', requests: [] }] }],
+  })
+  seeds.templates.add(template.id)
+  const page = await as(team.admin)
+  const list = new TemplatesListPage(page)
+  const editor = new TemplateEditorPage(page)
+  await list.goto()
+  await list.action(template.name, 'Editează')
+  await editor.expectOpen()
+  await editor.expandEverything()
+
+  const source = await editor.dragHandle(editor.activityHeader('A doua')).elementHandle()
+  const sourceHeader = await editor.activityHeader('A doua').elementHandle()
+  const target = await editor.activityHeader('Prima').elementHandle()
+  await page.evaluate(([handle, row]) => {
+    const dataTransfer = new DataTransfer()
+    handle!.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer }))
+    for (let i = 0; i < 2; i++) row!.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }))
+  }, [source, target])
+  await expect.poll(async () => (await editor.screenTree())[0].activities.map(a => a.name)).toEqual(['A doua', 'Prima'])
+
+  await page.evaluate(([ownRow, row, handle]) => {
+    const dataTransfer = new DataTransfer()
+    ownRow!.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }))
+    row!.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }))
+    handle!.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer }))
+  }, [sourceHeader, target, source])
+  await expect.poll(async () => (await editor.screenTree())[0].activities.map(a => a.name)).toEqual(['Prima', 'A doua'])
+})

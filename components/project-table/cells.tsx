@@ -94,7 +94,7 @@ export function ProgressCell({ done, total, sentence }: { done: number; total: n
     <span className="inline-flex items-center gap-1 text-xs tabular-nums" title={sentence}>
       {complete && <Check className="h-3.5 w-3.5 text-[var(--sg-ok)]" strokeWidth={2.5} aria-hidden="true" />}
       <span aria-hidden="true" className={complete ? 'font-semibold text-[var(--sg-ok)]' : 'text-ink-soft'}>
-        {done}<span className={complete ? '' : 'text-ink-faint'}>/{total}</span>
+        {done}/{total}
       </span>
       <span className="sr-only">{sentence}</span>
     </span>

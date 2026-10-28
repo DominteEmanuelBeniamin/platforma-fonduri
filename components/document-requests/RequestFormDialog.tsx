@@ -66,10 +66,10 @@ export default function RequestFormDialog({
         <Dialog.Overlay className="fixed inset-0 z-[999999]" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }} />
         <Dialog.Content
           onCloseAutoFocus={event => event.preventDefault()}
-          className="fixed left-1/2 top-1/2 z-[999999] max-h-[90vh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[var(--radius-plate-lg)] border border-rule bg-plate focus:outline-none"
+          className="fixed left-1/2 top-1/2 z-[999999] max-h-[90vh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[var(--radius-plate-lg)] border border-rule bg-plate focus:outline-none max-[384px]:pointer-coarse:w-[calc(100%-4px)]"
           style={{ boxShadow: 'var(--sg-lift)' }}
         >
-          <div className="p-5 sm:p-6">
+          <div className="p-5 sm:p-6 max-[384px]:pointer-coarse:px-0">
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
                 <Dialog.Title className="text-sm font-semibold text-ink">

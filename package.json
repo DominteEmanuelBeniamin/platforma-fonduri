@@ -28,7 +28,6 @@
     "test:ui:raport": "playwright show-report playwright-report/ui"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.85.0",
     "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",
     "@radix-ui/react-avatar": "^1.2.3",
     "@radix-ui/react-collapsible": "^1.1.17",
@@ -36,12 +35,12 @@
     "@supabase/supabase-js": "^2.90.0",
     "archiver": "^7.0.1",
     "lucide-react": "^0.562.0",
-    "next": "^16.2.4",
+    "next": "^16.4.3",
     "react": "19.2.3",
     "react-day-picker": "9.14.0",
     "react-dom": "19.2.3",
     "resend": "^6.12.2",
-    "zod": "^4.3.6"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
@@ -61,6 +60,7 @@
   "overrides": {
     "lodash": "^4.18.1",
     "postcss": "^8.5.12",
-    "svix": "^1.92.2"
+    "svix": "^1.92.2",
+    "eslint-plugin-react-hooks": "7.0.1"
   }
 }

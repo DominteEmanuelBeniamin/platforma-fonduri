@@ -28,3 +28,11 @@ export async function templateNameRefusal(
   const message = templateNameTakenMessage(name)
   return NextResponse.json({ error: message, message, code: 'template_name_taken' }, { status: 409 })
 }
+
+export function templateNameErrorResponse(error: unknown): NextResponse | null {
+  if (!error || typeof error !== 'object' || !('code' in error) || !('message' in error) ||
+      error.code !== 'P0001' || error.message !== 'template_name_taken') return null
+  const name = 'details' in error && typeof error.details === 'string' ? error.details : ''
+  const message = templateNameTakenMessage(name)
+  return NextResponse.json({ error: message, message, code: 'template_name_taken' }, { status: 409 })
+}

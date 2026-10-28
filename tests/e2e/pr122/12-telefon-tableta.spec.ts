@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright'
 import { test, expect } from './fixtures'
 import { pdf, q, seedProject, seedTemplate, sql, sqlJson, tag } from './support'
 import { ProjectTablePage } from '../pages/ProjectTablePage'
@@ -72,12 +73,13 @@ test.describe('Flux 12 — telefon și tabletă', () => {
     expect(await smallTargets(table.group('Pe teren')), 'ținte sub 44px în tabel').toEqual([])
   })
 
-  test('alegătorul și calendarul se folosesc cu degetul și încap în ecran', async ({ team, as, seeds }) => {
+  for (const width of [undefined, 320]) test(`alegătorul și calendarul se folosesc cu degetul și încap în ecran${width ? ` la ${width}px` : ''}`, async ({ team, as, seeds }) => {
     const project = await seed(team)
     seeds.projects.add(project.id)
     const table = new ProjectTablePage(await as(team.senior))
-    await table.goto(project.id)
     const page = table.page
+    if (width) await page.setViewportSize({ width, height: page.viewportSize()!.height })
+    await table.goto(project.id)
     const viewport = page.viewportSize()!
     const id = project.activities.get('Fără termen')!
 
@@ -96,11 +98,33 @@ test.describe('Flux 12 — telefon și tabletă', () => {
     await table.activityLine(id).getByRole('button', { name: 'Adaugă termen pentru Fără termen' }).tap()
     const calendar = DatePickerPanel.named(page, 'Termen limită pentru Fără termen')
     await calendar.expectOpen()
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
     await calendar.expectInside()
+    expect(await smallTargets(calendar.root), 'ținte sub 44px în calendarul plutitor').toEqual([])
+    if (width === 320) await test.info().attach('calendar-320', {
+      body: await page.screenshot({ path: test.info().outputPath('calendar-320.png'), fullPage: false }),
+      contentType: 'image/png',
+    })
     await calendar.goToMonth(target)
     await calendar.dayButton(target).tap()
     await expect(calendar.root).toHaveCount(0)
     await expect.poll(() => sql(`select to_char(deadline_at at time zone 'Europe/Bucharest', 'YYYY-MM-DD') from project_activities where id=${q(id)}`)).toBe(dayString(target))
+
+    await table.expandActivity(id, 'Fără termen')
+    await table.activity(id).getByRole('button', { name: 'Adaugă cerere de document nouă' }).tap()
+    const form = page.getByRole('dialog', { name: 'Cerere de document nouă' })
+    const field = form.locator('#request-deadline')
+    await field.tap()
+    const formCalendar = new DatePickerPanel(page, form.getByRole('dialog', { name: 'Termen limită' }))
+    await formCalendar.expectOpen()
+    await formCalendar.root.scrollIntoViewIfNeeded()
+    await formCalendar.expectInside(form)
+    expect(await smallTargets(formCalendar.root), 'ținte sub 44px în calendarul formularului').toEqual([])
+    await formCalendar.today.tap()
+    await field.tap()
+    await formCalendar.root.scrollIntoViewIfNeeded()
+    await expect(formCalendar.clear).toBeVisible()
+    expect(await smallTargets(formCalendar.root), 'ținte sub 44px la ștergerea termenului').toEqual([])
     await noHorizontalScroll(page)
   })
 
@@ -136,6 +160,10 @@ test.describe('Flux 12 — telefon și tabletă', () => {
     const list = new TemplatesListPage(page)
     const editor = new TemplateEditorPage(page)
     await list.goto()
+    await list.search.fill(template.name)
+    await list.expandButton(template.name).tap()
+    await expect(list.phaseItems(template.id)).toHaveCount(2)
+    expect((await new AxeBuilder({ page }).withRules(['color-contrast']).analyze()).violations).toEqual([])
     await list.menuButton(template.name).tap()
     await page.getByRole('menuitem', { name: 'Editează', exact: true }).tap()
     await editor.expectOpen()

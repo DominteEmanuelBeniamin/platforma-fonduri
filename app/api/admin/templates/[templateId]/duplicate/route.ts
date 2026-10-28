@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
+import { templateNameErrorResponse } from '@/app/api/_utils/template-name'
 import { buildCopyName } from '@/lib/duplicate-name'
+import { normalizeTemplateName } from '@/lib/template-name'
 import { createClient } from '@supabase/supabase-js'
 import { requireTemplateManager } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
@@ -71,7 +73,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       .from('project_templates')
       .select('name')
     if (namesError) throw namesError
-    const copyName = buildCopyName(original.name, (allTemplates ?? []).map(template => template.name))
+    const copyName = buildCopyName(original.name, (allTemplates ?? []).map(template => template.name), normalizeTemplateName)
 
     const { data: newTemplate, error: createError } = await supabaseAdmin
       .from('project_templates')
@@ -223,6 +225,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ template: newTemplate }, { status: 201 })
   } catch (error: any) {
+    const nameError = templateNameErrorResponse(error)
+    if (nameError) return nameError
     console.error('POST /api/admin/templates/[templateId]/duplicate error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
