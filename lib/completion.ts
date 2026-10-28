@@ -74,7 +74,7 @@ export const isRequestClosed = (request: Pick<RequestLike, 'status'>): boolean =
 export type TransitionRefusal = { status: 400 | 409; message: string }
 
 export const REQUEST_CLOSED_EDIT_MESSAGE = 'Cererea e închisă. Redeschide-o ca s-o modifici.'
-export const REQUEST_REVIEW_FIRST_MESSAGE = 'Verifică întâi documentele încărcate.'
+export const REQUEST_REVIEW_FIRST_MESSAGE = 'Pentru a închide cererea, verifică întâi documentele încărcate.'
 export const STATUS_PATCH_MESSAGE =
   'Starea nu se schimbă de aici: folosește „Marchează ca finalizată” sau „Readu în lucru”.'
 
@@ -130,10 +130,10 @@ export function requestReopenParentRefusal(
   phase: { name?: string | null; status?: string | null } | null,
 ): TransitionRefusal | null {
   if (phase && isPhaseFinal(phase)) {
-    return { status: 409, message: `Faza „${phase.name ?? ''}” e finalizată. Readu întâi faza și activitatea în lucru, apoi redeschide cererea.` }
+    return { status: 409, message: `Pentru a redeschide cererea, readu în lucru faza „${phase.name ?? ''}”${activity && isActivityFinal(activity) ? `, apoi activitatea „${activity.name ?? ''}”` : ''}.` }
   }
   if (activity && isActivityFinal(activity)) {
-    return { status: 409, message: `Activitatea „${activity.name ?? ''}” e finalizată. Readu-o întâi în lucru, apoi redeschide cererea.` }
+    return { status: 409, message: `Pentru a redeschide cererea, readu întâi activitatea „${activity.name ?? ''}” în lucru.` }
   }
   return null
 }
@@ -143,7 +143,7 @@ export function activityReopenParentRefusal(
   phase: { name?: string | null; status?: string | null } | null,
 ): TransitionRefusal | null {
   return phase && isPhaseFinal(phase)
-    ? { status: 409, message: `Faza „${phase.name ?? ''}” e finalizată. Readu întâi faza în lucru, apoi activitatea.` }
+    ? { status: 409, message: `Pentru a readuce activitatea în lucru, readu întâi faza „${phase.name ?? ''}” în lucru.` }
     : null
 }
 
@@ -367,8 +367,8 @@ export function activityCompletionBlocker(activityId: string, requests: readonly
   const open = liveRequestsOf(activityId, requests).filter(request => !request.is_outgoing && !isRequestFinal(request))
   if (open.length === 0) return null
   return open.length === 1
-    ? `Activitatea nu se poate finaliza: cererea ${numeInGhilimele([open[0].name])} nu e încă aprobată sau închisă.`
-    : `Activitatea nu se poate finaliza: ${open.length} cereri nu sunt încă aprobate sau închise (${numeInGhilimele(open.map(request => request.name))}).`
+    ? `Pentru a finaliza activitatea, aprobă sau închide cererea ${numeInGhilimele([open[0].name])}.`
+    : `Pentru a finaliza activitatea, aprobă sau închide cele ${countLabel(open.length, 'cerere rămasă', 'cereri rămase')} (${numeInGhilimele(open.map(request => request.name))}).`
 }
 
 /** De ce nu se poate finaliza încă faza; `null` dacă se poate. */
@@ -376,8 +376,8 @@ export function phaseCompletionBlocker(activities: readonly ActivityLike[]): str
   const open = activities.filter(activity => !isActivityFinal(activity))
   if (open.length === 0) return null
   return open.length === 1
-    ? `Faza nu se poate finaliza: activitatea ${numeInGhilimele([open[0].name])} nu e încă finalizată.`
-    : `Faza nu se poate finaliza: ${open.length} activități nu sunt încă finalizate (${numeInGhilimele(open.map(activity => activity.name))}).`
+    ? `Pentru a finaliza faza, finalizează mai întâi activitatea ${numeInGhilimele([open[0].name])}.`
+    : `Pentru a finaliza faza, finalizează mai întâi cele ${countLabel(open.length, 'activitate rămasă', 'activități rămase')} (${numeInGhilimele(open.map(activity => activity.name))}).`
 }
 
 // ─── Confirmări ───────────────────────────────────────────────────────────────

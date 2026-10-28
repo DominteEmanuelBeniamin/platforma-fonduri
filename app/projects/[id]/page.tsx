@@ -67,7 +67,7 @@ import { buildSearchIndex, type SearchResult } from '@/lib/projectSearch'
 import { buildProjectChatHref } from '@/lib/project-chat-links'
 import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
 import { publishBlockers } from '@/lib/publish-rules'
-import { serverMessage } from '@/lib/api-error'
+import { serverMessage, transitionFailureVariant } from '@/lib/api-error'
 import { activityDuplicatedMessage, phaseDuplicatedMessage } from '@/lib/duplication-summary'
 import {
   GENERAL_PHASE_ID,
@@ -758,7 +758,7 @@ function ProjectDetailsContent() {
     try {
       const res = await apiFetch(`/api/projects/${projectId}/${action}`, { method: 'POST' })
       if (!res.ok) {
-        showToast(await serverMessage(res, fallback), 'error')
+        showToast(await serverMessage(res, fallback), transitionFailureVariant(res.status))
         // Un 409 înseamnă că starea s-a schimbat din alt tab: pagina o preia.
         await refreshProject()
         return
@@ -822,7 +822,7 @@ function ProjectDetailsContent() {
     try {
       const res = await apiFetch(`${base}/${action}`, { method: 'POST' })
       if (!res.ok) {
-        showToast(await serverMessage(res, fallback), 'error')
+        showToast(await serverMessage(res, fallback), transitionFailureVariant(res.status))
         await refreshPhases()
         return
       }

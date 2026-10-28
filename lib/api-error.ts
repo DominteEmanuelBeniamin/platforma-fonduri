@@ -10,3 +10,8 @@ export async function serverMessage(res: Response, fallback: string): Promise<st
   const message = (body as { message?: unknown } | null)?.message
   return (typeof message === 'string' && message) || fallback
 }
+
+/** Refuzurile de tranziție sunt avertizări, la fel ca verificările din pagină. */
+export function transitionFailureVariant(status: number): 'warning' | 'error' {
+  return status === 400 || status === 409 ? 'warning' : 'error'
+}

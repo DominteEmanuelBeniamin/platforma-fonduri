@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
+import { transitionFailureVariant } from '@/lib/api-error'
 import { downloadFilesArchive } from '@/app/api/_utils/download-files-archive'
 import { isPreviewableFile, buildPreviewPageUrl, openInNewTab, downloadUrl } from '@/lib/file-preview'
 import InlineDateEditor from '@/components/InlineDateEditor'
@@ -315,7 +316,7 @@ export default function DocumentModal({
       const res = await apiFetch(`/api/document-requests/${request.id}/${action}`, { method: 'POST' })
       const data = await res.json().catch(() => null)
       if (!res.ok) {
-        showToast(data?.message || fallback, 'error')
+        showToast(data?.message || fallback, transitionFailureVariant(res.status))
         await onUpdate()
         return
       }
