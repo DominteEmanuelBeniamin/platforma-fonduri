@@ -334,14 +334,16 @@ function deepLink(phaseId: string, activityId?: string, documentId?: string) {
 
 /** Meniul „Opțiuni mesaj” al unei bule din chat: există, și ce oferă. */
 async function messageMenu(page: Page, text: string) {
+  // Meniul altui mesaj, rămas deschis, se închide întâi; Escape închide doar meniul, nu chatul.
+  if (await page.getByRole('menu').count() > 0) await page.keyboard.press('Escape')
   const bubble = page.locator('div.group\\/message').filter({ hasText: text }).first()
   await bubble.waitFor({ timeout: 30_000 })
   await bubble.hover()
   const options = bubble.getByRole('button', { name: 'Opțiuni mesaj' })
   if (await options.count() === 0) return { bubble, menu: false, edit: false, remove: false }
   await options.click({ force: true })
-  // Opțiunile sunt `menuitem` în meniul „…” al mesajului.
-  const option = (name: string) => bubble.getByRole('menuitem', { name, exact: true })
+  // Opțiunile sunt `menuitem` în meniul „…” al mesajului, desenat într-un portal, în afara bulei.
+  const option = (name: string) => page.getByRole('menu').getByRole('menuitem', { name, exact: true })
   await option('Șterge').waitFor({ timeout: 5_000 }).catch(() => {})
   return {
     bubble,
