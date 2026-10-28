@@ -612,6 +612,9 @@ test('lifecycle impact dialog works with keyboard on desktop and mobile', async 
     await expect(dialog).toBeVisible()
     await expect(dialog.getByRole('term').filter({ hasText: /^Activități$/ })).toBeVisible()
     expect(await page.evaluate(() => document.body.scrollWidth <= window.innerWidth)).toBe(true)
+    // Cursorul rămas peste dialog aprinde un tooltip, iar Escape închide întâi tooltip-ul (WCAG 1.4.13).
+    // Aici se verifică tastatura, deci cursorul pleacă din dialog.
+    await page.mouse.move(0, 0)
     await page.keyboard.press('Escape')
     await expect(dialog).not.toBeVisible()
     await expect(page.getByRole('button', { name: 'Dezactivează ' + junior.email, exact: true })).toBeFocused()
