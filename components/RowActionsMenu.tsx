@@ -18,6 +18,11 @@ export interface RowAction {
 /** Colțul din care se ancorează meniul, în coordonate de fereastră. */
 type MenuPosition = { right: number; top?: number; bottom?: number }
 
+function visibleMenuItems(menu: HTMLDivElement | null) {
+  return [...(menu?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])]
+    .filter(item => item.getClientRects().length > 0 && getComputedStyle(item).visibility === 'visible')
+}
+
 /**
  * Acțiunile secundare ale unui rând, strânse sub „⋯”: pe rânduri strâmte, trei
  * iconițe una lângă alta se citesc greu și cer ghicit ce face fiecare.
@@ -91,12 +96,12 @@ export default function RowActionsMenu({
       if (event.key === 'Tab') { setOpen(false); buttonRef.current?.focus(); return }
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
       event.preventDefault()
-      const items = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])]
+      const items = visibleMenuItems(menuRef.current)
       if (items.length === 0) return
       const at = items.indexOf(document.activeElement as HTMLButtonElement)
       const next = event.key === 'ArrowDown'
         ? (at + 1) % items.length
-        : (at - 1 + items.length) % items.length
+        : (at <= 0 ? items.length - 1 : at - 1)
       items[next].focus()
     }
     document.addEventListener('mousedown', onPointerDown)
@@ -132,7 +137,7 @@ export default function RowActionsMenu({
   // săgețile n-au de unde porni.
   useEffect(() => {
     if (!open) return
-    menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
+    visibleMenuItems(menuRef.current)[0]?.focus()
   }, [open])
 
   if (visible.length === 0) return null

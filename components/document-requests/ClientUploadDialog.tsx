@@ -6,7 +6,7 @@ import { AlertCircle, CheckCircle2, FolderUp, Loader2, MessageSquare, Plus, Uplo
 import { useToast } from '@/app/providers/ToastProvider'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { Button } from '@/components/ui/Button'
-import { runClientUpload, validateUploadFile, type PendingClientUploadCompletion } from '@/lib/client-upload'
+import { runClientUpload, validateUploadFile, type ClientUploadFileState, type PendingClientUploadCompletion } from '@/lib/client-upload'
 import { discardSelectionText, formatFileSize, selectionStats, selectionSummary } from '@/lib/upload-selection'
 import type { PickedFile } from './types'
 
@@ -77,7 +77,6 @@ export default function ClientUploadDialog({
   const addFiles = (list: FileList | null) => {
     const picked = Array.from(list ?? [])
     if (picked.length === 0) return
-    pendingRef.current = null
     setFiles(prev => {
       const next: PickedFile[] = []
       for (const file of picked) {
@@ -100,18 +99,18 @@ export default function ClientUploadDialog({
   }
 
   const removeFile = (id: string) => {
-    pendingRef.current = null
     setFiles(prev => prev.filter(file => file.id !== id))
   }
 
   const requestClose = async () => {
     if (submitting || askingRef.current) return
-    if (stats.notUploaded === 0) { onClose(); return }
+    const notUploaded = stats.notUploaded + (pendingRef.current?.fileIds.length ?? 0)
+    if (notUploaded === 0) { onClose(); return }
     askingRef.current = true
     try {
       const discard = await confirm({
         title: 'Renunți la fișierele alese?',
-        description: discardSelectionText(stats.notUploaded),
+        description: discardSelectionText(notUploaded),
         confirmText: 'Renunță la ele',
       })
       if (discard) {
@@ -135,23 +134,26 @@ export default function ClientUploadDialog({
 
     setSubmitting(true)
     try {
-      const result = await runClientUpload({
+      const options = {
         apiFetch,
         requestId: request.id,
-        files: toSend,
-        pending,
-        onPending: next => { pendingRef.current = next },
-        onFileState: (id, state) => setFiles(prev => prev.map(file => file.id !== id ? file : (
+        onPending: (next: PendingClientUploadCompletion | null) => { pendingRef.current = next },
+        onFileState: (id: string, state: ClientUploadFileState) => setFiles(prev => prev.map(file => file.id !== id ? file : (
           state.status === 'uploading' ? { ...file, uploadStatus: 'uploading' as const, uploadError: undefined }
             : state.status === 'success' ? { ...file, uploadStatus: 'success' as const }
             : { ...file, uploadStatus: 'error' as const, uploadError: state.message }
         ))),
-      })
+      }
+      const completed = pending ? await runClientUpload({ ...options, files: [], pending }) : null
+      const result = toSend.length > 0
+        ? await runClientUpload({ ...options, files: toSend, pending: null })
+        : { successful: 0, failed: 0 }
+      const successful = (completed?.successful ?? 0) + result.successful
 
       showToast(
         result.failed === 0
-          ? `Au fost încărcate ${result.successful} fișiere.`
-          : `${result.successful} fișiere au fost încărcate, iar ${result.failed} au eșuat. Verifică lista fișierelor.`,
+          ? `Au fost încărcate ${successful} fișiere.`
+          : `${successful} fișiere au fost încărcate, iar ${result.failed} au eșuat. Verifică lista fișierelor.`,
         result.failed === 0 ? 'success' : 'warning',
       )
       await onUploaded()
