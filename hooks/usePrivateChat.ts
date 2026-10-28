@@ -520,7 +520,7 @@ export function usePrivateChat(
         )
         const json = (await res.json().catch(() => null)) as GetMessagesResponse | null
         if (!canSync()) return false
-        if (!res.ok) throw new Error('messages-refresh-failed')
+        if (!res.ok) throw Object.assign(new Error('messages-refresh-failed'), { status: res.status })
 
         const pageItems = json?.items ?? []
         collected.push(...pageItems)
@@ -582,9 +582,9 @@ export function usePrivateChat(
           try {
             const succeeded = await fetchMessages(mode)
             if (succeeded && isCurrent() && isInitialLoad) setError(null)
-          } catch {
+          } catch (error) {
             if (isCurrent() && !hasLoadedRef.current) {
-              setError(userErrorMessage(undefined, 'Nu am putut încărca mesajele.'))
+              setError(userErrorMessage((error as { status?: number }).status, 'Nu am putut încărca mesajele.'))
             }
           } finally {
             if (isInitialLoad && isCurrent()) setLoading(false)
