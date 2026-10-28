@@ -3,7 +3,7 @@
 import { createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import type { AuthSession } from '@supabase/supabase-js'
-import { supabase } from '@/lib/supabaseClient'
+import { clearStoredSession, supabase } from '@/lib/supabaseClient'
 import { userErrorMessage } from '@/lib/user-error'
 
 type Profile = {
@@ -120,7 +120,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (sessionFailureHandled.current) return
     sessionFailureHandled.current = true
     applySession(null)
-    void supabase.auth.signOut({ scope: 'local' }).catch(() => undefined)
+    void supabase.auth.signOut({ scope: 'local' })
+      .then(({ error }) => { if (error) clearStoredSession() })
+      .catch(clearStoredSession)
     if (!isPublicPath.current) router.replace('/login')
   }, [applySession, router])
 

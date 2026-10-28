@@ -19,6 +19,7 @@ import { formatDate } from '@/lib/signage'
 import { Spinner } from '@/components/ui/Spinner'
 import { Signal } from '@/components/ui/Signal'
 import { profileDisplayName } from '@/lib/profile-display'
+import { ResetUserPasswordAction } from '@/components/ResetUserPasswordAction'
 
 type Rol = 'admin' | 'consultant' | 'client'
 type UserState = 'active' | 'inactive' | 'all'
@@ -172,6 +173,9 @@ export default function AdminUsersPage() {
     setPanouDeschis(true)
   }, [])
 
+  // Filtrul pentru care lista e deja afișată.
+  const loadedStateRef = useRef<UserState | null>(null)
+
   const fetchUsers = useCallback(async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true)
@@ -179,6 +183,7 @@ export default function AdminUsersPage() {
       if (!res.ok) { showToast('Nu am putut încărca utilizatorii. Reîncearcă.', 'error'); return }
       const { users: data } = await res.json()
       setUsers(data)
+      loadedStateRef.current = filtruStare
     } finally {
       if (showLoader) setLoading(false)
     }
@@ -189,8 +194,10 @@ export default function AdminUsersPage() {
     if (!token) { router.replace('/login'); return }
     if (!profile) return
     if (profile.role !== 'admin') { router.replace('/'); return }
-    fetchUsers()
-  }, [authLoading, token, profile, router, fetchUsers])
+    // Refresh-ul tokenului reîncarcă profilul; lista se actualizează în fundal, ca să nu
+    // demontăm dialogurile deschise (de exemplu parola temporară afișată o singură dată).
+    fetchUsers(loadedStateRef.current !== filtruStare)
+  }, [authLoading, token, profile, router, fetchUsers, filtruStare])
 
   useEffect(() => {
     setCif(''); setNumeFirma(''); setAdresaFirma(''); setPersoanaContact('')
@@ -642,6 +649,10 @@ export default function AdminUsersPage() {
                   <span className={`rounded border px-2 py-1 text-xs font-semibold ${user.is_active === false ? 'border-rule text-ink-soft' : 'border-[var(--sg-ok)] text-[var(--sg-ok)]'}`}>
                     {user.is_active === false ? 'Dezactivat' : 'Activ'}
                   </span>
+                  <ResetUserPasswordAction
+                    target={{ id: user.id, email: user.email, full_name: user.full_name, is_active: user.is_active }}
+                    onReset={() => fetchUsers(false)}
+                  />
                   {user.is_active === false ? (
                     <>
                       {/* Sincronizarea neterminată (inclusiv conturile dezactivate înainte de #105)
