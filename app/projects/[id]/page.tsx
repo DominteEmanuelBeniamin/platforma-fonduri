@@ -2079,7 +2079,7 @@ function ProjectDetailsContent() {
                       <Button
                         variant="secondary"
                         size="sm"
-                        onClick={() => setSendOpen(true)}
+                        onClick={() => { openGroups(SENT_ID); setSendOpen(true) }}
                         data-tooltip="Trimite clientului fișiere de citit sau de completat — nu așteaptă un răspuns"
                       >
                         <Upload className="h-4 w-4" aria-hidden="true" />
