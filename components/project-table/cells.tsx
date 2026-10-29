@@ -58,15 +58,18 @@ const STATUS_HINTS: Record<string, string> = {
 export function StatusCell({
   tone,
   label,
+  hint,
   className = '',
 }: {
   tone: SignalTone
   label: string
+  /** Înlocuiește explicația generică — de pildă cu motivul respingerii. */
+  hint?: string
   className?: string
 }) {
   return (
     <span
-      data-tooltip={STATUS_HINTS[label]}
+      data-tooltip={hint ?? STATUS_HINTS[label]}
       className={`inline-flex h-6 items-center justify-center gap-1.5 whitespace-nowrap rounded-[var(--radius-plate)] px-2 text-xs font-semibold leading-none @min-[50rem]:w-[8.75rem] ${className}`}
       style={{ background: TONE[tone].bg, color: TONE[tone].fg }}
     >
