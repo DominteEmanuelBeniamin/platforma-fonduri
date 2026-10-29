@@ -40,6 +40,8 @@ import {
   type UploadValidationError,
 } from '@/lib/client-upload'
 import { RequirementType } from '@/lib/requirement-type'
+import { describeSensitiveTerms, normalizeSensitiveKind, sensitiveClientNotice, type SensitiveKind } from '@/lib/sensitive-documents'
+import { SensitiveBadge } from './SensitiveBadge'
 import { Spinner } from '@/components/ui/Spinner'
 import { isRequestFinal, mergeVisibleOrder } from '@/lib/completion'
 import { countLabel } from '@/lib/count-label'
@@ -54,6 +56,13 @@ interface DocumentRequest {
   name: string
   description: string | null
   requirement_type?: RequirementType
+  /** Date sensibile (copie de buletin, cazier) și termenele lor, calculate de rută. */
+  sensitive_kind?: string | null
+  sensitive_purge_at?: string | null
+  sensitive_purge_due_at?: string | null
+  sensitive_hold_until?: string | null
+  sensitive_hold_reason?: string | null
+  sensitive_purged_at?: string | null
   status: RequestStatus
   /** Starea la care revine o cerere închisă (#109). */
   status_before_close?: 'pending' | 'rejected' | 'approved' | null
@@ -275,6 +284,7 @@ export default function DocumentRequests({
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState<RequirementType>('obligatoriu')
+  const [sensitiveKind, setSensitiveKind] = useState<SensitiveKind | null>(null)
   const [templateFiles, setTemplateFiles] = useState<File[]>([])
   const [templateAttachments, setTemplateAttachments] = useState<NonNullable<DocumentRequest['attachments']>>([])
   const [templateAttachmentsTouched, setTemplateAttachmentsTouched] = useState(false)
@@ -612,6 +622,7 @@ export default function DocumentRequests({
     setName('')
     setDescription('')
     setCategory('obligatoriu')
+    setSensitiveKind(null)
     setTemplateFiles([])
     setTemplateAttachments([])
     setTemplateAttachmentsTouched(false)
@@ -635,6 +646,7 @@ export default function DocumentRequests({
     setName(request.name)
     setDescription(request.description ?? '')
     setCategory(request.requirement_type ?? 'obligatoriu')
+    setSensitiveKind(normalizeSensitiveKind(request.sensitive_kind))
     setTemplateFiles([])
     setTemplateAttachments(request.attachments?.length
       ? request.attachments
@@ -761,6 +773,7 @@ export default function DocumentRequests({
         name: name.trim(),
         description: description.trim() || null,
         requirement_type: category,
+        sensitive_kind: sensitiveKind,
         deadline_at: deadline || null,
       }
 
@@ -1012,6 +1025,7 @@ export default function DocumentRequests({
         name={name}
         description={description}
         category={category} onCategoryChange={setCategory}
+        sensitiveKind={sensitiveKind} onSensitiveKindChange={setSensitiveKind}
         deadline={deadline} onDeadlineChange={setDeadline}
         templateFiles={templateFiles} onTemplateFilesChange={setTemplateFiles}
         onPickTemplateFiles={handleTemplateFileChange}
@@ -1172,7 +1186,20 @@ export default function DocumentRequests({
                         <span className="w-1 flex-shrink-0" />
                       )}
                       <div className="min-w-0">
-                        <h3 className={`break-words text-[13px] leading-snug ${isRequestFinal(req) ? 'text-ink-faint' : 'text-ink'}`}>{req.name}</h3>
+                        <h3 className={`break-words text-[13px] leading-snug ${isRequestFinal(req) ? 'text-ink-faint' : 'text-ink'}`}>
+                          {req.name}
+                          {req.sensitive_kind && (
+                            <>
+                              {' '}
+                              <SensitiveBadge
+                                kind={req.sensitive_kind}
+                                detail={canChange
+                                  ? describeSensitiveTerms({ kind: req.sensitive_kind, purgeAt: req.sensitive_purge_at, dueAt: req.sensitive_purge_due_at, purgedAt: req.sensitive_purged_at })
+                                  : null}
+                              />
+                            </>
+                          )}
+                        </h3>
                         {req.description && <p className="line-clamp-1 text-xs leading-5 text-ink-faint">{req.description}</p>}
                       </div>
                     </div>
@@ -1535,6 +1562,10 @@ export default function DocumentRequests({
             name: uploadTarget.request.name,
             rejected: wasRejected(uploadTarget.request),
             rejectionReason: requestMeta.get(uploadTarget.request.id)?.rejectionReason ?? null,
+            sensitiveNotice: (() => {
+              const kind = normalizeSensitiveKind(uploadTarget.request.sensitive_kind)
+              return kind ? sensitiveClientNotice(kind) : null
+            })(),
           }}
           startWith={uploadTarget.startWith}
           returnFocusTo={uploadTarget.opener}

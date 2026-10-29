@@ -10,6 +10,7 @@ import { isRequirementType, requirementTypeToMandatory } from '@/lib/requirement
 import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
 import { buildAssignmentEmailIdempotencyKey, isRealAssignmentChange } from '@/lib/notification-utils'
 import { REQUEST_CLOSED_EDIT_MESSAGE } from '@/lib/completion'
+import { parseSensitiveKindInput } from '@/lib/sensitive-documents'
 
 // Inițializat în handler ca să preia env-ul la runtime, nu la cold-start
 
@@ -52,6 +53,11 @@ export async function PATCH(
     const rawRequirementType = (body as any).requirement_type
     if (rawRequirementType !== undefined && !isRequirementType(rawRequirementType)) {
       return NextResponse.json({ error: 'Tipul cerinței este invalid' }, { status: 400 })
+    }
+
+    const sensitive_kind = parseSensitiveKindInput((body as any).sensitive_kind)
+    if (sensitive_kind === false) {
+      return NextResponse.json({ error: 'Tipul de date sensibile este invalid' }, { status: 400 })
     }
 
     // assigned_to trebuie să fie string (UUID), null sau omis
@@ -111,7 +117,7 @@ export async function PATCH(
     // Obține cererea pentru a afla project_id și detalii email
     const { data: req, error: reqError } = await admin
       .from('document_requirements')
-      .select('id, project_id, activity_id, name, description, deadline_at, requirement_type, is_mandatory, is_outgoing, visibility, status, assigned_to, attachment_path, attachment_original_name, attachment_missing_at, attachment_missing_checked_at, deleted_at, activity:activity_id(id, assigned_to), document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at, source_template_attachment_id, created_at)')
+      .select('id, project_id, activity_id, name, description, deadline_at, requirement_type, is_mandatory, is_outgoing, sensitive_kind, sensitive_purged_at, visibility, status, assigned_to, attachment_path, attachment_original_name, attachment_missing_at, attachment_missing_checked_at, deleted_at, activity:activity_id(id, assigned_to), document_requirement_attachments(id, storage_path, original_name, mime_type, file_size, order_index, missing_at, missing_checked_at, source_template_attachment_id, created_at)')
       .eq('id', requestId)
       .is('deleted_at', null)
       .maybeSingle()
@@ -137,6 +143,15 @@ export async function PATCH(
     // duplicarea și ștergerea au rutele lor și rămân permise.
     if (req.status === 'closed') {
       return NextResponse.json({ error: 'Document request is closed', message: REQUEST_CLOSED_EDIT_MESSAGE }, { status: 409 })
+    }
+
+    // Un document trimis clientului nu primește fișiere de la el, iar o cerere
+    // ale cărei fișiere s-au șters automat nu mai are ce marca.
+    if (sensitive_kind && req.is_outgoing) {
+      return NextResponse.json({ error: 'Un document trimis clientului nu se marchează ca date sensibile' }, { status: 400 })
+    }
+    if (sensitive_kind !== undefined && req.sensitive_purged_at && sensitive_kind !== req.sensitive_kind) {
+      return NextResponse.json({ error: 'Fișierele cererii au fost deja șterse automat; marcajul nu se mai schimbă' }, { status: 409 })
     }
 
     if (isPublishing && req.visibility !== 'draft') {
@@ -276,6 +291,7 @@ export async function PATCH(
       updatePayload.requirement_type = rawRequirementType
       updatePayload.is_mandatory = requirementTypeToMandatory(rawRequirementType)
     }
+    if (sensitive_kind !== undefined) updatePayload.sensitive_kind = sensitive_kind
     if (assigned_to !== undefined) updatePayload.assigned_to = assigned_to
     if (deadline_at !== undefined) updatePayload.deadline_at = deadline_at
     if (attachment_path !== undefined) {

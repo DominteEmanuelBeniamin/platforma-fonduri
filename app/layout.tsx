@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import LegalFooter from '@/components/LegalFooter'
 import localFont from "next/font/local";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
@@ -55,6 +56,7 @@ export default function RootLayout({
                 {children}
               </div>
             </main>
+            <LegalFooter />
           </ProjectChatUnreadProvider>
           </NotificationsProvider>
         </AuthProvider>

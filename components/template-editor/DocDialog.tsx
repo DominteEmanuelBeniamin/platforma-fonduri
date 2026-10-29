@@ -6,6 +6,8 @@ import { AlertCircle, Check, Paperclip, Upload, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
 import { REQUIREMENT_LABELS, REQUIREMENT_TYPES, type RequirementType } from '@/lib/requirement-type'
+import type { SensitiveKind } from '@/lib/sensitive-documents'
+import { SensitiveKindField } from '@/components/SensitiveKindField'
 import { AutoGrowTextarea } from './AutoGrowTextarea'
 import type { DocumentRequirement, TemplateAttachment } from './types'
 
@@ -14,6 +16,7 @@ export type DocDialogValues = {
   description: string
   is_outgoing: boolean
   requirement_type: RequirementType
+  sensitive_kind: SensitiveKind | null
   templateFiles: File[]
   templateAttachments: TemplateAttachment[]
 }
@@ -41,6 +44,7 @@ export function DocDialog({
   const [description, setDescription] = useState(editing?.description ?? '')
   const [outgoing, setOutgoing] = useState(editing?.is_outgoing ?? false)
   const [category, setCategory] = useState<RequirementType>(editing?.requirement_type ?? 'obligatoriu')
+  const [sensitiveKind, setSensitiveKind] = useState<SensitiveKind | null>(editing?.sensitive_kind ?? null)
   const [files, setFiles] = useState<File[]>(editing?.templateFiles ?? [])
   const [attachments, setAttachments] = useState<TemplateAttachment[]>(editing?.templateAttachments ?? [])
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -55,6 +59,7 @@ export function DocDialog({
       description: description.trim(),
       is_outgoing: outgoing,
       requirement_type: outgoing ? 'optional' : category,
+      sensitive_kind: outgoing ? null : sensitiveKind,
       templateFiles: files,
       templateAttachments: attachments,
     })
@@ -213,6 +218,9 @@ export function DocDialog({
                   ))}
                 </div>
               </fieldset>
+            )}
+            {!outgoing && (
+              <SensitiveKindField value={sensitiveKind} onChange={setSensitiveKind} name="newDocSensitiveTemplate" />
             )}
           </div>
           <div className="flex shrink-0 gap-3 border-t border-rule bg-paper-sunk px-6 py-4">

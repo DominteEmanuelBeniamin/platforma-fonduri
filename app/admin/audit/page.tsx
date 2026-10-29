@@ -42,6 +42,8 @@ import {
   Archive,
   RotateCcw,
   CheckCircle2,
+  CirclePause,
+  DatabaseBackup,
 } from 'lucide-react'
 import SelectFilter from '@/components/SelectFilter'
 import { AUDIT_ACTION_LABELS, AUDIT_ENTITY_LABELS, auditActorEmail } from '@/lib/audit-catalog'
@@ -109,6 +111,11 @@ const ACTION_CONFIG: Record<string, ActionConfig> = {
   close: { color: 'text-ink-soft', bgColor: 'bg-paper-sunk', borderColor: 'border-rule', icon: Archive },
   reopen: { color: 'text-[var(--sg-accent)]', bgColor: 'bg-[var(--sg-accent-soft)]', borderColor: 'border-[var(--sg-accent)]', icon: RotateCcw },
   complete: { color: 'text-[var(--sg-ok)]', bgColor: 'bg-[var(--sg-ok-soft)]', borderColor: 'border-[var(--sg-ok)]', icon: CheckCircle2 },
+  // Ștergerea automată a documentelor sensibile: o ștergere, dar făcută de
+  // sistem la termen; amânarea ei e o decizie a adminului.
+  purge: { color: 'text-[var(--sg-danger)]', bgColor: 'bg-[var(--sg-danger-soft)]', borderColor: 'border-[var(--sg-danger)]', icon: Trash2 },
+  hold: { color: 'text-[var(--sg-warn)]', bgColor: 'bg-[var(--sg-warn-soft)]', borderColor: 'border-[var(--sg-warn)]', icon: CirclePause },
+  backup: { color: 'text-ink-soft', bgColor: 'bg-paper-sunk', borderColor: 'border-rule', icon: DatabaseBackup },
 }
 
 const DEFAULT_ACTION: ActionConfig = {
@@ -149,6 +156,7 @@ const ENTITY_CONFIG: Record<string, EntityConfig> = {
   private_message: { icon: Lock },
   audit_log: { icon: Shield },
   deadline_reminder_digest: { icon: Mail },
+  database_backup: { icon: DatabaseBackup },
 }
 
 const DEFAULT_ENTITY: EntityConfig = { icon: FileText }

@@ -343,6 +343,9 @@ async function duplicateDocumentRequests(
       is_mandatory: request.is_mandatory,
       requirement_type: request.requirement_type,
       is_outgoing: request.is_outgoing,
+      // Marcajul trece pe copie; amânarea și ștergerea țin de fișierele
+      // originalului, iar copia pornește fără fișiere.
+      sensitive_kind: request.is_outgoing ? null : request.sensitive_kind ?? null,
       order_index: request.order_index,
       attachment_path: first?.storage_path ?? null,
       attachment_original_name: first?.original_name ?? null,

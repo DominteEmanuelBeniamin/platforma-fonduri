@@ -18,6 +18,10 @@ type AuditActionType =
   | 'close'
   | 'reopen'
   | 'complete'
+  // Documentele sensibile: ștergerea automată și amânarea ei; copia zilnică a bazei.
+  | 'purge'
+  | 'hold'
+  | 'backup'
 
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true

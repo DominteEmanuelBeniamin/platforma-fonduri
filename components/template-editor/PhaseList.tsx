@@ -10,6 +10,7 @@ import { Plate } from '@/components/ui/Plate'
 import { countLabel } from '@/lib/count-label'
 import { profileDisplayName } from '@/lib/profile-display'
 import { REQUIREMENT_BADGE, REQUIREMENT_LABELS } from '@/lib/requirement-type'
+import { SensitiveBadge } from '@/components/SensitiveBadge'
 import { bandFor } from '@/lib/signage'
 import type { Consultant, DocumentRequirement, EditorActions, TemplateActivity, TemplatePhase } from './types'
 
@@ -102,6 +103,7 @@ const DocRow = memo(function DocRow({
               {REQUIREMENT_LABELS[doc.requirement_type]}
             </span>
           )}
+          {!doc.is_outgoing && <SensitiveBadge kind={doc.sensitive_kind} />}
         </div>
         {nameError && <p className="mt-0.5 text-xs text-[var(--sg-danger)]">Numele documentului este obligatoriu.</p>}
         {fileError && <p className="mt-0.5 text-xs text-[var(--sg-danger)]">Documentul de trimis are nevoie de fișier atașat.</p>}

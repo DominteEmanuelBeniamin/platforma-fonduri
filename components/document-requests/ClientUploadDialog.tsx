@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type DragEvent, type JSX } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { AlertCircle, CheckCircle2, FolderUp, Loader2, MessageSquare, Plus, Upload, X } from 'lucide-react'
+import { AlertCircle, CheckCircle2, FolderUp, Loader2, MessageSquare, Plus, ShieldAlert, Upload, X } from 'lucide-react'
 import { useToast } from '@/app/providers/ToastProvider'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { Button } from '@/components/ui/Button'
@@ -18,6 +18,8 @@ export type ClientUploadTarget = {
   rejected: boolean
   /** Motivul respingerii: cine reîncarcă trebuie să-l aibă sub ochi. */
   rejectionReason?: string | null
+  /** Cererea primește date sensibile: clientul află de ce și când se șterg. */
+  sensitiveNotice?: string | null
 }
 
 const WAIT_FOR_UPLOAD = 'Așteaptă să se termine încărcarea'
@@ -262,6 +264,13 @@ export default function ClientUploadDialog({
                   <p className="text-xs font-semibold text-[var(--sg-danger)]">Motivul respingerii</p>
                   <p className="text-sm text-[var(--sg-danger)]">{request.rejectionReason || 'Motivul respingerii nu este disponibil pentru acest istoric.'}</p>
                 </div>
+              </div>
+            )}
+
+            {request.sensitiveNotice && (
+              <div className="flex items-start gap-2 rounded-[var(--radius-plate)] border border-rule-strong bg-paper-sunk p-3">
+                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-ink-soft" aria-hidden="true" />
+                <p className="text-sm text-ink-soft">{request.sensitiveNotice}</p>
               </div>
             )}
 
