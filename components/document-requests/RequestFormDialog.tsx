@@ -6,6 +6,9 @@ import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { REQUIREMENT_TYPES, REQUIREMENT_LABELS, type RequirementType } from '@/lib/requirement-type'
 import type { TemplateAttachment } from './types'
 import { formatFileSize } from '@/lib/client-upload'
+import { DateField } from '@/components/ui/DatePicker'
+import { useState } from 'react'
+import { AutoGrowTextarea } from '@/components/template-editor/AutoGrowTextarea'
 
 /**
  * Formularul de cerere de documente, creare și editare. A stat 163 de linii în
@@ -16,8 +19,8 @@ export default function RequestFormDialog({
   open,
   editing,
   submitting,
-  name, onNameChange,
-  description, onDescriptionChange,
+  name,
+  description,
   category, onCategoryChange,
   deadline, onDeadlineChange,
   templateFiles, onTemplateFilesChange, onPickTemplateFiles,
@@ -31,8 +34,9 @@ export default function RequestFormDialog({
   /** Cererea în editare, sau `null` la creare. */
   editing: { attachment_missing_at?: string | null } | null
   submitting: boolean
-  name: string; onNameChange: (v: string) => void
-  description: string; onDescriptionChange: (v: string) => void
+  /** Valorile de pornire; textul scris rămâne în dialog până la trimitere. */
+  name: string
+  description: string
   category: RequirementType; onCategoryChange: (v: RequirementType) => void
   deadline: string; onDeadlineChange: (v: string) => void
   templateFiles: File[]
@@ -43,18 +47,29 @@ export default function RequestFormDialog({
   templateFileError: string | null
   onTemplateAttachmentsTouched: (v: boolean) => void
   onClose: () => void
-  onSubmit: (e: React.FormEvent) => void
+  /** Numele și descrierea vin aici, la trimitere: în timpul scrisului stau în dialog. */
+  onSubmit: (e: React.FormEvent, text: { name: string; description: string }) => void
 }) {
+  // Textul se ține în dialog, nu în lista de cereri: fiecare literă re-randa
+  // toate cererile activității (S-26). Pornește de la valorile primite la
+  // fiecare deschidere.
+  const [draftName, setDraftName] = useState(name)
+  const [draftDescription, setDraftDescription] = useState(description)
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) { setDraftName(name); setDraftDescription(description) }
+  }
   return (
     <Dialog.Root open={open} onOpenChange={open => { if (!open) onClose() }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 backdrop-blur-sm z-[999999]" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }} />
+        <Dialog.Overlay className="fixed inset-0 z-[999999]" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }} />
         <Dialog.Content
           onCloseAutoFocus={event => event.preventDefault()}
-          className="fixed left-1/2 top-1/2 z-[999999] max-h-[90vh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[var(--radius-plate-lg)] border border-rule bg-plate focus:outline-none"
+          className="fixed left-1/2 top-1/2 z-[999999] max-h-[90vh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[var(--radius-plate-lg)] border border-rule bg-plate focus:outline-none max-[384px]:pointer-coarse:w-[calc(100%-4px)]"
           style={{ boxShadow: 'var(--sg-lift)' }}
         >
-          <div className="p-5 sm:p-6">
+          <div className="p-5 sm:p-6 max-[384px]:pointer-coarse:px-0">
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
                 <Dialog.Title className="text-sm font-semibold text-ink">
@@ -74,37 +89,32 @@ export default function RequestFormDialog({
                 </button>
               </Dialog.Close>
             </div>
-            <form onSubmit={onSubmit} className="space-y-4">
+            <form onSubmit={e => onSubmit(e, { name: draftName, description: draftDescription })} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="mb-1.5 block text-sm font-semibold text-ink">Titlu document</label>
               <input
                 type="text"
-                value={name}
-                onChange={(e) => onNameChange(e.target.value)}
+                value={draftName}
+                onChange={(e) => setDraftName(e.target.value)}
                 required
                 className="w-full px-4 py-3 rounded-xl border border-rule text-sm focus:border-[var(--sg-accent)] focus:ring-4 focus:ring-[var(--sg-accent)] outline-none transition-all bg-white"
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-ink">Termen limită</label>
-              <input
-                type="date"
+              <label htmlFor="request-deadline" className="mb-1.5 block text-sm font-semibold text-ink">Termen limită</label>
+              <DateField
+                id="request-deadline"
                 value={deadline}
-                onChange={(e) => onDeadlineChange(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-rule text-sm focus:border-[var(--sg-accent)] focus:ring-4 focus:ring-[var(--sg-accent)] outline-none transition-all bg-white"
+                onChange={onDeadlineChange}
+                placeholder="Fără termen"
               />
             </div>
           </div>
 
           <div>
             <label className="mb-1.5 block text-sm font-semibold text-ink">Instrucțiuni</label>
-            <textarea
-              value={description}
-              onChange={(e) => onDescriptionChange(e.target.value)}
-              rows={3}
-              className="w-full px-4 py-3 rounded-xl border border-rule text-sm focus:border-[var(--sg-accent)] focus:ring-4 focus:ring-[var(--sg-accent)] outline-none resize-none transition-all bg-white"
-            />
+            <AutoGrowTextarea value={draftDescription} onChange={setDraftDescription} />
           </div>
 
           <div>
@@ -151,9 +161,9 @@ export default function RequestFormDialog({
               />
             </label>
 
-            <button
+            <button data-tooltip={editing ? 'Salvează modificările cererii' : 'Creează cererea de document'}
               type="submit"
-              disabled={submitting || !name.trim()}
+              disabled={submitting || !draftName.trim()}
               className="px-6 py-3 bg-[var(--sg-accent)] text-white rounded-xl text-sm font-semibold hover:bg-[var(--sg-accent-ink)] disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
             >
               {submitting
@@ -167,7 +177,7 @@ export default function RequestFormDialog({
                 <div key={attachment.id} className="flex items-center gap-2 text-xs text-ink-soft">
                   <Paperclip className="w-3.5 h-3.5 text-ink-faint flex-shrink-0" />
                   <span className="min-w-0 flex-1 truncate">{attachment.original_name || attachment.storage_path.split('/').pop() || 'model atașat'}</span>
-                  <button
+                  <button data-tooltip="Scoate fișierul din listă"
                     type="button"
                     onClick={() => {
                       onTemplateAttachmentsChange(current => current.filter(item => item.id !== attachment.id))
@@ -184,7 +194,7 @@ export default function RequestFormDialog({
                   <Paperclip className="w-3.5 h-3.5 text-[var(--sg-accent)] flex-shrink-0" />
                   <span className="min-w-0 flex-1 truncate">{file.name}</span>
                   <span className="text-[var(--sg-accent)]">{formatFileSize(file.size)}</span>
-                  <button
+                  <button data-tooltip="Scoate fișierul din listă"
                     type="button"
                     onClick={() => {
                       onTemplateFilesChange(current => current.filter((_, fileIndex) => fileIndex !== index))

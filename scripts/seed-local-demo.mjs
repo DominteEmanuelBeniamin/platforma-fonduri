@@ -219,7 +219,6 @@ for (const [title, client, templateSlug, members] of projects) {
   // Mihai e singurul senior din seed, deci supervizează fiecare dosar.
   const { project } = await api('POST', '/api/projects', { title, client_id: id[client], supervisor_ids: [id.mihai] })
   await api('POST', `/api/projects/${project.id}/import-template`, { template_id: created[templateSlug].id })
-  for (const m of members.filter(m => m !== 'mihai')) await api('POST', `/api/projects/${project.id}/members`, { consultant_id: id[m] })
   sql(`update projects set general_consultant_id=${esc(id[members[0]])} where id=${esc(project.id)}`)
   console.log('proiect:', title)
 }
@@ -367,7 +366,6 @@ trailer<</Root 1 0 R>>
   for (const p of projects) {
     const { project } = await api('POST', '/api/projects', { title: p.title, client_id: who[p.client], supervisor_ids: [mihai] })
     await api('POST', `/api/projects/${project.id}/import-template`, { template_id: template.id })
-    for (const m of p.members.filter(m => m !== mihai)) await api('POST', `/api/projects/${project.id}/members`, { consultant_id: m })
 
     const phases = sql(`select id from project_phases where project_id=${esc(project.id)} order by order_index`).split('\n')
     const startedAt = Date.now() - (p.upTo * 45 + 20) * day

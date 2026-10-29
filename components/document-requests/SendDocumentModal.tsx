@@ -45,7 +45,7 @@ export default function SendDocumentModal({
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
         <div className="px-6 py-4 border-b border-rule flex items-center justify-between">
           <h3 className="font-semibold text-ink">Trimite documente către client</h3>
-          <button type="button" onClick={onClose} className="p-1 text-ink-faint hover:text-ink-soft" disabled={submitting}>
+          <button aria-label="Închide" type="button" onClick={onClose} className="p-1 text-ink-faint hover:text-ink-soft" disabled={submitting}>
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -214,10 +214,10 @@ export default function SendDocumentModal({
             <p className="text-xs text-ink-soft">Clientul va putea descărca aceste documente. Nu i se va cere să încarce nimic înapoi.</p>
           </div>
           <div className="px-6 py-4 bg-paper-sunk border-t border-rule flex gap-3">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 border border-rule rounded-lg text-sm font-medium text-ink hover:bg-white" disabled={submitting}>
+            <button data-tooltip="Închide fără să trimiți" type="button" onClick={onClose} className="flex-1 px-4 py-2.5 border border-rule rounded-lg text-sm font-medium text-ink hover:bg-white" disabled={submitting}>
               Anulează
             </button>
-            <button type="submit" disabled={submitting || fileStats.valid === 0 || fileStats.uploading > 0} className="flex-1 px-4 py-2.5 bg-[var(--sg-ok)] text-white rounded-lg text-sm font-medium hover:brightness-90 disabled:opacity-50 flex items-center justify-center gap-2">
+            <button data-tooltip="Trimite documentele clientului" type="submit" disabled={submitting || fileStats.valid === 0 || fileStats.uploading > 0} className="flex-1 px-4 py-2.5 bg-[var(--sg-ok)] text-white rounded-lg text-sm font-medium hover:brightness-90 disabled:opacity-50 flex items-center justify-center gap-2">
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
               {submitting
                 ? fileStats.valid === 1 ? 'Se trimite...' : 'Se trimit...'

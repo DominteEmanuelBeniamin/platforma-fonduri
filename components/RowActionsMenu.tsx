@@ -11,10 +11,17 @@ export interface RowAction {
   /** Ascunde acțiunea fără să schimbi structura listei la apelant. */
   hidden?: boolean
   danger?: boolean
+  /** Doar pe ecran îngust: pe lat, acțiunea are butonul ei la vedere. */
+  mobileOnly?: boolean
 }
 
 /** Colțul din care se ancorează meniul, în coordonate de fereastră. */
 type MenuPosition = { right: number; top?: number; bottom?: number }
+
+function visibleMenuItems(menu: HTMLDivElement | null) {
+  return [...(menu?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])]
+    .filter(item => item.getClientRects().length > 0 && getComputedStyle(item).visibility === 'visible')
+}
 
 /**
  * Acțiunile secundare ale unui rând, strânse sub „⋯”: pe rânduri strâmte, trei
@@ -30,14 +37,20 @@ type MenuPosition = { right: number; top?: number; bottom?: number }
  */
 export default function RowActionsMenu({
   label,
+  tooltip = 'Acțiuni',
   actions,
   busy = false,
   size = 'md',
   className = '',
   triggerClassName,
 }: {
-  /** Ce apare în `aria-label`: „Acțiuni pentru faza X”. */
+  /**
+   * Ce apare în `aria-label`: „Acțiuni pentru faza X”. Lung, cu numele, fiindcă
+   * cititoarele de ecran au nevoie de nume diferite pentru zeci de „⋯”.
+   */
   label: string
+  /** Tooltip-ul, scurt: „Acțiuni fază”. Numele întreg era prea lung de citit (S-18). */
+  tooltip?: string
   actions: RowAction[]
   busy?: boolean
   /** Doar iconița e mai mică pe rândurile de activitate; ținta rămâne 32 px. */
@@ -75,7 +88,7 @@ export default function RowActionsMenu({
       if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setOpen(false); buttonRef.current?.focus(); return }
+      if (event.key === 'Escape') { event.stopPropagation(); setOpen(false); buttonRef.current?.focus(); return }
       // Lista stă în `body`, la finalul documentului: ordinea naturală de
       // tabulare ar sări peste ea și ar lăsa meniul deschis în urmă. Focusul se
       // întoarce pe trigger *fără* `preventDefault`, deci Tab-ul continuă de
@@ -83,12 +96,12 @@ export default function RowActionsMenu({
       if (event.key === 'Tab') { setOpen(false); buttonRef.current?.focus(); return }
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
       event.preventDefault()
-      const items = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])]
+      const items = visibleMenuItems(menuRef.current)
       if (items.length === 0) return
       const at = items.indexOf(document.activeElement as HTMLButtonElement)
       const next = event.key === 'ArrowDown'
         ? (at + 1) % items.length
-        : (at - 1 + items.length) % items.length
+        : (at <= 0 ? items.length - 1 : at - 1)
       items[next].focus()
     }
     document.addEventListener('mousedown', onPointerDown)
@@ -124,7 +137,7 @@ export default function RowActionsMenu({
   // săgețile n-au de unde porni.
   useEffect(() => {
     if (!open) return
-    menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
+    visibleMenuItems(menuRef.current)[0]?.focus()
   }, [open])
 
   if (visible.length === 0) return null
@@ -132,7 +145,7 @@ export default function RowActionsMenu({
   const iconSize = size === 'sm' ? 'w-3 h-3' : 'w-4 h-4'
 
   return (
-    <div ref={rootRef} data-open={open} className={`flex-shrink-0 ${className}`} onClick={e => e.stopPropagation()}>
+    <div ref={rootRef} data-open={open} className={`flex-shrink-0 ${visible.every(action => action.mobileOnly) ? 'sm:hidden' : ''} ${className}`} onClick={e => e.stopPropagation()}>
       <button
         ref={buttonRef}
         type="button"
@@ -143,10 +156,11 @@ export default function RowActionsMenu({
         }}
         disabled={busy}
         aria-label={label}
+        data-tooltip={tooltip}
         aria-haspopup="menu"
         aria-expanded={open}
         data-open={open}
-        className={triggerClassName ?? `${size === 'sm' ? 'p-2.5' : 'p-2'} rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface-2)] disabled:opacity-60`}
+        className={triggerClassName ?? `${size === 'sm' ? 'p-2.5' : 'p-2'} inline-flex items-center justify-center pointer-coarse:min-h-11 pointer-coarse:min-w-11 rounded text-[var(--p-ink-faint)] hover:text-[var(--p-ink)] hover:bg-[var(--p-surface-2)] disabled:opacity-60`}
       >
         {busy
           ? <Loader2 className={`${iconSize} animate-spin`} />
@@ -158,15 +172,17 @@ export default function RowActionsMenu({
           ref={menuRef}
           role="menu"
           style={{ position: 'fixed', top: position.top, bottom: position.bottom }}
-          className="z-50 min-w-[11rem] py-1 rounded-lg border border-[var(--p-border)] bg-[var(--p-surface)] shadow-[0_8px_24px_-8px_rgba(15,23,42,0.25)]"
+          className="z-[1000000] min-w-[11rem] py-1 rounded-lg border border-[var(--p-border)] bg-[var(--p-surface)] shadow-[0_8px_24px_-8px_rgba(15,23,42,0.25)]"
         >
           {visible.map(action => (
             <button
               key={action.label}
               type="button"
               role="menuitem"
-              onClick={() => { setOpen(false); action.onSelect() }}
-              className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-[var(--p-surface-2)] ${
+              // Focusul revine pe „⋯” înainte de acțiune: un dialog deschis de ea
+              // știe astfel unde să-l întoarcă, iar un câmp pe loc îl ia singur.
+              onClick={() => { setOpen(false); buttonRef.current?.focus(); action.onSelect() }}
+              className={`${action.mobileOnly ? 'sm:hidden ' : ''}w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-[var(--p-surface-2)] ${
                 action.danger ? 'text-[var(--p-danger)]' : 'text-[var(--p-ink)]'
               }`}
             >

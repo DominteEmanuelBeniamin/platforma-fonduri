@@ -5,8 +5,9 @@ import { Resend } from 'resend'
 import { requireAdmin, requireProfile, guardToResponse } from '../_utils/auth'
 import { createSupabaseServiceClient } from '../_utils/supabase'
 import { logUserAction, getClientIP, getUserAgent } from '../_utils/audit'
-import { escapeHtml, isValidReminderEmail, resendFromAddress, resolveReminderDelivery, sanitizeHeaderText } from '../_utils/email'
+import { isValidReminderEmail, resendFromAddress, resolveReminderDelivery, sanitizeHeaderText } from '../_utils/email'
 import { generateTemporaryPassword } from '@/lib/temporary-password'
+import { renderTemporaryPasswordEmail } from '@/lib/temporary-password-email'
 
 function optionalText(value: unknown) {
   return typeof value === 'string' ? value.trim() || null : null
@@ -101,28 +102,22 @@ export async function POST(request: Request) {
     const appUrl = appLoginUrl()
     const resendApiKey = process.env.RESEND_API_KEY?.trim()
     if (delivery.ok && appUrl && resendApiKey) {
-      const safeEmail = escapeHtml(email)
-      const safePassword = escapeHtml(generatedPassword)
-      const safeLoginUrl = escapeHtml(appUrl)
       const companyName = role === 'client' ? optionalText(input.numeFirma) : null
-      const introduction = 'Ai acum acces la Bonie' + (companyName ? ' pentru ' + companyName : '') +
-        '. Folosește datele de mai jos pentru a te autentifica:'
+      const message = renderTemporaryPasswordEmail({
+        context: 'welcome',
+        fullName,
+        email,
+        password: generatedPassword,
+        loginUrl: appUrl,
+        companyName,
+      })
       try {
         const result = await new Resend(resendApiKey).emails.send({
           from: resendFromAddress(role === 'client' ? 'client' : 'internal'),
           to: delivery.data.deliveryEmail,
-          subject: sanitizeHeaderText('Bun venit în Bonie'),
-          html: '<p>Bună, ' + escapeHtml(fullName) + ',</p>' +
-            '<p>' + escapeHtml(introduction) + '</p>' +
-            '<p>Adresa de email: <strong>' + safeEmail + '</strong></p>' +
-            '<p>Parola temporară: <code>' + safePassword + '</code></p>' +
-            '<p>Intră în cont: <a href="' + safeLoginUrl + '">' + safeLoginUrl + '</a></p>' +
-            '<p>După autentificare, te rugăm să schimbi parola temporară.</p>',
-          text: 'Bună, ' + fullName + ',\n\n' + introduction + '\n\n' +
-            'Adresa de email: ' + email + '\n' +
-            'Parola temporară: ' + generatedPassword + '\n' +
-            'Intră în cont: ' + appUrl + '\n\n' +
-            'După autentificare, te rugăm să schimbi parola temporară.',
+          subject: sanitizeHeaderText(message.subject),
+          html: message.html,
+          text: message.text,
         }, { idempotencyKey: 'welcome-user/' + userId })
         emailSent = !result.error && Boolean(result.data?.id)
       } catch {

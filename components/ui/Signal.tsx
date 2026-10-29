@@ -9,18 +9,22 @@ export function Signal({
   tone,
   children,
   className = '',
+  icon,
+  style,
 }: {
   tone: SignalTone
   children: React.ReactNode
   className?: string
+  icon?: React.ReactNode
+  style?: React.CSSProperties
 }) {
   const t = TONE[tone]
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-[var(--radius-plate)] px-2 py-0.5 text-xs font-semibold leading-5 ${className}`}
-      style={{ background: t.bg, color: t.fg }}
+      style={{ background: t.bg, color: t.fg, ...style }}
     >
-      <ToneIcon tone={tone} />
+      {icon === undefined ? <ToneIcon tone={tone} /> : icon}
       {children}
     </span>
   )

@@ -1,6 +1,7 @@
 'use client'
 
-import { Pencil, Trash2, MoreHorizontal } from 'lucide-react'
+import { Pencil, Trash2 } from 'lucide-react'
+import ChatActionMenu from '@/components/chat/ChatActionMenu'
 import type { ChatImage } from '@/lib/project-chat-contracts'
 import { getAvatarColor, getInitials } from '@/lib/avatar'
 import { profileDisplayName } from '@/lib/profile-display'
@@ -195,7 +196,7 @@ export default function ChatMessageList({
 
             {/* Conținut mesaj (bula sau editorul) */}
             <div
-              className={`relative group/bubble flex items-center gap-2 ${
+              className={`relative group/bubble flex min-w-0 items-center gap-2 ${
                 isMe ? "flex-row-reverse" : "flex-row"
               }`}
             >
@@ -207,7 +208,7 @@ export default function ChatMessageList({
                       setOpenMenuId(`message:${m.id}`);
                     }
                   }}
-                  className={`flex flex-col gap-1.5 ${isMe ? "items-end" : "items-start"}`}
+                  className={`flex min-w-0 max-w-full flex-col gap-1.5 ${isMe ? "items-end" : "items-start"}`}
                 >
                   {m.deleted_at ? (
                     <div
@@ -232,13 +233,13 @@ export default function ChatMessageList({
                             className="w-full resize-none bg-transparent px-4 py-3 text-[14px] text-ink focus:outline-none min-h-[100px]"
                           />
                           <div className="flex justify-end gap-2 border-t border-rule bg-paper-sunk p-2">
-                            <button
+                            <button data-tooltip="Renunță la modificare"
                               onClick={cancelEdit}
                               className="rounded-lg px-3 py-1.5 text-xs font-bold text-ink-soft hover:bg-paper"
                             >
                               Anulează
                             </button>
-                            <button
+                            <button data-tooltip="Salvează mesajul modificat"
                               onClick={() => saveEdit(m.id)}
                               disabled={!editText.trim() && !m.images?.length}
                               className="rounded-lg bg-ink px-3 py-1.5 text-xs font-bold text-white shadow-md hover:brightness-90 disabled:opacity-40 disabled:hover:brightness-100"
@@ -248,7 +249,7 @@ export default function ChatMessageList({
                           </div>
                         </div>
                       ) : (m.body || m.body_masked) && (
-                        <div className="group/message relative">
+                        <div className="group/message relative max-w-full">
                           <div
                             className={`px-4 py-2.5 text-[14px] leading-relaxed transition-colors ${
                               m.body_masked
@@ -270,31 +271,23 @@ export default function ChatMessageList({
                             )}
                           </div>
                           {!readOnly && !m.deleted_at && (canModerate || isMe) && (
-                            <div className={`absolute top-1 transition-opacity ${isMe ? "-left-9" : "-right-9"} ${openMenuId === `message:${m.id}` ? "opacity-100" : "opacity-0 group-hover/message:opacity-100"}`}>
-                              <button
-                                type="button"
-                                aria-label="Opțiuni mesaj"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenMenuId(openMenuId === `message:${m.id}` ? null : `message:${m.id}`);
-                                }}
-                                className={`rounded-full p-1.5 transition-colors ${openMenuId === `message:${m.id}` ? "bg-paper text-ink" : "text-ink-faint hover:bg-paper hover:text-ink"}`}
-                              >
-                                <MoreHorizontal className="h-[18px] w-[18px]" />
-                              </button>
-                              {openMenuId === `message:${m.id}` && (
-                                <div className={`absolute top-full mt-1 z-50 min-w-[140px] rounded-xl border border-rule bg-white p-1.5 shadow-xl ${isMe ? "left-0" : "right-0"}`} onClick={(e) => e.stopPropagation()}>
+                            <ChatActionMenu
+                              open={openMenuId === `message:${m.id}`}
+                              onOpenChange={(open) => setOpenMenuId(open ? `message:${m.id}` : null)}
+                              label="Opțiuni mesaj"
+                              align={isMe ? 'start' : 'end'}
+                              className={`absolute top-1 transition-opacity focus-within:opacity-100 [@media(hover:none)]:opacity-100 ${isMe ? "-left-9" : "-right-9"} ${openMenuId === `message:${m.id}` ? "opacity-100" : "opacity-0 group-hover/message:opacity-100"}`}
+                              buttonClassName={`rounded-full p-1.5 transition-colors ${openMenuId === `message:${m.id}` ? "bg-paper text-ink" : "text-ink-faint hover:bg-paper hover:text-ink"}`}
+                            >
                                   {!m.body_masked && (canEditOthers || isMe) && (
-                                    <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-ink hover:bg-paper-sunk" onClick={() => { setOpenMenuId(null); startEdit(m.id, m.body ?? ""); }}>
+                                    <button data-tooltip="Modifică mesajul" type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-ink hover:bg-paper-sunk" onClick={() => { setOpenMenuId(null); startEdit(m.id, m.body ?? ""); }}>
                                       <Pencil className="h-4 w-4 text-ink-faint" /> Editează
                                     </button>
                                   )}
-                                  <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)]" onClick={async () => { setOpenMenuId(null); if (await confirm({ title: "Ștergi mesajul?", description: "Mesajul va fi eliminat din conversație.", confirmText: "Șterge mesajul" })) await deleteMessage(m.id); }}>
+                                  <button data-tooltip="Șterge mesajul" type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)]" onClick={async () => { setOpenMenuId(null); if (await confirm({ title: "Ștergi mesajul?", description: "Mesajul va fi eliminat din conversație.", confirmText: "Șterge mesajul" })) await deleteMessage(m.id); }}>
                                     <Trash2 className="h-4 w-4 text-[var(--sg-danger)]" /> Șterge
                                   </button>
-                                </div>
-                              )}
-                            </div>
+                            </ChatActionMenu>
                           )}
                         </div>
                       )}
@@ -307,7 +300,7 @@ export default function ChatMessageList({
                             }
                             return image.signedUrl ? (
                               <div key={image.path} className="group/image relative">
-                              <button
+                              <button aria-label="Deschide imaginea"
                                 type="button"
                                 // `min-h` cât timp poza se încarcă: cu
                                 // înălțime automată, bula ar porni de la
@@ -329,21 +322,18 @@ export default function ChatMessageList({
                                 />
                               </button>
                               {!readOnly && !m.deleted_at && (canModerate || isMe) && (
-                                <div className={`absolute top-1/2 -translate-y-1/2 transition-opacity ${isMe ? "-left-9" : "-right-9"} ${openMenuId === `image:${m.id}:${image.path}` ? "opacity-100" : "opacity-0 group-hover/image:opacity-100"}`}>
-                                  <button
-                                    type="button"
-                                    aria-label={`Opțiuni pentru ${image.name}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setOpenMenuId(openMenuId === `image:${m.id}:${image.path}` ? null : `image:${m.id}:${image.path}`);
-                                    }}
-                                    className="rounded-full p-1.5 text-ink-faint transition-colors hover:bg-paper hover:text-ink"
-                                  >
-                                    <MoreHorizontal className="h-4 w-4" />
-                                  </button>
-                                  {openMenuId === `image:${m.id}:${image.path}` && (
-                                    <div className={`absolute top-full z-50 mt-1 min-w-[130px] rounded-xl border border-rule bg-white p-1.5 shadow-xl ${isMe ? "left-0" : "right-0"}`} onClick={(e) => e.stopPropagation()}>
-                                      <button
+                                <ChatActionMenu
+                                  open={openMenuId === `image:${m.id}:${image.path}`}
+                                  onOpenChange={(open) => setOpenMenuId(open ? `image:${m.id}:${image.path}` : null)}
+                                  label={`Opțiuni pentru ${image.name}`}
+                                  align={isMe ? 'start' : 'end'}
+                                  iconClassName="h-4 w-4"
+                                  className={`absolute top-1/2 -translate-y-1/2 transition-opacity focus-within:opacity-100 [@media(hover:none)]:opacity-100 ${isMe ? "-left-9" : "-right-9"} ${openMenuId === `image:${m.id}:${image.path}` ? "opacity-100" : "opacity-0 group-hover/image:opacity-100"}`}
+                                  buttonClassName="rounded-full p-1.5 text-ink-faint transition-colors hover:bg-paper hover:text-ink"
+                                >
+                                      <button data-tooltip="Scoate imaginea din mesaj — cere confirmare"
+                                        type="button"
+                                        role="menuitem"
                                         className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)]"
                                         onClick={async () => {
                                           setOpenMenuId(null);
@@ -355,9 +345,7 @@ export default function ChatMessageList({
                                       >
                                         <Trash2 className="h-4 w-4 text-[var(--sg-danger)]" /> Șterge
                                       </button>
-                                    </div>
-                                  )}
-                                </div>
+                                </ChatActionMenu>
                               )}
                               </div>
                             ) : (

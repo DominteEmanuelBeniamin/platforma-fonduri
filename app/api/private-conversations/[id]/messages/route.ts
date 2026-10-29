@@ -7,18 +7,34 @@ import { inactiveReferenceConflict } from '@/app/api/_utils/inactive-reference'
 
 const MAX_LIMIT = 200
 const DEFAULT_LIMIT = 50
+const UUID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
+const CursorDateTimeSchema = z.iso.datetime({ offset: true })
+
+const CursorSchema = z.string().superRefine((cursor, context) => {
+  const separator = cursor.lastIndexOf('|')
+  const timestamp = separator === -1 ? cursor : cursor.slice(0, separator)
+
+  if (!CursorDateTimeSchema.safeParse(timestamp).success) {
+    context.addIssue({ code: 'custom', message: 'Cursor timestamp must be an ISO datetime' })
+  }
+
+  if (separator !== -1 && !UUID_PATTERN.test(cursor.slice(separator + 1))) {
+    context.addIssue({ code: 'custom', message: 'Cursor id must be a UUID' })
+  }
+})
 
 const GetQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_LIMIT).default(DEFAULT_LIMIT),
-  cursor: z.iso.datetime({ offset: true }).optional(),
+  cursor: CursorSchema.optional(),
 })
+
+type MessageCursor = { createdAt: string; id: string | null }
 
 type ParsedQueryOk = {
   ok: true
   data: {
     limit: number
-    cursor: string | undefined
-    cursorIso: string | null
+    cursor: MessageCursor | null
   }
 }
 
@@ -39,11 +55,17 @@ function parseQuery(request: Request): ParsedQueryOk | ParsedQueryErr {
   if (!parsed.success) return { ok: false, error: parsed.error }
 
   const { limit, cursor } = parsed.data
-  const cursorIso = cursor ? new Date(cursor).toISOString() : null
+  const separator = cursor?.lastIndexOf('|') ?? -1
+  const parsedCursor = cursor
+    ? {
+        createdAt: separator === -1 ? cursor : cursor.slice(0, separator),
+        id: separator === -1 ? null : cursor.slice(separator + 1),
+      }
+    : null
 
   return {
     ok: true,
-    data: { limit, cursor, cursorIso },
+    data: { limit, cursor: parsedCursor },
   }
 }
 
@@ -83,7 +105,7 @@ export async function GET(
       )
     }
 
-    const { limit, cursorIso } = parsed.data
+    const { limit, cursor } = parsed.data
     const admin = createSupabaseServiceClient()
 
     const requested = limit
@@ -108,10 +130,13 @@ export async function GET(
       `)
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
       .limit(pageSize)
 
-    if (cursorIso) {
-      q = q.lt('created_at', cursorIso)
+    if (cursor?.id) {
+      q = q.or(`created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`)
+    } else if (cursor) {
+      q = q.lt('created_at', cursor.createdAt)
     }
 
     const { data, error } = await q
@@ -124,7 +149,8 @@ export async function GET(
     const rows = (data ?? []).map(maskRow)
     const hasMore = rows.length > requested
     const items = hasMore ? rows.slice(0, requested) : rows
-    const nextCursor = hasMore ? (items[items.length - 1]?.created_at ?? null) : null
+    const lastItem = items[items.length - 1]
+    const nextCursor = hasMore && lastItem ? `${lastItem.created_at}|${lastItem.id}` : null
 
     return Response.json({ items, nextCursor })
   } catch (err) {

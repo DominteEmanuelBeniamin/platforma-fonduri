@@ -66,7 +66,7 @@ export default function NotificationRow({ item, onOpen, disabled, onToggleRead, 
         ? 'border-rule bg-white hover:border-rule hover:bg-paper-sunk'
         : 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)]'}`}
     >
-      <button
+      <button data-tooltip="Mergi la ce s-a schimbat"
         type="button"
         disabled={disabled}
         onClick={() => onOpen(item)}

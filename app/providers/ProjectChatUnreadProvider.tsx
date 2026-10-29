@@ -1,6 +1,7 @@
 'use client'
 
 import { createUnreadSummaryProvider } from '@/app/providers/createUnreadSummaryProvider'
+import { PROJECT_CHAT_READ_EVENT } from '@/lib/chat-read-events'
 
 export type ProjectChatUnreadProject = {
   projectId: string
@@ -45,6 +46,8 @@ const { Provider, useSummary } = createUnreadSummaryProvider<ProjectChatUnreadSt
     { table: 'project_chat_events' },
     { table: 'project_chat_reads' },
   ],
+  refreshOnWindowFocus: true,
+  refreshEvent: PROJECT_CHAT_READ_EVENT,
 })
 
 export const ProjectChatUnreadProvider = Provider

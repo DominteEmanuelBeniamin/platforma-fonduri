@@ -8,7 +8,7 @@ import { useAuth } from '@/app/providers/AuthProvider'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { useToast } from '@/app/providers/ToastProvider'
-import { LocationStrip } from '@/components/ui/LocationStrip'
+import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
 import { SearchInput } from '@/components/ui/SearchInput'
@@ -19,6 +19,7 @@ import { formatDate } from '@/lib/signage'
 import { Spinner } from '@/components/ui/Spinner'
 import { Signal } from '@/components/ui/Signal'
 import { profileDisplayName } from '@/lib/profile-display'
+import { ResetUserPasswordAction } from '@/components/ResetUserPasswordAction'
 
 type Rol = 'admin' | 'consultant' | 'client'
 type UserState = 'active' | 'inactive' | 'all'
@@ -172,6 +173,9 @@ export default function AdminUsersPage() {
     setPanouDeschis(true)
   }, [])
 
+  // Filtrul pentru care lista e deja afișată.
+  const loadedStateRef = useRef<UserState | null>(null)
+
   const fetchUsers = useCallback(async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true)
@@ -179,6 +183,7 @@ export default function AdminUsersPage() {
       if (!res.ok) { showToast('Nu am putut încărca utilizatorii. Reîncearcă.', 'error'); return }
       const { users: data } = await res.json()
       setUsers(data)
+      loadedStateRef.current = filtruStare
     } finally {
       if (showLoader) setLoading(false)
     }
@@ -189,8 +194,10 @@ export default function AdminUsersPage() {
     if (!token) { router.replace('/login'); return }
     if (!profile) return
     if (profile.role !== 'admin') { router.replace('/'); return }
-    fetchUsers()
-  }, [authLoading, token, profile, router, fetchUsers])
+    // Refresh-ul tokenului reîncarcă profilul; lista se actualizează în fundal, ca să nu
+    // demontăm dialogurile deschise (de exemplu parola temporară afișată o singură dată).
+    fetchUsers(loadedStateRef.current !== filtruStare)
+  }, [authLoading, token, profile, router, fetchUsers, filtruStare])
 
   useEffect(() => {
     setCif(''); setNumeFirma(''); setAdresaFirma(''); setPersoanaContact('')
@@ -470,7 +477,7 @@ export default function AdminUsersPage() {
               ))}
             </ul>
             {userToDelete?.is_active && (
-              <Button variant="secondary" onClick={openImpactForDeletedUser}>Dezactivează contul</Button>
+              <Button data-tooltip="Contul nu se mai poate conecta; istoricul lui rămâne" variant="secondary" onClick={openImpactForDeletedUser}>Dezactivează contul</Button>
             )}
           </div>
         )}
@@ -530,8 +537,8 @@ export default function AdminUsersPage() {
               {lifecycleActionError && <FeedbackMessage variant="error">{lifecycleActionError}</FeedbackMessage>}
             </div>
             <div className="flex justify-end gap-2 border-t border-rule bg-paper-sunk px-5 py-4">
-              <Dialog.Close asChild><Button variant="secondary">Anulează</Button></Dialog.Close>
-              <Button variant="danger" disabled={changingStateId !== null} onClick={() => { if (impactUser) void changeLifecycle(impactUser, 'deactivate') }}>
+              <Dialog.Close asChild><Button data-tooltip="Lasă contul activ" variant="secondary">Anulează</Button></Dialog.Close>
+              <Button data-tooltip="Contul nu se mai poate conecta; istoricul lui rămâne" variant="danger" disabled={changingStateId !== null} onClick={() => { if (impactUser) void changeLifecycle(impactUser, 'deactivate') }}>
                 {changingStateId === impactUser?.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 Dezactivează contul
               </Button>
@@ -540,22 +547,19 @@ export default function AdminUsersPage() {
         </Dialog.Portal>
       </Dialog.Root>
 
-      <LocationStrip
-        segments={[{ label: 'Bonie', href: '/' }, { label: 'Utilizatori' }]}
-        action={
-          <Button variant="primary" aria-label="Adaugă utilizator" onClick={openCreatePanel}>
+      <PageHeader
+        title="Utilizatori"
+        titleProps={{ id: 'admin-users-heading', tabIndex: -1 }}
+        subtitle={`${users.length} ${users.length === 1 ? 'cont' : 'conturi'} · ${peRol.client} clienți, ${peRol.consultant} consultanți, ${peRol.admin} administratori`}
+        actions={
+          <Button data-tooltip="Creează un cont nou: consultant, client sau administrator" variant="primary" aria-label="Adaugă utilizator" onClick={openCreatePanel}>
             <UserPlus className="h-4 w-4" aria-hidden="true" />
             <span className="hidden sm:inline">Adaugă utilizator</span>
           </Button>
         }
       />
 
-      <h1 id="admin-users-heading" tabIndex={-1} className="text-3xl font-bold tracking-tight text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--sg-accent)] md:text-4xl">Utilizatori</h1>
-      <p className="mt-2 text-sm text-ink-soft">
-        {users.length} {users.length === 1 ? 'cont' : 'conturi'} · {peRol.client} clienți, {peRol.consultant} consultanți, {peRol.admin} administratori
-      </p>
-
-      <div className="mt-6 flex flex-wrap items-center gap-2 border-b border-rule pb-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-rule pb-3">
         <div className="min-w-[220px] flex-1">
           <SearchInput value={cauta} onChange={setCauta} placeholder="Caută după email sau nume…" label="Caută utilizatori" />
         </div>
@@ -564,13 +568,13 @@ export default function AdminUsersPage() {
             DESIGN.md cere ruperea în rânduri, nu derularea. */}
         <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filtrează după rol">
           {(['toate', 'client', 'consultant', 'admin'] as const).map((r) => (
-            <Button
+            <Button data-tooltip={r === 'toate' ? 'Conturile cu orice rol' : `Doar conturile cu rolul ${ROLURI[r].replace(' (firmă)', '').toLowerCase()}`}
               key={r}
               variant="secondary"
               size="sm"
               aria-pressed={filtruRol === r}
               onClick={() => setFiltruRol(r)}
-              className={filtruRol === r ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : ''}
+              className="aria-pressed:border-[var(--sg-accent)] aria-pressed:bg-[var(--sg-accent-soft)] aria-pressed:text-[var(--sg-accent-ink)]"
             >
               {r === 'toate' ? 'Toate' : ROLURI[r].replace(' (firmă)', '')}
             </Button>
@@ -580,9 +584,9 @@ export default function AdminUsersPage() {
 
       <div className="mt-3 flex flex-wrap items-center gap-1" role="group" aria-label="Filtrează după starea contului">
         {(['active', 'inactive', 'all'] as const).map((state) => (
-          <Button key={state} variant="secondary" size="sm" aria-pressed={filtruStare === state} onClick={() => setFiltruStare(state)}
-            className={filtruStare === state ? 'border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : ''}>
-            {state === 'active' ? 'Active' : state === 'inactive' ? 'Dezactivate' : 'Toate stările'}
+          <Button data-tooltip={state === 'active' ? 'Doar conturile active' : state === 'inactive' ? 'Doar conturile dezactivate' : 'Conturile active și dezactivate'} key={state} variant="secondary" size="sm" aria-pressed={filtruStare === state} onClick={() => setFiltruStare(state)}
+            className="aria-pressed:border-[var(--sg-accent)] aria-pressed:bg-[var(--sg-accent-soft)] aria-pressed:text-[var(--sg-accent-ink)]">
+            {state === 'active' ? 'Activi' : state === 'inactive' ? 'Dezactivați' : 'Toți'}
           </Button>
         ))}
       </div>
@@ -592,8 +596,8 @@ export default function AdminUsersPage() {
           <EmptyState
             title={users.length === 0 ? 'Niciun utilizator' : 'Niciun utilizator nu se potrivește'}
             action={users.length === 0
-              ? <Button variant="primary" onClick={openCreatePanel}><UserPlus className="h-4 w-4" aria-hidden="true" /> Adaugă utilizator</Button>
-              : <Button variant="secondary" onClick={() => { setCauta(''); setFiltruRol('toate') }}>Șterge filtrele</Button>}
+              ? <Button data-tooltip="Creează un cont nou: consultant, client sau administrator" variant="primary" onClick={openCreatePanel}><UserPlus className="h-4 w-4" aria-hidden="true" /> Adaugă utilizator</Button>
+              : <Button data-tooltip="Arată toate conturile" variant="secondary" onClick={() => { setCauta(''); setFiltruRol('toate') }}>Șterge filtrele</Button>}
           >
             {users.length === 0
               ? 'Primul cont deschide platforma pentru cineva: un client, un consultant sau un administrator.'
@@ -603,7 +607,7 @@ export default function AdminUsersPage() {
           filtrati.map((user) => (
             <Plate key={user.id} interactive className="group">
               <div className="flex flex-wrap items-center gap-3 p-4 sm:flex-nowrap">
-                <button
+                <button data-tooltip="Deschide fișa contului"
                   onClick={() => router.push(`/admin/users/${user.id}`)}
                   className="flex min-w-0 flex-1 basis-full items-center gap-3 text-left sm:basis-auto"
                 >
@@ -645,6 +649,10 @@ export default function AdminUsersPage() {
                   <span className={`rounded border px-2 py-1 text-xs font-semibold ${user.is_active === false ? 'border-rule text-ink-soft' : 'border-[var(--sg-ok)] text-[var(--sg-ok)]'}`}>
                     {user.is_active === false ? 'Dezactivat' : 'Activ'}
                   </span>
+                  <ResetUserPasswordAction
+                    target={{ id: user.id, email: user.email, full_name: user.full_name, is_active: user.is_active }}
+                    onReset={() => fetchUsers(false)}
+                  />
                   {user.is_active === false ? (
                     <>
                       {/* Sincronizarea neterminată (inclusiv conturile dezactivate înainte de #105)
@@ -673,6 +681,7 @@ export default function AdminUsersPage() {
                   )}
                   <IconButton
                     label={'Șterge definitiv utilizatorul ' + user.email}
+                    data-tooltip="Șterge utilizatorul"
                     tone="danger"
                     disabled={changingStateId !== null}
                     onClick={(event) => { lifecycleFocusReturnRef.current = event.currentTarget; setDeleteError(null); setDeleteBlockers([]); setDeleteHasRelatedData(false); setCheckingDelete(true); setUserToDelete({ id: user.id, email: user.email, is_active: user.is_active !== false }); setDeleteModalOpen(true) }}
@@ -833,7 +842,7 @@ export default function AdminUsersPage() {
                 <p className="min-w-0 truncate text-sm text-ink-soft">
                   Creezi <span className="font-semibold text-ink">{newName || 'un cont nou'}</span> ca {ROLURI[newRole].toLowerCase()}.
                 </p>
-                <Button type="submit" variant="primary" disabled={isCreating}>
+                <Button data-tooltip="Creează contul; parola temporară pleacă pe email" type="submit" variant="primary" disabled={isCreating}>
                   {isCreating
                     ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Se creează…</>
                     : <><UserPlus className="h-4 w-4" aria-hidden="true" /> Creează</>}

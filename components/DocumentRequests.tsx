@@ -1,25 +1,19 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
-import { useEffect, useMemo, useState, JSX, useRef } from 'react'
+import { useEffect, useMemo, useState, JSX, useRef, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import {
   FileText,
   Plus,
   Download,
   Upload,
-  CheckCircle2,
-  Clock,
   Calendar,
   X,
-  ChevronRight,
   Eye,
-  MessageSquare,
   FileSpreadsheet,
   FolderUp,
-  Files,
   AlertCircle,
   GripVertical,
-  Loader2,
   Image as ImageIcon,
   File,
   Trash2,
@@ -28,31 +22,30 @@ import {
 } from 'lucide-react'
 import DocumentModal from './DocumentModal'
 import ConfirmDeleteModal from './ConfirmDeleteModal'
+import RowActionsMenu from './RowActionsMenu'
 import PublishStatusControl from './PublishStatusControl'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { usePatchField } from '@/hooks/usePatchField'
 import { useReminderStates } from '@/hooks/useReminderStates'
-import { FeedbackMessage } from '@/components/FeedbackMessage'
 import type { PickedFile } from './document-requests/types'
 import SendDocumentModal from './document-requests/SendDocumentModal'
 import RequestFormDialog from './document-requests/RequestFormDialog'
+import ClientUploadDialog from './document-requests/ClientUploadDialog'
 import { buildPreviewPageUrl, isPreviewableFile, openInNewTab, downloadUrl } from '@/lib/file-preview'
 import { publishBlockers } from '@/lib/publish-rules'
 import {
-  formatFileSize,
   getFileExtension,
-  runClientUpload,
   validateUploadFile,
-  type PendingClientUploadCompletion,
   type UploadValidationError,
 } from '@/lib/client-upload'
 import { RequirementType } from '@/lib/requirement-type'
 import { Spinner } from '@/components/ui/Spinner'
-import { Signal } from '@/components/ui/Signal'
-import { TONE } from '@/lib/signage'
 import { isRequestFinal, mergeVisibleOrder } from '@/lib/completion'
+import { countLabel } from '@/lib/count-label'
 import HiddenFinalRow from './HiddenFinalRow'
+import { CELL, DeadlineCell, StatusCell, formatShortDate } from './project-table/cells'
+import { activityColumnsTemplate } from './project-table/TableGroup'
 import { closedRequestClientNote, displayedRequestStatus, requestStatusInfo, type RequestStatus } from '@/lib/request-status'
 import { PROJECT_CLOSED_CLIENT_NOTE } from '@/lib/project-lifecycle'
 
@@ -133,6 +126,17 @@ function getRequestAttachments(request: DocumentRequest) {
     : []
 }
 
+/** Câte fișiere a încărcat clientul la cerere (fără cele șterse). */
+function uploadedFileCount(request: DocumentRequest): number {
+  return (request.files ?? []).filter(file => !file.deleted_at).length
+}
+
+/** Când a încărcat clientul ultimul fișier — „Data realizare” din monday. */
+function lastUploadAt(request: DocumentRequest): string | null {
+  const dates = (request.files ?? []).filter(file => !file.deleted_at).map(file => file.created_at)
+  return dates.length ? dates.reduce((latest, date) => (date > latest ? date : latest)) : null
+}
+
 function validateFile(file: File, existingFiles: PickedFile[]): UploadValidationError | null {
   return validateUploadFile(file, existingFiles)
 }
@@ -158,6 +162,11 @@ function getFileIcon(file: PickedFile): JSX.Element {
   
   return <File className="w-5 h-5" />
 }
+
+/** Butoanele mici de încărcare de sub rândul cererii. */
+const uploadButtonClass =
+  'inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-plate)] border border-dashed border-rule-strong bg-plate px-3 text-ink-soft ' +
+  'transition-colors duration-[120ms] hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)] pointer-fine:min-h-8'
 
 function joinVisibilityRequirements(items: string[]) {
   if (items.length <= 1) return items[0] || ''
@@ -200,7 +209,18 @@ interface DocumentRequestsProps {
   onRevealRequests?: (ids: string[]) => void
   /** Proiectul e încheiat: lista se poate doar citi, de oricine (8 octombrie 2026). */
   readOnly?: boolean
+  /**
+   * `sent`: doar documentele trimise clientului, ca grup separat de cererile
+   * generale (S-20). Butonul „Trimite documente” stă în antetul grupului, deci
+   * dialogul lui se deschide din pagină (`sendOpen`).
+   */
+  section?: 'requests' | 'sent'
+  sendOpen?: boolean
+  onSendOpenChange?: (open: boolean) => void
 }
+
+/** Ramurile cererilor sub o activitate, în culoarea fazei pe care o dă ActivityRow. */
+const TREE_LINE: CSSProperties = { borderColor: 'var(--tree-line, var(--sg-rule))' }
 
 /** Respinsă acum sau închisă din „Respins” (#109): motivul respingerii rămâne la vedere. */
 const wasRejected = (req: { status?: string | null; status_before_close?: string | null }) =>
@@ -226,6 +246,9 @@ export default function DocumentRequests({
   hiddenRequestIds,
   onRevealRequests,
   readOnly = false,
+  section = 'requests',
+  sendOpen,
+  onSendOpenChange,
 }: DocumentRequestsProps) {
   const { loading: authLoading, token, profile, apiFetch } = useAuth()
   const { showToast, confirm } = useToast()
@@ -236,15 +259,7 @@ export default function DocumentRequests({
   const [showForm, setShowForm] = useState(false)
   const [editingRequest, setEditingRequest] = useState<DocumentRequest | null>(null)
   
-  const folderInputRef = useRef<HTMLInputElement | null>(null)
   const formScrollY = useRef(0)
-
-  useEffect(() => {
-    if (!folderInputRef.current) return
-    // setăm atributul doar în browser
-    folderInputRef.current.setAttribute('webkitdirectory', '')
-    folderInputRef.current.setAttribute('directory', '')
-  }, [])
 
   useEffect(() => {
     if (!showForm) return
@@ -268,32 +283,20 @@ export default function DocumentRequests({
   const [submitting, setSubmitting] = useState(false)
 
   // Trimitere documente către client (is_outgoing)
-  const [showSendDoc, setShowSendDoc] = useState(false)
+  const [ownSendOpen, setOwnSendOpen] = useState(false)
+  const showSendDoc = sendOpen ?? ownSendOpen
+  const setShowSendDoc = onSendOpenChange ?? setOwnSendOpen
   const [selectedOutgoingDoc, setSelectedOutgoingDoc] = useState<DocumentRequest | null>(null)
   const [sendFiles, setSendFiles] = useState<PickedFile[]>([])
   const [sendSubmitting, setSendSubmitting] = useState(false)
 
-  // Client upload state - IMPROVED
-  const [uploadingFor, setUploadingFor] = useState<string | null>(null)
-  const [clientFiles, setClientFiles] = useState<PickedFile[]>([])
-  const [showFilePreview, setShowFilePreview] = useState(false)
-  const pendingClientUploadRef = useRef<PendingClientUploadCompletion | null>(null)
+  // Încărcarea clientului: dialogul unei singure cereri. Fișierele alese stau
+  // în dialog, nu aici — o listă comună pe activitate le trimitea la cererea
+  // aleasă ultima (feedback-ul lui Sandu, 21 octombrie 2026).
+  const [uploadTarget, setUploadTarget] = useState<{ request: DocumentRequest; startWith: 'files' | 'folder'; opener: HTMLElement } | null>(null)
   const [requestToDelete, setRequestToDelete] = useState<DocumentRequest | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [missingAttachments, setMissingAttachments] = useState<Set<string>>(() => new Set())
-
-  // Pliere per-cerere — set de cereri pliate (implicit desfăcute), ca cererile
-  // nou create să nu aibă nevoie de sincronizare specială. „Pliată" e altceva
-  // decât o cerere închisă (#109): aceea are starea `closed` în bază.
-  const [foldedRequestIds, setFoldedRequestIds] = useState<Set<string>>(() => new Set())
-  const toggleRequestFold = (id: string) => {
-    setFoldedRequestIds(prev => {
-      const s = new Set(prev)
-      if (s.has(id)) s.delete(id)
-      else s.add(id)
-      return s
-    })
-  }
 
   const canUploadFolder =
     typeof window !== 'undefined' &&
@@ -422,15 +425,7 @@ export default function DocumentRequests({
   useEffect(() => {
     if (!autoOpenRequestId) return
     const request = requests.find(r => r.id === autoOpenRequestId)
-    if (request) {
-      setSelectedRequest(request)
-      setFoldedRequestIds(prev => {
-        if (!prev.has(request.id)) return prev
-        const next = new Set(prev)
-        next.delete(request.id)
-        return next
-      })
-    }
+    if (request) setSelectedRequest(request)
   }, [autoOpenRequestId, requests])
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
@@ -498,19 +493,6 @@ export default function DocumentRequests({
     } finally { setReqOrder(null) }
   }
 
-  // Computed stats pentru fișiere selectate
-  const fileStats = useMemo(() => {
-    const total = clientFiles.length
-    const valid = clientFiles.filter(f => !f.validationError).length
-    const invalid = total - valid
-    const totalSize = clientFiles.reduce((sum, f) => sum + f.size, 0)
-    const uploading = clientFiles.filter(f => f.uploadStatus === 'uploading').length
-    const success = clientFiles.filter(f => f.uploadStatus === 'success').length
-    const error = clientFiles.filter(f => f.uploadStatus === 'error').length
-    
-    return { total, valid, invalid, totalSize, uploading, success, error }
-  }, [clientFiles])
-
   const sendFileStats = useMemo(() => {
     const total = sendFiles.length
     const valid = sendFiles.filter(f => !f.validationError && f.uploadStatus !== 'success').length
@@ -520,52 +502,6 @@ export default function DocumentRequests({
 
     return { total, valid, invalid, totalSize, uploading }
   }, [sendFiles])
-
-  // Procesare fișiere cu validare
-  const processFiles = (fileList: FileList | null, requestId: string) => {
-    const files = Array.from(fileList ?? [])
-    if (files.length === 0) return
-
-    pendingClientUploadRef.current = null
-    const newFiles: PickedFile[] = files.map((file) => {
-      const picked: PickedFile = {
-        id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
-        file,
-        name: file.name,
-        size: file.size,
-        type: file.type || 'application/octet-stream',
-        relativePath: (file as any).webkitRelativePath || null,
-        uploadStatus: 'pending',
-        uploadProgress: 0
-      }
-
-      // Validare
-      const error = validateFile(file, clientFiles)
-      if (error) {
-        picked.validationError = error
-      }
-
-      return picked
-    })
-
-    setClientFiles(prev => [...prev, ...newFiles])
-    setUploadingFor(requestId)
-    setShowFilePreview(true)
-  }
-
-  // Eliminare fișier individual
-  const removeFile = (fileId: string) => {
-    pendingClientUploadRef.current = null
-    setClientFiles(prev => prev.filter(f => f.id !== fileId))
-  }
-
-  // Clear all files
-  const clearAllFiles = () => {
-    pendingClientUploadRef.current = null
-    setClientFiles([])
-    setUploadingFor(null)
-    setShowFilePreview(false)
-  }
 
   const closeSendDoc = () => {
     if (sendSubmitting) return
@@ -722,52 +658,6 @@ export default function DocumentRequests({
     resetRequestForm()
   }
 
-  const handleClientUpload = async (requestId: string) => {
-    if (submitting) return
-    const validFiles = clientFiles.filter(f => !f.validationError)
-    const pending = pendingClientUploadRef.current?.requestId === requestId
-      ? pendingClientUploadRef.current
-      : null
-
-    if (!pending && validFiles.length === 0) {
-      showToast('Nu există fișiere valide. Verifică erorile de validare.', 'warning')
-      return
-    }
-
-    setSubmitting(true)
-    try {
-      const result = await runClientUpload({
-        apiFetch,
-        requestId,
-        files: validFiles,
-        pending,
-        onPending: next => { pendingClientUploadRef.current = next },
-        onFileState: (id, state) => setClientFiles(prev => prev.map(file => file.id !== id ? file : (
-          state.status === 'uploading' ? { ...file, uploadStatus: 'uploading' as const, uploadProgress: 0 }
-            : state.status === 'success' ? { ...file, uploadStatus: 'success' as const, uploadProgress: 100 }
-            : { ...file, uploadStatus: 'error' as const, uploadError: state.message }
-        ))),
-      })
-
-      showToast(
-        result.failed === 0
-          ? `Au fost încărcate ${result.successful} fișiere.`
-          : `${result.successful} fișiere au fost încărcate, iar ${result.failed} au eșuat. Verifică lista fișierelor.`,
-        result.failed === 0 ? 'success' : 'warning',
-      )
-
-      clearAllFiles()
-      await fetchRequests()
-    } catch (error) {
-      showToast(
-        error instanceof Error && error.message ? error.message : 'Nu am putut încărca fișierele. Reîncearcă.',
-        'error',
-      )
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
   const fetchAttachmentSignedUrl = async (requestId: string, disposition?: 'inline', attachmentId?: string) => {
     const res = await apiFetch(`/api/document-requests/${requestId}/attachment/signed-download`, {
       method: 'POST',
@@ -812,8 +702,10 @@ export default function DocumentRequests({
   }
 
   // Create request (admin/consultant) via API, with optional template upload
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent, text: { name: string; description: string } = { name, description }) => {
     e.preventDefault()
+    const name = text.name
+    const description = text.description
     if (!name.trim()) return
     setSubmitting(true)
 
@@ -1041,10 +933,26 @@ export default function DocumentRequests({
     return isClient ? info.clientLabel : info.label
   }
   const isEmbedded = activityId !== undefined
+  // Coloanele sub-tabelului: „Vizibil clientului” e a echipei, acțiunile — ale
+  // cui poate modifica. Aceleași condiții desenează antetul și rândurile.
+  // Aceleași coloane ca rândurile de activitate, cu aceleași nume, ca Status, Documente,
+  // Termen și Vizibil să stea unele sub altele (feedback-ul lui Sandu, 22
+  // octombrie). Numele cererii ia locul „Activitate” + „Responsabil”.
+  const requestColumns = activityColumnsTemplate({ visibility: isAdminOrConsultant, actions: canChange })
+
+  // Grila documentelor trimise: Document, Fișiere, Trimis la, Vizibil
+  // clientului (echipa), „⋯” (cine poate modifica).
+  const sentColumns = [
+    'minmax(10rem,1fr)',
+    'minmax(8rem,16rem)',
+    '5.75rem',
+    isAdminOrConsultant && 'minmax(8rem,10rem)',
+    canChange && '2.5rem',
+  ].filter(Boolean).join(' ')
 
   if (loading) {
     return (
-      <div className={`bg-white min-h-[400px] flex items-center justify-center ${isEmbedded ? '' : 'rounded-2xl border border-rule'}`}>
+      <div className={`bg-white min-h-[400px] flex items-center justify-center ${isEmbedded ? '' : 'rounded-[var(--radius-plate)] border border-rule'}`}>
         <div className="flex flex-col items-center gap-4">
           <Spinner />
           <p className="text-sm text-ink-soft font-medium">Se încarcă documentele...</p>
@@ -1055,12 +963,12 @@ export default function DocumentRequests({
 
   return (
     <>
-      <div className={`bg-white ${isEmbedded ? '' : 'rounded-2xl border border-rule shadow-sm overflow-hidden'}`}>
-        {(!isEmbedded || (activityId === null && canChange)) && (
+      <div className={`bg-white ${isEmbedded ? '' : 'rounded-[var(--radius-plate)] border border-rule shadow-sm overflow-hidden'}`}>
+        {!isEmbedded && (
         <div className={`${isEmbedded ? 'flex items-center justify-between px-4 pb-5 sm:pb-6 border-b border-rule' : 'p-4 sm:p-5 border-b border-rule'}`}>
           <div className={`flex items-center ${isEmbedded ? 'w-full justify-between' : 'flex-col gap-3 xl:flex-row xl:items-start xl:justify-between'}`}>
             {!isEmbedded && <div className="flex items-center gap-3 min-w-0 flex-1">
-              <div className="w-10 h-10 rounded-xl bg-[var(--sg-accent)] flex items-center justify-center flex-shrink-0">
+              <div className="w-10 h-10 rounded-[var(--radius-plate)] bg-[var(--sg-accent)] flex items-center justify-center flex-shrink-0">
                 <FileText className="w-5 h-5 text-white" />
               </div>
               <div className="min-w-0">
@@ -1080,14 +988,14 @@ export default function DocumentRequests({
                     type="button"
                     title="Trimite documente"
                     onClick={() => setShowSendDoc(true)}
-                    className="flex items-center gap-2 whitespace-nowrap px-3 sm:px-4 py-2.5 rounded-xl text-sm font-medium transition-all bg-[var(--sg-ok)] text-white hover:brightness-90"
+                    className="flex items-center gap-2 whitespace-nowrap px-3 sm:px-4 py-2.5 rounded-[var(--radius-plate)] text-sm font-medium transition-all bg-[var(--sg-ok)] text-white hover:brightness-90"
                   >
                     <Upload className="w-4 h-4" aria-hidden="true" /><span className="hidden sm:inline">Trimite documente</span><span className="sr-only sm:hidden">Trimite documente</span>
                   </button>
                 )}
-                <button
+                <button data-tooltip="Cere clientului un document nou"
                   onClick={openCreateForm}
-                  className="flex items-center gap-2 whitespace-nowrap px-3 sm:px-4 py-2.5 rounded-xl text-sm font-medium transition-all bg-ink text-white hover:brightness-90"
+                  className="flex items-center gap-2 whitespace-nowrap px-3 sm:px-4 py-2.5 rounded-[var(--radius-plate)] text-sm font-medium transition-all bg-ink text-white hover:brightness-90"
                 >
                   <Plus className="w-4 h-4" aria-hidden="true" /><span className="hidden sm:inline">Cerere de document nouă</span><span className="sr-only sm:hidden">Cerere de document nouă</span>
                 </button>
@@ -1101,8 +1009,8 @@ export default function DocumentRequests({
         open={showForm && canChange}
         editing={editingRequest}
         submitting={submitting}
-        name={name} onNameChange={setName}
-        description={description} onDescriptionChange={setDescription}
+        name={name}
+        description={description}
         category={category} onCategoryChange={setCategory}
         deadline={deadline} onDeadlineChange={setDeadline}
         templateFiles={templateFiles} onTemplateFilesChange={setTemplateFiles}
@@ -1114,183 +1022,243 @@ export default function DocumentRequests({
         onSubmit={handleSubmit}
       />
 
-        {!activityId && (outgoingDocs.length > 0 || canChange) && (
-          <div className="border-b border-rule bg-[var(--sg-ok-soft)]">
-            <div className="px-4 sm:px-5 py-3 flex items-center gap-2">
-              <FolderUp className="w-4 h-4 text-[var(--sg-ok)]" />
-              <h3 className="text-sm font-semibold text-ink">Documente trimise clientului</h3>
-              <span className="text-xs text-ink-soft">({outgoingDocs.length})</span>
-            </div>
+        {section === 'sent' ? (
+          // Documentele trimise, pe aceeași grilă cu tabelul și cu muchie
+          // neutră: verdele e semnalul „gata”, nu decor (S-20, Z-05).
+          <div style={{ '--sent-cols': sentColumns } as CSSProperties}>
             {outgoingDocs.length === 0 ? (
-              canChange && (
-                <p className="px-4 sm:px-5 pb-4 text-xs text-ink-soft">
-                  Trimite documente către client cu butonul „Trimite documente”.
-                </p>
-              )
+              <p className="px-3 py-3 text-sm text-ink-soft">
+                {isClient ? 'Niciun document publicat de consultant încă.' : canChange ? 'Niciun document trimis încă. Trimite-le cu „Trimite documente”, sus.' : 'Niciun document trimis încă.'}
+              </p>
             ) : (
-              <div className="divide-y divide-[var(--sg-ok)]">
+              <>
+                <div aria-hidden="true" className="hidden h-8 border-b border-rule text-[11px] font-medium text-ink-faint @min-[50rem]:grid @min-[50rem]:grid-cols-(--sent-cols)">
+                  <span className="flex items-center pl-3">Document</span>
+                  <span className="flex items-center px-2">Fișiere</span>
+                  <span className="flex items-center justify-center">Trimis la</span>
+                  {isAdminOrConsultant && <span className="flex items-center justify-center">Vizibil clientului</span>}
+                  {canChange && <span />}
+                </div>
                 {outgoingDocs.map((doc: DocumentRequest) => (
-                  <button
+                  <div
                     key={doc.id}
-                    type="button"
+                    id={`request-${doc.id}`}
                     onClick={() => setSelectedOutgoingDoc(doc)}
-                    className="w-full px-4 sm:px-5 py-3 flex items-center gap-3 text-left hover:bg-[var(--sg-ok-soft)] transition-colors"
+                    className="group scroll-mt-24 cursor-pointer border-b border-rule/70 transition-colors duration-[120ms] hover:bg-paper/60 md:scroll-mt-48"
                   >
-                    <div className="w-9 h-9 rounded-lg bg-white border border-[var(--sg-ok)] flex items-center justify-center text-[var(--sg-ok)] flex-shrink-0">
-                      <FileText className="w-4 h-4" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
-                        <p className="min-w-0 text-sm font-medium text-ink break-words">{doc.name}</p>
-                        <PublishStatusControl
-                          status={doc.visibility ?? 'draft'}
-                          canPublish={false}
-                          showPublishedStatus={isAdminOrConsultant}
-                          onPublish={() => undefined}
-                          size="sm"
-                        />
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1 px-3 py-2 @min-[50rem]:grid-cols-(--sent-cols) @min-[50rem]:gap-0 @min-[50rem]:p-0">
+                      <div className="flex min-w-0 items-center gap-2 @min-[50rem]:py-1.5 @min-[50rem]:pl-3 @min-[50rem]:pr-2">
+                        <FileText className="h-4 w-4 shrink-0 text-ink-faint" aria-hidden="true" />
+                        <button
+                          type="button"
+                          data-tooltip={isClient ? 'Vezi și descarcă documentul' : 'Vezi documentul trimis clientului'}
+                          onClick={e => { e.stopPropagation(); setSelectedOutgoingDoc(doc) }}
+                          className="min-h-11 min-w-0 break-words text-left text-[13px] leading-snug text-ink hover:underline pointer-fine:min-h-6"
+                        >
+                          {doc.name}
+                        </button>
                       </div>
-                      <p className="text-xs text-ink-soft truncate">
-                        {getRequestAttachments(doc).map(attachment => attachment.original_name || attachment.storage_path.split('/').pop() || 'document').join(', ')} · {new Date(doc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
-                      </p>
+                      <div className="col-span-2 row-start-2 flex flex-wrap items-center gap-x-3 gap-y-1 pl-6 text-xs text-ink-soft @min-[50rem]:contents">
+                        <span className="min-w-0 truncate @min-[50rem]:flex @min-[50rem]:min-h-11 @min-[50rem]:items-center @min-[50rem]:px-2">
+                          {getRequestAttachments(doc).map(attachment => attachment.original_name || attachment.storage_path.split('/').pop() || 'document').join(', ')}
+                        </span>
+                        <span className={`tabular-nums ${CELL}`}>
+                          <span className="sr-only">Trimis la </span>{formatShortDate(doc.created_at)}
+                        </span>
+                        {isAdminOrConsultant && (
+                          <span className={`${CELL} @min-[50rem]:px-2`}>
+                            <PublishStatusControl
+                              status={doc.visibility ?? 'draft'}
+                              canPublish={canChange}
+                              showPublishedStatus
+                              onPublish={() => publishRequest(doc.id)}
+                              compact
+                              size="sm"
+                            />
+                          </span>
+                        )}
+                      </div>
+                      {canChange && (
+                        <div
+                          className={`col-start-2 row-start-1 flex items-start justify-center transition-opacity duration-[120ms] pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 has-[:focus-visible]:opacity-100 has-[[data-open=true]]:opacity-100 @min-[50rem]:col-start-auto @min-[50rem]:row-start-auto ${CELL}`}
+                          onClick={e => e.stopPropagation()}
+                        >
+                          <RowActionsMenu
+                            label={`Acțiuni pentru documentul ${doc.name}`}
+                            tooltip="Acțiuni document"
+                            size="sm"
+                            actions={[
+                              { label: 'Deschide', icon: <Eye className="w-3 h-3" />, onSelect: () => setSelectedOutgoingDoc(doc) },
+                              { label: 'Șterge documentul', icon: <Trash2 className="w-3 h-3" />, danger: true, onSelect: () => setRequestToDelete(doc) },
+                            ]}
+                          />
+                        </div>
+                      )}
                     </div>
-                    <ChevronRight className="w-4 h-4 text-[var(--sg-ok)] flex-shrink-0" />
-                  </button>
+                  </div>
                 ))}
-              </div>
+              </>
             )}
           </div>
-        )}
-
-        <div className="divide-y divide-rule">
+        ) : (
+        <div style={{ '--req-cols': requestColumns } as CSSProperties}>
           {requests.length === 0 ? (
-            <div className="p-8 sm:p-12 text-center">
-              <div className="w-16 h-16 bg-paper-sunk rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <FileText className="w-8 h-8 text-ink-faint" />
-              </div>
-              <p className="font-semibold text-ink mb-1">Nicio cerere încă</p>
-              <p className="text-sm text-ink-soft max-w-xs mx-auto">
-                {isClient ? 'Vei fi notificat când consultantul adaugă cereri noi.' : 'Creează prima cerere de document pentru client.'}
-              </p>
-            </div>
+            <p className={`px-3 py-3 text-sm text-ink-soft ${activityId ? '@min-[50rem]:pl-9' : ''}`}>
+              {isClient ? 'Nicio cerere publicată încă. Cererile de documente vor apărea aici după ce sunt publicate.' : 'Nicio cerere de document încă.'}
+            </p>
           ) : (
-            displayRequests.map((req) => {
+            <>
+            {/* Sub o activitate, cererile stau direct sub antetul ei: aceleași
+                coloane, un singur antet. Doar „Cereri generale”, fără rând de
+                activitate deasupra, are antetul lui — doar pe coloane. */}
+            {!activityId && (
+              <div
+                aria-hidden="true"
+                className="hidden h-7 border-b border-rule/70 text-[11px] font-medium text-ink-faint @min-[50rem]:grid @min-[50rem]:grid-cols-(--req-cols)"
+              >
+                <span className="col-span-2 flex items-center pl-6">Cerere</span>
+                <span className="flex items-center justify-center">Status</span>
+                <span className="flex items-center justify-center">Documente</span>
+                <span className="flex items-center justify-center">Termen</span>
+                {isAdminOrConsultant && <span className="flex items-center justify-center">Vizibil clientului</span>}
+                {canChange && <span />}
+              </div>
+            )}
+            {displayRequests.map((req, index) => {
               const statusInfo = requestStatusInfo(displayedRequestStatus(req))
-              const statusTone = TONE[statusInfo.tone]
               const isClosed = req.status === 'closed'
-              // O cerere aprobată sau închisă nu mai are un termen care să ardă.
-              const isOverdue = !isRequestFinal(req) && req.deadline_at && new Date(req.deadline_at) < new Date()
-              const isFolded = foldedRequestIds.has(req.id)
+              const uploadedAt = lastUploadAt(req)
+              const isLast = index === displayRequests.length - 1
+              // Motivul respingerii nu mai stă într-o casetă sub rând: coloana
+              // de status spune deja „Respins”, motivul e în tooltip-ul ei și
+              // în dialogul cererii.
+              const rejectionHint = wasRejected(req)
+                ? `Motiv respingere: ${requestMeta.get(req.id)?.rejectionReason || 'nu este disponibil pentru acest istoric.'}`
+                : undefined
 
               return (
                 <div
                   key={req.id}
                   id={`request-${req.id}`}
                   onDragOver={e => handleReqDragOver(e, req.id)}
-                  className={`group scroll-mt-24 px-4 py-4 sm:px-5 transition-colors cursor-pointer hover:bg-paper-sunk ${
+                  className={`group relative scroll-mt-24 cursor-pointer border-b border-rule/70 transition-colors duration-[120ms] hover:bg-paper/60 md:scroll-mt-48 ${
                     draggedReqId === req.id ? 'opacity-50' : ''
                   }`}
                   onClick={() => setSelectedRequest(req)}
                 >
-                  <div className="flex items-start gap-3 sm:gap-4">
-                    {canChange && (
-                      <span
-                        draggable
-                        onDragStart={e => handleReqDragStart(e, req.id)}
-                        onDragEnd={handleReqDragEnd}
-                        onClick={e => e.stopPropagation()}
-                        title="Trage pentru a reordona"
-                        className="mt-2.5 -ml-1.5 p-0.5 rounded text-ink-faint hover:text-ink-soft opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing flex-shrink-0"
-                      >
-                        <GripVertical className="w-4 h-4" />
-                      </span>
+                  {/* Sub o activitate, cererile atârnă de ea ca ramuri: trunchiul
+                      coboară până la ultima, care se termină într-un cot. */}
+                  {activityId && !isLast && (
+                    <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 -left-2 border-l @min-[50rem]:left-[1.3rem]" style={TREE_LINE} />
+                  )}
+                  <div className="relative grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1.5 px-1 py-2 @min-[50rem]:grid-cols-(--req-cols) @min-[50rem]:gap-0 @min-[50rem]:p-0">
+                    {activityId && (
+                      <span aria-hidden="true" className="pointer-events-none absolute -left-2 top-0 h-[1.15rem] w-2.5 rounded-bl-[6px] border-b border-l @min-[50rem]:left-[1.3rem] @min-[50rem]:h-1/2 @min-[50rem]:w-3" style={TREE_LINE} />
                     )}
-                    <div
-                      className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                      style={{ background: statusTone.bg, color: statusTone.fg }}
-                    >
-                      {isClosed ? <Archive className="w-4 h-4" aria-hidden="true" /> : <FileText className="w-4 h-4" aria-hidden="true" />}
+                    {/* Cerere */}
+                    <div className={`flex min-w-0 items-start gap-1.5 @min-[50rem]:col-span-2 @min-[50rem]:items-center @min-[50rem]:py-1.5 @min-[50rem]:pr-2 ${activityId ? '@min-[50rem]:pl-9' : '@min-[50rem]:pl-1'}`}>
+                      {canChange ? (
+                        <span
+                          draggable
+                          onDragStart={e => handleReqDragStart(e, req.id)}
+                          onDragEnd={handleReqDragEnd}
+                          onClick={e => e.stopPropagation()}
+                          title="Trage pentru a reordona"
+                          className="mt-0.5 flex h-5 w-4 flex-shrink-0 cursor-grab items-center justify-center rounded-[var(--radius-plate)] text-ink-faint opacity-0 transition-opacity hover:text-ink-soft active:cursor-grabbing group-hover:opacity-100 pointer-coarse:hidden @min-[50rem]:mt-0"
+                        >
+                          <GripVertical className="h-3.5 w-3.5" />
+                        </span>
+                      ) : (
+                        <span className="w-1 flex-shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <h3 className={`break-words text-[13px] leading-snug ${isRequestFinal(req) ? 'text-ink-faint' : 'text-ink'}`}>{req.name}</h3>
+                        {req.description && <p className="line-clamp-1 text-xs leading-5 text-ink-faint">{req.description}</p>}
+                      </div>
                     </div>
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start gap-2">
-                        <h3 className="flex-1 min-w-0 font-semibold text-ink text-sm sm:text-base leading-snug break-words">{req.name}</h3>
-                        <div className="flex items-center gap-0.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                          {!isFolded && canChange && (
+                    {/* Pe fișă, celulele curg sub nume; pe coloane, își iau locul. */}
+                    <div className="col-span-2 row-start-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 pl-6 @min-[50rem]:contents">
+                      <div className={CELL}>
+                        <StatusCell tone={statusInfo.tone} label={statusLabel(req)} hint={rejectionHint} />
+                      </div>
+                      <div className={CELL}>
+                        {/* Sub „Documente”, ca la activitate: câte fișiere are cererea.
+                            Data ultimei încărcări rămâne în tooltip. */}
+                        <span className="inline-flex items-center gap-1 text-xs tabular-nums text-ink-soft" data-tooltip={uploadedAt ? `Ultimul fișier încărcat pe ${formatShortDate(uploadedAt)}` : undefined}>
+                          <Upload className="h-3.5 w-3.5 text-ink-faint @min-[50rem]:hidden" aria-hidden="true" />
+                          {uploadedAt ? (
                             <>
-                              {/* O cerere închisă nu se modifică până la redeschidere (D13);
-                                  ștergerea rămâne. */}
-                              {!isClosed && (
-                                <button
-                                  type="button"
-                                  onClick={() => openEditForm(req)}
-                                  className="p-1.5 rounded-lg text-ink-faint hover:text-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] transition-colors"
-                                  title="Modifică cererea"
-                                  aria-label="Modifică cererea"
-                                >
-                                  <Pencil className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => setRequestToDelete(req)}
-                                className="p-1.5 rounded-lg text-ink-faint hover:text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)] transition-colors"
-                                title="Șterge din proiect"
-                                aria-label="Șterge din proiect"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              {countLabel(uploadedFileCount(req), 'fișier', 'fișiere')}
+                              <span className="sr-only">, ultimul încărcat pe {formatShortDate(uploadedAt)}</span>
+                            </>
+                          ) : (
+                            <>
+                              <span aria-hidden="true">—</span>
+                              <span className="sr-only">Niciun fișier încărcat</span>
                             </>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => toggleRequestFold(req.id)}
-                            className="p-1.5 rounded-lg text-ink-faint hover:text-ink-soft hover:bg-paper-sunk transition-colors"
-                            aria-label={isFolded ? 'Arată detaliile cererii' : 'Ascunde detaliile cererii'}
-                            aria-expanded={!isFolded}
-                          >
-                            <ChevronRight className={`w-3.5 h-3.5 transition-transform duration-200 ${isFolded ? '' : 'rotate-90'}`} />
-                          </button>
-                        </div>
+                        </span>
                       </div>
-
-                      <div className="flex flex-wrap items-center gap-2 mt-2">
-                        <Signal tone={statusInfo.tone}>{statusLabel(req)}</Signal>
-                        {!isFolded && (
+                      <div className={CELL}>
+                        <DeadlineCell
+                          value={req.deadline_at}
+                          done={isRequestFinal(req)}
+                          onSave={canChange && !isClosed ? date => saveRequestDeadline(req.id, date) : undefined}
+                          itemName={req.name}
+                        />
+                      </div>
+                      {isAdminOrConsultant && (
+                        <div className={`${CELL} @min-[50rem]:px-2`}>
                           <PublishStatusControl
                             status={req.visibility ?? 'draft'}
                             canPublish={canChange && !isClosed}
                             showPublishedStatus={isAdminOrConsultant}
                             onPublish={() => publishRequest(req.id)}
                             blockers={requestBlockers(req)}
-                            onSetDeadline={isClosed || readOnly ? undefined : date => saveRequestDeadline(req.id, date)}
+                            compact
                             size="sm"
                           />
-                        )}
-                        {!isFolded && req.deadline_at && (
-                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs ${
-                            isOverdue ? 'bg-[var(--sg-danger-soft)] text-[var(--sg-danger)] font-medium' : 'bg-paper-sunk text-ink-soft'
-                          }`}>
-                            <Clock className="w-3.5 h-3.5" />
-                            Termen: {new Date(req.deadline_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}
-                          </span>
-                        )}
-                      </div>
-
-                      {!isFolded && (
-                        <>
-
-
-                          {req.description && <p className="mt-3 text-sm text-ink-soft leading-6 line-clamp-2">{req.description}</p>}
-
-                        </>
+                        </div>
                       )}
-
                     </div>
+
+                    {canChange && (
+                      <div
+                        className={`col-start-2 row-start-1 flex items-start justify-center gap-0.5 transition-opacity duration-[120ms] pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 has-[:focus-visible]:opacity-100 has-[[data-open=true]]:opacity-100 @min-[50rem]:col-start-auto @min-[50rem]:row-start-auto ${CELL}`}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        {/* Toate acțiunile cererii sub „⋯”, ca la activități (S-12). O
+                            cerere închisă nu se modifică până la redeschidere (D13);
+                            ștergerea rămâne. */}
+                        <RowActionsMenu
+                          label={`Acțiuni pentru cererea ${req.name}`}
+                          tooltip="Acțiuni cerere"
+                          size="sm"
+                          actions={[
+                            {
+                              label: 'Modifică cererea',
+                              icon: <Pencil className="w-3 h-3" />,
+                              hidden: isClosed,
+                              onSelect: () => openEditForm(req),
+                            },
+                            {
+                              label: 'Șterge din proiect',
+                              icon: <Trash2 className="w-3 h-3" />,
+                              danger: true,
+                              onSelect: () => setRequestToDelete(req),
+                            },
+                          ]}
+                        />
+                      </div>
+                    )}
                   </div>
 
+                  {/* Ce urmează sub rând e al clientului: zona de încărcare și
+                      notele despre starea cererii. */}
+                  <div className="px-2 empty:hidden [&>*]:mb-2.5 [&>*]:mt-0.5">
                   {isClient && (req.attachment_missing_at || missingAttachments.has(req.id)) && (
-                    <div className="mt-4 p-3 bg-[var(--sg-warn-soft)] border border-[var(--sg-warn)] rounded-xl" onClick={(e) => e.stopPropagation()}>
+                    <div className="p-3 bg-[var(--sg-warn-soft)] border border-[var(--sg-warn)] rounded-[var(--radius-plate)]" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-start gap-2">
                         <AlertCircle className="w-4 h-4 text-[var(--sg-warn)] flex-shrink-0 mt-0.5" />
                         <p className="text-sm text-[var(--sg-warn)]">
@@ -1301,8 +1269,8 @@ export default function DocumentRequests({
                   )}
 
                   {isClient && readOnly && (req.status === 'pending' || req.status === 'rejected') && (
-                    <div className="mt-4 pt-4 border-t border-rule">
-                      <div className="flex items-center gap-2 bg-[var(--sg-closed-soft)] px-4 py-2.5 rounded-xl text-[var(--sg-closed)]">
+                    <div>
+                      <div className="flex items-center gap-2 bg-[var(--sg-closed-soft)] px-4 py-2.5 rounded-[var(--radius-plate)] text-[var(--sg-closed)]">
                         <Archive className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
                         <span className="text-sm">{PROJECT_CLOSED_CLIENT_NOTE}</span>
                       </div>
@@ -1310,315 +1278,48 @@ export default function DocumentRequests({
                   )}
 
                   {isClient && !readOnly && (req.status === 'pending' || req.status === 'rejected') && (
-                    <div className="mt-4 pt-4 border-t border-rule" onClick={(e) => e.stopPropagation()}>
-                      {uploadingFor === req.id && showFilePreview && clientFiles.length > 0 ? (
-                        // PREVIEW ȘI GESTIONARE FIȘIERE
-                        <div className="space-y-3">
-                          {/* Header cu statistici */}
-                          <div className="flex items-center justify-between p-3 bg-[var(--sg-accent-soft)] rounded-xl border border-[var(--sg-accent)]">
-                            <div className="flex items-center gap-3">
-                              <Files className="w-5 h-5 text-[var(--sg-accent)]" />
-                              <div>
-                                <p className="text-sm font-bold text-[var(--sg-accent)]">
-                                  {fileStats.total} {fileStats.total === 1 ? 'fișier' : 'fișiere'} selectat{fileStats.total !== 1 ? 'e' : ''}
-                                </p>
-                                <p className="text-xs text-[var(--sg-accent)]">
-                                  {fileStats.valid} valid{fileStats.valid !== 1 ? 'e' : ''} • {formatFileSize(fileStats.totalSize)}
-                                  {fileStats.invalid > 0 && ` • ${fileStats.invalid} erori`}
-                                </p>
-                              </div>
-                            </div>
-
-                            <button
-                              onClick={clearAllFiles}
-                              disabled={submitting}
-                              className="p-2 text-ink-faint hover:text-ink-soft rounded-lg hover:bg-white transition-all disabled:opacity-50"
-                              title="Anulează tot"
-                            >
-                              <X className="w-5 h-5" />
-                            </button>
+                    <div onClick={(e) => e.stopPropagation()}>
+                      {/* Două butoane mici sub rând: fișierele se aleg și se
+                          verifică în dialogul cererii, nu în tabel. */}
+                      <div className="flex flex-wrap items-center gap-2 pl-6 @min-[50rem]:pl-11">
+                        <button
+                          type="button"
+                          onClick={event => setUploadTarget({ request: req, startWith: 'files', opener: event.currentTarget })}
+                          data-tooltip="Deschide încărcarea pentru această cerere: alegi fișierele, le verifici, apoi le trimiți"
+                          className={uploadButtonClass}
+                        >
+                          <Upload className="w-4 h-4" aria-hidden="true" />
+                          <span className="text-xs font-semibold">{req.status === 'rejected' ? 'Reîncarcă fișiere' : 'Încarcă fișiere'}</span>
+                        </button>
+                        {canUploadFolder ? (
+                          <button
+                            type="button"
+                            onClick={event => setUploadTarget({ request: req, startWith: 'folder', opener: event.currentTarget })}
+                            data-tooltip="Alege un folder întreg: se încarcă toate fișierele din el"
+                            className={uploadButtonClass}
+                          >
+                            <FolderUp className="w-4 h-4" aria-hidden="true" />
+                            <span className="text-xs font-semibold">{req.status === 'rejected' ? 'Reîncarcă folder' : 'Încarcă folder'}</span>
+                          </button>
+                        ) : (
+                          <div className="inline-flex items-center gap-1.5 text-xs text-ink-faint">
+                            <FolderUp className="w-4 h-4" aria-hidden="true" />
+                            <span>Folder indisponibil pe mobil</span>
                           </div>
-
-                          {/* Lista fișiere cu scroll */}
-                          <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
-                            {clientFiles.map((pickedFile) => {
-                              const hasError = !!pickedFile.validationError
-                              const isUploading = pickedFile.uploadStatus === 'uploading'
-                              const isSuccess = pickedFile.uploadStatus === 'success'
-                              const isError = pickedFile.uploadStatus === 'error'
-                              const isPending = pickedFile.uploadStatus === 'pending'
-
-                              return (
-                                <div
-                                  key={pickedFile.id}
-                                  className={`p-3 rounded-xl border transition-all ${
-                                    hasError
-                                      ? 'bg-[var(--sg-danger-soft)] border-[var(--sg-danger)]'
-                                      : isSuccess
-                                      ? 'bg-[var(--sg-ok-soft)] border-[var(--sg-ok)]'
-                                      : isError
-                                      ? 'bg-[var(--sg-danger-soft)] border-[var(--sg-danger)]'
-                                      : isUploading
-                                      ? 'bg-[var(--sg-accent-soft)] border-[var(--sg-accent)]'
-                                      : 'bg-white border-rule'
-                                  }`}
-                                >
-                                  <div className="flex items-start gap-3">
-                                    {/* Icon */}
-                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                                      hasError
-                                        ? 'bg-[var(--sg-danger-soft)] text-[var(--sg-danger)]'
-                                        : isSuccess
-                                        ? 'bg-[var(--sg-ok-soft)] text-[var(--sg-ok)]'
-                                        : isError
-                                        ? 'bg-[var(--sg-danger-soft)] text-[var(--sg-danger)]'
-                                        : isUploading
-                                        ? 'bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]'
-                                        : 'bg-paper-sunk text-ink-soft'
-                                    }`}>
-                                      {isUploading ? (
-                                        <Loader2 className="w-5 h-5 animate-spin" />
-                                      ) : isSuccess ? (
-                                        <CheckCircle2 className="w-5 h-5" />
-                                      ) : (isError || hasError) ? (
-                                        <AlertCircle className="w-5 h-5" />
-                                      ) : (
-                                        getFileIcon(pickedFile)
-                                      )}
-                                    </div>
-
-                                    {/* Info */}
-                                    <div className="flex-1 min-w-0">
-                                      <p className={`text-sm font-medium truncate ${
-                                        hasError || isError ? 'text-[var(--sg-danger)]' : isSuccess ? 'text-[var(--sg-ok)]' : 'text-ink'
-                                      }`}>
-                                        {pickedFile.name}
-                                      </p>
-                                      <p className="text-xs text-ink-soft mt-0.5">
-                                        {formatFileSize(pickedFile.size)}
-                                        {pickedFile.relativePath && ` • ${pickedFile.relativePath}`}
-                                      </p>
-
-                                      {/* Validation Error */}
-                                      {hasError && <FeedbackMessage variant="error" className="mt-1 text-xs">{pickedFile.validationError?.message}</FeedbackMessage>}
-
-                                      {/* Upload Error */}
-                                      {isError && pickedFile.uploadError && <FeedbackMessage variant="error" className="mt-1 text-xs">{pickedFile.uploadError}</FeedbackMessage>}
-
-                                      {/* Success Message */}
-                                      {isSuccess && (
-                                        <p className="text-xs text-[var(--sg-ok)] font-medium mt-1 flex items-center gap-1">
-                                          <CheckCircle2 className="w-3 h-3" />
-                                          Încărcat cu succes
-                                        </p>
-                                      )}
-
-                                      {/* Progress Bar */}
-                                      {isUploading && (
-                                        <div className="mt-2">
-                                          <div className="h-1.5 bg-[var(--sg-accent-soft)] rounded-full overflow-hidden">
-                                            <div
-                                              className="h-full bg-[var(--sg-accent)] rounded-full transition-all duration-300"
-                                              style={{ width: `${pickedFile.uploadProgress || 0}%` }}
-                                            />
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-
-                                    {/* Remove button (doar pentru pending/error) */}
-                                    {(isPending || hasError) && !submitting && (
-                                      <button
-                                        onClick={() => removeFile(pickedFile.id)}
-                                        className="p-1.5 text-ink-faint hover:text-[var(--sg-danger)] rounded-lg hover:bg-white transition-all flex-shrink-0"
-                                        title="Elimină"
-                                      >
-                                        <X className="w-4 h-4" />
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
-
-                          {/* Actions */}
-                          <div className="flex flex-col sm:flex-row gap-2 pt-2">
-                            {/* Add more files */}
-                            <div className="flex gap-2 flex-1">
-                              <label className="flex-1 cursor-pointer">
-                                <div className="flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-rule rounded-xl text-ink-soft hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)] transition-all">
-                                  <Plus className="w-4 h-4" />
-                                  <span className="text-sm font-medium">Adaugă mai multe</span>
-                                </div>
-                                <input
-                                  type="file"
-                                  multiple
-                                  onClick={(e) => { e.currentTarget.value = '' }}
-                                  onChange={(e) => {
-                                    processFiles(e.currentTarget.files, req.id)
-                                    e.currentTarget.value = ''
-                                  }}
-                                  disabled={submitting}
-                                  className="hidden"
-                                />
-                              </label>
-
-                              {canUploadFolder && (
-                                <label className="flex-1 cursor-pointer">
-                                  <div className="flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-rule rounded-xl text-ink-soft hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)] transition-all">
-                                    <FolderUp className="w-4 h-4" />
-                                    <span className="text-sm font-medium hidden sm:inline">Folder</span>
-                                  </div>
-                                  <input
-                                    type="file"
-                                    multiple
-                                    ref={(el) => {
-                                      if (!el) return
-                                      el.setAttribute('webkitdirectory', '')
-                                      el.setAttribute('directory', '')
-                                    }}
-                                    onChange={(e) => {
-                                      processFiles(e.currentTarget.files, req.id)
-                                      e.currentTarget.value = ''
-                                    }}
-                                    disabled={submitting}
-                                    className="hidden"
-                                  />
-                                </label>
-                              )}
-                            </div>
-
-                            {/* Upload button */}
-                            <button
-                              onClick={() => handleClientUpload(req.id)}
-                              disabled={submitting || fileStats.valid === 0 || fileStats.uploading > 0}
-                              className="px-6 py-2.5 bg-[var(--sg-accent)] text-white rounded-xl text-sm font-bold hover:bg-[var(--sg-accent-ink)] disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 whitespace-nowrap"
-                            >
-                              {submitting ? (
-                                <>
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                  Se încarcă...
-                                </>
-                              ) : (
-                                <>
-                                  <Upload className="w-4 h-4" />
-                                  Încarcă {fileStats.valid > 0 ? `(${fileStats.valid})` : ''}
-                                </>
-                              )}
-                            </button>
-                          </div>
-
-                          {/* Warnings pentru validări */}
-                          {fileStats.invalid > 0 && (
-                            <div className="p-3 bg-[var(--sg-warn-soft)] border border-[var(--sg-warn)] rounded-xl">
-                              <div className="flex items-start gap-2">
-                                <AlertCircle className="w-4 h-4 text-[var(--sg-warn)] flex-shrink-0 mt-0.5" />
-                                <div>
-                                  <p className="text-xs font-bold text-[var(--sg-warn)]">
-                                    {fileStats.invalid} {fileStats.invalid === 1 ? 'fișier are' : 'fișiere au'} erori de validare
-                                  </p>
-                                  <p className="text-xs text-[var(--sg-warn)] mt-1">
-                                    Doar fișierele valide vor fi încărcate. Elimină sau înlocuiește fișierele cu erori.
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        // SELECTARE INIȚIALĂ
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <label className="cursor-pointer block">
-                            <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-rule rounded-xl text-ink-soft hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)] transition-all">
-                              <Upload className="w-4 h-4" />
-                              <span className="text-sm font-medium">{req.status === 'rejected' ? 'Reîncarcă fișiere' : 'Încarcă fișiere'}</span>
-                            </div>
-                            <input
-                              type="file"
-                              multiple
-                              onClick={(e) => { e.currentTarget.value = '' }}
-                              onChange={(e) => {
-                                processFiles(e.currentTarget.files, req.id)
-                                e.currentTarget.value = ''
-                              }}
-                              className="hidden"
-                            />
-                          </label>
-
-                          {canUploadFolder ? (
-                            <label className="cursor-pointer block">
-                              <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-rule rounded-xl text-ink-soft hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)] hover:text-[var(--sg-accent)] transition-all">
-                                <FolderUp className="w-4 h-4" />
-                                <span className="text-sm font-medium">{req.status === 'rejected' ? 'Reîncarcă folder' : 'Încarcă folder'}</span>
-                              </div>
-                              <input
-                                type="file"
-                                multiple
-                                ref={(el) => {
-                                  if (!el) return
-                                  el.setAttribute('webkitdirectory', '')
-                                  el.setAttribute('directory', '')
-                                }}
-                                onClick={(e) => { e.currentTarget.value = '' }}
-                                onChange={(e) => {
-                                  processFiles(e.currentTarget.files, req.id)
-                                  e.currentTarget.value = ''
-                                }}
-                                className="hidden"
-                              />
-                            </label>
-                          ) : (
-                            <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-rule rounded-xl text-ink-faint">
-                              <FolderUp className="w-4 h-4" />
-                              <span className="text-sm font-medium">Folder indisponibil pe mobil</span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {wasRejected(req) && (
-                        <div className="mt-3 p-3 bg-[var(--sg-danger-soft)] border border-[var(--sg-danger)] rounded-xl">
-                          <div className="flex items-start gap-2">
-                            <MessageSquare className="w-4 h-4 text-[var(--sg-danger)] flex-shrink-0 mt-0.5" />
-                            <div>
-                              <p className="text-xs font-semibold text-[var(--sg-danger)] mb-0.5">Motiv respingere:</p>
-                              <p className="text-sm text-[var(--sg-danger)]">
-                                {requestMeta.get(req.id)?.rejectionReason || 'Motivul respingerii nu este disponibil pentru acest istoric.'}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   )}
 
                   {isClient && isClosed && (
-                    <div className="mt-4 pt-4 border-t border-rule">
-                      <div className="flex items-center gap-2 bg-paper-sunk px-4 py-2.5 rounded-xl text-ink-soft">
+                    <div>
+                      <div className="flex items-center gap-2 bg-paper-sunk px-4 py-2.5 rounded-[var(--radius-plate)] text-ink-soft">
                         <Archive className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
                         <span className="text-sm">{closedRequestClientNote(req)}</span>
                       </div>
                     </div>
                   )}
 
-                  {isClient && req.status === 'approved' && (
-                    <div className="mt-4 pt-4 border-t border-rule">
-                      <div className="flex items-center gap-2 text-[var(--sg-ok)] bg-[var(--sg-ok-soft)] px-4 py-2.5 rounded-xl">
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span className="text-sm font-semibold">Document aprobat cu succes</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {isClient && req.status === 'review' && (
-                    <div className="mt-4 pt-4 border-t border-rule">
-                      <div className="flex items-center gap-2 text-[var(--sg-review)] bg-[var(--sg-review-soft)] px-4 py-2.5 rounded-xl">
-                        <Eye className="w-4 h-4" />
-                        <span className="text-sm font-medium">Documentul este în curs de verificare</span>
-                      </div>
-                    </div>
-                  )}
 {/* am putea pune aici ceva asemanator cu partea de download si versioning din DocumentModal
                   {isClient && req.files?.length ? (
                     <div className="mt-3" onClick={(e) => e.stopPropagation()}>
@@ -1631,13 +1332,15 @@ export default function DocumentRequests({
                       </button>
                     </div>
                   ) : null} */}
+                  </div>
                 </div>
               )
-            })
+            })}
+            </>
           )}
           {hiddenHere > 0 && onRevealRequests && (
             <HiddenFinalRow
-              className="px-4 py-2 sm:px-5"
+              className={`border-b border-rule px-3 py-1 ${activityId ? '@min-[50rem]:pl-9' : ''}`}
               hiddenCount={hiddenHere}
               total={requests.length}
               singular="cerere"
@@ -1650,15 +1353,15 @@ export default function DocumentRequests({
             <button
               type="button"
               onClick={openCreateForm}
-              className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[var(--sg-accent)] bg-[var(--sg-accent-soft)] hover:brightness-90 transition-colors"
+              data-tooltip={activityName && activityId ? `Cere clientului un document nou pentru „${activityName}”` : 'Cere clientului un document nou'}
+              className={`flex min-h-11 w-full items-center gap-2 px-3 text-left text-xs font-medium text-[var(--sg-accent)] transition-colors duration-[120ms] hover:bg-[var(--sg-accent-soft)] pointer-fine:min-h-8 ${activityId ? '@min-[50rem]:pl-9' : ''}`}
             >
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]">
-                <Plus className="w-4 h-4" />
-              </span>
-              <span className="text-sm font-semibold">Adaugă cerere de document nouă</span>
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              Adaugă cerere de document nouă
             </button>
           )}
         </div>
+        )}
       </div>
 
       {selectedRequest && (
@@ -1684,10 +1387,10 @@ export default function DocumentRequests({
 
       {selectedOutgoingDoc && createPortal((
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl">
+          <div className="w-full max-w-lg overflow-hidden rounded-[var(--radius-plate)] bg-white shadow-xl">
             <div className="flex items-start justify-between gap-4 border-b border-rule px-6 py-4">
               <div className="min-w-0">
-                <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-[var(--sg-ok)] bg-[var(--sg-ok-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--sg-ok)]">
+                <div className="mb-2 inline-flex items-center gap-1.5 rounded-[var(--radius-plate)] border border-rule bg-paper-sunk px-2 py-0.5 text-xs font-semibold text-ink-soft">
                   <FolderUp className="w-3 h-3" />
                   Document trimis clientului
                 </div>
@@ -1710,7 +1413,7 @@ export default function DocumentRequests({
               <button
                 type="button"
                 onClick={() => setSelectedOutgoingDoc(null)}
-                className="rounded-lg p-1 text-ink-faint hover:bg-paper-sunk hover:text-ink-soft"
+                className="rounded-[var(--radius-plate)] p-1 text-ink-faint hover:bg-paper-sunk hover:text-ink-soft"
                 aria-label="Închide"
               >
                 <X className="w-5 h-5" />
@@ -1737,13 +1440,14 @@ export default function DocumentRequests({
                     return (
                       <div
                         key={attachment.id || `${attachment.storage_path}-${index}`}
-                        className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
+                        className={`w-full flex items-center gap-3 rounded-[var(--radius-plate)] border px-4 py-3 text-left transition-colors ${
                           isMissing
                             ? 'border-[var(--sg-warn)] bg-[var(--sg-warn-soft)] text-[var(--sg-warn)]'
-                            : 'border-[var(--sg-ok)] bg-[var(--sg-ok-soft)] text-[var(--sg-ok)] hover:bg-[var(--sg-ok-soft)]'
+                            // Neutru: verdele e semnalul „gata”, nu culoarea unui link.
+                            : 'border-rule bg-plate text-ink hover:bg-paper-sunk'
                         }`}
                       >
-                        <button
+                        <button data-tooltip={isMissing ? 'Fișierul nu mai e disponibil' : 'Descarcă fișierul'}
                           type="button"
                           onClick={() => downloadAttachmentModel(selectedOutgoingDoc.id, attachment.id)}
                           disabled={isMissing}
@@ -1751,7 +1455,7 @@ export default function DocumentRequests({
                         >
                           {isMissing ? <AlertCircle className="w-5 h-5 flex-shrink-0" /> : <Download className="w-5 h-5 flex-shrink-0" />}
                           <span className="min-w-0 flex-1 truncate text-left text-sm font-semibold">{label}</span>
-                          <span className="text-xs font-medium">{isMissing ? 'Indisponibil' : 'Descarcă'}</span>
+                          <span className={`text-xs font-semibold ${isMissing ? '' : 'text-[var(--sg-accent)]'}`}>{isMissing ? 'Indisponibil' : 'Descarcă'}</span>
                         </button>
                         {!isMissing && isPreviewableFile({ fileName: label }) && (
                           <button
@@ -1759,7 +1463,7 @@ export default function DocumentRequests({
                             onClick={() => openInNewTab(buildPreviewPageUrl({ type: 'attachment', id: selectedOutgoingDoc.id, name: label, attachmentId: attachment.id }))}
                             title="Deschide"
                             aria-label={`Deschide ${label}`}
-                            className="rounded-lg p-2 hover:bg-[var(--sg-ok-soft)]"
+                            className="rounded-[var(--radius-plate)] p-2 text-ink-soft hover:bg-paper-sunk hover:text-ink"
                           >
                             <Eye className="w-4 h-4" />
                           </button>
@@ -1773,13 +1477,13 @@ export default function DocumentRequests({
 
             {canChange && (
               <div className="flex justify-center gap-2 border-t border-rule bg-paper-sunk px-6 py-4">
-                <button
+                <button data-tooltip="Scoate documentul trimis din proiect — cere confirmare"
                   type="button"
                   onClick={() => {
                     setRequestToDelete(selectedOutgoingDoc)
                     setSelectedOutgoingDoc(null)
                   }}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--sg-danger)] bg-white px-3 py-2 text-sm font-medium text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)]"
+                  className="inline-flex items-center justify-center gap-2 rounded-[var(--radius-plate)] border border-[var(--sg-danger)] bg-white px-3 py-2 text-sm font-medium text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)]"
                 >
                   <Trash2 className="w-4 h-4" />
                   Șterge documentul
@@ -1822,6 +1526,25 @@ export default function DocumentRequests({
         confirmWord="sterge"
         loading={deleteLoading}
       />
+
+      {uploadTarget && (
+        <ClientUploadDialog
+          key={uploadTarget.request.id}
+          request={{
+            id: uploadTarget.request.id,
+            name: uploadTarget.request.name,
+            rejected: wasRejected(uploadTarget.request),
+            rejectionReason: requestMeta.get(uploadTarget.request.id)?.rejectionReason ?? null,
+          }}
+          startWith={uploadTarget.startWith}
+          returnFocusTo={uploadTarget.opener}
+          canUploadFolder={canUploadFolder}
+          apiFetch={apiFetch}
+          onUploaded={fetchRequests}
+          onClose={() => setUploadTarget(null)}
+          getFileIcon={getFileIcon}
+        />
+      )}
 
       <SendDocumentModal
         open={showSendDoc}

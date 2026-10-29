@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/app/providers/AuthProvider'
+import { useProjectChatUnread } from '@/app/providers/ProjectChatUnreadProvider'
 import { userErrorMessage } from '@/lib/user-error'
 import type { ChatImage, ChatImageReference } from '@/lib/project-chat-contracts'
+import { announceChatRead, PROJECT_CHAT_READ_EVENT } from '@/lib/chat-read-events'
 
 export type ChatProfile = {
   id: string
@@ -107,6 +109,7 @@ const normalizeMessage = (message: ChatMessage): ChatMessage => ({
 
 export function useProjectChat(projectId: string, opts: UseProjectChatOptions = {}) {
   const { apiFetch, loading: authLoading, userId } = useAuth()
+  const { unreadProjects } = useProjectChatUnread()
   const initialLimit = opts.initialLimit ?? 50
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -132,20 +135,7 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
     setReadStates([])
   }, [])
 
-  const unreadCount = useMemo(() => {
-    if (!lastReadAt) {
-      return messages.filter((m) => !m.deleted_at && m.created_by !== userId).length
-    }
-
-    const lastReadTime = new Date(lastReadAt).getTime()
-
-    return messages.filter(
-      (m) =>
-        !m.deleted_at &&
-        m.created_by !== userId &&
-        new Date(m.created_at).getTime() > lastReadTime
-    ).length
-  }, [lastReadAt, messages, userId])
+  const unreadCount = unreadProjects.find((project) => project.projectId === projectId)?.unreadMessageCount ?? 0
 
   const upsertOne = useCallback((m: ChatMessage) => {
     idsRef.current.add(m.id)
@@ -208,6 +198,7 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
         const json = (await res.json().catch(() => null)) as ReadResponse | null
 
         if (!res.ok || !json?.ok) return
+        announceChatRead(PROJECT_CHAT_READ_EVENT)
 
         setLastReadAt((prev) => maxIso(prev, json.lastReadAt))
         setReadStates(json.readStates ?? [])
@@ -318,8 +309,8 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
       const json = (await res.json().catch(() => null)) as GetResponse | null
 
       if (!res.ok) {
-        setError(userErrorMessage(res.status, 'Nu am putut încărca mesajele.'))
         resetState()
+        setError(userErrorMessage(res.status, 'Nu am putut încărca mesajele.'))
         return
       }
 
@@ -428,7 +419,7 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
         })
         const json = (await res.json().catch(() => null)) as PostResponse | null
 
-        if (!isCurrentRequest()) return null
+        if (!isCurrentRequest()) return res.ok && payload.images.length === 0 ? true : null
 
         if (!res.ok) {
           setError(userErrorMessage(res.status, 'Nu am putut trimite mesajul.'))
@@ -440,7 +431,7 @@ export function useProjectChat(projectId: string, opts: UseProjectChatOptions = 
           pushOne(item)
           return item
         }
-        return null
+        return payload.images.length === 0 ? true : null
       } catch (caught) {
         if (!isAbortError(caught, options.signal) && isCurrentRequest()) {
           setError(userErrorMessage(undefined, 'Nu am putut trimite mesajul.'))

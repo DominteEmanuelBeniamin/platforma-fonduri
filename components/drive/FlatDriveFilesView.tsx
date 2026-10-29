@@ -295,7 +295,7 @@ export default function FlatDriveFilesView({
                 <div className="min-w-0">
                   {row.secondaryMain ? (
                     <div>
-                      <button
+                      <button data-tooltip="Mergi la cererea de care ține fișierul"
                         type="button"
                         onClick={e => { e.stopPropagation(); row.onSecondaryClick?.() }}
                         className={`flex w-full items-center gap-1 truncate text-left text-xs ${
@@ -321,7 +321,7 @@ export default function FlatDriveFilesView({
 
                 {/* Actions — mereu vizibile pe touch, la hover pe desktop */}
                 <div
-                  className="flex items-center justify-end gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:focus-within:opacity-100 sm:group-hover:opacity-100"
+                  className="flex items-center justify-end gap-0.5 opacity-100 transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:has-[:focus-visible]:opacity-100"
                   onClick={e => e.stopPropagation()}
                 >
                   {isRowPreviewable(row) && (
@@ -393,7 +393,7 @@ export default function FlatDriveFilesView({
                   </div>
                   <div
                     onClick={e => e.stopPropagation()}
-                    className="flex flex-shrink-0 items-center opacity-100 transition-opacity sm:opacity-0 sm:focus-within:opacity-100 sm:group-hover:opacity-100"
+                    className="flex flex-shrink-0 items-center opacity-100 transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:has-[:focus-visible]:opacity-100"
                   >
                     {isRowPreviewable(row) && (
                       <button

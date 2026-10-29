@@ -1,6 +1,7 @@
 import { test, expect, type Browser, type Locator, type Page } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
+import { addEditorPhase, templateAction } from './helpers/sabloane-ui'
 import { createDovezi, emailuriPrimite, type EmailCapturat, type Strat } from './helpers/dovezi'
 
 /**
@@ -165,13 +166,6 @@ function emailCatre(entries: EmailCapturat[], email: string) {
     }
   }
   return null
-}
-
-async function addEditorPhase(page: Page, name: string) {
-  const inputs = page.getByLabel(/^Nume pentru faza \d+$/)
-  const before = await inputs.count()
-  await page.getByRole('button', { name: 'Adaugă fază nouă' }).click()
-  await page.getByLabel(`Nume pentru faza ${before + 1}`, { exact: true }).fill(name)
 }
 
 async function flag(templateId: string) {
@@ -509,7 +503,7 @@ test('6. Eticheta „Modificări neaplicate”: doar pe șabloanele publicate', 
   try {
     for (const [templateId, name, published] of [[DRAFT, DRAFT_NAME, false], [TPL, TPL_NAME, true]] as const) {
       await page.goto('/admin/templates')
-      await page.getByRole('button', { name: `Editează șablonul ${name}`, exact: true }).click()
+      await templateAction(page, name, 'Editează')
       await addEditorPhase(page, `Fază adăugată de senior ${STAMP}`)
       const saved = page.waitForResponse(res => res.url().endsWith(`/api/admin/templates/${templateId}/tree`) && res.request().method() === 'PUT')
       await page.getByRole('button', { name: 'Salvează modificările' }).click()
@@ -565,11 +559,12 @@ test('7. Atribuirea din pagina proiectului trimite email și notificare', async 
     // Activitățile (și selectul responsabilului) se văd în faza deschisă, nu în panoul proiectului.
     await openProject(page, DOSAR, `?phase=${activity!.phase_id}`)
     await page.getByRole('button', { name: `Extinde activitatea ${activity!.name}` }).waitFor({ timeout: 20_000 })
-    const row = page.locator('div').filter({ has: page.getByRole('button', { name: `Extinde activitatea ${activity!.name}` }) }).last()
-    const select = row.getByLabel('Atribuie consultant')
+    const row = page.locator(`#activity-${activity!.id}`)
+    const picker = row.getByRole('button', { name: /^Atribuie consultant:/ })
     const emailsBefore = emailuriAcum()
     const patched = page.waitForResponse(res => res.url().includes(`/activities/${activity!.id}`) && res.request().method() === 'PATCH')
-    await select.selectOption(JA.id)
+    await picker.click()
+    await page.getByRole('option', { name: JA.name }).click()
     const response = await patched
     await page.waitForTimeout(500)
     const shot = await dovezi.captura(page, 'senior-atribuie-din-proiect', { fullPage: true })

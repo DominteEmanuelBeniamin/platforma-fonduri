@@ -8,6 +8,8 @@ const config = requireE2EConfig(e2eEnv())
 /** Serverul se pornește separat în mediul descris de `.env.e2e.local`. */
 export default defineConfig({
   testDir: './tests/e2e',
+  // E2E-ul PR #122 are config-ul lui (playwright.pr122.config.ts).
+  testIgnore: ['**/pr122/**'],
   timeout: 60_000,
   fullyParallel: false,
   workers: 1,

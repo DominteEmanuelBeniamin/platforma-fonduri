@@ -1,4 +1,5 @@
 import { MAX_UPLOAD_FILE_SIZE } from '@/lib/document-action-idempotency'
+import { formatFileSize } from '@/lib/upload-selection'
 
 /**
  * Încărcarea răspunsului clientului la o cerere de document. Aceleași reguli și
@@ -7,7 +8,7 @@ import { MAX_UPLOAD_FILE_SIZE } from '@/lib/document-action-idempotency'
  * loc și acceptat în celălalt.
  */
 
-export { MAX_UPLOAD_FILE_SIZE }
+export { MAX_UPLOAD_FILE_SIZE, formatFileSize }
 
 export const ALLOWED_UPLOAD_TYPES = [
   'application/pdf',
@@ -72,13 +73,6 @@ type ClientUploadInit = {
     token: string
     storagePath: string
   }[]
-}
-
-export function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB']
-  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
-  return `${parseFloat((bytes / 1024 ** index).toFixed(1))} ${units[index]}`
 }
 
 export function getFileExtension(filename: string): string {

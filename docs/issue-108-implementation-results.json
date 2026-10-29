@@ -1,0 +1,155 @@
+{
+  "at": "2026-10-19T08:23:09.477Z",
+  "results": [
+    {
+      "name": "private_state_and_privileged_boundaries",
+      "passed": true
+    },
+    {
+      "name": "roles_password_sessions_email_and_audit",
+      "passed": true
+    },
+    {
+      "name": "fallback_retry_concurrency_and_supersession",
+      "passed": true
+    },
+    {
+      "name": "unknown_delivery_never_reveals_or_resets_twice",
+      "passed": true
+    },
+    {
+      "name": "eligibility_and_revoked_actor",
+      "passed": true
+    },
+    {
+      "name": "delivery_and_fallback_generation_fences",
+      "passed": true
+    },
+    {
+      "name": "old_and_new_recovery_contract",
+      "passed": true
+    },
+    {
+      "name": "atomic_reset_and_postcommit_audit_reconciliation",
+      "passed": true
+    },
+    {
+      "name": "deactivation_ordering_and_no_false_success",
+      "passed": true
+    },
+    {
+      "name": "deletion_audit_and_operational_cleanup",
+      "passed": true
+    },
+    {
+      "name": "storage_and_existing_realtime_session_revocation",
+      "passed": true
+    },
+    {
+      "name": "welcome_template_escaping_and_metadata",
+      "passed": true
+    },
+    {
+      "name": "actor_expiry_auth_eligibility_and_posthandoff_result",
+      "passed": true
+    },
+    {
+      "name": "browser_dialogs_fallback_close_refresh_and_mobile",
+      "passed": true
+    }
+  ],
+  "additionalChecks": {
+    "eslintPreexistingWarnings": 3,
+    "productionMissingConfiguration": true,
+    "unitTests": 325,
+    "postTestPreflight": "already_enabled",
+    "typecheck": true,
+    "productionBuild": true,
+    "eslintErrors": 0,
+    "localSecurityAdvisorErrors": 0,
+    "auditContract": true,
+    "sqlLintErrors": 0
+  },
+  "reviewValidation": {
+    "at": "2026-10-20T07:55:41.879Z",
+    "migration": "20261020074934_issue_108_review_fixes.sql",
+    "regressionsFailOnOriginalSchema": true,
+    "results": [
+      {
+        "name": "private_state_and_privileged_boundaries",
+        "passed": true
+      },
+      {
+        "name": "roles_password_sessions_email_and_audit",
+        "passed": true
+      },
+      {
+        "name": "fallback_retry_concurrency_and_supersession",
+        "passed": true
+      },
+      {
+        "name": "unknown_delivery_never_reveals_or_resets_twice",
+        "passed": true
+      },
+      {
+        "name": "eligibility_and_revoked_actor",
+        "passed": true
+      },
+      {
+        "name": "delivery_and_fallback_generation_fences",
+        "passed": true
+      },
+      {
+        "name": "old_and_new_recovery_contract",
+        "passed": true
+      },
+      {
+        "name": "atomic_reset_and_postcommit_audit_reconciliation",
+        "passed": true
+      },
+      {
+        "name": "actor_auth_restrictions_revalidated_at_mutation",
+        "passed": true
+      },
+      {
+        "name": "abandoned_delivery_reconciliation",
+        "passed": true
+      },
+      {
+        "name": "deactivation_ordering_and_no_false_success",
+        "passed": true
+      },
+      {
+        "name": "deletion_audit_and_operational_cleanup",
+        "passed": true
+      },
+      {
+        "name": "storage_and_existing_realtime_session_revocation",
+        "passed": true
+      },
+      {
+        "name": "welcome_template_escaping_and_metadata",
+        "passed": true
+      },
+      {
+        "name": "actor_expiry_auth_eligibility_and_posthandoff_result",
+        "passed": true
+      },
+      {
+        "name": "browser_dialogs_fallback_close_refresh_and_mobile",
+        "passed": true
+      }
+    ],
+    "sqlLintErrors": 0,
+    "localSecurityAdvisorErrors": 0,
+    "auditContract": true,
+    "postTestPreflight": "already_enabled",
+    "unitTests": 325,
+    "typecheck": true,
+    "productionBuild": true,
+    "eslintErrors": 0,
+    "eslintPreexistingWarnings": 3,
+    "fixtureCleanupActiveAccounts": 0,
+    "fixtureCleanupFaultTriggers": 0
+  }
+}

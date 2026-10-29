@@ -27,8 +27,10 @@ export type UnreadSummaryOptions<TState extends object> = {
   parse: (payload: unknown) => TState
   channelName: (userId: string) => string
   sources: UnreadRealtimeSource[]
-  /** Doar indicatorii care alimentează un panou deschis au nevoie de reîmprospătare la revenirea în tab. */
+  /** Activează reîmprospătarea la focus și la revenirea în tab. */
   refreshOnWindowFocus?: boolean
+  /** Eveniment `window` care cere un refresh imediat (de exemplu după o citire reușită). */
+  refreshEvent?: string
 }
 
 export type UnreadSummaryValue<TState> = TState & {
@@ -41,6 +43,8 @@ export type UnreadSummaryValue<TState> = TState & {
 function sameSummary(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right)
 }
+
+const REFRESH_INTERVAL_MS = 30_000
 
 /**
  * Indicatorii de necitit (chat de proiect, notificări) au același ciclu de
@@ -58,82 +62,161 @@ export function createUnreadSummaryProvider<TState extends object>(options: Unre
     const [state, setState] = useState<{ value: TState; revision: number }>(
       () => ({ value: options.emptyState, revision: 0 }),
     )
-    const inFlightRefreshRef = useRef<Promise<void> | null>(null)
-    const refreshQueuedRef = useRef(false)
-    const generationRef = useRef(0)
-    const activeRef = useRef(active)
-    if (activeRef.current !== active) {
-      activeRef.current = active
-      generationRef.current += 1
+    const inFlightRefreshRef = useRef<{
+      authGeneration: number
+      effectGeneration: number
+      promise: Promise<void>
+    } | null>(null)
+    const refreshQueuedRef = useRef<{ authGeneration: number; effectGeneration: number } | null>(null)
+    const authGenerationRef = useRef(0)
+    const effectGenerationRef = useRef(0)
+    const activeEffectGenerationRef = useRef<number | null>(null)
+    const authIdentityRef = useRef({ active, token, userId, apiFetch })
+    if (
+      authIdentityRef.current.active !== active ||
+      authIdentityRef.current.token !== token ||
+      authIdentityRef.current.userId !== userId ||
+      authIdentityRef.current.apiFetch !== apiFetch
+    ) {
+      authIdentityRef.current = { active, token, userId, apiFetch }
+      authGenerationRef.current += 1
+      refreshQueuedRef.current = null
     }
+    const activeRef = useRef(active)
+    activeRef.current = active
+    const authGeneration = authGenerationRef.current
 
-    const refresh = useCallback(async () => {
-      if (!activeRef.current) return
+    const refreshForGeneration = useCallback(async (expectedAuthGeneration: number, expectedEffectGeneration: number) => {
+      const isCurrent = () => (
+        activeRef.current &&
+        authGenerationRef.current === expectedAuthGeneration &&
+        activeEffectGenerationRef.current === expectedEffectGeneration
+      )
+      const canRefresh = () => (
+        isCurrent() && document.visibilityState === 'visible' && navigator.onLine
+      )
+      const hasQueuedRefresh = () => {
+        const queued = refreshQueuedRef.current
+        return queued?.authGeneration === expectedAuthGeneration &&
+          queued.effectGeneration === expectedEffectGeneration
+      }
+      if (!canRefresh()) return
 
       const inFlight = inFlightRefreshRef.current
-      if (inFlight) {
-        refreshQueuedRef.current = true
-        await inFlight
-        if (refreshQueuedRef.current && activeRef.current) {
-          refreshQueuedRef.current = false
-          await refresh()
-        }
+      if (
+        inFlight?.authGeneration === expectedAuthGeneration &&
+        inFlight.effectGeneration === expectedEffectGeneration
+      ) {
+        refreshQueuedRef.current = { authGeneration: expectedAuthGeneration, effectGeneration: expectedEffectGeneration }
+        await inFlight.promise
         return
       }
 
-      const generation = generationRef.current
-      // Ștergerea se face pe identitatea rulării, nu pe generație: dacă `active`
-      // se schimbă cât cererea e în aer, o condiție pe generație lasă în ref o
-      // promisiune deja rezolvată, iar orice `refresh()` de după intră la
-      // nesfârșit în ramura „e una în curs”.
       const run = (async () => {
-        try {
-          const res = await apiFetch(options.endpoint, { method: 'GET' })
-          const json = await res.json().catch(() => null)
-          if (!res.ok || generation !== generationRef.current || !activeRef.current) return
-
-          const value = options.parse(json)
-          setState((current) => (
-            sameSummary(current.value, value)
-              ? current
-              : { value, revision: current.revision + 1 }
-          ))
-        } catch {
-          // Păstrăm ultima stare pentru un indicator care nu trebuie să blocheze UI-ul.
-        }
+        do {
+          refreshQueuedRef.current = null
+          try {
+            const res = await apiFetch(options.endpoint, { method: 'GET' })
+            const json = await res.json().catch(() => null)
+            if (res.ok && isCurrent()) {
+              const value = options.parse(json)
+              setState((current) => (
+                sameSummary(current.value, value)
+                  ? current
+                  : { value, revision: current.revision + 1 }
+              ))
+            }
+          } catch {
+            // Păstrăm ultima stare pentru un indicator care nu trebuie să blocheze UI-ul.
+          }
+        } while (canRefresh() && hasQueuedRefresh())
       })()
-      inFlightRefreshRef.current = run
+      inFlightRefreshRef.current = {
+        authGeneration: expectedAuthGeneration,
+        effectGeneration: expectedEffectGeneration,
+        promise: run,
+      }
 
-      // Cel care a pornit rularea o și eliberează, iar el reia primul după ce
-      // promisiunea se stinge: cine a așteptat-o găsește ref-ul deja gol.
       try {
         await run
       } finally {
-        if (inFlightRefreshRef.current === run) inFlightRefreshRef.current = null
+        if (inFlightRefreshRef.current?.promise === run) inFlightRefreshRef.current = null
       }
     }, [apiFetch])
+
+    const refresh = useCallback(() => {
+      const effectGeneration = activeEffectGenerationRef.current
+      return effectGeneration === null
+        ? Promise.resolve()
+        : refreshForGeneration(authGeneration, effectGeneration)
+    }, [authGeneration, refreshForGeneration])
 
     useEffect(() => {
       if (active) return
       inFlightRefreshRef.current = null
-      refreshQueuedRef.current = false
-      setState((current) => ({ value: options.emptyState, revision: current.revision }))
+      refreshQueuedRef.current = null
+      setState((current) => (
+        sameSummary(current.value, options.emptyState)
+          ? current
+          : { value: options.emptyState, revision: current.revision + 1 }
+      ))
     }, [active])
 
     useEffect(() => {
       if (!active || !userId) return
 
-      void refresh()
+      const effectGeneration = ++effectGenerationRef.current
+      activeEffectGenerationRef.current = effectGeneration
+      const isCurrent = () => (
+        activeRef.current &&
+        authGenerationRef.current === authGeneration &&
+        activeEffectGenerationRef.current === effectGeneration
+      )
+      const canRefresh = () => (
+        isCurrent() && document.visibilityState === 'visible' && navigator.onLine
+      )
+      const refreshIfCurrent = () => {
+        if (canRefresh()) void refreshForGeneration(authGeneration, effectGeneration)
+      }
 
-      const onFocus = () => { void refresh() }
+      let interval: number | null = null
+      const stopPeriodicRefresh = () => {
+        if (interval !== null) window.clearInterval(interval)
+        interval = null
+      }
+      const startPeriodicRefresh = () => {
+        stopPeriodicRefresh()
+        if (document.visibilityState === 'visible' && navigator.onLine) {
+          interval = window.setInterval(refreshIfCurrent, REFRESH_INTERVAL_MS)
+        }
+      }
+
+      const onFocus = () => { refreshIfCurrent() }
       const onVisibilityChange = () => {
-        if (document.visibilityState === 'visible') void refresh()
+        if (document.visibilityState === 'visible') {
+          startPeriodicRefresh()
+          refreshIfCurrent()
+        } else {
+          refreshQueuedRef.current = null
+          stopPeriodicRefresh()
+        }
+      }
+      const onOnline = () => {
+        startPeriodicRefresh()
+        refreshIfCurrent()
+      }
+      const onOffline = () => {
+        refreshQueuedRef.current = null
+        stopPeriodicRefresh()
       }
 
       if (options.refreshOnWindowFocus) {
         window.addEventListener('focus', onFocus)
         document.addEventListener('visibilitychange', onVisibilityChange)
       }
+      window.addEventListener('online', onOnline)
+      window.addEventListener('offline', onOffline)
+      if (options.refreshEvent) window.addEventListener(options.refreshEvent, refreshIfCurrent)
 
       let channel = supabase.channel(options.channelName(userId))
       for (const source of options.sources) {
@@ -141,19 +224,34 @@ export function createUnreadSummaryProvider<TState extends object>(options: Unre
         channel = channel.on(
           'postgres_changes',
           { event: '*', schema: 'public', table: source.table, ...(filter ? { filter } : {}) },
-          () => { void refresh() },
+          refreshIfCurrent,
         )
       }
-      channel.subscribe()
+      channel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') refreshIfCurrent()
+      })
+      startPeriodicRefresh()
+      refreshIfCurrent()
 
       return () => {
+        stopPeriodicRefresh()
         if (options.refreshOnWindowFocus) {
           window.removeEventListener('focus', onFocus)
           document.removeEventListener('visibilitychange', onVisibilityChange)
         }
+        window.removeEventListener('online', onOnline)
+        window.removeEventListener('offline', onOffline)
+        if (options.refreshEvent) window.removeEventListener(options.refreshEvent, refreshIfCurrent)
+        if (activeEffectGenerationRef.current === effectGeneration) {
+          activeEffectGenerationRef.current = null
+          refreshQueuedRef.current = null
+          if (inFlightRefreshRef.current?.effectGeneration === effectGeneration) {
+            inFlightRefreshRef.current = null
+          }
+        }
         supabase.removeChannel(channel)
       }
-    }, [active, refresh, userId])
+    }, [active, authGeneration, refreshForGeneration, userId])
 
     const value = useMemo<UnreadSummaryValue<TState>>(
       () => ({ ...state.value, active, revision: state.revision, refresh }),

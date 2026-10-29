@@ -293,19 +293,6 @@ test.describe('Pe telefon', () => {
     ...(projectId ? [['pagina proiectului', `/projects/${projectId}`, 'staff'] as const] : []),
   ]) {
     test(`${nume}: ecran sănătos pe telefon`, async ({ page }) => {
-      /**
-       * DATORIE — pagina proiectului, de la 768px în sus.
-       *
-       * Pe tabletă coloana de faze ia 320px din lățime și strânge conținutul:
-       * plăcuțele de activitate și de cerere ajung la 14–16px lățime, sub
-       * minimul de 24×24 din WCAG 2.5.8. Pe telefon panoul e sertar, deci
-       * lățimea rămâne întreagă și aceleași plăcuțe trec — de asta marcajul
-       * ține cont de lățime.
-       */
-      if (ruta.startsWith('/projects/') && ruta !== '/projects/new'
-        && (page.viewportSize()?.width ?? 0) >= MD) {
-        test.fail(true, 'plăcuțe de 14–16px lățime când coloana de faze strânge conținutul')
-      }
       const erori = ascultaErorile(page)
       await autentifica(page, rol)
       await page.goto(ruta, { waitUntil: 'networkidle' })

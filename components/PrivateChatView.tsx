@@ -7,15 +7,19 @@ import {
   Send,
   Pencil,
   Trash2,
-  MoreHorizontal,
 } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { type PrivateChatMessage, usePrivateChat } from '@/hooks/usePrivateChat'
 import { getAvatarColor, getInitials } from '@/lib/avatar'
+import { chatTimestampMicroseconds } from '@/lib/chat-timestamp'
 import { profileDisplayName } from '@/lib/profile-display'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
+import ChatActionMenu from '@/components/chat/ChatActionMenu'
+import ChatTextQueueStatus from '@/components/chat/ChatTextQueueStatus'
 import { Spinner } from '@/components/ui/Spinner'
+import { useChatTextQueue } from '@/hooks/useChatTextQueue'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 type Props = {
   conversationId: string
@@ -29,10 +33,16 @@ type Props = {
   onMarkedAsRead?: (lastReadAt: string | null) => void
 }
 
+const compareChatTimestamps = (left: string, right: string) => {
+  const leftTime = chatTimestampMicroseconds(left)
+  const rightTime = chatTimestampMicroseconds(right)
+  return leftTime < rightTime ? -1 : leftTime > rightTime ? 1 : 0
+}
+
 const maxIso = (a: string | null, b: string | null) => {
   if (!a) return b
   if (!b) return a
-  return new Date(a).getTime() >= new Date(b).getTime() ? a : b
+  return compareChatTimestamps(a, b) >= 0 ? a : b
 }
 
 const getLatestUnreadIncomingCreatedAt = (
@@ -42,17 +52,15 @@ const getLatestUnreadIncomingCreatedAt = (
 ) => {
   if (!userId) return null
 
-  const lastReadTime = lastReadAt ? new Date(lastReadAt).getTime() : null
   let latestCreatedAt: string | null = null
 
   for (const m of messages) {
     if (m.deleted_at) continue
     if (m.created_by === userId) continue
 
-    const createdTime = new Date(m.created_at).getTime()
-    if (lastReadTime !== null && createdTime <= lastReadTime) continue
+    if (lastReadAt && compareChatTimestamps(m.created_at, lastReadAt) <= 0) continue
 
-    if (!latestCreatedAt || createdTime > new Date(latestCreatedAt).getTime()) {
+    if (!latestCreatedAt || compareChatTimestamps(m.created_at, latestCreatedAt) > 0) {
       latestCreatedAt = m.created_at
     }
   }
@@ -67,14 +75,12 @@ const getFirstUnreadMessageId = (
 ) => {
   if (!userId) return null
 
-  const boundaryTime = initialReadBoundary ? new Date(initialReadBoundary).getTime() : null
-
   return (
     messages.find((m) => {
       if (m.deleted_at) return false
       if (m.created_by === userId) return false
-      if (boundaryTime === null) return true
-      return new Date(m.created_at).getTime() > boundaryTime
+      if (!initialReadBoundary) return true
+      return compareChatTimestamps(m.created_at, initialReadBoundary) > 0
     })?.id ?? null
   )
 }
@@ -86,13 +92,12 @@ const getReadOutgoingMessageId = (
 ) => {
   if (!userId || !otherLastReadAt) return null
 
-  const otherReadTime = new Date(otherLastReadAt).getTime()
   let readMessageId: string | null = null
 
   for (const m of messages) {
     if (m.deleted_at) continue
     if (m.created_by !== userId) continue
-    if (new Date(m.created_at).getTime() <= otherReadTime) {
+    if (compareChatTimestamps(m.created_at, otherLastReadAt) <= 0) {
       readMessageId = m.id
     }
   }
@@ -115,6 +120,7 @@ export default function PrivateChatView({
   const { confirm } = useToast()
 
   const [text, setText] = useState('')
+  const textRef = useRef('')
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
@@ -142,6 +148,12 @@ export default function PrivateChatView({
     initialOtherLastReadAt: initialOtherReadBoundary,
   })
 
+  const textQueue = useChatTextQueue(
+    userId ? `private:${userId}:${conversationId}` : null,
+    sendMessage,
+    !authLoading && !!userId
+  )
+
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
@@ -151,7 +163,7 @@ export default function PrivateChatView({
   const userPinnedToBottomRef = useRef(true)
   const previousConversationIdRef = useRef(conversationId)
 
-  const canSend = !authLoading && !sending && text.trim().length > 0
+  const canSend = !authLoading && !!userId && text.trim().length > 0
 
   const latestUnreadIncomingCreatedAt = useMemo(
     () => getLatestUnreadIncomingCreatedAt(messages, userId, lastReadAt),
@@ -288,11 +300,12 @@ export default function PrivateChatView({
     onMarkedAsRead?.(lastReadAt)
   }, [lastReadAt, onMarkedAsRead])
 
-  const handleSend = async () => {
+  const handleSend = () => {
     if (!canSend) return
-    const body = text.trim()
+    const body = textRef.current.trim()
+    if (!body || !textQueue.enqueue(body)) return
+    textRef.current = ''
     setText('')
-    await sendMessage(body)
     setTimeout(() => scrollToBottom(false), 0)
   }
 
@@ -338,7 +351,7 @@ export default function PrivateChatView({
 
   return (
     <section className={`flex h-full min-h-0 flex-col bg-white ${className}`}>
-      <div className="z-10 border-b border-rule bg-white/80 backdrop-blur-md">
+      <div className="z-10 shrink-0 border-b border-rule bg-white/80 backdrop-blur-md">
         <div className="flex h-16 items-center justify-between px-4">
           <div className="flex items-center gap-3">
             {showBackButton && (
@@ -364,11 +377,11 @@ export default function PrivateChatView({
       <div
         ref={listRef}
         onClick={() => setOpenMenuId(null)}
-        className="flex-1 overflow-y-auto bg-paper-sunk p-4"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-paper-sunk p-4"
       >
         {hasMore && (
           <div className="flex justify-center pb-4 pt-2">
-            <button
+            <button data-tooltip="Încarcă mesajele mai vechi din conversație"
               onClick={() => {
                 prevScrollHeightRef.current = listRef.current?.scrollHeight || null
                 void loadMore()
@@ -382,6 +395,12 @@ export default function PrivateChatView({
         )}
 
         {error && <FeedbackMessage variant="error" className="mb-4">{error}</FeedbackMessage>}
+
+        {!loading && !error && messages.length === 0 && (
+          <EmptyState title="Niciun mesaj încă">
+            Scrie primul mesaj pentru a începe conversația.
+          </EmptyState>
+        )}
 
         {messages.map((m, idx) => {
           const prev = idx > 0 ? messages[idx - 1] : null
@@ -496,7 +515,7 @@ export default function PrivateChatView({
                   )}
 
                     <div
-                        className={`relative group/bubble flex items-center gap-2 ${
+                        className={`relative group/bubble flex min-w-0 items-center gap-2 ${
                             isMe ? 'flex-row-reverse' : 'flex-row'
                         }`}
                     >
@@ -509,13 +528,13 @@ export default function PrivateChatView({
                           className="min-h-[100px] w-full resize-none bg-transparent px-4 py-3 text-[14px] text-ink focus:outline-none"
                         />
                         <div className="flex justify-end gap-2 border-t border-rule bg-paper-sunk p-2">
-                          <button
+                          <button data-tooltip="Renunță la modificare"
                             onClick={cancelEdit}
                             className="rounded-lg px-3 py-1.5 text-xs font-bold text-ink-soft hover:bg-paper"
                           >
                             Anulează
                           </button>
-                          <button
+                          <button data-tooltip="Salvează mesajul modificat"
                             onClick={() => void saveEdit(m.id)}
                             className="rounded-lg bg-ink px-3 py-1.5 text-xs font-bold text-white shadow-md hover:brightness-90"
                           >
@@ -532,7 +551,7 @@ export default function PrivateChatView({
                               setOpenMenuId(m.id)
                             }
                           }}
-                          className={`relative px-4 py-2.5 text-[14px] leading-relaxed shadow-sm transition-all ${
+                          className={`relative min-w-0 px-4 py-2.5 text-[14px] leading-relaxed shadow-sm transition-all ${
                             isMe
                               ? 'bg-ink text-white'
                               : 'border border-rule bg-white text-ink'
@@ -550,31 +569,22 @@ export default function PrivateChatView({
                         </div>
 
                         {!m.deleted_at && isMe && (
-                        <div
-                            className={`relative flex-shrink-0 transition-opacity ${
+                          <ChatActionMenu
+                            open={openMenuId === m.id}
+                            onOpenChange={(open) => setOpenMenuId(open ? m.id : null)}
+                            label="Opțiuni mesaj"
+                            className={`relative flex-shrink-0 transition-opacity focus-within:opacity-100 [@media(hover:none)]:opacity-100 ${
                                 openMenuId === m.id
                                 ? 'opacity-100'
                                 : 'opacity-0 group-hover/bubble:opacity-100'
                             }`}
-                        >
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setOpenMenuId(openMenuId === m.id ? null : m.id)
-                              }}
-                              className={`rounded-full p-1.5 transition-colors ${
+                            buttonClassName={`rounded-full p-1.5 transition-colors ${
                                 openMenuId === m.id ? 'bg-paper text-ink' : 'text-ink-faint hover:bg-paper hover:text-ink'
                               }`}
-                            >
-                              <MoreHorizontal className="h-[18px] w-[18px]" />
-                            </button>
-
-                            {openMenuId === m.id && (
-                              <div
-                                className="absolute bottom-full right-0 z-50 mb-2 min-w-[140px] rounded-xl border border-rule bg-white p-1.5 shadow-xl"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <button
+                          >
+                                <button data-tooltip="Modifică mesajul"
+                                  type="button"
+                                  role="menuitem"
                                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-ink hover:bg-paper-sunk"
                                   onClick={() => {
                                     setOpenMenuId(null)
@@ -585,7 +595,9 @@ export default function PrivateChatView({
                                   Editează
                                 </button>
 
-                                <button
+                                <button data-tooltip="Șterge mesajul"
+                                  type="button"
+                                  role="menuitem"
                                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)]"
                                   onClick={async () => {
                                     setOpenMenuId(null)
@@ -597,9 +609,7 @@ export default function PrivateChatView({
                                   <Trash2 className="h-4 w-4 text-[var(--sg-danger)]" />
                                   Șterge
                                 </button>
-                              </div>
-                            )}
-                          </div>
+                          </ChatActionMenu>
                         )}
                       </>
                     )}
@@ -637,18 +647,35 @@ export default function PrivateChatView({
         <div ref={bottomRef} className="h-2" />
       </div>
 
-      <div className="z-10 border-t border-rule bg-white p-3 sm:p-4">
-        <div className="flex items-end gap-2 rounded-[20px] border border-rule bg-paper-sunk p-1.5 shadow-sm transition-all focus-within:border-rule-strong focus-within:bg-white focus-within:ring-2 focus-within:ring-rule-strong">
+      <div className="z-10 shrink-0 border-t border-rule bg-white p-3 sm:p-4">
+        <ChatTextQueueStatus
+          items={textQueue.items}
+          sendingId={textQueue.sendingId}
+          failed={textQueue.failed}
+          onRetry={textQueue.retry}
+          onDiscard={() => {
+            const discarded = textQueue.discardFailed()
+            if (discarded && !textRef.current.trim()) {
+              textRef.current = discarded
+              setText(discarded)
+            }
+          }}
+        />
+        <div className="flex items-end gap-2 rounded-[20px] border border-rule bg-paper-sunk p-1.5 shadow-sm transition-all focus-within:border-rule-strong focus-within:bg-white focus-within:ring-2 focus-within:ring-[var(--sg-accent)]">
           <textarea
             ref={textareaRef}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            maxLength={5000}
+            onChange={(e) => {
+              textRef.current = e.target.value
+              setText(e.target.value)
+            }}
             onKeyDown={onTextareaKeyDown}
             placeholder="Scrie un mesaj..."
-            className="max-h-[120px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm text-ink outline-none placeholder:text-ink-faint"
+            className="max-h-[120px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm text-ink outline-none focus-visible:outline-none! placeholder:text-ink-faint placeholder-shown:h-auto!"
             rows={1}
           />
-          <button
+          <button data-tooltip="Trimite mesajul"
             onClick={() => void handleSend()}
             disabled={!canSend}
             className={`mb-0.5 mr-0.5 flex h-[38px] flex-shrink-0 items-center gap-2 rounded-2xl px-4 text-sm font-semibold transition-all ${

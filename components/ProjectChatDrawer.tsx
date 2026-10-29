@@ -112,7 +112,10 @@ const imageRetryKey = (messageId: string, image: ChatImage) =>
 
 import ImagePreviewDialog from './chat/ImagePreviewDialog'
 import ChatMessageList from './chat/ChatMessageList'
+import ChatTextQueueStatus from './chat/ChatTextQueueStatus'
 import { Spinner } from '@/components/ui/Spinner'
+import { useChatTextQueue } from '@/hooks/useChatTextQueue'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 export default function ProjectChatDrawer({
   open,
@@ -147,12 +150,20 @@ export default function ProjectChatDrawer({
     refreshMessage,
   } = useProjectChat(projectId, { initialLimit: 50 });
 
+  const textQueue = useChatTextQueue(
+    userId ? `project:${userId}:${projectId}` : null,
+    sendMessage,
+    !authLoading && !!userId && !readOnly
+  );
+  const { waitForIdle: waitForTextQueue } = textQueue;
+
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<PendingImage[]>([]);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [showRequestCta, setShowRequestCta] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [attachmentAttemptActive, setAttachmentAttemptActive] = useState(false);
   /** Câte imagini s-au urcat din câte, cât ține trimiterea. */
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -188,7 +199,9 @@ export default function ProjectChatDrawer({
   const activeAttemptRef = useRef<SendAttempt | null>(null);
   const closePromiseRef = useRef<Promise<void> | null>(null);
 
-  const canSend = !authLoading && !sending && !uploading && (text.trim().length > 0 || attachments.length > 0);
+  const canSend = !authLoading && !!userId && !readOnly && !uploading && !attachmentAttemptActive &&
+    (text.trim().length > 0 || attachments.length > 0) &&
+    (attachments.length === 0 || (!sending && textQueue.items.length === 0));
 
   const cleanupPaths = useCallback(async (paths: string[], targetProjectId = projectId) => {
     if (!paths.length) return;
@@ -224,6 +237,7 @@ export default function ProjectChatDrawer({
     attachmentsRef.current = [];
     setAttachments([]);
     setText('');
+    setAttachmentAttemptActive(false);
     setPreview(null);
     setComposerError(null);
     setShowRequestCta(false);
@@ -254,6 +268,16 @@ export default function ProjectChatDrawer({
         if (attempt.phase !== 'posting') attempt.controller.abort();
         await attempt.settled;
       }
+      if (!(await waitForTextQueue())) {
+        // Coada s-a oprit la un mesaj care nu a putut fi trimis (de exemplu, proiectul a fost
+        // încheiat între timp); chatul trebuie să se poată închide oricum.
+        const closeAnyway = await confirm({
+          title: 'Închizi chatul?',
+          description: 'Unele mesaje nu au fost trimise și vor rămâne netrimise dacă închizi chatul.',
+          confirmText: 'Închide chatul',
+        });
+        if (!closeAnyway) return;
+      }
       onClose();
     })().finally(() => {
       if (closePromiseRef.current === closePromise) closePromiseRef.current = null;
@@ -261,10 +285,10 @@ export default function ProjectChatDrawer({
 
     closePromiseRef.current = closePromise;
     return closePromise;
-  }, [onClose]);
+  }, [confirm, onClose, waitForTextQueue]);
 
   const addFiles = (incoming: File[]) => {
-    if (!incoming.length || activeAttemptRef.current || uploading || sending) return;
+    if (!incoming.length || activeAttemptRef.current || uploading || sending || textQueue.items.length > 0) return;
     setComposerError(null);
     setShowRequestCta(false);
 
@@ -558,7 +582,7 @@ export default function ProjectChatDrawer({
           label:
             readByCount >= otherParticipantCount
               ? "Citit de toți"
-              : `Citit de ${readByCount}`,
+              : `Citit de ${readByCount} ${readByCount === 1 ? "persoană" : "persoane"}`,
         };
       }
     }
@@ -633,11 +657,13 @@ export default function ProjectChatDrawer({
         setPreview(null);
         return;
       }
+      // Meniul „…” deschis își tratează singur Escape-ul (îl închide și mută focusul pe buton).
+      if (openMenuId) return;
       if (!editingId) closeDrawer();
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [open, closeDrawer, editingId, preview, searchOpen, stepPreview]);
+  }, [open, closeDrawer, editingId, openMenuId, preview, searchOpen, stepPreview]);
 
   useEffect(() => {
     if (!open) return;
@@ -709,8 +735,20 @@ export default function ProjectChatDrawer({
   const handleSend = async () => {
     if (!canSend || activeAttemptRef.current) return;
 
+    if (!attachmentsRef.current.length) {
+      const body = textRef.current.trim();
+      if (!body || !textQueue.enqueue(body)) return;
+      textRef.current = '';
+      setText('');
+      setComposerError(null);
+      setShowRequestCta(false);
+      setTimeout(() => scrollToBottom(false), 0);
+      return;
+    }
+
     const attempt = createSendAttempt(projectId, attachmentsRef.current);
     activeAttemptRef.current = attempt;
+    setAttachmentAttemptActive(true);
     setUploading(true);
     setComposerError(null);
     setUploadProgress(attempt.attachments.length ? { done: 0, total: attempt.attachments.length } : null);
@@ -849,6 +887,7 @@ export default function ProjectChatDrawer({
         if (mountedRef.current) {
           setUploading(false);
           setUploadProgress(null);
+          setAttachmentAttemptActive(false);
         }
       }
       attempt.resolveSettled();
@@ -933,7 +972,7 @@ export default function ProjectChatDrawer({
           )}
           {hasMore && (
             <div className="flex justify-center pb-4 pt-2">
-              <button
+              <button data-tooltip="Încarcă mesajele mai vechi"
                 onClick={() => {
                   prevScrollHeightRef.current =
                     listRef.current?.scrollHeight || null;
@@ -948,6 +987,12 @@ export default function ProjectChatDrawer({
           )}
 
           {error && <FeedbackMessage variant="error" className="mb-4">{error}</FeedbackMessage>}
+
+          {!loading && !error && messages.length === 0 && (
+            <EmptyState title="Niciun mesaj în acest proiect încă">
+              {readOnly ? 'Proiectul este încheiat. Nu au fost trimise mesaje.' : 'Scrie primul mesaj pentru a începe conversația despre proiect.'}
+            </EmptyState>
+          )}
 
           <ChatMessageList
             messages={messages}
@@ -985,6 +1030,19 @@ export default function ProjectChatDrawer({
           </div>
         ) : (
         <div className="z-10 bg-white p-3 sm:p-4 border-t border-rule pb-[env(safe-area-inset-bottom)]">
+          <ChatTextQueueStatus
+            items={textQueue.items}
+            sendingId={textQueue.sendingId}
+            failed={textQueue.failed}
+            onRetry={textQueue.retry}
+            onDiscard={() => {
+              const discarded = textQueue.discardFailed();
+              if (discarded && !textRef.current.trim()) {
+                textRef.current = discarded;
+                setText(discarded);
+              }
+            }}
+          />
           {!!attachments.length && (
             <div className="mb-2 flex gap-2 overflow-x-auto px-1">
               {attachments.map((attachment) => (
@@ -1012,20 +1070,20 @@ export default function ProjectChatDrawer({
             <div className="mb-2 rounded-lg bg-[var(--sg-danger-soft)] px-3 py-2 text-xs text-[var(--sg-danger)]">
               <p>{composerError}</p>
               {showRequestCta && (
-                <button type="button" onClick={openDocumentRequestSearch} className="mt-1 font-semibold underline">
+                <button data-tooltip="Alege cererea de document despre care scrii" type="button" onClick={openDocumentRequestSearch} className="mt-1 font-semibold underline">
                   Alege cererea potrivită
                 </button>
               )}
             </div>
           )}
-          <div className="flex items-end gap-2 bg-paper-sunk border border-rule rounded-[20px] p-1.5 focus-within:ring-2 focus-within:ring-rule-strong focus-within:bg-white focus-within:border-rule-strong transition-all shadow-sm">
+          <div className="flex items-end gap-2 bg-paper-sunk border border-rule rounded-[20px] p-1.5 focus-within:ring-2 focus-within:ring-[var(--sg-accent)] focus-within:bg-white focus-within:border-rule-strong transition-all shadow-sm">
             <input
               ref={fileInputRef}
               type="file"
               multiple
               accept="image/png,image/jpeg,image/webp,image/gif"
               className="hidden"
-              disabled={uploading || sending}
+              disabled={uploading || sending || textQueue.items.length > 0}
               onChange={(event) => {
                 addFiles(Array.from(event.target.files ?? []));
                 event.target.value = '';
@@ -1035,7 +1093,7 @@ export default function ProjectChatDrawer({
               type="button"
               aria-label="Adaugă imagini"
               onClick={() => fileInputRef.current?.click()}
-              disabled={uploading || sending}
+              disabled={uploading || sending || textQueue.items.length > 0}
               className="mb-0.5 rounded-full p-2 text-ink-soft hover:bg-paper disabled:opacity-40"
             >
               <ImagePlus className="h-5 w-5" />
@@ -1052,6 +1110,7 @@ export default function ProjectChatDrawer({
             <textarea
               ref={textareaRef}
               value={text}
+              maxLength={5000}
               onChange={(e) => {
                 textRef.current = e.target.value;
                 setText(e.target.value);
@@ -1072,10 +1131,10 @@ export default function ProjectChatDrawer({
                 }
               }}
               placeholder="Scrie un mesaj..."
-              className="flex-1 bg-transparent resize-none px-3 py-2.5 text-sm text-ink placeholder:text-ink-faint outline-none max-h-[120px]"
+              className="flex-1 bg-transparent resize-none px-3 py-2.5 text-sm text-ink placeholder:text-ink-faint placeholder-shown:h-auto! outline-none focus-visible:outline-none! max-h-[120px]"
               rows={1}
             />
-            <button
+            <button data-tooltip="Trimite mesajul"
               type="button"
               onClick={handleSend}
               disabled={!canSend}

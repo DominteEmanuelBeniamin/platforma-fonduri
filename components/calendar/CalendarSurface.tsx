@@ -251,7 +251,7 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
                 <ChevronRight className="h-4 w-4" />
               </button>
               {!isCurrentMonth && (
-                <button
+                <button data-tooltip="Sari la ziua de azi"
                   type="button"
                   onClick={() => changeMonth(new Date(today.getFullYear(), today.getMonth(), 1))}
                   className="ml-1 rounded-full border border-[var(--p-border-strong)] px-2.5 py-1 text-xs font-semibold text-[var(--p-ink-soft)] transition-colors hover:bg-[var(--p-surface-2)]"
@@ -273,7 +273,7 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
 
         <div className="flex items-center gap-1 rounded-full border border-[var(--p-border-strong)] bg-[var(--p-surface)] p-0.5">
           {([['month', 'Lună', CalendarDays], ['list', 'Listă', List]] as const).map(([mode, label, Icon]) => (
-            <button
+            <button data-tooltip={mode === 'month' ? 'Termenele pe zilele lunii' : 'Termenele ca listă, în ordine'}
               key={mode}
               type="button"
               onClick={() => changeView(mode)}
@@ -314,7 +314,7 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
           title="Niciun termen pentru filtrele alese"
           description="Lărgește filtrele sau șterge-le, ca să vezi din nou toate termenele accesibile."
           action={
-            <button
+            <button data-tooltip="Golește filtrele calendarului"
               type="button"
               onClick={() => changeFilters(defaults)}
               className="rounded-lg bg-[var(--p-accent)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
@@ -354,7 +354,7 @@ export default function CalendarSurface({ projectId }: CalendarSurfaceProps) {
 
 function RetryButton({ onClick }: { onClick: () => void }) {
   return (
-    <button
+    <button data-tooltip="Încarcă din nou termenele"
       type="button"
       onClick={onClick}
       className="rounded-lg bg-[var(--p-accent)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"

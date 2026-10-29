@@ -58,7 +58,7 @@ export default function PrivateChatDrawer({
 
       <aside className="absolute right-0 top-0 flex h-full w-full flex-col overflow-hidden bg-white shadow-2xl animate-in slide-in-from-right duration-300 sm:w-[min(520px,90vw)] sm:rounded-l-2xl">
         <div className="absolute right-4 top-4 z-20 hidden sm:block">
-          <button
+          <button aria-label="Închide conversația"
             onClick={onClose}
             className="rounded-xl p-2 text-ink-soft hover:bg-paper-sunk"
           >
@@ -67,7 +67,7 @@ export default function PrivateChatDrawer({
         </div>
 
         <div className="absolute left-4 top-4 z-20 sm:hidden">
-          <button
+          <button aria-label="Înapoi"
             onClick={onClose}
             className="rounded-xl p-2 text-ink-soft hover:bg-paper-sunk"
           >

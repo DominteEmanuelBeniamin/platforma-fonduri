@@ -1,22 +1,31 @@
 import { z } from 'zod'
 import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
-import { getProjectChatReadStates } from '@/app/api/_utils/project-chat'
+import {
+  getProjectChatReadStates,
+  projectChatTimestampMicroseconds,
+} from '@/app/api/_utils/project-chat'
+
+type ServiceClient = ReturnType<typeof createSupabaseServiceClient>
+
+/** Ora celui mai nou mesaj din proiect, în ceasul bazei de date (0 dacă nu există sau nu răspunde). */
+async function newestMessageMicroseconds(admin: ServiceClient, projectId: string) {
+  const { data, error } = await admin
+    .from('project_chat_messages')
+    .select('created_at')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error || !data?.created_at) return 0
+  return projectChatTimestampMicroseconds(data.created_at)
+}
 
 const MarkReadSchema = z
   .object({
     readThroughAt: z.iso.datetime({ offset: true }).optional(),
   })
   .optional()
-
-const latestIso = (...values: Array<string | null | undefined>) => {
-  const present = values.filter((value): value is string => !!value)
-  if (present.length === 0) return new Date().toISOString()
-
-  return present.reduce((latest, value) =>
-    new Date(value).getTime() > new Date(latest).getTime() ? value : latest
-  )
-}
 
 export async function GET(
   request: Request,
@@ -63,30 +72,21 @@ export async function POST(
     }
 
     const admin = createSupabaseServiceClient()
+    const requestTimeMs = Date.now()
+    const requestTimeIso = new Date(requestTimeMs).toISOString()
+    const readThroughAt = parsed.data?.readThroughAt
+    // Un marcaj din viitor e plafonat. Ora unui mesaj existent e mereu acceptată, chiar dacă
+    // ceasul bazei de date e înaintea celui al serverului de aplicație.
+    const ceiling = readThroughAt
+      ? Math.max(requestTimeMs * 1000, await newestMessageMicroseconds(admin, projectId))
+      : 0
+    const lastReadAt =
+      readThroughAt && projectChatTimestampMicroseconds(readThroughAt) <= ceiling
+      ? readThroughAt
+      : requestTimeIso
 
-    const { data: currentRow, error: currentError } = await admin
-      .from('project_chat_reads')
-      .select('last_read_at')
-      .eq('project_id', projectId)
-      .eq('user_id', accessRes.user.id)
-      .maybeSingle()
-
-    if (currentError) {
-      console.error('POST project chat read current row failed:', {
-        projectId,
-        userId: accessRes.user.id,
-        error: currentError,
-      })
-      return Response.json({ error: 'Failed to mark project chat as read' }, { status: 500 })
-    }
-
-    const lastReadAt = latestIso(
-      new Date().toISOString(),
-      parsed.data?.readThroughAt,
-      currentRow?.last_read_at ?? null
-    )
-
-    const { error } = await admin
+    // Insert only when absent, then conditionally advance so concurrent stale requests cannot regress it.
+    const { error: insertError } = await admin
       .from('project_chat_reads')
       .upsert(
         {
@@ -94,23 +94,41 @@ export async function POST(
           user_id: accessRes.user.id,
           last_read_at: lastReadAt,
         },
-        { onConflict: 'project_id,user_id' }
+        { onConflict: 'project_id,user_id', ignoreDuplicates: true }
       )
 
-    if (error) {
+    if (insertError) {
       console.error('POST project chat read failed:', {
         projectId,
         userId: accessRes.user.id,
-        error,
+        error: insertError,
+      })
+      return Response.json({ error: 'Failed to mark project chat as read' }, { status: 500 })
+    }
+
+    const { error: updateError } = await admin
+      .from('project_chat_reads')
+      .update({ last_read_at: lastReadAt })
+      .eq('project_id', projectId)
+      .eq('user_id', accessRes.user.id)
+      .or(`last_read_at.is.null,last_read_at.lt.${lastReadAt}`)
+
+    if (updateError) {
+      console.error('POST project chat read failed:', {
+        projectId,
+        userId: accessRes.user.id,
+        error: updateError,
       })
       return Response.json({ error: 'Failed to mark project chat as read' }, { status: 500 })
     }
 
     const { readStates } = await getProjectChatReadStates(projectId)
+    const persistedLastReadAt =
+      readStates.find((row) => row.user_id === accessRes.user.id)?.last_read_at ?? lastReadAt
 
     return Response.json({
       ok: true,
-      lastReadAt,
+      lastReadAt: persistedLastReadAt,
       readStates,
     })
   } catch (err) {

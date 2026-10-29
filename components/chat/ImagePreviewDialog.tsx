@@ -82,10 +82,10 @@ export default function ImagePreviewDialog({
           )}
           <div className="mt-3 flex justify-end gap-2">
             <Dialog.Close asChild>
-              <button type="button" className="rounded-lg px-3 py-2 text-sm text-ink-soft hover:bg-paper-sunk">Închide</button>
+              <button data-tooltip="Închide previzualizarea" type="button" className="rounded-lg px-3 py-2 text-sm text-ink-soft hover:bg-paper-sunk">Închide</button>
             </Dialog.Close>
             {preview && (
-              <button
+              <button data-tooltip="Descarcă imaginea"
                 type="button"
                 onClick={() => onDownload?.(preview.messageId, preview.image)}
                 disabled={downloading}

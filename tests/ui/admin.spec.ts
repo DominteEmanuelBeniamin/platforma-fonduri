@@ -50,7 +50,8 @@ test.describe('Ecranele de administrare', () => {
   test('tabloul de bord e un registru, nu un card', async ({ page }) => {
     await page.goto('/admin/proiecte', { waitUntil: 'networkidle' })
     await expect(page.getByRole('heading', { name: 'Tablou de bord', level: 1 })).toBeVisible()
-    await expect(page.getByRole('navigation', { name: 'Locație' })).toBeVisible()
+    // Pagină din meniu: antetul ei, fără fâșie de locație (S-05).
+    await expect(page.getByRole('navigation', { name: 'Locație' })).toHaveCount(0)
 
     // Capetele de coloană sunt butoane de sortare, cu stare anunțată.
     // Se caută în `th`: „Proiecte” din comutatorul de vedere ar prinde altfel.
@@ -69,10 +70,11 @@ test.describe('Ecranele de administrare', () => {
   test('șabloanele: cifrele într-o propoziție, fazele într-o listă', async ({ page }) => {
     await page.goto('/admin', { waitUntil: 'networkidle' })
     await expect(page.getByRole('heading', { name: 'Șabloane', level: 1 })).toBeVisible()
-    await expect(page.getByText(/\d+ (șablon|șabloane) · \d+ (fază|faze) · \d+/)).toBeVisible()
+    await expect(page.getByText(/\d+ (de )?(șablon|șabloane) · \d+ (de )?(fază|faze) · \d+/)).toBeVisible()
     // Acțiunile au urcat în fâșia de locație; „Șablon nou” deschide formularul pe loc.
     await expect(page.getByRole('button', { name: /Șablon nou/ })).toBeVisible()
-    await expect(page.getByRole('link', { name: /Proiect nou/ })).toBeVisible()
+    // „Proiect nou” stă doar pe prima pagină, la cererea clientului.
+    await expect(page.getByRole('link', { name: /Proiect nou/ })).toHaveCount(0)
   })
 
   test('statusurile: listă pe linii, cu ordinea salvabilă', async ({ page }) => {

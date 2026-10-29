@@ -65,7 +65,7 @@ export default function Navbar() {
       <div className="flex-shrink-0">
         {/* Pe telefon linkul e doar pătratul de 32px, sub cei 44 promiși
               degetului: ținta crește, pătratul rămâne la mărimea lui. */}
-        <Link href="/" className="group flex min-h-11 min-w-11 items-center justify-center gap-2.5 rounded-[var(--radius-plate)] pointer-fine:min-h-0 pointer-fine:min-w-0 sm:justify-start">
+        <Link href="/" data-tooltip="Bonie — înapoi la lista de proiecte" className="group flex min-h-11 min-w-11 items-center justify-center gap-2.5 rounded-[var(--radius-plate)] pointer-fine:min-h-0 pointer-fine:min-w-0 sm:justify-start">
           <span className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-plate)] bg-[var(--sg-accent)] text-sm font-bold text-white">
             B
           </span>
@@ -81,6 +81,7 @@ export default function Navbar() {
             <div className="flex w-max min-w-full items-stretch justify-center">
               <Link
                 href="/"
+                data-tooltip="Toate proiectele tale, cu ce arde în fiecare"
                 data-active={pathname === '/' ? 'true' : undefined}
                 className={linkClass('/')}
               >
@@ -92,6 +93,7 @@ export default function Navbar() {
               {canUsePrivateChat && (
                 <Link
                   href="/chat"
+                  data-tooltip="Conversațiile tale private cu ceilalți din echipă"
                   data-active={pathname === '/chat' ? 'true' : undefined}
                   className={linkClass('/chat')}
                 >
@@ -104,6 +106,7 @@ export default function Navbar() {
               {isTeamMember && (
                 <Link
                   href="/calendar"
+                  data-tooltip="Termenele tale din toate proiectele, pe zile"
                   data-active={pathname === '/calendar' ? 'true' : undefined}
                   className={linkClass('/calendar')}
                 >
@@ -113,6 +116,7 @@ export default function Navbar() {
               {isTeamMember && (
                 <Link
                   href="/admin/templates"
+                  data-tooltip="Șabloanele de faze și activități din care pornesc proiectele"
                   data-active={pathname === '/admin/templates' ? 'true' : undefined}
                   className={linkClass('/admin/templates')}
                 >
@@ -123,6 +127,7 @@ export default function Navbar() {
                 <>
                   <Link
                     href="/admin/proiecte"
+                    data-tooltip="Toate proiectele firmei: stadiu, termene, cine răspunde"
                     data-active={pathname === '/admin/proiecte' ? 'true' : undefined}
                     className={linkClass('/admin/proiecte')}
                   >
@@ -130,6 +135,7 @@ export default function Navbar() {
                   </Link>
                   <Link
                     href="/admin/users"
+                    data-tooltip="Conturile: consultanți, clienți, drepturi"
                     data-active={pathname === '/admin/users' ? 'true' : undefined}
                     className={linkClass('/admin/users')}
                   >
@@ -137,6 +143,7 @@ export default function Navbar() {
                   </Link>
                   <Link
                     href="/admin/audit"
+                    data-tooltip="Jurnalul de audit: cine a făcut ce și când"
                     data-active={pathname === '/admin/audit' ? 'true' : undefined}
                     className={linkClass('/admin/audit')}
                   >
@@ -157,7 +164,7 @@ export default function Navbar() {
               <p className="hidden max-w-[180px] truncate text-xs font-medium text-ink-soft lg:block">
                 {profile?.email ?? (typeof user === 'object' && user && 'email' in user ? String(user.email) : '')}
               </p>
-              <IconButton label="Deconectare" tone="danger" onClick={handleLogout}>
+              <IconButton label="Deconectare" data-tooltip="Ieși din cont" tone="danger" onClick={handleLogout}>
                 <LogOut className="h-4 w-4" aria-hidden="true" />
               </IconButton>
             </div>
