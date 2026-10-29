@@ -7,11 +7,9 @@ import {
   Plus,
   Download,
   Upload,
-  CheckCircle2,
   Calendar,
   X,
   Eye,
-  MessageSquare,
   FileSpreadsheet,
   FolderUp,
   AlertCircle,
@@ -220,6 +218,9 @@ interface DocumentRequestsProps {
   sendOpen?: boolean
   onSendOpenChange?: (open: boolean) => void
 }
+
+/** Ramurile cererilor sub o activitate, în culoarea fazei pe care o dă ActivityRow. */
+const TREE_LINE: CSSProperties = { borderColor: 'var(--tree-line, var(--sg-rule))' }
 
 /** Respinsă acum sau închisă din „Respins” (#109): motivul respingerii rămâne la vedere. */
 const wasRejected = (req: { status?: string | null; status_before_close?: string | null }) =>
@@ -1123,22 +1124,37 @@ export default function DocumentRequests({
                 {canChange && <span />}
               </div>
             )}
-            {displayRequests.map((req) => {
+            {displayRequests.map((req, index) => {
               const statusInfo = requestStatusInfo(displayedRequestStatus(req))
               const isClosed = req.status === 'closed'
               const uploadedAt = lastUploadAt(req)
+              const isLast = index === displayRequests.length - 1
+              // Motivul respingerii nu mai stă într-o casetă sub rând: coloana
+              // de status spune deja „Respins”, motivul e în tooltip-ul ei și
+              // în dialogul cererii.
+              const rejectionHint = wasRejected(req)
+                ? `Motiv respingere: ${requestMeta.get(req.id)?.rejectionReason || 'nu este disponibil pentru acest istoric.'}`
+                : undefined
 
               return (
                 <div
                   key={req.id}
                   id={`request-${req.id}`}
                   onDragOver={e => handleReqDragOver(e, req.id)}
-                  className={`group scroll-mt-24 cursor-pointer border-b border-rule/70 transition-colors duration-[120ms] hover:bg-paper/60 md:scroll-mt-48 ${
+                  className={`group relative scroll-mt-24 cursor-pointer border-b border-rule/70 transition-colors duration-[120ms] hover:bg-paper/60 md:scroll-mt-48 ${
                     draggedReqId === req.id ? 'opacity-50' : ''
                   }`}
                   onClick={() => setSelectedRequest(req)}
                 >
-                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1.5 px-1 py-2 @min-[50rem]:grid-cols-(--req-cols) @min-[50rem]:gap-0 @min-[50rem]:p-0">
+                  {/* Sub o activitate, cererile atârnă de ea ca ramuri: trunchiul
+                      coboară până la ultima, care se termină într-un cot. */}
+                  {activityId && !isLast && (
+                    <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 -left-2 border-l @min-[50rem]:left-[1.3rem]" style={TREE_LINE} />
+                  )}
+                  <div className="relative grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1.5 px-1 py-2 @min-[50rem]:grid-cols-(--req-cols) @min-[50rem]:gap-0 @min-[50rem]:p-0">
+                    {activityId && (
+                      <span aria-hidden="true" className="pointer-events-none absolute -left-2 top-0 h-[1.15rem] w-2.5 rounded-bl-[6px] border-b border-l @min-[50rem]:left-[1.3rem] @min-[50rem]:h-1/2 @min-[50rem]:w-3" style={TREE_LINE} />
+                    )}
                     {/* Cerere */}
                     <div className={`flex min-w-0 items-start gap-1.5 @min-[50rem]:col-span-2 @min-[50rem]:items-center @min-[50rem]:py-1.5 @min-[50rem]:pr-2 ${activityId ? '@min-[50rem]:pl-9' : '@min-[50rem]:pl-1'}`}>
                       {canChange ? (
@@ -1164,7 +1180,7 @@ export default function DocumentRequests({
                     {/* Pe fișă, celulele curg sub nume; pe coloane, își iau locul. */}
                     <div className="col-span-2 row-start-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 pl-6 @min-[50rem]:contents">
                       <div className={CELL}>
-                        <StatusCell tone={statusInfo.tone} label={statusLabel(req)} />
+                        <StatusCell tone={statusInfo.tone} label={statusLabel(req)} hint={rejectionHint} />
                       </div>
                       <div className={CELL}>
                         {/* Sub „Documente”, ca la activitate: câte fișiere are cererea.
@@ -1292,20 +1308,6 @@ export default function DocumentRequests({
                           </div>
                         )}
                       </div>
-
-                      {wasRejected(req) && (
-                        <div className="mt-3 p-3 bg-[var(--sg-danger-soft)] border border-[var(--sg-danger)] rounded-[var(--radius-plate)]">
-                          <div className="flex items-start gap-2">
-                            <MessageSquare className="w-4 h-4 text-[var(--sg-danger)] flex-shrink-0 mt-0.5" />
-                            <div>
-                              <p className="text-xs font-semibold text-[var(--sg-danger)] mb-0.5">Motiv respingere:</p>
-                              <p className="text-sm text-[var(--sg-danger)]">
-                                {requestMeta.get(req.id)?.rejectionReason || 'Motivul respingerii nu este disponibil pentru acest istoric.'}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
                     </div>
                   )}
 
@@ -1318,23 +1320,6 @@ export default function DocumentRequests({
                     </div>
                   )}
 
-                  {isClient && req.status === 'approved' && (
-                    <div>
-                      <div className="flex items-center gap-2 text-[var(--sg-ok)] bg-[var(--sg-ok-soft)] px-4 py-2.5 rounded-[var(--radius-plate)]">
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span className="text-sm font-semibold">Document aprobat cu succes</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {isClient && req.status === 'review' && (
-                    <div>
-                      <div className="flex items-center gap-2 text-[var(--sg-review)] bg-[var(--sg-review-soft)] px-4 py-2.5 rounded-[var(--radius-plate)]">
-                        <Eye className="w-4 h-4" />
-                        <span className="text-sm font-medium">Documentul este în curs de verificare</span>
-                      </div>
-                    </div>
-                  )}
 {/* am putea pune aici ceva asemanator cu partea de download si versioning din DocumentModal
                   {isClient && req.files?.length ? (
                     <div className="mt-3" onClick={(e) => e.stopPropagation()}>

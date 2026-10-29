@@ -1,6 +1,6 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
 import type { ProjectActivity } from '@/components/ProjectPhasesSidebar'
 import PublishStatusControl from '@/components/PublishStatusControl'
@@ -14,8 +14,8 @@ import type { ActivityColumns } from './TableGroup'
 /**
  * Un rând al tabelului: o activitate, cu celulele ei. Cererile de documente
  * sunt sub-rândurile, ca subitemii din monday: se deschid cu săgeata (sau cu
- * un clic oriunde pe rând) și stau sub el, indentate, pe o linie în culoarea
- * fazei.
+ * un clic oriunde pe rând) și stau sub el, indentate, legate de el prin ramuri
+ * în culoarea fazei.
  *
  * Rândul nu e `role="button"`: înăuntru stau un `select`, un câmp de dată și
  * comutatorul de publicare, pe care semantica de buton le-ar ascunde. De la
@@ -160,14 +160,15 @@ export default function ActivityRow({
         )}
       </div>
 
-      {/* Linia de indentare nu îngustează grila cererilor față de cea a activității. */}
+      {/* Ramurile le desenează fiecare cerere (DocumentRequests), în culoarea
+          fazei de aici; indentarea nu îngustează grila cererilor față de cea a
+          activității. */}
       {open && (
         <div
-          className="relative mb-3 ml-5 border-l pl-2 @min-[50rem]:ml-0 @min-[50rem]:border-l-0 @min-[50rem]:pl-0"
-          style={{ borderColor: band ? `color-mix(in srgb, ${bandVar(band)} 45%, transparent)` : 'var(--sg-rule)' }}
+          className="mb-3 ml-5 pl-2 @min-[50rem]:ml-0 @min-[50rem]:pl-0"
+          style={{ '--tree-line': band ? `color-mix(in srgb, ${bandVar(band)} 45%, transparent)` : 'var(--sg-rule)' } as CSSProperties}
         >
           {children}
-          <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-[1.3rem] hidden border-l border-inherit @min-[50rem]:block" />
         </div>
       )}
     </div>
