@@ -64,4 +64,4 @@ curl -sI https://www.kabinet.ro/api/me | grep -i x-vercel-id   # trebuie să con
 
 ## Migrații
 
-`20261022120000_date_sensibile.sql` și `20261022120100_copie_zilnica_baza.sql` sunt mai noi decât migrațiile din #123 și #124. Dacă branch-ul ăsta intră în `main` înaintea lor, migrațiile lor ajung „mai vechi decât producția”, iar `supabase db push --linked` le refuză. Fie intră #124 și #123 întâi, fie le redenumești migrațiile la merge.
+`20261029120000_date_sensibile.sql` și `20261029120100_copie_zilnica_baza.sql` vin după ultima migrație din #128 (`20261027112801_template_name_uniqueness.sql`); inițial erau `20261022…` și ar fi ajuns „mai vechi decât producția” după #128, iar `supabase db push --linked` le-ar fi refuzat. Dacă mai intră în `main` o migrație cu timestamp mai nou înaintea acestui branch, le redenumești din nou.
