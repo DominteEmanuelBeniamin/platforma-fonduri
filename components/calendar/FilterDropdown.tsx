@@ -2,12 +2,17 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
+import { SearchInput } from '@/components/ui/SearchInput'
+import { FoundIn, Highlight } from '@/components/ui/Highlight'
+import { rangesOf, searchItems, type FieldMatch, type SearchField } from '@/lib/search'
 
 export interface FilterOption {
   value: string
   label: string
   /** Antet sub care se strâng opțiunile — proiectele, de pildă, pe client. */
   group?: string
+  /** Ce se mai caută la opțiune, în afară de etichetă și grup (#112). */
+  search?: SearchField[]
 }
 
 /**
@@ -21,6 +26,8 @@ export interface FilterSection {
   options: FilterOption[]
   value: string[] | null
   onChange: (next: string[] | null) => void
+  /** Cu text aici, secțiunea are casetă de căutare (#112). */
+  searchLabel?: string
 }
 
 interface FilterDropdownProps {
@@ -39,7 +46,9 @@ interface FilterDropdownProps {
  */
 export default function FilterDropdown({ label, summary, sections, active }: FilterDropdownProps) {
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
+  const searchLabel = sections.find(section => section.searchLabel)?.searchLabel
 
   useEffect(() => {
     if (!open) return
@@ -72,7 +81,10 @@ export default function FilterDropdown({ label, summary, sections, active }: Fil
     >
       <button data-tooltip={`Filtrează după ${label.toLowerCase()}`}
         type="button"
-        onClick={() => setOpen(value => !value)}
+        onClick={() => {
+          setQuery('')
+          setOpen(value => !value)
+        }}
         aria-expanded={open}
         aria-haspopup="true"
         className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent,#4A3F7A)] ${
@@ -92,6 +104,11 @@ export default function FilterDropdown({ label, summary, sections, active }: Fil
           aria-label={label}
           className="absolute left-0 z-30 mt-1 max-h-80 w-64 overflow-y-auto rounded-xl border border-[var(--p-border)] bg-[var(--p-surface)] p-1 shadow-xl"
         >
+          {searchLabel && (
+            <div className="sticky top-0 z-10 bg-[var(--p-surface)] p-1">
+              <SearchInput size="sm" value={query} onChange={setQuery} placeholder={`${searchLabel}…`} label={searchLabel} />
+            </div>
+          )}
           {sections.map((section, index) => (
             <div key={section.key} className={index > 0 ? 'mt-1 border-t border-[var(--p-border)] pt-1' : ''}>
               {section.title && (
@@ -100,13 +117,15 @@ export default function FilterDropdown({ label, summary, sections, active }: Fil
                 </p>
               )}
 
-              <CheckRow
-                label={section.allLabel}
-                checked={section.value === null}
-                onSelect={() => section.onChange(null)}
-              />
+              {!(section.searchLabel && query.trim()) && (
+                <CheckRow
+                  label={section.allLabel}
+                  checked={section.value === null}
+                  onSelect={() => section.onChange(null)}
+                />
+              )}
 
-              {renderOptions(section, toggle)}
+              {renderOptions(section, toggle, section.searchLabel ? query : '')}
             </div>
           ))}
         </div>
@@ -122,32 +141,54 @@ export default function FilterDropdown({ label, summary, sections, active }: Fil
  * gruparea e o comoditate de citire, nu un filtru. Sărite la randare, ele ar fi
  * continuat să restrângă lista din `value`, fără bifă prin care să fie scoase.
  */
-function renderOptions(section: FilterSection, toggle: (section: FilterSection, value: string) => void) {
+function renderOptions(section: FilterSection, toggle: (section: FilterSection, value: string) => void, query: string) {
   const checked = (value: string) => section.value === null || section.value.includes(value)
+  // Clientul (grupul) se caută și el: „pop" arată toate proiectele lui Popescu.
+  const hits = searchItems(section.options, query, option => [
+    { key: 'label', label: 'Nume', value: option.label },
+    { key: 'group', label: 'Grup', value: option.group },
+    ...(option.search ?? []),
+  ])
+  if (hits.length === 0) {
+    return <p className="px-2 py-3 text-center text-xs text-[var(--p-ink-faint)]">Niciun rezultat</p>
+  }
+  const matchesOf = new Map(hits.map(hit => [hit.item.value, hit.matches]))
+  const options = hits.map(hit => hit.item)
   const row = (option: FilterOption) => (
     <CheckRow
       key={option.value}
       label={option.label}
+      matches={matchesOf.get(option.value) ?? []}
       checked={checked(option.value)}
       onSelect={() => toggle(section, option.value)}
     />
   )
-  const groups = [...new Set(section.options.map(option => option.group).filter(Boolean))] as string[]
+  const groups = [...new Set(options.map(option => option.group).filter(Boolean))] as string[]
 
   return (
     <>
-      {section.options.filter(option => !option.group).map(row)}
+      {options.filter(option => !option.group).map(row)}
       {groups.map(group => (
         <div key={group}>
-          <p className="px-2 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--p-ink-faint)]">{group}</p>
-          {section.options.filter(option => option.group === group).map(row)}
+          <p className="px-2 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--p-ink-faint)]"><Highlight text={group} query={query} /></p>
+          {options.filter(option => option.group === group).map(row)}
         </div>
       ))}
     </>
   )
 }
 
-function CheckRow({ label, checked, onSelect }: { label: string; checked: boolean; onSelect: () => void }) {
+function CheckRow({
+  label,
+  matches = [],
+  checked,
+  onSelect,
+}: {
+  label: string
+  matches?: FieldMatch[]
+  checked: boolean
+  onSelect: () => void
+}) {
   return (
     <button
       type="button"
@@ -166,7 +207,10 @@ function CheckRow({ label, checked, onSelect }: { label: string; checked: boolea
       >
         {checked && <Check className="h-3 w-3" />}
       </span>
-      <span className="truncate">{label}</span>
+      <span className="min-w-0">
+        <span className="block truncate"><Highlight text={label} ranges={rangesOf(matches, 'label')} /></span>
+        <FoundIn matches={matches} className="text-[10px]" />
+      </span>
     </button>
   )
 }

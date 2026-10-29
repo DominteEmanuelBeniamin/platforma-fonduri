@@ -7,6 +7,12 @@ const config = requireE2EConfig(e2eEnv())
 
 test('users default to active and explain deletion blockers before confirmation', async ({ page }) => {
   test.setTimeout(120_000)
+  const closeDialog = async () => {
+    // The tooltip can have a pending show timer before it becomes visible.
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+  }
   const active = { id: randomUUID(), email: 'ui.active@example.invalid', role: 'client', is_active: true, created_at: '2026-10-05T12:00:00Z' }
   const inactive = { ...active, id: randomUUID(), email: 'ui.inactive@example.invalid', is_active: false }
   const empty = { ...inactive, id: randomUUID(), email: 'ui.empty@example.invalid' }
@@ -69,7 +75,7 @@ test('users default to active and explain deletion blockers before confirmation'
     await expect(dialog.getByRole('button', { name: 'Dezactivează contul', exact: true })).toHaveCount(0)
     await expect(dialog.locator('input')).toHaveCount(0)
     await page.screenshot({ path: test.info().outputPath('cont-dezactivat-' + width + '.png') })
-    await page.keyboard.press('Escape')
+    await closeDialog()
     await expect(dialog).toHaveCount(0)
   }
   expect(deletions).toEqual([])
@@ -78,7 +84,7 @@ test('users default to active and explain deletion blockers before confirmation'
   await page.getByRole('button', { name: 'Șterge definitiv utilizatorul ' + empty.email, exact: true }).click()
   await expect(page.getByRole('dialog').getByText('Nu am putut verifica legăturile contului.', { exact: false })).toBeVisible()
   await expect(page.getByRole('dialog').locator('input')).toHaveCount(0)
-  await page.keyboard.press('Escape')
+  await closeDialog()
   impactAvailable = true
   await page.getByRole('button', { name: 'Șterge definitiv utilizatorul ' + empty.email, exact: true }).click()
   await page.getByRole('dialog').getByPlaceholder('sterge', { exact: true }).fill('sterge')
@@ -88,7 +94,7 @@ test('users default to active and explain deletion blockers before confirmation'
   await expect(page.getByRole('dialog').locator('input')).toHaveCount(0)
   await expect(page.getByRole('dialog').getByRole('button', { name: 'Dezactivează contul', exact: true })).toHaveCount(0)
   expect(deletions).toEqual(['/api/users/' + empty.id])
-  await page.keyboard.press('Escape')
+  await closeDialog()
 
   await filters.getByRole('button', { name: 'Toți', exact: true }).click()
   await page.getByRole('button', { name: 'Șterge definitiv utilizatorul ' + active.email, exact: true }).click()
@@ -96,7 +102,7 @@ test('users default to active and explain deletion blockers before confirmation'
   await expect(page.getByRole('dialog').getByText('Contul este deja dezactivat.', { exact: false })).toHaveCount(0)
   await page.getByRole('dialog').getByRole('button', { name: 'Dezactivează contul', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveAccessibleName('Dezactivează contul')
-  await page.keyboard.press('Escape')
+  await closeDialog()
 
   const historicalLog = {
     id: randomUUID(), user_id: inactive.id, action_type: 'login', entity_type: 'user',

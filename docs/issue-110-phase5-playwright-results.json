@@ -1,0 +1,332 @@
+{
+  "date": "2026-10-22T16:14:31.496Z",
+  "isolated": true,
+  "realEmailDelivery": false,
+  "cases": [
+    {
+      "suite": "drepturi",
+      "name": "Vede proiectul — admin toate; senior și junior doar proiectele lor",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Creează un proiect nou — admin și senior; juniorul nu; cine îl creează devine membru",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Adaugă și modifică faze, activități și cereri — admin; senior și junior doar în proiectele lor",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Aprobă sau respinge documentele — admin; senior și junior doar în proiectele lor",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Schimbă titlul, statusul și reminderele — admin; senior în proiectele lui; junior nu",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Încheie și redeschide proiectul — admin; senior în proiectele lui; junior nu (#109)",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Marchează faze, activități și cereri ca finalizate și le redeschide — admin; senior; junior nu, dar aprobă în continuare (#109)",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Șterge faze și activități — admin și senior în proiectele lui; cererile nu se pierd",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Adaugă colegi în echipă — admin și senior în proiectele lui; junior nu",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Scoate colegi — seniorul doar juniori; nu alt senior, nu pe el, nu consultantul general, nu pe cineva cu sarcini",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Șterge mesajele altora din chat — admin și senior; junior nu",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Modifică textul mesajelor altora — doar adminul; fiecare își modifică propriile mesaje",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Schimbă clientul sau consultantul general — doar adminul",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Șterge proiectul — doar adminul",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Vede șabloanele — toți consultanții; clientul nu",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Creează și modifică ciorne de șablon — toți",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Modifică conținutul unui șablon publicat — admin și senior; junior nu; se vede imediat în proiectele noi",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Duplică un șablon — admin și senior; junior nu",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Șterge un șablon — admin și senior; junior nu; blocat dacă îl folosește un proiect",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Dezactivează un șablon sau îl face implicit — doar adminul",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Publică un șablon — doar adminul",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Aplică modificările în proiectele existente — doar adminul; eticheta „Modificări neaplicate”",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Conturi: creare, roluri, nivel, ștergere — doar adminul",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Statusurile de proiect — doar adminul",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Jurnalul de audit — doar adminul",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Doar adminul schimbă nivelul; consultantul nu și-l poate schimba singur",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Retrogradarea are efect imediat, fără delogare",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Totul rămâne în audit: nivelul și acțiunile seniorului sub numele lui",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Regula adăugată: un proiect nou cere cel puțin un supervizor senior",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Interfață — seniorul în proiectul lui: redenumire, remindere, ștergere faze, echipă doar cu juniori",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Interfață — juniorul în proiectul lui: fără redenumire, fără ștergere, echipă doar de citit",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Interfață — chatul: seniorul șterge mesajele altora dar nu le editează; adminul le editează",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Interfață — șabloanele: seniorul editează, duplică și șterge; nu publică; juniorul doar ciorne",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Interfață — adminul vede eticheta „Modificări neaplicate în proiecte” și o aplică",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Interfață — seniorul nu are acces la conturi, audit, statusuri și tabloul de bord",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Interfață — adminul schimbă nivelul din pagina utilizatorului",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi",
+      "name": "Matricea e respectată — toate verificările de mai sus",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Vede proiectul — adminul toate; seniorul și juniorul doar proiectele lor, și pe prima pagină",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Creează un proiect nou — din „Dosar nou”, admin și senior; juniorul nu are buton și e trimis înapoi",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Adaugă și modifică faze, activități și cereri — din pagina proiectului, pentru toți în proiectul propriu",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Aprobă sau respinge documentele — din fișa cererii, pentru toți în proiectul propriu",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Schimbă titlul, statusul și reminderele — adminul și seniorul din bara proiectului; juniorul nu le are",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Încheie proiectul și finalizează faze și cereri — adminul și seniorul din meniuri și din fișă; juniorul nu le are (#109)",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Șterge faze și activități — „Șterge” apare la admin și senior, nu la junior; activitatea ștearsă își păstrează cererile",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Adaugă colegi — adminul și seniorul din panoul echipei; juniorul doar citește",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Scoate colegi — seniorul primește motivul când încearcă consultantul general sau pe cineva cu sarcini; adminul poate scoate un senior",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Șterge mesajele altora din chat — adminul și seniorul din meniul mesajului; juniorul nu are meniu pe mesajele altora",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Modifică textul mesajelor altora — doar adminul; fiecare își modifică propriile mesaje",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Schimbă clientul sau consultantul general — doar adminul are selectorul de la „Cereri generale”",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Șterge proiectul — doar adminul are „Șterge proiectul” pe prima pagină",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Vede șabloanele — adminul, seniorul și juniorul au lista și meniul; clientul e trimis înapoi",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Creează și modifică ciorne de șablon — toți, din editor",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Modifică un șablon publicat — adminul și seniorul din editor; juniorul nu ajunge în editor",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Duplică un șablon — adminul și seniorul; juniorul nu are butonul",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Șterge un șablon — adminul și seniorul; blocat dacă îl folosește un proiect; juniorul nu are butonul",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Dezactivează un șablon sau îl face implicit — nimeni n-are control în interfață; seniorul și juniorul nu văd nimic de felul ăsta",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Publică un șablon — doar adminul, din listă; fereastra nu contrazice matricea",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Aplică modificările în proiectele existente — doar adminul vede eticheta „Modificări neaplicate” și o aplică",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Conturi — adminul creează, schimbă rolul și șterge din „Utilizatori”; un cont nou pornește junior; consultanții nu ajung acolo",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Statusurile de proiect — adminul adaugă un status din pagină; consultanții sunt trimiși înapoi",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Jurnalul de audit și tabloul de bord — doar adminul; consultanții n-au link și sunt trimiși înapoi",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Doar adminul schimbă nivelul, din pagina utilizatorului; consultanții nu ajung la comutator",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Retrogradarea are efect imediat, la următoarea acțiune, fără delogare",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Totul rămâne în audit — adminul vede în jurnal nivelul schimbat și acțiunile seniorului sub numele lui",
+      "status": "expected"
+    },
+    {
+      "suite": "drepturi-interfata",
+      "name": "Matricea din PDF, în interfață — toate verificările de mai sus",
+      "status": "expected"
+    }
+  ]
+}

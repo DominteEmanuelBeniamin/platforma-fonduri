@@ -38,6 +38,9 @@ import { Plate } from '@/components/ui/Plate'
 import { Signal } from '@/components/ui/Signal'
 import { FloatingSurface, Scrim } from '@/components/ui/Surface'
 import { bandFor, bandVar } from '@/lib/signage'
+import { FoundIn, Highlight } from '@/components/ui/Highlight'
+import { rangesOf, searchItems, type SearchField } from '@/lib/search'
+import { programLabel } from '@/lib/search-fields'
 
 interface ProjectStatus {
   id: string
@@ -54,6 +57,7 @@ interface Template {
   is_active?: boolean | null
   /** Setat când conținutul unui șablon publicat s-a schimbat după ultima aplicare în proiecte. */
   unpropagated_changes_at?: string | null
+  measure?: { name?: string | null; program?: { name?: string | null } | null } | null
   phases: {
     id: string
     name: string
@@ -1243,13 +1247,20 @@ function AdminTemplatesContent() {
     affectedPropagationProjects.every(project => propagationSelectedProjectIds.includes(project.project_id))
   const deleteModalText = getDeleteModalText(deleteTarget)
 
-  const filteredTemplates = useMemo(() => {
-    const q = templateSearch.trim().toLowerCase()
-    if (!q) return templates
-    return templates.filter(t =>
-      t.name.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q)
-    )
-  }, [templates, templateSearch])
+  // Căutarea (#112): numele, descrierea, programul și fazele și activitățile din șablon.
+  const templateHits = useMemo(() => searchItems(templates, templateSearch, (t): SearchField[] => [
+    { key: 'name', label: 'Nume', value: t.name },
+    { key: 'description', label: 'Descriere', value: t.description },
+    { key: 'program', label: 'Program', value: programLabel(t.measure), shown: false },
+    { key: 'phases', label: 'Faze', value: (t.phases ?? []).map(phase => phase.name).join(', '), shown: false },
+    {
+      key: 'activities',
+      label: 'Activități',
+      value: (t.phases ?? []).flatMap(phase => (phase.activities ?? []).map(activity => activity.name)).join(', '),
+      shown: false,
+    },
+  ]), [templates, templateSearch])
+  const filteredTemplates = useMemo(() => templateHits.map(hit => hit.item), [templateHits])
 
   const formActivityCount = phases.reduce((sum, phase) => sum + phase.activities.length, 0)
   const formSummary = [
@@ -1338,7 +1349,7 @@ function AdminTemplatesContent() {
                       </tr>
                     </thead>
                     <tbody className="block lg:table-row-group">
-                      {filteredTemplates.map((template) => {
+                      {templateHits.map(({ item: template, matches }) => {
                         const phaseCount = template.phases?.length || 0
                         const activityCount = template.phases?.reduce((sum, p) => sum + (p.activities?.length || 0), 0) || 0
                         const expanded = expandedTemplateIds.has(template.id)
@@ -1367,10 +1378,11 @@ function AdminTemplatesContent() {
                                     <span className="w-6 flex-shrink-0" aria-hidden />
                                   )}
                                   <div className="min-w-0 break-words">
-                                    <span className="block font-medium text-ink">{template.name}</span>
+                                    <span className="block font-medium text-ink"><Highlight text={template.name} ranges={rangesOf(matches, 'name')} /></span>
                                     {template.description && (
-                                      <span className="mt-0.5 text-xs leading-5 text-ink-soft line-clamp-1" title={template.description}>{template.description}</span>
+                                      <span className="mt-0.5 text-xs leading-5 text-ink-soft line-clamp-1" title={template.description}><Highlight text={template.description} ranges={rangesOf(matches, 'description')} /></span>
                                     )}
+                                    <FoundIn matches={matches} className="mt-0.5" />
                                     <span className="mt-0.5 block text-xs text-ink-soft lg:hidden">
                                       {countLabel(phaseCount, 'fază', 'faze')} · {countLabel(activityCount, 'activitate', 'activități')} · {countLabel(countTemplateDocuments(template), 'document', 'documente')}
                                     </span>
@@ -1436,7 +1448,7 @@ function AdminTemplatesContent() {
                                           style={{ background: bandVar(bandFor(index)) }}
                                         />
                                         <span className="w-5 shrink-0 tabular-nums text-ink-soft">{index + 1}.</span>
-                                        <span className="min-w-0 flex-1 font-medium text-ink">{phase.name}</span>
+                                        <span className="min-w-0 flex-1 font-medium text-ink"><Highlight text={phase.name} query={templateSearch} /></span>
                                         <span className="shrink-0 text-xs text-ink-soft">
                                           {countLabel(phase.activities?.length || 0, 'activitate', 'activități')}
                                         </span>

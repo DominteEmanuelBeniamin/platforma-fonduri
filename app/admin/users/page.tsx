@@ -14,12 +14,15 @@ import { IconButton } from '@/components/ui/IconButton'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Plate } from '@/components/ui/Plate'
-import { FloatingSurface, Scrim } from '@/components/ui/Surface'
 import { formatDate } from '@/lib/signage'
 import { Spinner } from '@/components/ui/Spinner'
 import { Signal } from '@/components/ui/Signal'
 import { profileDisplayName } from '@/lib/profile-display'
 import { ResetUserPasswordAction } from '@/components/ResetUserPasswordAction'
+import CifInput, { type CifInputError, type CifInputValue } from '@/components/CifInput'
+import { validateCif } from '@/lib/cif'
+import { FoundIn, Highlight } from '@/components/ui/Highlight'
+import { rangesOf, searchItems, type SearchField } from '@/lib/search'
 
 type Rol = 'admin' | 'consultant' | 'client'
 type UserState = 'active' | 'inactive' | 'all'
@@ -37,6 +40,7 @@ function lifecycleCodeMessage(code?: string) {
   if (code === 'LAST_ACTIVE_ADMIN') return 'Trebuie să rămână cel puțin un administrator activ.'
   if (code === 'USER_HAS_RELATED_DATA') return 'Contul are date asociate și nu poate fi șters.'
   if (code === 'AUTH_SYNC_INCOMPLETE') return 'Accesul contului este blocat, dar dezactivarea trebuie reîncercată.'
+  if (code === 'ACCOUNT_CREATION_PENDING') return 'Contul are crearea incompletă. Editarea și reactivarea nu sunt permise.'
   return 'Nu am putut finaliza acțiunea. Reîncearcă.'
 }
 
@@ -86,6 +90,27 @@ const ROLURI: Record<Rol, string> = {
   admin: 'Administrator',
 }
 
+/**
+ * Ce se caută la un cont (#112). Firma, CIF-ul și adresa doar la client: la
+ * celelalte roluri CIF-ul rămas din trecut nu se arată, deci nici nu se caută.
+ */
+function userSearchFields(u: any): SearchField[] {
+  const client = u.role === 'client'
+  const consultant = u.role === 'consultant'
+  return [
+    { key: 'email', label: 'Email', value: u.email },
+    { key: 'nume', label: 'Nume', value: u.full_name },
+    { key: 'telefon', label: 'Telefon', value: u.telefon, kind: 'phone', shown: false },
+    { key: 'rol', label: 'Rol', value: ROLURI[u.role as Rol], shown: false },
+    { key: 'nivel', label: 'Nivel', value: consultant ? (u.consultant_level === 'senior' ? 'Senior' : 'Junior') : null, shown: false },
+    { key: 'firma', label: 'Firmă', value: client ? u.nume_firma : null, shown: false },
+    { key: 'cif', label: 'CIF', value: client ? u.cif : null, kind: 'cif', shown: false },
+    { key: 'adresa', label: 'Adresă', value: client ? u.adresa_firma : null, shown: false },
+    { key: 'specializare', label: 'Specializare', value: u.specializare, shown: false },
+    { key: 'departament', label: 'Departament', value: u.departament, shown: false },
+  ]
+}
+
 /** Câmpul de formular: etichetă, ajutor vizibil și input. Ajutorul stă sub
  *  câmp, nu într-un tooltip care apare la hover — un indiciu pe care nu-l vezi
  *  cu tastatura și nu-l atingi cu degetul nu e ajutor. */
@@ -127,12 +152,15 @@ export default function AdminUsersPage() {
   const [newEmail, setNewEmail] = useState('')
   const [newName, setNewName] = useState('')
   const [fallbackCredentials, setFallbackCredentials] = useState<{ email: string; password: string } | null>(null)
-  const [partialCreationUserId, setPartialCreationUserId] = useState<string | null>(null)
+  const [createError, setCreateError] = useState<{ message: string; needsReview: boolean } | null>(null)
   const [telefon, setTelefon] = useState('')
-  const [cif, setCif] = useState('')
+  const [cif, setCif] = useState<CifInputValue>({ country: 'RO', number: '' })
+  const [cifError, setCifError] = useState<(CifInputError & { server?: boolean }) | null>(null)
+  const createFormRef = useRef<HTMLFormElement>(null)
+  const createTriggerRef = useRef<HTMLElement | null>(null)
   const [numeFirma, setNumeFirma] = useState('')
   const [adresaFirma, setAdresaFirma] = useState('')
-  const [persoanaContact, setPersoanaContact] = useState('')
+  const [consultantLevel, setConsultantLevel] = useState<'junior' | 'senior'>('junior')
   const [specializare, setSpecializare] = useState('')
   const [departament, setDepartament] = useState('')
   const [isCreating, setIsCreating] = useState(false)
@@ -156,20 +184,22 @@ export default function AdminUsersPage() {
 
   const clearCreateForm = () => {
     setNewEmail(''); setNewName(''); setTelefon('')
-    setCif(''); setNumeFirma(''); setAdresaFirma(''); setPersoanaContact('')
+    setCif({ country: 'RO', number: '' }); setCifError(null); setCreateError(null)
+    setNumeFirma(''); setAdresaFirma(''); setConsultantLevel('junior')
     setSpecializare(''); setDepartament('')
   }
 
   const closeCreatePanel = useCallback(() => {
     if (isCreating) return
     setFallbackCredentials(null)
-    setPartialCreationUserId(null)
+    setCreateError(null)
     setPanouDeschis(false)
   }, [isCreating])
 
   const openCreatePanel = useCallback(() => {
+    createTriggerRef.current = document.activeElement as HTMLElement | null
     setFallbackCredentials(null)
-    setPartialCreationUserId(null)
+    setCreateError(null)
     setPanouDeschis(true)
   }, [])
 
@@ -200,47 +230,78 @@ export default function AdminUsersPage() {
   }, [authLoading, token, profile, router, fetchUsers, filtruStare])
 
   useEffect(() => {
-    setCif(''); setNumeFirma(''); setAdresaFirma(''); setPersoanaContact('')
+    setCif({ country: 'RO', number: '' }); setCifError(null)
+    setNumeFirma(''); setAdresaFirma(''); setConsultantLevel('junior')
     setSpecializare(''); setDepartament('')
   }, [newRole])
 
   useEffect(() => {
     if (!panouDeschis) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeCreatePanel() }
-    document.addEventListener('keydown', onKey)
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev }
-  }, [panouDeschis, closeCreatePanel])
+    return () => { document.body.style.overflow = prev }
+  }, [panouDeschis])
+
+  const changeCif = (value: CifInputValue) => {
+    setCif(value)
+    if (cifError || value.country !== cif.country) {
+      const result = validateCif(value.number, value.country)
+      setCifError(result.ok ? null : result)
+    }
+  }
+
+  const focusCifField = useCallback((field: CifInputError['field']) => {
+    const input = createFormRef.current?.querySelector<HTMLElement>(`[name="${field}"]`)
+    input?.focus()
+    input?.scrollIntoView({ block: 'center' })
+  }, [])
+
+  useEffect(() => {
+    if (cifError?.server && !isCreating) focusCifField(cifError.field)
+  }, [cifError, isCreating, focusCifField])
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (isCreating || createError?.needsReview) return
+    const validation = newRole === 'client' ? validateCif(cif.number, cif.country) : null
+    setCifError(validation && !validation.ok ? validation : null)
+    if (!createFormRef.current?.reportValidity()) return
+    if (validation && !validation.ok) {
+      focusCifField(validation.field)
+      return
+    }
     setFallbackCredentials(null)
-    setPartialCreationUserId(null)
+    setCreateError(null)
     setIsCreating(true)
     try {
       const payload: any = { email: newEmail, role: newRole, fullName: newName, telefon: telefon || null }
-      if (newRole === 'client') { payload.cif = cif || null; payload.numeFirma = numeFirma || null; payload.adresaFirma = adresaFirma || null; payload.persoanaContact = persoanaContact || null }
-      else if (newRole === 'consultant') { payload.specializare = specializare || null; payload.departament = departament || null }
+      if (newRole === 'client') { payload.cif = cif.number; payload.cifCountry = cif.country; payload.numeFirma = numeFirma || null; payload.adresaFirma = adresaFirma || null }
+      else if (newRole === 'consultant') { payload.consultantLevel = consultantLevel; payload.specializare = specializare || null; payload.departament = departament || null }
       else if (newRole === 'admin') { payload.departament = departament || null }
 
       const res = await apiFetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       if (!res.ok) {
-        const error = await res.json().catch(() => null) as { code?: string; userId?: string } | null
-        if (error?.code === 'profile_update_failed' && typeof error.userId === 'string') {
-          clearCreateForm()
-          setPartialCreationUserId(error.userId)
-          return
+        const error = await res.json().catch(() => null) as { code?: string; message?: string; field?: string } | null
+        const message = error?.message || 'Nu am putut crea utilizatorul. Verifică datele și reîncearcă.'
+        if (newRole === 'client' && error?.code?.startsWith('CIF_')) {
+          const field = error.field === 'cifCountry' ? 'cifCountry' : 'cif'
+          setCifError({ field, message, server: true })
+        } else if (error?.code === 'FIELD_REQUIRED' && error.field) {
+          // Serverul a refuzat un câmp obligatoriu gol (#111): mesajul sus, focusul pe câmp.
+          setCreateError({ message, needsReview: false })
+          createFormRef.current?.querySelector<HTMLElement>(`[name="${error.field}"]`)?.focus()
+        } else {
+          setCreateError({ message, needsReview: ['ACCOUNT_CREATION_PENDING', 'ACCOUNT_CREATION_UNCONFIRMED', 'ACCOUNT_CREATION_INACTIVE'].includes(error?.code ?? '') })
         }
-        throw new Error()
+        return
       }
 
       const result: { userId: string; emailSent: true } | { userId: string; emailSent: false; temporaryPassword: string } = await res.json()
+      if (typeof result?.userId !== 'string' || !(result.emailSent === true || (result.emailSent === false && typeof result.temporaryPassword === 'string' && result.temporaryPassword))) throw new Error('Unconfirmed creation response')
       clearCreateForm()
       if (result.emailSent) {
         showToast('Utilizatorul a fost creat.', 'success')
         setFallbackCredentials(null)
-        setPartialCreationUserId(null)
         setPanouDeschis(false)
         fetchUsers()
       } else {
@@ -248,13 +309,18 @@ export default function AdminUsersPage() {
         fetchUsers(false)
       }
     } catch {
-      showToast('Nu am putut crea utilizatorul. Verifică datele și reîncearcă.', 'error')
+      setCreateError({ message: 'Nu am putut confirma crearea contului. Verifică lista de utilizatori înainte de a reîncerca.', needsReview: true })
     } finally {
       setIsCreating(false)
     }
   }
 
-  const updateUserRole = async (user: { id: string; email: string; full_name?: string | null; is_active?: boolean | null; role?: string }, rolNou: string) => {
+  const updateUserRole = async (user: { id: string; email: string; full_name?: string | null; is_active?: boolean | null; role?: string; cif?: string | null; creation_pending?: boolean }, rolNou: string) => {
+    if (user.creation_pending) { showToast(lifecycleCodeMessage('ACCOUNT_CREATION_PENDING'), 'error'); return }
+    if (rolNou === 'client' && !validateCif(user.cif).ok) {
+      showToast('Trecerea la client necesită un CIF valid, salvat împreună cu rolul. Editorul datelor firmei nu este încă disponibil.', 'error')
+      return
+    }
     const rolVechi = ROLURI[(user.role as Rol) || 'client']
     // Descrierea numește persoana și direcția schimbării — un admin care
     // derulează rapid prin listă trebuie să vadă exact ce confirmă, nu o
@@ -271,7 +337,7 @@ export default function AdminUsersPage() {
         const body = await res.json().catch(() => null)
         const message = body?.code === 'LAST_ACTIVE_ADMIN' || body?.code === 'SELF_ACCOUNT_ACTION'
           ? lifecycleCodeMessage(body.code)
-          : 'Nu am putut actualiza rolul. Reîncearcă.'
+          : body?.message || 'Nu am putut actualiza rolul. Reîncearcă.'
         showToast(message, 'error')
         return
       }
@@ -426,14 +492,10 @@ export default function AdminUsersPage() {
     return c
   }, [users])
 
-  const filtrati = useMemo(() => {
-    const q = cauta.trim().toLowerCase()
-    return users.filter((u) => {
-      if (filtruRol !== 'toate' && u.role !== filtruRol) return false
-      if (!q) return true
-      return `${u.email ?? ''} ${u.full_name ?? ''}`.toLowerCase().includes(q)
-    })
-  }, [users, cauta, filtruRol])
+  const filtrati = useMemo(
+    () => searchItems(users.filter((u) => filtruRol === 'toate' || u.role === filtruRol), cauta, userSearchFields),
+    [users, cauta, filtruRol]
+  )
 
   if (authLoading || loading) {
     return (
@@ -561,7 +623,7 @@ export default function AdminUsersPage() {
 
       <div className="flex flex-wrap items-center gap-2 border-b border-rule pb-3">
         <div className="min-w-[220px] flex-1">
-          <SearchInput value={cauta} onChange={setCauta} placeholder="Caută după email sau nume…" label="Caută utilizatori" />
+          <SearchInput value={cauta} onChange={setCauta} placeholder="Caută după nume, email, firmă, CIF, telefon…" label="Caută utilizatori" />
         </div>
         {/* `flex-wrap`: la 320px cele patru filtre nu încap pe un rând, iar
             `overflow-x-hidden` de pe `body` le-ar tăia în tăcere pe ultimul.
@@ -604,7 +666,7 @@ export default function AdminUsersPage() {
               : 'Încearcă alt termen de căutare, sau alege alt rol.'}
           </EmptyState>
         ) : (
-          filtrati.map((user) => (
+          filtrati.map(({ item: user, matches }) => (
             <Plate key={user.id} interactive className="group">
               <div className="flex flex-wrap items-center gap-3 p-4 sm:flex-nowrap">
                 <button data-tooltip="Deschide fișa contului"
@@ -613,15 +675,21 @@ export default function AdminUsersPage() {
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold text-ink transition-colors duration-[120ms] group-hover:text-[var(--sg-accent)]">
-                      {user.email}
+                      <Highlight text={user.email} ranges={rangesOf(matches, 'email')} />
                     </span>
                     <span className="mt-0.5 block truncate text-sm text-ink-soft">
-                      {user.full_name?.trim() || 'Fără nume'} · cont din {formatDate(user.created_at)}
+                      {user.full_name?.trim() ? <Highlight text={user.full_name} ranges={rangesOf(matches, 'nume')} /> : 'Fără nume'} · cont din {formatDate(user.created_at)}
                     </span>
+                    <FoundIn matches={matches} className="mt-0.5" />
                     {user.auth_sync_pending && (
                       <Signal tone="warn" className="mt-2 max-w-full">
                         Acces blocat · sincronizarea autentificării trebuie reîncercată
                       </Signal>
+                    )}
+                    {user.creation_pending && (
+                      <span className="mt-2 block whitespace-normal text-sm text-ink-soft">
+                        Acces blocat. Crearea trebuie verificată de un administrator; contul poate fi șters numai dacă nu are date asociate.
+                      </span>
                     )}
                   </span>
                   <ChevronRight className="h-4 w-4 shrink-0 text-ink-faint transition-colors duration-[120ms] group-hover:text-[var(--sg-accent)]" aria-hidden="true" />
@@ -638,7 +706,7 @@ export default function AdminUsersPage() {
                     id={`rol-${user.id}`}
                     value={user.role || 'client'}
                     onChange={e => updateUserRole(user, e.target.value)}
-                    disabled={updatingRoleId === user.id}
+                    disabled={updatingRoleId === user.id || user.creation_pending}
                     className="h-11 rounded-[var(--radius-plate)] border border-rule bg-plate px-2 text-sm text-ink transition-colors duration-[120ms] focus:border-[var(--sg-accent)] disabled:opacity-55 sm:h-9"
                   >
                     <option value="client">Client</option>
@@ -646,14 +714,14 @@ export default function AdminUsersPage() {
                     <option value="admin">Administrator</option>
                   </select>
                   {updatingRoleId === user.id && <Loader2 className="h-4 w-4 animate-spin text-ink-soft" aria-hidden="true" />}
-                  <span className={`rounded border px-2 py-1 text-xs font-semibold ${user.is_active === false ? 'border-rule text-ink-soft' : 'border-[var(--sg-ok)] text-[var(--sg-ok)]'}`}>
-                    {user.is_active === false ? 'Dezactivat' : 'Activ'}
+                  <span className={`rounded border px-2 py-1 text-xs font-semibold ${user.creation_pending ? 'border-[var(--sg-warn)] text-[var(--sg-warn)]' : user.is_active === false ? 'border-rule text-ink-soft' : 'border-[var(--sg-ok)] text-[var(--sg-ok)]'}`}>
+                    {user.creation_pending ? 'Creare incompletă' : user.is_active === false ? 'Dezactivat' : 'Activ'}
                   </span>
                   <ResetUserPasswordAction
                     target={{ id: user.id, email: user.email, full_name: user.full_name, is_active: user.is_active }}
                     onReset={() => fetchUsers(false)}
                   />
-                  {user.is_active === false ? (
+                  {!user.creation_pending && (user.is_active === false ? (
                     <>
                       {/* Sincronizarea neterminată (inclusiv conturile dezactivate înainte de #105)
                           se poate finaliza ca dezactivare sau încheia direct cu reactivarea. */}
@@ -678,7 +746,7 @@ export default function AdminUsersPage() {
                     <IconButton label={'Dezactivează ' + user.email} disabled={changingStateId !== null} onClick={(event) => { lifecycleFocusReturnRef.current = event.currentTarget; loadLifecycleImpact(user) }}>
                       <Power className="h-4 w-4" />
                     </IconButton>
-                  )}
+                  ))}
                   <IconButton
                     label={'Șterge definitiv utilizatorul ' + user.email}
                     data-tooltip="Șterge utilizatorul"
@@ -696,16 +764,19 @@ export default function AdminUsersPage() {
       </div>
 
       {panouDeschis && (
-        <div className="fixed inset-0 z-[100] flex justify-end">
-          <Scrim onClick={closeCreatePanel} />
-          <FloatingSurface
-            role="dialog"
-            ariaModal
-            ariaLabel="Adaugă utilizator"
-            className="drawer-slide-in relative flex h-full w-full flex-col border-y-0 border-r-0 sm:max-w-lg"
+        <Dialog.Root open={panouDeschis} onOpenChange={(open) => { if (!open) closeCreatePanel() }}>
+          <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[100]" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }} />
+          <Dialog.Content
+            onEscapeKeyDown={event => { if (isCreating) event.preventDefault() }}
+            onPointerDownOutside={event => { if (isCreating) event.preventDefault() }}
+            onCloseAutoFocus={event => { event.preventDefault(); if (createTriggerRef.current?.isConnected) createTriggerRef.current.focus(); else document.getElementById('admin-users-heading')?.focus() }}
+            className="drawer-slide-in fixed right-0 top-0 z-[100] flex h-[100dvh] w-full flex-col border-l border-rule bg-plate focus:outline-none sm:max-w-lg"
+            style={{ boxShadow: 'var(--sg-lift)' }}
           >
             <div className="flex items-center justify-between border-b border-rule px-5 py-4">
-              <h2 className="text-base font-bold text-ink">Adaugă utilizator</h2>
+              <Dialog.Title className="text-base font-bold text-ink">Adaugă utilizator</Dialog.Title>
+              <Dialog.Description className="sr-only">Completează datele contului. Parola temporară este disponibilă după confirmarea creării.</Dialog.Description>
               <IconButton
                 label="Închide panoul"
                 onClick={closeCreatePanel}
@@ -746,17 +817,17 @@ export default function AdminUsersPage() {
                   </dl>
                 </div>
               </div>
-            ) : partialCreationUserId ? (
-              <div className="flex min-h-0 flex-1 flex-col">
-                <div className="flex-1 px-5 py-5">
-                  <FeedbackMessage variant="error">
-                    Contul de autentificare a fost creat, dar profilul nu a putut fi actualizat. Este necesară remedierea manuală. ID utilizator: {partialCreationUserId}
-                  </FeedbackMessage>
-                </div>
-              </div>
             ) : (
-            <form onSubmit={handleCreateUser} className="flex min-h-0 flex-1 flex-col">
-              <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
+            <form ref={createFormRef} noValidate onSubmit={handleCreateUser} className="flex min-h-0 flex-1 flex-col">
+              <div className="min-w-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
+                {createError && <FeedbackMessage variant="error">
+                  <p>{createError.message}</p>
+                  {createError.needsReview && <Button type="button" variant="secondary" className="mt-3" onClick={() => {
+                    closeCreatePanel(); setFiltruStare('all'); setFiltruRol('toate'); setCauta(newEmail.trim())
+                    if (filtruStare === 'all') void fetchUsers(false)
+                  }}>Verifică lista de utilizatori</Button>}
+                </FeedbackMessage>}
+                <fieldset disabled={isCreating || createError?.needsReview} className="min-w-0 space-y-5">
                 <fieldset>
                   <legend className="mb-2 text-sm font-semibold text-ink">Tip de cont</legend>
                   <div className="flex flex-col gap-1">
@@ -781,68 +852,97 @@ export default function AdminUsersPage() {
                   )}
                 </fieldset>
 
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Camp label="Email" required>
-                    <input type="email" required placeholder="user@firma.ro" value={newEmail} onChange={e => setNewEmail(e.target.value)} className={inputClass} />
-                  </Camp>
-                  <Camp label="Nume complet" required>
-                    <input type="text" required placeholder="Ion Popescu" value={newName} onChange={e => setNewName(e.target.value)} className={inputClass} />
-                  </Camp>
-
-                  <Camp label="Telefon">
-                    <input type="tel" placeholder="0740123456" value={telefon} onChange={e => setTelefon(e.target.value)} className={inputClass} />
-                  </Camp>
-                </div>
+                {/* Ordinea pe rol (#111): la client firma întâi, apoi persoana
+                    care folosește contul; la echipă persoana, apoi detaliile. */}
+                {newRole === 'client' && (
+                  <fieldset className="border-t border-rule pt-5">
+                    <legend className="mb-3 text-sm font-semibold text-ink">Firma</legend>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="sm:col-span-2">
+                        <CifInput value={cif} onChange={changeCif} error={cifError} onBlur={() => {
+                          if (cifError?.server) return
+                          const result = validateCif(cif.number, cif.country)
+                          setCifError(result.ok ? null : result)
+                        }} />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <Camp label="Nume firmă" required>
+                          <input type="text" name="numeFirma" required placeholder="SC TECH SOLUTIONS SRL" value={numeFirma} onChange={e => setNumeFirma(e.target.value)} className={inputClass} />
+                        </Camp>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <Camp label="Adresă firmă" required>
+                          <input type="text" name="adresaFirma" required placeholder="Str. Principală nr. 10, București" value={adresaFirma} onChange={e => setAdresaFirma(e.target.value)} className={inputClass} />
+                        </Camp>
+                      </div>
+                    </div>
+                  </fieldset>
+                )}
 
                 <fieldset className="border-t border-rule pt-5">
-                  <legend className="sr-only">Detalii pentru {ROLURI[newRole]}</legend>
-                  <p className="mb-3 text-sm font-semibold text-ink">Detalii pentru {ROLURI[newRole].toLowerCase()}</p>
-
-                  {newRole === 'client' && (
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <Camp label="CIF / CUI" required hint="Ex.: RO12345678">
-                        <input type="text" required placeholder="RO12345678" value={cif} onChange={e => setCif(e.target.value)} className={inputClass} />
+                  <legend className="mb-3 text-sm font-semibold text-ink">{newRole === 'client' ? 'Persoana de contact' : 'Persoana'}</legend>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
+                      <Camp label="Nume complet" required>
+                        <input type="text" name="fullName" required placeholder="Ion Popescu" value={newName} onChange={e => setNewName(e.target.value)} className={inputClass} />
                       </Camp>
-                      <Camp label="Nume firmă" required>
-                        <input type="text" required placeholder="SC TECH SOLUTIONS SRL" value={numeFirma} onChange={e => setNumeFirma(e.target.value)} className={inputClass} />
-                      </Camp>
-                      <div className="sm:col-span-2">
-                        <Camp label="Adresă firmă">
-                          <input type="text" placeholder="Str. Principală nr. 10, București" value={adresaFirma} onChange={e => setAdresaFirma(e.target.value)} className={inputClass} />
-                        </Camp>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <Camp label="Persoană de contact" hint="Completeaz-o doar dacă diferă de titularul contului.">
-                          <input type="text" placeholder="Ana Popescu" value={persoanaContact} onChange={e => setPersoanaContact(e.target.value)} className={inputClass} />
-                        </Camp>
-                      </div>
                     </div>
-                  )}
+                    <Camp label="Email" required>
+                      <input type="email" name="email" required placeholder="user@firma.ro" value={newEmail} onChange={e => setNewEmail(e.target.value)} className={inputClass} />
+                    </Camp>
+                    <Camp label="Telefon">
+                      <input type="tel" name="telefon" placeholder="0740123456" value={telefon} onChange={e => setTelefon(e.target.value)} className={inputClass} />
+                    </Camp>
+                  </div>
+                </fieldset>
 
-                  {newRole === 'consultant' && (
+                {newRole === 'consultant' && (
+                  <fieldset className="border-t border-rule pt-5">
+                    <legend className="mb-3 text-sm font-semibold text-ink">Detalii consultant</legend>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <fieldset className="sm:col-span-2">
+                        <legend className="mb-1.5 text-sm font-semibold text-ink">Nivel</legend>
+                        <div className="flex flex-wrap gap-1">
+                          {(['junior', 'senior'] as const).map((level) => (
+                            <label key={level} className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-[var(--radius-plate)] px-2 transition-colors duration-[120ms] hover:bg-paper-sunk">
+                              <input type="radio" name="consultantLevel" value={level} checked={consultantLevel === level} onChange={() => setConsultantLevel(level)} className="h-4 w-4" />
+                              <span className="text-sm text-ink">{level === 'senior' ? 'Senior' : 'Junior'}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <span className="mt-1 block text-xs text-ink-soft">
+                          {consultantLevel === 'senior'
+                            ? 'Deschide proiecte, gestionează echipa și șabloanele.'
+                            : 'Lucrează în proiectele în care e adăugat.'}
+                        </span>
+                      </fieldset>
                       <Camp label="Specializare" required hint="Ex.: PNRR, Digitalizare IMM">
-                        <input type="text" required placeholder="Digitalizare IMM, PNRR" value={specializare} onChange={e => setSpecializare(e.target.value)} className={inputClass} />
+                        <input type="text" name="specializare" required placeholder="Digitalizare IMM, PNRR" value={specializare} onChange={e => setSpecializare(e.target.value)} className={inputClass} />
                       </Camp>
                       <Camp label="Departament">
-                        <input type="text" placeholder="Departament Proiecte" value={departament} onChange={e => setDepartament(e.target.value)} className={inputClass} />
+                        <input type="text" name="departament" placeholder="Departament Proiecte" value={departament} onChange={e => setDepartament(e.target.value)} className={inputClass} />
                       </Camp>
                     </div>
-                  )}
+                  </fieldset>
+                )}
 
-                  {newRole === 'admin' && (
+                {newRole === 'admin' && (
+                  <fieldset className="border-t border-rule pt-5">
+                    <legend className="mb-3 text-sm font-semibold text-ink">Detalii administrator</legend>
                     <Camp label="Departament">
-                      <input type="text" placeholder="Management, IT" value={departament} onChange={e => setDepartament(e.target.value)} className={inputClass} />
+                      <input type="text" name="departament" placeholder="Management, IT" value={departament} onChange={e => setDepartament(e.target.value)} className={inputClass} />
                     </Camp>
-                  )}
+                  </fieldset>
+                )}
                 </fieldset>
               </div>
 
               <div className="flex items-center justify-between gap-3 border-t border-rule px-5 py-4">
-                <p className="min-w-0 truncate text-sm text-ink-soft">
-                  Creezi <span className="font-semibold text-ink">{newName || 'un cont nou'}</span> ca {ROLURI[newRole].toLowerCase()}.
+                <p className="min-w-0 break-words text-sm text-ink-soft">
+                  Creezi <span className="font-semibold text-ink">{newName.trim() || 'un cont nou'}</span> ca {newRole === 'client' ? 'client' : ROLURI[newRole].toLowerCase()}.
+                  {newEmail.trim() && <> Va primi parola pe email la <span className="font-semibold text-ink">{newEmail.trim()}</span>.</>}
                 </p>
-                <Button data-tooltip="Creează contul; parola temporară pleacă pe email" type="submit" variant="primary" disabled={isCreating}>
+                <Button data-tooltip="Creează contul; parola temporară pleacă pe email" type="submit" variant="primary" disabled={isCreating || createError?.needsReview}>
                   {isCreating
                     ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Se creează…</>
                     : <><UserPlus className="h-4 w-4" aria-hidden="true" /> Creează</>}
@@ -850,8 +950,9 @@ export default function AdminUsersPage() {
               </div>
             </form>
             )}
-          </FloatingSurface>
-        </div>
+          </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
       )}
     </div>
   )

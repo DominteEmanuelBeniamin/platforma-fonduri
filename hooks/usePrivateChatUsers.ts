@@ -9,6 +9,7 @@ export type PrivateChatUserSearchItem = {
   full_name: string | null
   email: string | null
   role: string
+  specializare?: string | null
   hasConversation: boolean
   conversationId: string | null
 }
@@ -18,6 +19,8 @@ type SearchUsersResponse = {
   error?: string
 }
 
+const SEARCH_DEBOUNCE_MS = 300
+
 export function usePrivateChatUsers() {
   const { apiFetch } = useAuth()
 
@@ -25,10 +28,12 @@ export function usePrivateChatUsers() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const searchSeqRef = useRef(0)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const search = useCallback(async (q: string) => {
     const searchSeq = searchSeqRef.current + 1
     searchSeqRef.current = searchSeq
+    if (timerRef.current) clearTimeout(timerRef.current)
 
     if (!q.trim()) {
       setItems([])
@@ -39,6 +44,12 @@ export function usePrivateChatUsers() {
 
     setLoading(true)
     setError(null)
+
+    // Căutarea merge la server: așteptăm o pauză în tastare (#112).
+    await new Promise<void>(resolve => {
+      timerRef.current = setTimeout(resolve, SEARCH_DEBOUNCE_MS)
+    })
+    if (searchSeqRef.current !== searchSeq) return
 
     try {
       const res = await apiFetch(

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { finalizeLocalFixture } from '../../scripts/local-account-fixtures.mjs'
 import { test, expect } from '@playwright/test'
 import { createClient } from '@supabase/supabase-js'
 import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
@@ -14,6 +15,7 @@ test('reused fixtures and temporary-password markers accept transactionally prep
   const id = creation.data.user!.id
   const anon = () => createClient(config.supabaseUrl, config.anonKey, { auth: { persistSession: false, autoRefreshToken: false } })
   try {
+    await finalizeLocalFixture(service, id, { role: 'client', full_name: 'Recovery fixture' })
     const preflight = await service.rpc('recovery_preflight')
     expect(preflight.error).toBeNull()
     if (preflight.data.enabled) {

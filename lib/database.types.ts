@@ -279,6 +279,7 @@ export interface Profile {
   specializare: string | null;
   is_active: boolean;
   must_change_password: boolean;
+  creation_pending: boolean;
   created_at: string;
   updated_at: string;
 }

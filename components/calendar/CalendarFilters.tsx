@@ -86,6 +86,12 @@ export default function CalendarFilters({
       value: project.id,
       label: project.title,
       group: project.client_name ?? 'Fără client',
+      // Titlul și clientul sunt eticheta și grupul; restul se caută ascuns (#112).
+      search: [
+        { key: 'cod', label: 'Cod', value: project.search?.cod_intern, shown: false },
+        { key: 'firma', label: 'Firmă', value: project.search?.firm, shown: false },
+        { key: 'cif', label: 'CIF', value: project.search?.cif, kind: 'cif' as const, shown: false },
+      ],
     }))
   const endedCount = endedProjectIds.size
 
@@ -165,6 +171,7 @@ export default function CalendarFilters({
             {
               key: 'projects',
               allLabel: 'Toate proiectele',
+              searchLabel: 'Caută proiect sau client',
               options: projectOptions,
               value: filters.projectIds,
               onChange: next => set({ projectIds: next }),

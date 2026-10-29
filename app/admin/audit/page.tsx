@@ -50,6 +50,9 @@ import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { profileDisplayName } from '@/lib/profile-display'
+import { Highlight } from '@/components/ui/Highlight'
+
+const SEARCH_DEBOUNCE_MS = 300
 
 interface AuditLog {
   id: string
@@ -344,6 +347,12 @@ export default function AuditPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actionType, entityType, entityId, userIdFilter, fromDate, toDate, search])
 
+  // Căutarea pornește și la tastare (#112), după o pauză, ca pe tabloul de bord.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
     setSearch(searchInput)
@@ -560,7 +569,7 @@ export default function AuditPage() {
                 type="text"
                 value={searchInput}
                 onChange={e => setSearchInput(e.target.value)}
-                placeholder="Caută după descriere sau entitate…"
+                placeholder="Caută după descriere, entitate sau persoană…"
                 aria-label="Caută în jurnalul de audit"
                 className="h-11 w-full rounded-[var(--radius-plate)] border border-rule bg-plate pl-10 pr-4 text-sm text-ink placeholder:text-ink-faint transition-colors duration-[120ms] focus:border-[var(--sg-accent)] sm:h-10"
               />
@@ -753,6 +762,7 @@ export default function AuditPage() {
                       }
                       formatTime={formatTime}
                       formatJSON={formatJSON}
+                      query={search}
                     />
                   </Fragment>
                 ))}
@@ -787,7 +797,7 @@ function DateInput({ value, onChange, ariaLabel }: { value: string; onChange: (v
 }
 
 function LogRow({
-  log, isExpanded, onToggle, onViewHistory, onFilterUser, formatTime, formatJSON,
+  log, isExpanded, onToggle, onViewHistory, onFilterUser, formatTime, formatJSON, query,
 }: {
   log: AuditLog
   isExpanded: boolean
@@ -796,6 +806,8 @@ function LogRow({
   onFilterUser?: () => void
   formatTime: (s: string) => string
   formatJSON: (o: Record<string, unknown> | null) => string
+  /** Căutarea aplicată, ca să se evidențieze în rând (#112). */
+  query: string
 }) {
   const action = getActionConfig(log.action_type)
   const entity = getEntityConfig(log.entity_type)
@@ -841,8 +853,8 @@ function LogRow({
               {(isSystem ? 'S' : (log.user?.full_name?.[0] || actorEmail[0] || '?')).toUpperCase()}
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-ink">{actorName}</p>
-              {!isSystem && log.user?.email && <p className="truncate text-xs text-ink-faint">{log.user.email}</p>}
+              <p className="truncate text-sm font-medium text-ink"><Highlight text={actorName} query={query} /></p>
+              {!isSystem && log.user?.email && <p className="truncate text-xs text-ink-faint"><Highlight text={log.user.email} query={query} /></p>}
             </div>
             {onFilterUser && (
               <IconButton
@@ -871,14 +883,14 @@ function LogRow({
             <div className="min-w-0">
               <span className="block text-sm text-ink-soft">{getEntityLabel(log.entity_type)}</span>
               {log.entity_name && (
-                <span className="block truncate text-xs text-ink-faint" title={log.entity_name}>{log.entity_name}</span>
+                <span className="block truncate text-xs text-ink-faint" title={log.entity_name}><Highlight text={log.entity_name} query={query} /></span>
               )}
             </div>
           </div>
         </td>
 
         <td className="px-4 py-3">
-          <p className="text-sm leading-snug text-ink">{log.description || <span className="text-ink-faint">—</span>}</p>
+          <p className="text-sm leading-snug text-ink">{log.description ? <Highlight text={log.description} query={query} /> : <span className="text-ink-faint">—</span>}</p>
         </td>
 
         <td className="px-4 py-3">
