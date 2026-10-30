@@ -15,6 +15,9 @@ type Profile = {
   full_name?: string | null
   telefon?: string | null
   cif?: string | null
+  nume_firma?: string | null
+  /** Parola e temporară (cont nou sau resetat de admin) până o schimbă omul. */
+  must_change_password?: boolean | null
 } | null
 
 type AuthCtx = {
@@ -27,6 +30,8 @@ type AuthCtx = {
   apiFetch: (input: RequestInfo, init?: RequestInit) => Promise<Response>
   installSession: (session: { access_token: string; refresh_token: string }, expectedUserId: string) => Promise<boolean>
   signOut: () => Promise<void>
+  /** După „Schimbă parola” din Contul meu: avertizarea de parolă temporară dispare fără reîncărcare. */
+  markPasswordChanged: () => void
 }
 
 const Ctx = createContext<AuthCtx | null>(null)
@@ -268,9 +273,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.replace('/login')
   }, [applySession, router, token])
 
+  const markPasswordChanged = useCallback(() => {
+    setProfile(current => (current ? { ...current, must_change_password: false } : current))
+  }, [])
+
   const value = useMemo(
-    () => ({ token, userId, user, profile, profileError, loading, apiFetch, installSession, signOut }),
-    [token, userId, user, profile, profileError, loading, apiFetch, installSession, signOut]
+    () => ({ token, userId, user, profile, profileError, loading, apiFetch, installSession, signOut, markPasswordChanged }),
+    [token, userId, user, profile, profileError, loading, apiFetch, installSession, signOut, markPasswordChanged]
   )
 
   return (

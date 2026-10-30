@@ -13,6 +13,8 @@ type AuditActionType =
   | 'download'
   | 'password_reset_requested'
   | 'password_reset_completed'
+  // Schimbarea parolei din „Contul meu”; o scrie doar funcția `self_change_password`.
+  | 'password_changed'
   // #109: încheierea și redeschiderea proiectului, închiderea și redeschiderea
   // cererilor, finalizarea fazelor și activităților.
   | 'close'

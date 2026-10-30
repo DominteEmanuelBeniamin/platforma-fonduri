@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useRef } from "react"
-import { LogOut } from "lucide-react"
+import { LogOut, UserRound } from "lucide-react"
 import { PUBLIC_PATHS, useAuth } from "@/app/providers/AuthProvider"
 import { usePrivateChatUnread } from "@/hooks/usePrivateChatUnread"
 import { useProjectChatUnread } from "@/app/providers/ProjectChatUnreadProvider"
@@ -161,9 +161,25 @@ export default function Navbar() {
           <>
             {isLoggedIn && <NotificationsBell />}
             <div className="flex items-center gap-2 border-l border-rule pl-2 sm:gap-3 sm:pl-3">
-              <p className="hidden max-w-[180px] truncate text-xs font-medium text-ink-soft lg:block">
-                {profile?.email ?? (typeof user === 'object' && user && 'email' in user ? String(user.email) : '')}
-              </p>
+              {/* Contul meu: pe telefon doar pictograma, de la `lg` și adresa. Punctul
+                  portocaliu stă cât timp omul are încă parola temporară. */}
+              <Link
+                href="/cont"
+                aria-label={profile?.must_change_password ? 'Contul meu: alege-ți o parolă a ta' : 'Contul meu'}
+                data-tooltip={profile?.must_change_password ? 'Folosești o parolă temporară: alege-ți una a ta' : 'Contul meu: datele tale și parola'}
+                data-active={pathname === '/cont' ? 'true' : undefined}
+                className={`relative inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-[var(--radius-plate)] px-2 text-xs font-medium transition-colors duration-[120ms] pointer-fine:min-h-9 pointer-fine:min-w-9 ${
+                  pathname === '/cont' ? 'bg-[var(--sg-accent-soft)] text-[var(--sg-accent-ink)]' : 'text-ink-soft hover:bg-paper-sunk hover:text-ink'
+                }`}
+              >
+                <UserRound className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="hidden max-w-[180px] truncate lg:block">
+                  {profile?.email ?? (typeof user === 'object' && user && 'email' in user ? String(user.email) : '')}
+                </span>
+                {profile?.must_change_password && (
+                  <span aria-hidden="true" className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full border-2 border-plate bg-[var(--sg-warn)]" />
+                )}
+              </Link>
               <IconButton label="Deconectare" data-tooltip="Ieși din cont" tone="danger" onClick={handleLogout}>
                 <LogOut className="h-4 w-4" aria-hidden="true" />
               </IconButton>

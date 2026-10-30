@@ -28,6 +28,26 @@ function getBearerToken(request: Request) {
   return match?.[1]
 }
 
+const SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Sesiunea Supabase din care vine cererea (claim-ul `session_id` din JWT).
+ * Se citește fără verificare: o folosesc doar rutele care au validat deja
+ * tokenul cu `requireUser`/`requireProfile`, iar funcțiile din baza de date
+ * verifică din nou că sesiunea e a utilizatorului și încă activă.
+ */
+export function bearerSessionId(request: Request): string | null {
+  const payload = getBearerToken(request)?.split('.')[1]
+  if (!payload) return null
+  try {
+    const claims: unknown = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
+    const sessionId = typeof claims === 'object' && claims !== null ? (claims as Record<string, unknown>).session_id : null
+    return typeof sessionId === 'string' && SESSION_UUID.test(sessionId) ? sessionId.toLowerCase() : null
+  } catch {
+    return null
+  }
+}
+
 export async function requireUser(request: Request): Promise<Result<{ user: User }>> {
   const token = getBearerToken(request)
   if (!token) {
