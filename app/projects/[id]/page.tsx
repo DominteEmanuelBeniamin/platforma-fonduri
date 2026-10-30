@@ -74,7 +74,7 @@ import { buildSearchIndex, type SearchResult } from '@/lib/projectSearch'
 import { buildProjectChatHref } from '@/lib/project-chat-links'
 import { isClientVisibleActivity, isClientVisibleDocument, isClientVisiblePhase } from '@/lib/client-visibility'
 import { publishBlockers } from '@/lib/publish-rules'
-import { serverMessage } from '@/lib/api-error'
+import { serverMessage, transitionFailureVariant } from '@/lib/api-error'
 import { activityDuplicateConfirm, activityDuplicatedMessage, phaseDuplicateConfirm, phaseDuplicatedMessage } from '@/lib/duplication-summary'
 import {
   GENERAL_PHASE_ID,
@@ -95,6 +95,7 @@ import { Signal } from '@/components/ui/Signal'
 import HiddenFinalRow from '@/components/HiddenFinalRow'
 import {
   activityCompletionBlocker,
+  activityReopenParentRefusal,
   activityCompletionConfirm,
   activityProgress,
   countHiddenRoots,
@@ -845,7 +846,7 @@ function ProjectDetailsContent() {
     try {
       const res = await apiFetch(`/api/projects/${projectId}/${action}`, { method: 'POST' })
       if (!res.ok) {
-        showToast(await serverMessage(res, fallback), 'error')
+        showToast(await serverMessage(res, fallback), transitionFailureVariant(res.status))
         // Un 409 înseamnă că starea s-a schimbat din alt tab: pagina o preia.
         await refreshProject()
         return
@@ -890,6 +891,13 @@ function ProjectDetailsContent() {
         ? activityCompletionConfirm(activity, allDocRequests)
         : phaseCompletionConfirm(phase, allDocRequests)
       if (!(await confirm(dialog))) return
+    } else if (activity) {
+      // Într-o fază finalizată, întâi faza (#120): aceeași regulă ca pe server.
+      const refusal = activityReopenParentRefusal(phase)
+      if (refusal) {
+        showToast(refusal.message, 'warning')
+        return
+      }
     }
     const base = activity
       ? `/api/projects/${projectId}/phases/${phase.id}/activities/${activity.id}`
@@ -902,7 +910,7 @@ function ProjectDetailsContent() {
     try {
       const res = await apiFetch(`${base}/${action}`, { method: 'POST' })
       if (!res.ok) {
-        showToast(await serverMessage(res, fallback), 'error')
+        showToast(await serverMessage(res, fallback), transitionFailureVariant(res.status))
         await refreshPhases()
         return
       }
@@ -1305,7 +1313,14 @@ function ProjectDetailsContent() {
     return signals
   }, [requestsByPhase, todayTs, projectClosed, isClient])
 
-  const searchIndex = useMemo(() => buildSearchIndex(phases, allDocRequests), [phases, allDocRequests])
+  const searchIndex = useMemo(
+    () => buildSearchIndex(phases, allDocRequests, {
+      isClient,
+      todayTs,
+      generalConsultant: projectMembers.find(member => member.id === project?.general_consultant_id),
+    }),
+    [phases, allDocRequests, isClient, todayTs, projectMembers, project?.general_consultant_id]
+  )
 
   const handleSearchSelect = (result: SearchResult) => {
     if (result.type === 'phase') {

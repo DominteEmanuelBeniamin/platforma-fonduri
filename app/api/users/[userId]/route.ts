@@ -4,6 +4,8 @@ import { requireUserOrAdmin, requireAdmin, guardToResponse } from '../../_utils/
 import { createSupabaseServiceClient } from '../../_utils/supabase'
 import { logUserAction, getClientIP, getUserAgent } from '../../_utils/audit'
 import { userLifecycleConflict } from '../../_utils/user-lifecycle'
+import { cifForbidden, cifValidationFailure, checkCifAvailable, userCifConflict } from '../../_utils/user-creation'
+import { validateCif } from '@/lib/cif'
 import { isUuid } from '@/lib/notification-utils'
 import { NextResponse } from 'next/server'
 
@@ -12,6 +14,7 @@ type PatchBody = Partial<{
   role: unknown
   telefon: unknown
   cif: unknown
+  cifCountry: unknown
   email: unknown
   consultant_level: unknown
 }>
@@ -22,10 +25,6 @@ function isStringOrNullOrUndef(x: unknown) {
 
 function normalizePhone(phone: string) {
   return phone.trim()
-}
-
-function normalizeCui(cui: string) {
-  return cui.trim()
 }
 
 export async function PATCH(
@@ -40,24 +39,30 @@ export async function PATCH(
 
     const ctx = await requireUserOrAdmin(request, targetUserId)
     if (!ctx.ok) return guardToResponse(ctx)
+    const body = (await request.json().catch(() => null)) as PatchBody | null
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return NextResponse.json({ message: 'Invalid JSON body' }, { status: 400 })
+    }
+    const hasCif = Object.hasOwn(body, 'cif')
+    const hasCountry = Object.hasOwn(body, 'cifCountry')
+    if ((hasCif || hasCountry) && !ctx.isAdmin) return NextResponse.json(cifForbidden.body, { status: cifForbidden.status })
+    if (hasCountry && !hasCif) return NextResponse.json({ code: 'CIF_INVALID', message: 'Trimite CIF-ul împreună cu țara selectată.', field: 'cifCountry' }, { status: 400 })
+    if (body.email !== undefined) return NextResponse.json({ message: 'Email cannot be updated via this endpoint' }, { status: 400 })
     const admin = createSupabaseServiceClient()
     const { data: oldProfile, error: profileError } = await admin
       .from('profiles')
-      .select('id, email, full_name, role, consultant_level, telefon, cif, nume_firma, adresa_firma, departament, specializare')
+      .select('id, email, full_name, role, consultant_level, telefon, cif, nume_firma, adresa_firma, departament, specializare, creation_pending')
       .eq('id', targetUserId)
       .maybeSingle()
     if (profileError) {
-      console.error('PATCH user profile lookup failed:', profileError)
+      console.error('PATCH user profile lookup failed:', { code: profileError.code })
       return NextResponse.json({ error: 'Nu am putut încărca profilul.' }, { status: 500 })
     }
     if (!oldProfile) return NextResponse.json({ error: 'Utilizatorul nu a fost găsit.' }, { status: 404 })
 
-    const body = (await request.json().catch(() => null)) as PatchBody | null
-    if (!body || typeof body !== 'object') {
-      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
-    }
-    if (body.email !== undefined) {
-      return NextResponse.json({ error: 'Email cannot be updated via this endpoint' }, { status: 400 })
+    if (oldProfile.creation_pending) {
+      const pending = userLifecycleConflict({ code: 'P0001', message: 'ACCOUNT_CREATION_PENDING' })!
+      return NextResponse.json(pending.body, { status: pending.status })
     }
 
     const update: Record<string, any> = {}
@@ -72,12 +77,6 @@ export async function PATCH(
         return NextResponse.json({ error: 'telefon must be a string or null' }, { status: 400 })
       }
       update.telefon = typeof body.telefon === 'string' ? normalizePhone(body.telefon) : body.telefon
-    }
-    if (body.cif !== undefined) {
-      if (!isStringOrNullOrUndef(body.cif)) {
-        return NextResponse.json({ error: 'cif must be a string or null' }, { status: 400 })
-      }
-      update.cif = typeof body.cif === 'string' ? normalizeCui(body.cif) : body.cif
     }
     if (body.role !== undefined) {
       if (!ctx.isAdmin) {
@@ -104,6 +103,20 @@ export async function PATCH(
       }
       update.consultant_level = body.consultant_level
     }
+    const finalRole = update.role ?? oldProfile.role
+    if (hasCif && finalRole !== 'client') return NextResponse.json(cifForbidden.body, { status: cifForbidden.status })
+    if (finalRole === 'client') {
+      const result = validateCif(hasCif ? body.cif : oldProfile.cif, hasCif ? body.cifCountry : undefined)
+      if (!result.ok) {
+        const failure = cifValidationFailure(result)
+        return NextResponse.json(failure.body, { status: failure.status })
+      }
+      if (hasCif) {
+        const unavailable = await checkCifAvailable(admin, result.cif, targetUserId)
+        if (unavailable) return NextResponse.json(unavailable.body, { status: unavailable.status })
+        update.cif = result.cif
+      }
+    }
     if (Object.keys(update).length === 0) {
       return NextResponse.json(
         { error: 'Nothing to update. Allowed fields: full_name, telefon, cif, role and consultant_level (admin only).' },
@@ -117,40 +130,32 @@ export async function PATCH(
       p_changes: update,
     })
     if (error) {
-      const conflict = userLifecycleConflict(error)
+      const conflict = userCifConflict(error) ?? userLifecycleConflict(error)
       if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
-      console.error('PATCH guarded profile update failed:', error)
+      console.error('PATCH guarded profile update failed:', { code: error.code })
       return NextResponse.json({ error: 'Nu am putut actualiza profilul.' }, { status: 500 })
     }
 
     const profile = result?.profile
     const changed = result?.changed
-    if (!profile || typeof changed !== 'boolean') {
+    const oldValues = result?.oldValues
+    const newValues = result?.newValues
+    const auditKeys = ['full_name', 'role', 'telefon', 'cif', 'consultant_level']
+    const validAudit = [oldValues, newValues].every(values => values && typeof values === 'object'
+      && !Array.isArray(values) && Object.keys(values).every(key => auditKeys.includes(key)))
+    if (!profile || profile.id !== targetUserId || typeof changed !== 'boolean' || !validAudit) {
       console.error('PATCH guarded profile update returned an invalid result:', { targetUserId })
       return NextResponse.json({ error: 'Nu am putut confirma actualizarea profilului.' }, { status: 500 })
     }
 
     if (changed) {
-      const oldValues: Record<string, unknown> = {}
-      const newValues: Record<string, unknown> = {}
-      const auditKeys = new Set(Object.keys(update))
-      if (oldProfile.consultant_level !== profile.consultant_level) auditKeys.add('consultant_level')
-      for (const key of auditKeys) {
-        const previous = oldProfile[key as keyof typeof oldProfile]
-        const current = profile[key]
-        if (previous !== current) {
-          oldValues[key] = previous
-          newValues[key] = current
-        }
-      }
-
       let description = String(ctx.profile.email) + ' a modificat utilizatorul ' + String(profile.email)
-      if (update.role && oldProfile.role !== update.role) {
+      if (Object.hasOwn(newValues, 'role')) {
         description = String(ctx.profile.email) + ' a schimbat rolul utilizatorului ' + String(profile.email)
-          + ' din "' + oldProfile.role + '" în "' + update.role + '"'
-      } else if (update.consultant_level && oldProfile.consultant_level !== update.consultant_level) {
+          + ' din "' + oldValues.role + '" în "' + newValues.role + '"'
+      } else if (Object.hasOwn(newValues, 'consultant_level')) {
         description = String(ctx.profile.email) + ' a schimbat nivelul consultantului ' + String(profile.email)
-          + ' din "' + oldProfile.consultant_level + '" în "' + update.consultant_level + '"'
+          + ' din "' + oldValues.consultant_level + '" în "' + newValues.consultant_level + '"'
       }
 
       await logUserAction({
@@ -168,7 +173,7 @@ export async function PATCH(
 
     return NextResponse.json({ message: 'Profile updated', profile, changed })
   } catch (error) {
-    console.error('PATCH /api/users/[userId] error:', error)
+    console.error('PATCH /api/users/[userId] error:', { code: error && typeof error === 'object' && 'code' in error ? error.code : 'unknown' })
     return NextResponse.json({ error: 'Nu am putut actualiza profilul.' }, { status: 500 })
   }
 }

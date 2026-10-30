@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { userErrorMessage } from '@/lib/user-error'
 import { chatTimestampMicroseconds } from '@/lib/chat-timestamp'
+import { filterItems } from '@/lib/search'
 
 const compareChatTimestamps = (left: string, right: string) => {
   const leftTime = chatTimestampMicroseconds(left)
@@ -240,17 +241,14 @@ export function usePrivateConversations() {
     [items, selectedConversationId]
   )
 
-  const filteredItems = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return items
-
-    return items.filter((item) => {
-      const name = item.other_user?.full_name?.toLowerCase() ?? ''
-      const email = item.other_user?.email?.toLowerCase() ?? ''
-      const body = item.last_message?.body?.toLowerCase() ?? ''
-      return name.includes(q) || email.includes(q) || body.includes(q)
-    })
-  }, [items, search])
+  const filteredItems = useMemo(
+    () => filterItems(items, search, (item) => [
+      { key: 'name', label: 'Nume', value: item.other_user?.full_name },
+      { key: 'email', label: 'Email', value: item.other_user?.email },
+      { key: 'message', label: 'Mesaj', value: item.last_message?.body },
+    ]),
+    [items, search]
+  )
 
   const getIsUnread = useCallback((item: PrivateConversationListItem) => {
     if (typeof item.has_unread === 'boolean') return item.has_unread

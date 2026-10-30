@@ -2,23 +2,62 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
-First, run the development server:
+Pentru dezvoltare cu Supabase local și emailuri capturate, pregătește baza conform
+secțiunii „Mediul local”, apoi pornește aplicația:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run dev:local
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
 ## Database baseline
 
-Migrările din repository sunt delta-uri aplicate peste schema Supabase existentă. `public.audit_logs` trebuie să existe înainte de migrările din 2026-05-26; validează schema reală cu `npm run audit:check`. O bază goală are nevoie de un baseline complet al întregii scheme, care nu se improvizează doar pentru audit. Nu există în repository un dump canonic publicat; acesta rămâne o datorie operațională.
+Repository-ul conține baseline-ul schemei publice și obiectele custom Auth/Storage în migrările din 2026-09-18. Schemele gestionate de Supabase sunt pregătite de stack-ul local.
+
+## Mediul local
+
+Cu Docker și Supabase local pornite, configurează `SUPABASE_URL` și
+`NEXT_PUBLIC_SUPABASE_URL` în `.env.local` la `http://127.0.0.1:54321`, împreună
+cu cheile stack-ului local. Apoi:
+
+```powershell
+npm run db:reset:local
+npm run dev:local
+# Într-un al doilea terminal, după pornirea aplicației:
+npm run seed:local
+```
+
+`db:reset:local` **înlocuiește toate datele bazei locale**. Verifică URL-urile,
+containerul Docker și checkout-ul înainte de reset. Aplică baseline-ul fără seed,
+validează snapshot-ul CIF, aplică migrarea #110 în aceeași sesiune SQL cu amprenta
+verificată, înregistrează versiunea și aplică migrările ulterioare. La final
+verifică schema și bucket-ul privat. Baza rămâne goală până la `seed:local`;
+resetarea nu depinde de dump-ul privat și ignorat `supabase/seed.sql`.
+Nu acceptă ținte sau argumente pentru producție.
+
+`dev:local` pornește aplicația pe `http://localhost:3000` și capturarea emailurilor
+pe loopback. Folosește cheia de email sintetică și salvează mesajele în
+`playwright-report/local-mail/resend.jsonl` (ignorat de Git), inclusiv parolele
+temporare ale conturilor create. Oprirea comenzii închide ambele procese.
+`npm run dev` păstrează configurația de email din `.env.local`.
+
+`seed:local` pregătește conturile demo și proiectele; poate fi repetat și recreează
+proiectele și șabloanele demo. Adminul este `admin@test.local`, cu parola
+`Parola123!`. După reset, sesiunile vechi sunt invalide; autentifică-te din nou.
+
+Pentru verificarea creării conturilor prin API și browser, cu aplicația pornită:
+
+```powershell
+$env:E2E_ENV_FILE = '.env.e2e.localdb'
+npm run test:e2e:local-conturi
+```
+
+Suita cere configurația E2E locală dedicată, folosește conturi sintetice și le
+șterge prin API după verificare. Include toate rolurile, autentificarea cu parola
+capturată local, CIF invalid/duplicat și blocarea conturilor nefinalizate.
+
+Procedura pentru producție rămâne separată în [rollout #110](docs/issue-110-rollout.md).
 
 ## Teste de interfață
 

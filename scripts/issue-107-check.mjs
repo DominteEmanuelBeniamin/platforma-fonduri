@@ -1,6 +1,7 @@
 // Independent integration check owned/run by the orchestrator. No real email delivery.
 // E2E_ENV_FILE=.env.e2e.localdb ISSUE107_BASE_URL=http://127.0.0.1:3107 node scripts/issue-107-check.mjs
 import assert from 'node:assert/strict'
+import { finalizeLocalFixture } from './local-account-fixtures.mjs'
 import fs from 'node:fs'
 import http from 'node:http'
 import { randomUUID, randomBytes, createHash, createCipheriv, createDecipheriv, createHmac } from 'node:crypto'
@@ -79,7 +80,7 @@ async function fixture(role='client',email) {
   const {user}=ok(await service.auth.admin.createUser({email:address,password,email_confirm:true}),'Temporary fixture creation')
   assert.ok(user?.id,'Fixture UUID required')
   const person={id:user.id,email:address};fixtures.push(person)
-  ok(await service.from('profiles').update({role,full_name:'Recovery check '+stamp,is_active:true}).eq('id',person.id),'Fixture profile')
+  await finalizeLocalFixture(service, person.id, {role,full_name:'Recovery check '+stamp})
   return person
 }
 async function login(person,selected=password) {

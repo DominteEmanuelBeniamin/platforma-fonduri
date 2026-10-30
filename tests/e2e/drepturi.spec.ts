@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { fixtureCif, finalizeLocalFixture } from '../../scripts/local-account-fixtures.mjs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { test, expect, type Page, type Browser } from '@playwright/test'
@@ -147,10 +148,7 @@ async function makeConsultant(tag: 'sa' | 'sb' | 'ja' | 'jb', level: 'junior' | 
     setLocalFixturePassword(existing.id, PASSWORD)
   }
   testAccounts.add(id!)
-  const { error: profileError } = await service.from('profiles').upsert({
-    id, email, role: 'consultant', consultant_level: level, full_name: name, is_active: true,
-  })
-  if (profileError) throw new Error(`Profil ${email}: ${profileError.message}`)
+  await finalizeLocalFixture(service, id!, { role: 'consultant', consultant_level: level, full_name: name })
   return { id: id!, email, name, token: await signIn(email, PASSWORD) }
 }
 
@@ -457,7 +455,7 @@ test('Încheie și redeschide proiectul — admin; senior în proiectele lui; ju
   await must(admin, 'POST', `/api/projects/${project}/close`)
   verify('p-incheie', JA, 'redeschide proiectul', await call(JA, 'POST', `/api/projects/${project}/reopen`), 'refuzat')
   verify('p-incheie', JA, 'repune proiectul activ prin PATCH', await call(JA, 'PATCH', `/api/projects/${project}`, { lifecycle_status: 'active' }), 'refuzat')
-  verify('p-incheie', admin, 'repune proiectul activ prin PATCH, ocolind ruta', await call(admin, 'PATCH', `/api/projects/${project}`, { lifecycle_status: 'active' }), 'refuzat', 400)
+  verify('p-incheie', admin, 'repune proiectul activ prin PATCH, ocolind ruta', await call(admin, 'PATCH', `/api/projects/${project}`, { lifecycle_status: 'active' }), 'refuzat', 409)
   await must(admin, 'POST', `/api/projects/${project}/reopen`)
   verify('p-incheie', SA, 'încheie un proiect străin', await call(SA, 'POST', `/api/projects/${OTHER}/close`), 'refuzat')
 
@@ -789,12 +787,12 @@ test('Conturi: creare, roluri, nivel, ștergere — doar adminul', async () => {
     verify('a-conturi', person, 'șterge un cont', await call(person, 'DELETE', `/api/users/${JB.id}`), 'refuzat')
   }
   const email = `drepturi.nou.${STAMP}@test.local`
-  verify('a-conturi', admin, 'creează un cont de consultant', await call(admin, 'POST', '/api/users', { email, password: PASSWORD, role: 'consultant', fullName: `Consultant nou ${STAMP}` }), 'permis')
+  verify('a-conturi', admin, 'creează un cont de consultant', await call(admin, 'POST', '/api/users', { email, password: PASSWORD, role: 'consultant', fullName: `Consultant nou ${STAMP}`, specializare: 'PNRR' }), 'permis')
   const { data: fresh } = await service.from('profiles').select('id, role, consultant_level').eq('email', email).maybeSingle()
   if (fresh) created.users.add(fresh.id)
   fact('r-junior', 'sistem', 'un consultant creat de admin pornește junior', fresh?.consultant_level === 'junior', String(fresh?.consultant_level), 'Bază de date', 'junior')
   if (fresh) {
-    verify('a-conturi', admin, 'schimbă rolul unui cont', await call(admin, 'PATCH', `/api/users/${fresh.id}`, { role: 'client' }), 'permis')
+    verify('a-conturi', admin, 'schimbă rolul unui cont', await call(admin, 'PATCH', `/api/users/${fresh.id}`, { role: 'client', cif: fixtureCif(fresh.id), cifCountry: 'RO' }), 'permis')
     verify('a-conturi', admin, 'șterge un cont', await call(admin, 'DELETE', `/api/users/${fresh.id}`), 'permis')
     created.users.delete(fresh.id)
   }

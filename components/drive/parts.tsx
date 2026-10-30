@@ -72,6 +72,14 @@ export function FilePreview({ path, previewUrl, size = 'md' }: { path: string; p
   return <FileIconDrive path={path} size={size} />
 }
 
+/** Cuvântul stării, ca în `StatusPill`: și căutarea găsește după el (#112). */
+export function driveStatusLabel(status: DriveRow['docStatus'], isClient: boolean): string | null {
+  if (!status) return null
+  if (status === 'sent') return 'Trimis clientului'
+  const info = requestStatusInfo(status)
+  return isClient ? info.clientLabel : info.label
+}
+
 export function StatusPill({ status, label }: { status: DriveRow['docStatus']; label?: string }) {
   const { profile } = useAuth()
   if (!status) return null

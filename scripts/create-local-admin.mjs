@@ -2,8 +2,10 @@
 // pe o mașină nouă — nu funcționează și nu are voie să funcționeze împotriva
 // producției (cere explicit URL-ul local implicit al `supabase start`).
 import { createClient } from '@supabase/supabase-js'
+import { finalizeLocalFixture } from './local-account-fixtures.mjs'
 
-const LOCAL_URL = 'http://127.0.0.1:54321'
+const LOCAL_URL = process.env.LOCAL_SUPABASE_URL || 'http://127.0.0.1:54321'
+if (!['127.0.0.1', 'localhost', '[::1]'].includes(new URL(LOCAL_URL).hostname)) throw new Error('Bootstrap requires local Supabase')
 const LOCAL_SERVICE_ROLE_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU'
 
@@ -16,7 +18,7 @@ if (!email || !password) {
   process.exit(1)
 }
 
-const admin = createClient(LOCAL_URL, LOCAL_SERVICE_ROLE_KEY, {
+const admin = createClient(LOCAL_URL, process.env.LOCAL_SUPABASE_SERVICE_ROLE_KEY || LOCAL_SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 })
 
@@ -31,14 +33,6 @@ if (error) {
   process.exit(1)
 }
 
-const { error: profileError } = await admin
-  .from('profiles')
-  .update({ role: 'admin', full_name: fullName })
-  .eq('id', data.user.id)
-
-if (profileError) {
-  console.error('Eroare la setarea rolului:', profileError.message)
-  process.exit(1)
-}
+await finalizeLocalFixture(admin, data.user.id, { role: 'admin', full_name: fullName })
 
 console.log(`Cont admin local creat: ${email} (id ${data.user.id})`)

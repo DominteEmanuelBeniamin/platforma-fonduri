@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-22T16:14:31.641Z",
+  "authVersion": "v2.197.0",
+  "database": "PostgreSQL 17.6",
+  "isolated": true,
+  "hostedWrites": false,
+  "realEmailDelivery": false,
+  "manualEnvironmentActive": true,
+  "cleanupPending": true,
+  "cases": [
+    {
+      "name": "migration_requires_explicit_preflight_and_rolls_back",
+      "passed": true
+    },
+    {
+      "name": "migration_refuses_changed_snapshot_under_lock",
+      "passed": true
+    },
+    {
+      "name": "migration_refuses_noncanonical_data_without_repairing_it",
+      "passed": true
+    },
+    {
+      "name": "preflight_refuses_checksum_missing_and_duplicate_values",
+      "passed": true
+    },
+    {
+      "name": "phase5_isolated_production_build",
+      "passed": true
+    },
+    {
+      "name": "phase5_demo_seed_and_reuse_complete_local_profiles_before_login",
+      "passed": true
+    },
+    {
+      "name": "phase5_bootstrap_internal_roles_without_cif",
+      "passed": true
+    },
+    {
+      "name": "phase5_playwright_drepturi",
+      "passed": true
+    },
+    {
+      "name": "phase5_playwright_drepturi-interfata",
+      "passed": true
+    }
+  ]
+}

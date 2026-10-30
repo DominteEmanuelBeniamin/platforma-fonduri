@@ -12,6 +12,7 @@ const lifecycleMessages: Record<string, string> = {
   INVALID_PROFILE_PATCH: 'Datele profilului nu sunt valide.',
   USER_NOT_FOUND: 'Utilizatorul nu a fost găsit.',
   USER_HAS_RELATED_DATA: 'Contul are date asociate și nu poate fi șters.',
+  ACCOUNT_CREATION_PENDING: 'Contul are crearea incompletă. Editarea și reactivarea nu sunt permise.',
 }
 
 function parseBlockers(value: unknown): Array<{ kind: string; count: number }> | null {

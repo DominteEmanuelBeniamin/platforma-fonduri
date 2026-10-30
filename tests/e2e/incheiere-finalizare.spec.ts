@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
+import { finalizeLocalFixture } from '../../scripts/local-account-fixtures.mjs'
 import { test, expect, type Browser } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { e2eEnv, requireE2EConfig, serviceClient } from './helpers/project-state'
+import { e2eEnv, requireE2EConfig, serviceClient, setLocalFixturePassword } from './helpers/project-state'
 
 /**
  * Încheierea și redeschiderea proiectului, finalizarea fazelor și activităților,
@@ -89,14 +90,10 @@ async function makeConsultant(tag: 'senior' | 'junior' | 'nemembru', level: 'jun
     const { data: existing } = await service.from('profiles').select('id').eq('email', email).maybeSingle()
     if (!existing) throw new Error(`Nu am putut crea ${email}: ${error?.message}`)
     id = existing.id
-    const { error: resetError } = await service.auth.admin.updateUserById(existing.id, { password: PASSWORD })
-    if (resetError) throw new Error(`Parola pentru ${email}: ${resetError.message}`)
+    setLocalFixturePassword(existing.id, PASSWORD)
   }
   testAccounts.add(id!)
-  const { error: profileError } = await service.from('profiles').upsert({
-    id, email, role: 'consultant', consultant_level: level, full_name: name, is_active: true,
-  })
-  if (profileError) throw new Error(`Profil ${email}: ${profileError.message}`)
+  await finalizeLocalFixture(service, id!, { role: 'consultant', consultant_level: level, full_name: name })
   return { id: id!, email, label: `${level} ${tag}`, token: await signIn(email, PASSWORD) }
 }
 
@@ -458,10 +455,10 @@ test('Fazele și activitățile: doar adminul și seniorul membru le finalizeaz�
   const ruleBase = `/api/projects/${projectId}/phases/${phaseId}/activities/${ruleActivity}`
   const blockedActivity = await call(admin, 'POST', `${ruleBase}/complete`)
   expectStatus(blockedActivity, 409, 'finalizarea unei activități cu o cerere deschisă')
-  expect.soft(blockedActivity.json.message).toMatch(/„Cerere încă deschisă” nu e încă aprobată sau închisă/)
+  expect.soft(blockedActivity.json.message).toBe('Pentru a finaliza activitatea, aprobă sau închide cererea „Cerere încă deschisă”.')
   const blockedPhase = await call(admin, 'POST', `/api/projects/${projectId}/phases/${phaseId}/complete`)
   expectStatus(blockedPhase, 409, 'finalizarea unei faze cu o activitate nefinalizată')
-  expect.soft(blockedPhase.json.message).toMatch(/„Cu cerere deschisă” nu e încă finalizată/)
+  expect.soft(blockedPhase.json.message).toBe('Pentru a finaliza faza, finalizează mai întâi activitatea „Cu cerere deschisă”.')
   await must(admin, 'POST', `/api/document-requests/${openRequest}/close`)
   expectStatus(await call(admin, 'POST', `${ruleBase}/complete`), 200, 'finalizarea activității după închiderea cererii')
 
@@ -516,7 +513,7 @@ test('Cererile: se închid din „De încărcat", „Respins" și „Aprobat", �
   await putInReview(review)
   const reviewClose = await call(admin, 'POST', `/api/document-requests/${review}/close`)
   expectStatus(reviewClose, 409, 'închiderea unei cereri în verificare')
-  expect.soft(reviewClose.json.message).toBe('Verifică întâi documentele încărcate.')
+  expect.soft(reviewClose.json.message).toBe('Pentru a închide cererea, verifică întâi documentele încărcate.')
   expectStatus(await call(junior, 'POST', `/api/document-requests/${review}/review`, { action: 'rejected', notes: 'Lipsește ștampila.' }), 200, 'juniorul respinge documentul')
 
   // Respins → închisă → Respins
@@ -553,6 +550,40 @@ test('Cererile: se închid din „De încărcat", „Respins" și „Aprobat", �
   const removed = await addRequest(projectId, activityId, 'Cerere ștearsă')
   await must(admin, 'DELETE', `/api/document-requests/${removed}`)
   expectStatus(await call(admin, 'POST', `/api/document-requests/${removed}/close`), 409, 'închiderea unei cereri șterse')
+})
+
+test('Sub o activitate sau fază finalizată nu se redeschide nimic (#120)', async () => {
+  const projectId = await createProject('redeschidere sub părinte finalizat')
+  const phaseId = await addPhase(projectId, 'Depunere')
+  const activityId = await addActivity(projectId, phaseId, 'Dosarul de finanțare')
+  const requestId = await addRequest(projectId, activityId, 'Certificat fiscal')
+  const phaseBase = `/api/projects/${projectId}/phases/${phaseId}`
+  const activityBase = `${phaseBase}/activities/${activityId}`
+  const reopenRequest = `/api/document-requests/${requestId}/reopen`
+
+  await must(admin, 'POST', `/api/document-requests/${requestId}/close`)
+  await must(admin, 'POST', `${activityBase}/complete`)
+  await must(admin, 'POST', `${phaseBase}/complete`)
+
+  // Faza finalizată: nici cererea, nici activitatea nu se redeschid.
+  const underPhase = await call(admin, 'POST', reopenRequest)
+  expectStatus(underPhase, 409, 'redeschiderea cererii într-o fază finalizată')
+  expect.soft(underPhase.json.message).toBe('Pentru a redeschide cererea, readu în lucru faza „Depunere”, apoi activitatea „Dosarul de finanțare”.')
+  const activityUnderPhase = await call(admin, 'POST', `${activityBase}/reopen`)
+  expectStatus(activityUnderPhase, 409, 'readucerea activității într-o fază finalizată')
+  expect.soft(activityUnderPhase.json.message).toBe('Pentru a readuce activitatea în lucru, readu întâi faza „Depunere” în lucru.')
+
+  // Faza în lucru, activitatea încă finalizată: cererea tot nu se redeschide.
+  await must(admin, 'POST', `${phaseBase}/reopen`)
+  const underActivity = await call(admin, 'POST', reopenRequest)
+  expectStatus(underActivity, 409, 'redeschiderea cererii într-o activitate finalizată')
+  expect.soft(underActivity.json.message).toBe('Pentru a redeschide cererea, readu întâi activitatea „Dosarul de finanțare” în lucru.')
+  expect.soft((await requestRow(requestId)).status).toBe('closed')
+
+  // În ordine, de sus în jos, merge.
+  await must(admin, 'POST', `${activityBase}/reopen`)
+  expectStatus(await call(admin, 'POST', reopenRequest), 200, 'redeschiderea cererii după activitate')
+  expect.soft((await requestRow(requestId)).status).toBe('pending')
 })
 
 test('O cerere închisă nu se modifică (D13) și nu primește fișiere', async () => {
@@ -858,11 +889,11 @@ test('Interfața: faze, activități și cereri se finalizează din meniu și di
     const activityMenu = page.locator(`#activity-${activityId}`).getByRole('button', { name: `Acțiuni pentru activitatea ${activityName}` })
     await phaseMenu.click()
     await page.getByRole('menuitem', { name: 'Marchează faza ca finalizată' }).click()
-    await expect.soft(page.getByText(`Faza nu se poate finaliza: activitatea „${activityName}” nu e încă finalizată.`)).toBeVisible()
+    await expect.soft(page.getByText(`Pentru a finaliza faza, finalizează mai întâi activitatea „${activityName}”.`)).toBeVisible()
     await expect.soft(page.getByRole('dialog', { name: /Marchezi faza/ }), 'fără confirmare când faza nu se poate finaliza').toHaveCount(0)
     await activityMenu.click()
     await page.getByRole('menuitem', { name: 'Marchează activitatea ca finalizată' }).click()
-    await expect.soft(page.getByText(`Activitatea nu se poate finaliza: cererea „${requestName}” nu e încă aprobată sau închisă.`)).toBeVisible()
+    await expect.soft(page.getByText(`Pentru a finaliza activitatea, aprobă sau închide cererea „${requestName}”.`)).toBeVisible()
     await expect.soft(page.getByRole('dialog', { name: /Marchezi activitatea/ }), 'fără confirmare când activitatea nu se poate finaliza').toHaveCount(0)
 
     // Cererea: „Închide cererea" din fișă (D14), apoi fișa devine doar de citit (D13).

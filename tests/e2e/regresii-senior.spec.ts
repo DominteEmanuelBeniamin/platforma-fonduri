@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { fixtureCif, finalizeLocalFixture } from '../../scripts/local-account-fixtures.mjs'
 import path from 'node:path'
 import { test, expect, type Browser } from '@playwright/test'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
@@ -59,7 +60,7 @@ async function consultantAccount(email: string, name: string, level: 'junior' | 
     setLocalFixturePassword(id, PASSWORD)
   }
   accounts.add(id)
-  await service.from('profiles').upsert({ id, email, role: 'consultant', consultant_level: level, full_name: name, is_active: true })
+  await finalizeLocalFixture(service, id, { role: 'consultant', consultant_level: level, full_name: name })
   return { id, email, name, token: await signIn(email, PASSWORD) }
 }
 
@@ -502,7 +503,7 @@ test('Profilurile: din clientul Supabase din browser fiecare își citește doar
 
 test('Un senior care nu mai e consultant pierde nivelul; la revenire pornește junior', async () => {
   await must(admin, 'PATCH', `/api/users/${JB.id}`, { consultant_level: 'senior' })
-  await must(admin, 'PATCH', `/api/users/${JB.id}`, { role: 'client' })
+  await must(admin, 'PATCH', `/api/users/${JB.id}`, { role: 'client', cif: fixtureCif(JB.id), cifCountry: 'RO' })
   const afterRole = (await service.from('profiles').select('role, consultant_level').eq('id', JB.id).single()).data
   expect(afterRole).toEqual({ role: 'client', consultant_level: 'junior' })
   await must(admin, 'PATCH', `/api/users/${JB.id}`, { role: 'consultant' })

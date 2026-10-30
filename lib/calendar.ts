@@ -11,6 +11,8 @@ import { countLabel } from './count-label.ts'
 import { isActivityFinal, isRequestFinal } from './completion.ts'
 import { getDaysUntilDeadline } from './document-reminder.ts'
 import { isProjectActive } from './project-lifecycle.ts'
+import { searchItems, type SearchField, type SearchHit } from './search.ts'
+import { projectSearchFields, type ProjectSearchInfo } from './search-fields.ts'
 
 // ─── Tipuri ───────────────────────────────────────────────────────────────────
 
@@ -68,6 +70,16 @@ export interface CalendarProjectOption {
   lifecycle_status: string
   /** Comutatorul din #85. Vezi `ProjectDashboardRow.reminders_off`. */
   automatic_reminders_enabled: boolean
+  /** Ce mai caută filtrele și tabloul de bord (#112). Lipsește pentru client. */
+  search?: ProjectSearchInfo
+}
+
+/** Ce se caută la un consultant în tabloul de bord (#112). Doar pentru admin. */
+export interface CalendarPerson {
+  id: string
+  email: string | null
+  specializare: string | null
+  departament: string | null
 }
 
 export interface CalendarPhaseOption {
@@ -80,6 +92,8 @@ export interface CalendarPayload {
   events: CalendarEvent[]
   projects: CalendarProjectOption[]
   phases: CalendarPhaseOption[]
+  /** Responsabilii, cu ce se caută la ei. Doar pentru admin. */
+  people?: CalendarPerson[]
   role: 'admin' | 'consultant' | 'client'
   user_id: string
 }
@@ -652,6 +666,8 @@ export interface ProjectDashboardRow extends DashboardTotals {
   /** Capul de rând, sub numele pe care îl sortează ambele tabele. */
   label: string
   client_name: string | null
+  /** Ce se mai caută la proiect, în afară de titlu și client (#112). */
+  search?: ProjectSearchInfo
   active: boolean
   /**
    * Proiect cu reminderele automate oprite (#85).
@@ -770,6 +786,7 @@ export function buildProjectDashboardRows(payload: CalendarPayload): ProjectDash
         id: project.id,
         label: project.title,
         client_name: project.client_name,
+        search: project.search,
         active: isProjectActive(project),
         reminders_off: project.automatic_reminders_enabled === false,
         ...emptyTotals(),
@@ -1160,26 +1177,27 @@ export function writeSearch(params: URLSearchParams, value: string): void {
  */
 export const SEARCH_THRESHOLD = 8
 
-/**
- * Fără diacritice și fără majuscule: „ACHIZIȚIE" trebuie găsit și scriind
- * „achizitie", de la o tastatură fără diacritice — cea de pe care se scrie, de
- * altfel, jumătate din titlurile din bază.
- */
-const foldForSearch = (value: string): string =>
-  value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
-
-/** Caută în titlu și în numele clientului: ambele sunt vizibile în tabel. */
-export function filterProjectRows(rows: ProjectDashboardRow[], query: string): ProjectDashboardRow[] {
-  const needle = foldForSearch(query.trim())
-  if (!needle) return rows
-  return rows.filter(row => foldForSearch(`${row.label} ${row.client_name ?? ''}`).includes(needle))
+/** Caută după tot ce se știe despre proiect (#112), cu „Găsit în" pentru ce nu se vede. */
+export function searchProjectRows(rows: ProjectDashboardRow[], query: string): SearchHit<ProjectDashboardRow>[] {
+  return searchItems(rows, query, row => projectSearchFields({ title: row.label, client_name: row.client_name, search: row.search }))
 }
 
-/** La consultanți, capul de rând e tot ce se caută: numele. */
-export function filterConsultantRows(rows: ConsultantDashboardRow[], query: string): ConsultantDashboardRow[] {
-  const needle = foldForSearch(query.trim())
-  if (!needle) return rows
-  return rows.filter(row => foldForSearch(row.label).includes(needle))
+/** La consultanți: numele din capul rândului, plus emailul, specializarea și departamentul. */
+export function searchConsultantRows(
+  rows: ConsultantDashboardRow[],
+  query: string,
+  people: CalendarPerson[] = [],
+): SearchHit<ConsultantDashboardRow>[] {
+  const byId = new Map(people.map(person => [person.id, person]))
+  return searchItems(rows, query, (row): SearchField[] => {
+    const person = byId.get(row.id)
+    return [
+      { key: 'nume', label: 'Nume', value: row.label },
+      { key: 'email', label: 'Email', value: person?.email, shown: false },
+      { key: 'specializare', label: 'Specializare', value: person?.specializare, shown: false },
+      { key: 'departament', label: 'Departament', value: person?.departament, shown: false },
+    ]
+  })
 }
 
 // ─── Puntea către calendar ────────────────────────────────────────────────────

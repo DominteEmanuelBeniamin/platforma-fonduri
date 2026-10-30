@@ -8,12 +8,12 @@ import { NextResponse } from 'next/server'
 import { guardToResponse, requireProjectManager, requireUser } from './auth'
 import { logAction } from './audit'
 import { createSupabaseServiceClient } from './supabase'
-import { requestCloseRefusal, requestReopenRefusal } from '@/lib/completion'
+import { requestCloseRefusal, requestReopenParentRefusal, requestReopenRefusal } from '@/lib/completion'
 import { isUuid } from '@/lib/notification-utils'
 
 type Action = 'close' | 'reopen'
 
-const COLUMNS = 'id, project_id, name, status, is_outgoing, deleted_at, status_before_close, closed_at, closed_by'
+const COLUMNS = 'id, project_id, activity_id, name, status, is_outgoing, deleted_at, status_before_close, closed_at, closed_by'
 
 export async function changeRequestClosure(request: Request, requestId: string, action: Action) {
   try {
@@ -45,6 +45,32 @@ export async function changeRequestClosure(request: Request, requestId: string, 
     const refusal = action === 'close' ? requestCloseRefusal(before) : requestReopenRefusal(before)
     if (refusal) {
       return NextResponse.json({ error: 'Invalid status transition', message: refusal.message }, { status: refusal.status })
+    }
+
+    // Sub o activitate sau o fază finalizată cererea nu se redeschide (#120):
+    // întâi se readuc ele în lucru, altfel părintele ar rămâne finalizat cu o
+    // cerere deschisă dedesubt.
+    if (action === 'reopen' && before.activity_id) {
+      const { data: activity, error: activityError } = await admin
+        .from('project_activities')
+        .select('name, status, phase_id')
+        .eq('id', before.activity_id)
+        .maybeSingle()
+      if (activityError) throw activityError
+      let phase: { name: string | null; status: string | null } | null = null
+      if (activity?.phase_id) {
+        const { data, error: phaseError } = await admin
+          .from('project_phases')
+          .select('name, status')
+          .eq('id', activity.phase_id)
+          .maybeSingle()
+        if (phaseError) throw phaseError
+        phase = data
+      }
+      const parentRefusal = requestReopenParentRefusal(activity, phase)
+      if (parentRefusal) {
+        return NextResponse.json({ error: 'Parent completed', message: parentRefusal.message }, { status: parentRefusal.status })
+      }
     }
 
     const now = new Date().toISOString()

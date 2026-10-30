@@ -8,6 +8,9 @@ import {
 } from 'lucide-react'
 import { isPreviewableFile, buildPreviewPageUrl, openInNewTab, downloadUrl } from '@/lib/file-preview'
 import { useToast } from '@/app/providers/ToastProvider'
+import { useAuth } from '@/app/providers/AuthProvider'
+import { FoundIn, Highlight } from '@/components/ui/Highlight'
+import { searchItems, type FieldMatch } from '@/lib/search'
 import type {
   DriveRow,
   DriveFilesViewProps,
@@ -17,7 +20,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { formatDate } from '@/lib/signage'
 import {
   getExt, isImageExt, getDisplayName,
-  FileIconDrive, FilePreview, StatusPill,
+  FileIconDrive, FilePreview, StatusPill, driveStatusLabel,
 } from './parts'
 
 /**
@@ -32,6 +35,7 @@ export default function FlatDriveFilesView({
   standalone = false,
 }: Pick<DriveFilesViewProps, 'rows' | 'secondaryColumnLabel' | 'apiFetch' | 'emptyText' | 'standalone'>) {
   const { showToast } = useToast()
+  const { profile } = useAuth()
   const [search, setSearch]               = useState('')
   const [filterStatus, setFilterStatus]   = useState('all')
   const [filterSecondary, setFilterSecondary] = useState('all')
@@ -87,18 +91,13 @@ export default function FlatDriveFilesView({
 
   // Filter
   const filtered = useMemo(() => rows.filter(r => {
-    if (search) {
-      const q = search.toLowerCase()
-      const fn = getDisplayName(r).toLowerCase()
-      if (!r.docName.toLowerCase().includes(q) && !fn.includes(q)) return false
-    }
     if (filterStatus !== 'all' && r.docStatus !== filterStatus) return false
     if (filterSecondary !== 'all') {
       if (filterSecondary === '__unassigned__') { if (r.secondaryMain) return false }
       else { if (r.secondaryMain !== filterSecondary) return false }
     }
     return true
-  }), [rows, search, filterStatus, filterSecondary])
+  }), [rows, filterStatus, filterSecondary])
 
   // Sort
   const sorted = useMemo(() => [...filtered].sort((a, b) => {
@@ -109,6 +108,19 @@ export default function FlatDriveFilesView({
     if (sortKey === 'secondary') cmp = (a.secondaryMain ?? '').localeCompare(b.secondaryMain ?? '')
     return sortDir === 'asc' ? cmp : -cmp
   }), [filtered, sortKey, sortDir])
+
+  // Căutarea (#112): documentul, fișierul, coloana a doua (proiectul și codul
+  // lui, pe fișa unui utilizator) și starea. Exactele urcă; în rest, sortarea aleasă.
+  const isClient = profile?.role === 'client'
+  const hits = useMemo(() => searchItems(sorted, search, row => [
+    { key: 'title', label: 'Document', value: row.docName },
+    { key: 'file', label: 'Fișier', value: getDisplayName(row) },
+    { key: 'secondary', label: secondaryColumnLabel, value: row.secondaryMain },
+    { key: 'secondarySub', label: 'Cod', value: row.secondarySub },
+    { key: 'status', label: 'Status', value: row.entryLabel ?? driveStatusLabel(row.docStatus, isClient), shown: false },
+  ]), [sorted, search, secondaryColumnLabel, isClient])
+  const visible = useMemo(() => hits.map(hit => hit.item), [hits])
+  const matchesOf = useMemo(() => new Map<string, FieldMatch[]>(hits.map(hit => [hit.item.id, hit.matches])), [hits])
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -200,7 +212,7 @@ export default function FlatDriveFilesView({
           <span className="flex-1" />
 
           <span className="text-xs text-ink-soft">
-            {sorted.length !== rows.length ? `${sorted.length} din ` : ''}{rows.length} {rows.length === 1 ? 'intrare' : 'intrări'}
+            {visible.length !== rows.length ? `${visible.length} din ` : ''}{rows.length} {rows.length === 1 ? 'intrare' : 'intrări'}
           </span>
 
           {/* View toggle */}
@@ -225,7 +237,7 @@ export default function FlatDriveFilesView({
 
       {/* ── Content ── */}
       <div className={contentCls}>
-        {sorted.length === 0 ? (
+        {visible.length === 0 ? (
           <div className="flex flex-col items-center justify-center px-8 py-24 text-center">
             <FolderOpen className="mb-4 h-20 w-20 text-ink-faint" />
             <p className="text-lg font-medium text-ink">
@@ -266,7 +278,7 @@ export default function FlatDriveFilesView({
               <div />
             </div>
 
-            {sorted.map(row => (
+            {visible.map(row => (
               <div
                 key={row.id}
                 onClick={() => row.onRowClick?.()}
@@ -278,7 +290,7 @@ export default function FlatDriveFilesView({
                   <FilePreview path={row.storagePath} previewUrl={row.fileId ? previewUrls[row.fileId] : undefined} size="sm" />
                   <div className="min-w-0">
                     <p className="truncate text-[13px] font-medium text-ink">
-                      {row.docName}
+                      <Highlight text={row.docName} query={search} />
                       {row.versionNumber && row.versionNumber > 1 && (
                         <span className="ml-1.5 rounded bg-[var(--sg-accent-soft)] px-1.5 py-0.5 text-[10px] text-[var(--sg-accent)]">
                           v{row.versionNumber}
@@ -286,8 +298,9 @@ export default function FlatDriveFilesView({
                       )}
                     </p>
                     <p className="truncate text-[11px] text-ink-faint">
-                      {row.entryLabel ? `${row.entryLabel} · ` : ''}{getDisplayName(row)}
+                      {row.entryLabel ? `${row.entryLabel} · ` : ''}<Highlight text={getDisplayName(row)} query={search} />
                     </p>
+                    <FoundIn matches={matchesOf.get(row.id) ?? []} className="text-[11px]" />
                   </div>
                 </div>
 
@@ -302,10 +315,10 @@ export default function FlatDriveFilesView({
                           row.onSecondaryClick ? 'cursor-pointer text-[var(--sg-accent)] hover:underline' : 'cursor-default text-ink-soft'
                         }`}
                       >
-                        <span className="truncate">{row.secondaryMain}</span>
+                        <span className="truncate"><Highlight text={row.secondaryMain} query={search} /></span>
                       </button>
                       {row.secondarySub && (
-                        <p className="truncate text-[11px] text-ink-faint">{row.secondarySub}</p>
+                        <p className="truncate text-[11px] text-ink-faint"><Highlight text={row.secondarySub} query={search} /></p>
                       )}
                     </div>
                   ) : (
@@ -356,7 +369,7 @@ export default function FlatDriveFilesView({
         ) : (
           /* ══ GRID VIEW ══ */
           <div className="grid gap-4 p-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
-            {sorted.map(row => (
+            {visible.map(row => (
               <div
                 key={row.id}
                 onClick={() => row.onRowClick?.()}
@@ -382,10 +395,10 @@ export default function FlatDriveFilesView({
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-medium leading-tight text-ink">
-                      {row.docName}
+                      <Highlight text={row.docName} query={search} />
                     </p>
                     {row.secondaryMain && (
-                      <p className="mt-0.5 truncate text-[10px] text-ink-faint">{row.secondaryMain}</p>
+                      <p className="mt-0.5 truncate text-[10px] text-ink-faint"><Highlight text={row.secondaryMain} query={search} /></p>
                     )}
                     <p className="mt-0.5 text-[10px] text-ink-faint">
                       {row.entryLabel ? `${row.entryLabel} · ` : ''}{formatDate(row.uploadedAt)}
