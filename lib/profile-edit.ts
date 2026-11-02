@@ -68,3 +68,9 @@ export function profileFieldProblem(
   }
   return null
 }
+
+/** Validarea profilului rezultat, inclusiv câmpurile care nu sunt în PATCH. */
+export function completeProfileProblem(role: EditableRole, values: Partial<Record<ProfileTextField, unknown>>) {
+  const relevant = Object.fromEntries(PROFILE_FIELDS[role].map(({ key }) => [key, values[key] ?? null]))
+  return profileFieldProblem(role, relevant)
+}

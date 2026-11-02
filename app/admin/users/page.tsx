@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
+import { UserRoleChangeDialog } from '@/components/UserRoleChangeDialog'
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import * as Dialog from '@radix-ui/react-dialog'
@@ -17,7 +18,6 @@ import { Plate } from '@/components/ui/Plate'
 import { formatDate } from '@/lib/signage'
 import { Spinner } from '@/components/ui/Spinner'
 import { Signal } from '@/components/ui/Signal'
-import { profileDisplayName } from '@/lib/profile-display'
 import CifInput, { type CifInputError, type CifInputValue } from '@/components/CifInput'
 import { validateCif } from '@/lib/cif'
 import { FoundIn, Highlight } from '@/components/ui/Highlight'
@@ -138,7 +138,6 @@ export default function AdminUsersPage() {
 
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [updatingRoleId, setUpdatingRoleId] = useState<string | null>(null)
 
   // Căutare și filtrare — pagina e despre utilizatorii care există deja.
   const [cauta, setCauta] = useState('')
@@ -171,6 +170,7 @@ export default function AdminUsersPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deleteBlockers, setDeleteBlockers] = useState<Array<{ kind: string; count: number }>>([])
   const [deleteHasRelatedData, setDeleteHasRelatedData] = useState(false)
+  const [deactivationUser, setDeactivationUser] = useState<any | null>(null)
   const [impactUser, setImpactUser] = useState<any | null>(null)
   const [impact, setImpact] = useState<LifecycleImpact | null>(null)
   const [impactBlockers, setImpactBlockers] = useState<Array<{ kind: string; count: number }>>([])
@@ -314,41 +314,6 @@ export default function AdminUsersPage() {
     }
   }
 
-  const updateUserRole = async (user: { id: string; email: string; full_name?: string | null; is_active?: boolean | null; role?: string; cif?: string | null; creation_pending?: boolean }, rolNou: string) => {
-    if (user.creation_pending) { showToast(lifecycleCodeMessage('ACCOUNT_CREATION_PENDING'), 'error'); return }
-    if (rolNou === 'client' && !validateCif(user.cif).ok) {
-      showToast('Trecerea la client necesită un CIF valid, salvat împreună cu rolul. Editorul datelor firmei nu este încă disponibil.', 'error')
-      return
-    }
-    const rolVechi = ROLURI[(user.role as Rol) || 'client']
-    // Descrierea numește persoana și direcția schimbării — un admin care
-    // derulează rapid prin listă trebuie să vadă exact ce confirmă, nu o
-    // propoziție generică pe care o apasă din reflex.
-    if (!await confirm({
-      title: 'Confirmă schimbarea rolului',
-      description: `Rolul lui ${profileDisplayName(user, user.full_name || user.email)} se schimbă din „${rolVechi}” în „${ROLURI[rolNou as Rol]}”.`,
-      confirmText: 'Schimbă rolul',
-    })) return
-    setUpdatingRoleId(user.id)
-    try {
-      const res = await apiFetch(`/api/users/${user.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: rolNou }) })
-      if (!res.ok) {
-        const body = await res.json().catch(() => null)
-        const message = body?.code === 'LAST_ACTIVE_ADMIN' || body?.code === 'SELF_ACCOUNT_ACTION'
-          ? lifecycleCodeMessage(body.code)
-          : body?.message || 'Nu am putut actualiza rolul. Reîncearcă.'
-        showToast(message, 'error')
-        return
-      }
-      fetchUsers()
-      showToast('Rolul utilizatorului a fost actualizat.', 'success')
-    } catch {
-      showToast('Nu am putut actualiza rolul. Reîncearcă.', 'error')
-    } finally {
-      setUpdatingRoleId(null)
-    }
-  }
-
   const handleConfirmDelete = async () => {
     if (!userToDelete || checkingDelete || deleteHasRelatedData || deleteError || isDeleting) return
     setIsDeleting(true)
@@ -404,6 +369,7 @@ export default function AdminUsersPage() {
   }, [userToDelete, apiFetch])
 
   const loadLifecycleImpact = (user: any) => {
+    if ((user.role === 'admin' || user.role === 'consultant') && !user.creation_pending) { setDeactivationUser(user); return }
     setImpactUser(user)
     setImpact(null)
     setImpactBlockers([])
@@ -544,6 +510,7 @@ export default function AdminUsersPage() {
         )}
       </ConfirmDeleteModal>
 
+      {deactivationUser && <UserRoleChangeDialog user={deactivationUser} deactivate apiFetch={apiFetch} onClose={() => setDeactivationUser(null)} onSyncIncomplete={async () => { setDeactivationUser(null); await fetchUsers(false); showToast(lifecycleCodeMessage('AUTH_SYNC_INCOMPLETE'), 'error') }} onSaved={async () => { setDeactivationUser(null); await fetchUsers(false); showToast('Contul a fost dezactivat.', 'success') }} />}
       <Dialog.Root open={!!impactUser} onOpenChange={(open) => { if (!open) setImpactUser(null) }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-[999999] backdrop-blur-sm" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }} />
@@ -700,19 +667,7 @@ export default function AdminUsersPage() {
                       Senior
                     </span>
                   )}
-                  <label className="sr-only" htmlFor={`rol-${user.id}`}>Rolul lui {user.email}</label>
-                  <select
-                    id={`rol-${user.id}`}
-                    value={user.role || 'client'}
-                    onChange={e => updateUserRole(user, e.target.value)}
-                    disabled={updatingRoleId === user.id || user.creation_pending}
-                    className="h-11 rounded-[var(--radius-plate)] border border-rule bg-plate px-2 text-sm text-ink transition-colors duration-[120ms] focus:border-[var(--sg-accent)] disabled:opacity-55 sm:h-9"
-                  >
-                    <option value="client">Client</option>
-                    <option value="consultant">Consultant</option>
-                    <option value="admin">Administrator</option>
-                  </select>
-                  {updatingRoleId === user.id && <Loader2 className="h-4 w-4 animate-spin text-ink-soft" aria-hidden="true" />}
+                  <span className="rounded-[var(--radius-plate)] border border-rule bg-plate px-2 py-1 text-sm text-ink">{ROLURI[user.role as Rol] ?? user.role}</span>
                   <span className={`rounded border px-2 py-1 text-xs font-semibold ${user.creation_pending ? 'border-[var(--sg-warn)] text-[var(--sg-warn)]' : user.is_active === false ? 'border-rule text-ink-soft' : 'border-[var(--sg-ok)] text-[var(--sg-ok)]'}`}>
                     {user.creation_pending ? 'Creare incompletă' : user.is_active === false ? 'Dezactivat' : 'Activ'}
                   </span>

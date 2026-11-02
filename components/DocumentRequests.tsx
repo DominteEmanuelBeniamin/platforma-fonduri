@@ -187,7 +187,7 @@ interface DocumentRequestsProps {
   parentPhaseName?: string
   parentPhaseVisibility?: 'draft' | 'published'
   /** Consultanții proiectului, pentru atribuirea unei cereri */
-  projectMembers?: { id: string; full_name: string | null; email: string; is_active?: boolean | null }[]
+  projectMembers?: { id: string; full_name: string | null; email: string; is_active?: boolean | null; role?: string | null; creation_pending?: boolean | null }[]
   /** Date externe de la pagina părinte (evită fetch duplicat) */
   externalRequests?: any[]
   /** Callback refresh pentru pagina părinte */
@@ -209,6 +209,7 @@ interface DocumentRequestsProps {
   onRevealRequests?: (ids: string[]) => void
   /** Proiectul e încheiat: lista se poate doar citi, de oricine (8 octombrie 2026). */
   readOnly?: boolean
+  prepareReopen?: boolean
   /**
    * `sent`: doar documentele trimise clientului, ca grup separat de cererile
    * generale (S-20). Butonul „Trimite documente” stă în antetul grupului, deci
@@ -246,6 +247,7 @@ export default function DocumentRequests({
   hiddenRequestIds,
   onRevealRequests,
   readOnly = false,
+  prepareReopen = false,
   section = 'requests',
   sendOpen,
   onSendOpenChange,
@@ -1382,6 +1384,7 @@ export default function DocumentRequests({
           projectMembers={projectMembers}
           canCloseRequest={canCloseRequests}
           readOnly={readOnly}
+          prepareReopen={prepareReopen}
         />
       )}
 

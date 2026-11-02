@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
+import { userLifecycleConflict } from '@/app/api/_utils/user-lifecycle'
 import { createClient } from '@supabase/supabase-js'
 import { requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
@@ -108,7 +109,11 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      const conflict = userLifecycleConflict(error)
+      if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
+      throw error
+    }
 
     const diff = computeDiff(before, updateData)
     if (!diff.isEmpty) {

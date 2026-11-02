@@ -38,23 +38,30 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     if (phasesError) throw phasesError
 
-    // Fetch activities for each phase
-    const phasesWithActivities = await Promise.all(
-      (phases || []).map(async (phase) => {
-        const { data: activities } = await supabaseAdmin
+    const activitiesByPhase = new Map<string, any[]>()
+    if (phases?.length) {
+      for (let offset = 0; ; offset += 1000) {
+        const { data: activities, error: activitiesError } = await supabaseAdmin
           .from('project_activities')
           .select('*, assigned_user:assigned_to(id, full_name, email, is_active)')
-          .eq('phase_id', phase.id)
+          .in('phase_id', phases.map(phase => phase.id))
           .order('order_index', { ascending: true })
-
-        return {
-          ...phase,
-          activities: auth.access.role === 'client'
-            ? (activities || []).filter(activity => isClientVisibleActivity({ ...activity, phase }))
-            : activities || [],
+          .order('id', { ascending: true })
+          .range(offset, offset + 999)
+        if (activitiesError) throw activitiesError
+        for (const activity of activities || []) {
+          const group = activitiesByPhase.get(activity.phase_id) ?? []
+          group.push(activity)
+          activitiesByPhase.set(activity.phase_id, group)
         }
-      })
-    )
+        if (!activities || activities.length < 1000) break
+      }
+    }
+    const phasesWithActivities = (phases || []).map(phase => ({
+      ...phase,
+      activities: (activitiesByPhase.get(phase.id) ?? []).filter(activity =>
+        auth.access.role !== 'client' || isClientVisibleActivity({ ...activity, phase })),
+    }))
 
     if (auth.access.role !== 'client') {
       return NextResponse.json({ phases: phasesWithActivities })

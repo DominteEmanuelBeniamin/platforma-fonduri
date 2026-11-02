@@ -136,15 +136,17 @@ export default function DocumentModal({
   projectMembers = [],
   canCloseRequest = false,
   readOnly = false,
+  prepareReopen = false,
 }: {
   request: DocumentRequest
   /** Închide și redeschide cererea: adminul și seniorul membru (#109, D1). */
   canCloseRequest?: boolean
   /** Proiectul e încheiat: fișa se poate doar citi, de oricine (8 octombrie 2026). */
   readOnly?: boolean
+  prepareReopen?: boolean
   projectId: string
   /** Consultanții proiectului, pentru atribuirea cererii */
-  projectMembers?: { id: string; full_name: string | null; email: string; is_active?: boolean | null }[]
+  projectMembers?: { id: string; full_name: string | null; email: string; is_active?: boolean | null; role?: string | null; creation_pending?: boolean | null }[]
   onClose: () => void
   onUpdate: () => void
   clientEmail?: string | null
@@ -192,6 +194,7 @@ export default function DocumentModal({
   // termenul, responsabilul și modelul își pierd butoanele.
   const isClosed = request.status === 'closed'
   const canEdit = isAdminOrConsultant && !isClosed && !readOnly
+  const canAssign = canEdit || (prepareReopen && profile?.role === 'admin')
   const canReview = isAdminOrConsultant && request.status === 'review' && !readOnly
   const canUploadFolder =
     typeof window !== 'undefined' &&
@@ -258,7 +261,7 @@ export default function DocumentModal({
       const res = await apiFetch(`/api/document-requests/${request.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assigned_to: consultantId }),
+        body: JSON.stringify({ assigned_to: consultantId, ...(prepareReopen ? { prepare_reopen: true } : {}) }),
       })
       if (res.ok) {
         setLocalAssignee(consultantId)
@@ -963,7 +966,7 @@ export default function DocumentModal({
 
           {/* Responsabilul cererii — condiție de publicare (#70) */}
           {isAdminOrConsultant && !isOutgoing && (
-            editingAssignee && canEdit ? (
+            editingAssignee && canAssign ? (
               <div className="flex items-center gap-2">
                 <UserRound className="w-4 h-4 flex-shrink-0 text-ink-faint" />
                 <select
@@ -976,7 +979,7 @@ export default function DocumentModal({
                 >
                   <option value="" disabled={!canEmptyRequiredFields}>Fără responsabil</option>
                   {inactiveAssignee?.id === assigneeDraft && inactiveAssignee.is_active === false && <option value={inactiveAssignee.id} disabled>{profileDisplayName(inactiveAssignee)}</option>}
-                  {projectMembers.filter(member => member.is_active !== false).map(member => (
+                  {projectMembers.filter(member => member.is_active !== false && (!member.role || member.role === 'consultant') && !member.creation_pending).map(member => (
                     <option key={member.id} value={member.id}>{profileDisplayName(member)}</option>
                   ))}
                 </select>
@@ -1007,7 +1010,7 @@ export default function DocumentModal({
                   Responsabil:{' '}
                   <strong>{assigneeLabel ?? 'neatribuit'}</strong>
                 </span>
-                {canEdit && (
+                {canAssign && (
                   <button data-tooltip={localAssignee ? 'Schimbă consultantul care răspunde de cerere' : 'Alege consultantul care răspunde de cerere'}
                     onClick={() => { setAssigneeDraft(localAssignee ?? ''); setEditingAssignee(true) }}
                     className={inlineActionClass}

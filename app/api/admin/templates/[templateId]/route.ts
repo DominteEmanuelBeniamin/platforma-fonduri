@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 import { requireTemplateAccess, requireTemplateManager } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
 import { loadTemplateTree } from '@/app/api/_utils/template-tree'
+import { userLifecycleConflict } from '@/app/api/_utils/user-lifecycle'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -116,6 +117,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ template })
   } catch (error: any) {
+    const conflict = userLifecycleConflict(error)
+    if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
     const nameError = templateNameErrorResponse(error)
     if (nameError) return nameError
     console.error('PATCH /api/admin/templates/[templateId] error:', error)

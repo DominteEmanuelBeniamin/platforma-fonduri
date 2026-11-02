@@ -2,13 +2,13 @@
 // app/api/users/[userId]/route.ts
 import { requireAdmin, guardToResponse } from '../../_utils/auth'
 import { createSupabaseServiceClient } from '../../_utils/supabase'
-import { logUserAction, getClientIP, getUserAgent } from '../../_utils/audit'
+import { getClientIP, getUserAgent } from '../../_utils/audit'
 import { sendEmailChangedNotices } from '../../_utils/email-changed-email'
 import { userLifecycleConflict } from '../../_utils/user-lifecycle'
 import { cifForbidden, cifValidationFailure, checkCifAvailable, userCifConflict } from '../../_utils/user-creation'
 import { validateCif } from '@/lib/cif'
 import { isUuid } from '@/lib/notification-utils'
-import { isEditableRole, normalizeProfileEmail, profileFieldProblem, type ProfileTextField } from '@/lib/profile-edit'
+import { completeProfileProblem, isEditableRole, normalizeProfileEmail, profileFieldProblem, type ProfileTextField } from '@/lib/profile-edit'
 import { after, NextResponse } from 'next/server'
 
 type PatchBody = Partial<{
@@ -102,6 +102,9 @@ export async function PATCH(
       update.consultant_level = body.consultant_level
     }
     const finalRole = update.role ?? oldProfile.role
+    if (finalRole !== oldProfile.role && (finalRole === 'client' || oldProfile.role === 'client')) {
+      return NextResponse.json({ code: 'CLIENT_ROLE_CONVERSION_FORBIDDEN', message: 'Conturile de client nu pot fi convertite în conturi interne sau invers.' }, { status: 409 })
+    }
     const texts: Partial<Record<ProfileTextField, unknown>> = {}
     for (const key of TEXT_FIELDS) if (body[key] !== undefined) texts[key] = body[key]
     if (Object.keys(texts).length > 0) {
@@ -111,6 +114,13 @@ export async function PATCH(
       for (const [key, value] of Object.entries(texts)) {
         const text = typeof value === 'string' ? value.trim() : ''
         update[key] = key === 'email' ? normalizeProfileEmail(text) : text || null
+      }
+    }
+    if (isEditableRole(finalRole)) {
+      const problem = completeProfileProblem(finalRole, { ...oldProfile, ...update })
+      if (problem) return NextResponse.json({ code: 'PROFILE_FIELD_REQUIRED', field: problem.field, message: problem.message }, { status: 400 })
+      if (finalRole !== oldProfile.role && finalRole === 'consultant' && body.consultant_level === undefined) {
+        return NextResponse.json({ code: 'INVALID_PROFILE_PATCH', field: 'consultant_level', message: 'Alege nivelul consultantului.' }, { status: 400 })
       }
     }
     if (hasCif && finalRole !== 'client') return NextResponse.json(cifForbidden.body, { status: cifForbidden.status })
@@ -133,10 +143,12 @@ export async function PATCH(
       )
     }
 
-    const { data: result, error } = await admin.rpc('update_user_profile_guarded', {
+    const { data: result, error } = await admin.rpc('update_user_profile_guarded_audited', {
       p_target_id: targetUserId,
       p_actor_id: ctx.user.id,
       p_changes: update,
+      p_ip_address: getClientIP(request),
+      p_user_agent: getUserAgent(request),
     })
     if (error) {
       const conflict = userCifConflict(error) ?? userLifecycleConflict(error)
@@ -156,31 +168,6 @@ export async function PATCH(
     if (!profile || profile.id !== targetUserId || typeof changed !== 'boolean' || !validAudit) {
       console.error('PATCH guarded profile update returned an invalid result:', { targetUserId })
       return NextResponse.json({ error: 'Nu am putut confirma actualizarea profilului.' }, { status: 500 })
-    }
-
-    if (changed) {
-      let description = String(ctx.profile.email) + ' a modificat utilizatorul ' + String(profile.email)
-      if (Object.hasOwn(newValues, 'role')) {
-        description = String(ctx.profile.email) + ' a schimbat rolul utilizatorului ' + String(profile.email)
-          + ' din "' + oldValues.role + '" în "' + newValues.role + '"'
-      } else if (Object.hasOwn(newValues, 'consultant_level')) {
-        description = String(ctx.profile.email) + ' a schimbat nivelul consultantului ' + String(profile.email)
-          + ' din "' + oldValues.consultant_level + '" în "' + newValues.consultant_level + '"'
-      } else if (Object.hasOwn(newValues, 'email')) {
-        description = String(ctx.profile.email) + ' a schimbat emailul contului din "' + oldValues.email + '" în "' + newValues.email + '"'
-      }
-
-      await logUserAction({
-        adminId: ctx.user.id,
-        actionType: 'update',
-        userId: targetUserId,
-        userEmail: profile.email,
-        oldValues: Object.keys(oldValues).length > 0 ? oldValues : null,
-        newValues: Object.keys(newValues).length > 0 ? newValues : null,
-        description,
-        ipAddress: getClientIP(request),
-        userAgent: getUserAgent(request),
-      })
     }
 
     if (changed && Object.hasOwn(newValues, 'email') && typeof oldValues.email === 'string') {

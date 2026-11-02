@@ -30,6 +30,7 @@ type AuthCtx = {
   apiFetch: (input: RequestInfo, init?: RequestInit) => Promise<Response>
   installSession: (session: { access_token: string; refresh_token: string }, expectedUserId: string) => Promise<boolean>
   signOut: () => Promise<void>
+  refreshProfile: () => Promise<void>
   /** După „Schimbă parola” din Contul meu: avertizarea de parolă temporară dispare fără reîncărcare. */
   markPasswordChanged: () => void
 }
@@ -58,11 +59,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const identityInitializedRef = useRef(false)
   const authStateRevisionRef = useRef(0)
   const [identityRevision, setIdentityRevision] = useState(0)
+  const profileRequestRef = useRef(0)
 
   const applySession = useCallback((session: AuthSession | null, initialHydration = false) => {
     const nextToken = session?.access_token ?? null
     const nextUserId = session?.user?.id ?? null
     authStateRevisionRef.current += 1
+    // Focusul și alte file pot retrimite aceeași sesiune în timpul încărcării.
+    if (activeTokenRef.current !== nextToken || identityRef.current !== nextUserId) {
+      profileRequestRef.current += 1
+    }
     activeTokenRef.current = nextToken
 
     if (identityRef.current !== nextUserId) {
@@ -208,47 +214,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!loading && !token && !PUBLIC_PATHS.has(pathname ?? '')) router.replace('/login')
   }, [loading, pathname, router, token])
 
-  // 2) Încărcăm profilul (rolul etc.) după ce avem token
+  const refreshProfile = useCallback(async () => {
+    const request = ++profileRequestRef.current
+    const expectedToken = token
+    if (!expectedToken) return
+    try {
+      const res = await apiFetch('/api/me', { method: 'GET' })
+      const json = await res.json().catch(() => null)
+      if (request !== profileRequestRef.current || activeTokenRef.current !== expectedToken) return
+      setProfile(res.ok ? json?.profile ?? null : null)
+      setProfileError(!res.ok || !json?.profile?.role)
+    } catch {
+      if (request === profileRequestRef.current && activeTokenRef.current === expectedToken) {
+        setProfile(null)
+        setProfileError(true)
+      }
+    }
+  }, [apiFetch, token])
+
   useEffect(() => {
     let cancelled = false
-
-    const loadProfile = async () => {
-      if (!token) {
-        setProfile(null)
-        return
-      }
-
-      try {
-        const res = await apiFetch('/api/me', { method: 'GET' })
-        const json = await res.json().catch(() => null)
-
-        if (cancelled) return
-
-        if (!res.ok) {
-          // Token invalid / expiră / alte erori -> logout "soft"
-          if (res.status !== 401) console.warn('Failed to load /api/me:', json)
-          setProfile(null)
-          setProfileError(true)
-          return
-        }
-
-        // Acceptăm fie { profile }, fie { user, profile }
-        setProfile(json?.profile ?? null)
-        setProfileError(!json?.profile?.role)
-      } catch {
-        if (!cancelled) {
-          setProfile(null)
-          setProfileError(true)
-        }
-      }
-    }
-
-    void loadProfile()
-
-    return () => {
-      cancelled = true
-    }
-  }, [token, apiFetch])
+    void Promise.resolve().then(() => { if (!cancelled) void refreshProfile() })
+    return () => { cancelled = true; profileRequestRef.current += 1 }
+  }, [refreshProfile])
 
   const signOut = useCallback(async () => {
     // Înregistrăm audit log pentru logout ÎNAINTE de a șterge sesiunea
@@ -278,8 +266,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const value = useMemo(
-    () => ({ token, userId, user, profile, profileError, loading, apiFetch, installSession, signOut, markPasswordChanged }),
-    [token, userId, user, profile, profileError, loading, apiFetch, installSession, signOut, markPasswordChanged]
+    () => ({ token, userId, user, profile, profileError, loading, apiFetch, installSession, signOut, markPasswordChanged, refreshProfile }),
+    [token, userId, user, profile, profileError, loading, apiFetch, installSession, signOut, markPasswordChanged, refreshProfile]
   )
 
   return (

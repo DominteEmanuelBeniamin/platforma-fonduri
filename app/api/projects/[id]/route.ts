@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { guardToResponse, projectPermissions, requireAdmin, requireProjectAccess, requireProjectManager } from '../../_utils/auth'
 import { createSupabaseServiceClient } from '../../_utils/supabase'
 import { inactiveReferenceConflict } from '../../_utils/inactive-reference'
+import { userLifecycleConflict } from '../../_utils/user-lifecycle'
 import { logProjectAction, getClientIP, getUserAgent } from '../../_utils/audit'
 import { PROJECT_LIFECYCLE_PATCH_MESSAGE } from '@/lib/project-lifecycle'
 
@@ -66,8 +67,15 @@ export async function PATCH(
 
     // Adminul și consultantul senior membru pot edita proiectul; reasignarea
     // clientului/consultantului general rămâne la admin (verificat mai jos).
-    const ctx = await requireProjectManager(request, projectId, { write: true })
+    const body = await request.json().catch(() => null)
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    const preparing = body.prepare_reopen === true
+    if (preparing && (Object.keys(body).some(key => !['prepare_reopen', 'general_consultant_id'].includes(key)) || !Object.hasOwn(body, 'general_consultant_id'))) {
+      return NextResponse.json({ error: 'Pregătirea redeschiderii permite doar schimbarea consultantului general.' }, { status: 400 })
+    }
+    const ctx = await requireProjectManager(request, projectId, { write: !preparing })
     if (!ctx.ok) return guardToResponse(ctx)
+    if (preparing && ctx.access.role !== 'admin') return NextResponse.json({ error: 'Doar administratorul pregătește redeschiderea.' }, { status: 403 })
 
     const admin = createSupabaseServiceClient()
 
@@ -87,11 +95,6 @@ export async function PATCH(
     }
 
     // 2. Parsăm body-ul
-    const body = await request.json().catch(() => null)
-    if (!body || typeof body !== 'object') {
-      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
-    }
-
     // Încheierea are rute proprii (/close, /reopen), cu gardă, update
     // condiționat și audit; PATCH-ul nu e un al doilea drum spre ea.
     if (['lifecycle_status', 'closed_at', 'closed_by'].some(key => key in body)) {
@@ -182,7 +185,7 @@ export async function PATCH(
       if (consultantId && consultantId !== oldProject.general_consultant_id) {
         const { data: consultant, error: consultantError } = await admin
           .from('profiles')
-          .select('id, role, is_active')
+          .select('id, role, is_active, creation_pending')
           .eq('id', consultantId)
           .maybeSingle()
         if (consultantError) {
@@ -192,9 +195,13 @@ export async function PATCH(
         if (!consultant || consultant.role !== 'consultant') {
           return NextResponse.json({ error: 'Consultantul general trebuie să fie consultant.' }, { status: 400 })
         }
-        if (consultant.is_active === false) {
+        if (consultant.is_active !== true || consultant.creation_pending) {
           return NextResponse.json({ error: 'Consultantul general trebuie să aibă un cont activ.' }, { status: 409 })
         }
+        const { data: membership, error: memberError } = await admin.from('project_members').select('id')
+          .eq('project_id', projectId).eq('consultant_id', consultantId).maybeSingle()
+        if (memberError) return NextResponse.json({ error: 'Nu am putut verifica echipa proiectului.' }, { status: 500 })
+        if (!membership) return NextResponse.json({ error: 'Consultantul general trebuie să fie membru în proiect.' }, { status: 409 })
       }
       update.general_consultant_id = consultantId
     }
@@ -224,6 +231,8 @@ export async function PATCH(
       .single()
 
     if (updateErr) {
+      const conflict = userLifecycleConflict(updateErr)
+      if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
       const inactive = inactiveReferenceConflict(updateErr, 'Nu poți folosi un cont dezactivat în proiect.')
       if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
       console.error('Update project error:', updateErr)
