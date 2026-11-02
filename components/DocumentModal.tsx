@@ -191,10 +191,11 @@ export default function DocumentModal({
 
   const isAdminOrConsultant = profile?.role === 'admin' || profile?.role === 'consultant'
   // O cerere închisă se citește, dar nu se modifică până la redeschidere (D13):
-  // termenul, responsabilul și modelul își pierd butoanele.
+  // Doar administratorul poate reatribui responsabilul pentru redeschidere.
   const isClosed = request.status === 'closed'
   const canEdit = isAdminOrConsultant && !isClosed && !readOnly
-  const canAssign = canEdit || (prepareReopen && profile?.role === 'admin')
+  const preparingReopen = profile?.role === 'admin' && (prepareReopen || isClosed)
+  const canAssign = canEdit || preparingReopen
   const canReview = isAdminOrConsultant && request.status === 'review' && !readOnly
   const canUploadFolder =
     typeof window !== 'undefined' &&
@@ -261,7 +262,7 @@ export default function DocumentModal({
       const res = await apiFetch(`/api/document-requests/${request.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assigned_to: consultantId, ...(prepareReopen ? { prepare_reopen: true } : {}) }),
+        body: JSON.stringify({ assigned_to: consultantId, ...(preparingReopen ? { prepare_reopen: true } : {}) }),
       })
       if (res.ok) {
         setLocalAssignee(consultantId)
