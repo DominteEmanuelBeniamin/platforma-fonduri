@@ -54,7 +54,7 @@ type Stage =
   | { name: 'loading' }
   | { name: 'ready'; file: File }
   | { name: 'unsupported' }
-  | { name: 'failed'; message: string }
+  | { name: 'failed'; message: string; file?: File; detail?: string }
 
 /**
  * „Trimite pe email”, pe telefon: deschide meniul „Partajează” al telefonului
@@ -118,19 +118,25 @@ export function EmailFileButton({
   }, [open, routeKey, fileName, mimeType, apiFetch])
 
   const share = () => {
-    if (stage.name !== 'ready') return
+    const file = stage.name === 'ready' || stage.name === 'failed' ? stage.file : undefined
+    if (!file) return
     // Doar fișierul și titlul: cu text pe lângă, unele aplicații (Gmail pe iPhone)
     // păstrează textul și pierd atașamentul.
-    navigator.share({ files: [stage.file], title: fileName })
+    navigator.share({ files: [file], title: fileName })
       .then(() => setOpen(false))
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return
         const name = error instanceof DOMException ? error.name : 'Error'
+        // Fișierul rămâne pregătit: o nouă apăsare e un gest nou al omului, pe
+        // care telefonul îl acceptă adesea. Mesajul tehnic al telefonului ne
+        // spune de ce a refuzat (gestul nu s-a numărat sau tipul de fișier).
         setStage({
           name: 'failed',
+          file,
           message: name === 'NotAllowedError'
-            ? 'Telefonul n-a permis deschiderea aplicației. Închide fereastra și încearcă din nou.'
+            ? 'Telefonul n-a permis deschiderea aplicației. Apasă din nou butonul.'
             : `Telefonul n-a putut deschide aplicația de email (${name}).`,
+          detail: `${name}: ${error instanceof Error ? error.message : String(error)}`,
         })
       })
   }
@@ -178,12 +184,15 @@ export function EmailFileButton({
               </p>
             ) : (
               <>
-                <Button type="button" variant="primary" className="w-full" onClick={share} disabled={stage.name !== 'ready'}>
+                <Button type="button" variant="primary" className="w-full" onClick={share} disabled={stage.name === 'loading' || (stage.name === 'failed' && !stage.file)}>
                   {stage.name === 'loading' ? <Spinner size="sm" /> : <Share2 className="h-4 w-4" aria-hidden="true" />}
                   {stage.name === 'loading' ? 'Se pregătește documentul…' : 'Deschide aplicația de email'}
                 </Button>
                 {stage.name === 'failed' ? (
-                  <p role="alert" className="text-sm leading-6 text-[var(--sg-danger)]">{stage.message}</p>
+                  <div role="alert" className="space-y-1">
+                    <p className="text-sm leading-6 text-[var(--sg-danger)]">{stage.message}</p>
+                    {stage.detail && <p className="break-words text-xs leading-5 text-ink-faint">{stage.detail}</p>}
+                  </div>
                 ) : (
                   <p className="text-sm leading-6 text-ink-soft">
                     Alegi Gmail, Outlook sau Mail; documentul e deja atașat. Scrii adresa și trimiți de pe emailul tău.
