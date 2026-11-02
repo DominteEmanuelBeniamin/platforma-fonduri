@@ -249,7 +249,7 @@ export default function AccountPage() {
         <AccountSection
           title="Datele contului"
           description={profile.role === 'admin'
-            ? 'Le modifici din pagina Utilizatori.'
+            ? 'Le modifici din Utilizatori: deschide-ți contul și apasă „Editează datele”.'
             : 'Le schimbă administratorul. Dacă ceva nu e corect, scrie-i lui.'}
         >
           <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[10rem_minmax(0,1fr)]">
