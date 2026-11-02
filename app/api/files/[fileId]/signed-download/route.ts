@@ -1,31 +1,10 @@
 import { NextResponse } from 'next/server'
-import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { logAction } from '@/app/api/_utils/audit'
 import { isPreviewableFile, clampExpiresIn } from '@/lib/file-preview'
-import { isClientVisibleDocument } from '@/lib/client-visibility'
-import { isLatestFileVersion } from '@/lib/document-versions'
+import { readableFile } from '@/app/api/_utils/file-access'
 
 const BUCKET = 'project-files'
-
-type FileDownloadRow = {
-  id: string
-  requirement_id: string
-  version_number: number
-  storage_path: string
-  original_name: string | null
-  mime_type: string | null
-  document_requirements:
-    | { project_id: string | null; name: string | null; deleted_at: string | null; activity_id: string | null; visibility: string | null; activity?: unknown }
-    | Array<{ project_id: string | null; name: string | null; deleted_at: string | null; activity_id: string | null; visibility: string | null; activity?: unknown }>
-    | null
-}
-
-function getDownloadName(fileRow: FileDownloadRow) {
-  const originalName = typeof fileRow.original_name === 'string' ? fileRow.original_name.trim() : ''
-  if (originalName) return originalName
-  return fileRow.storage_path.split('/').filter(Boolean).pop() || 'fisier'
-}
 
 export async function POST(
   request: Request,
@@ -37,78 +16,21 @@ export async function POST(
     const expiresIn = clampExpiresIn(body?.expiresIn)
     const inlineRequested = body?.disposition === 'inline'
 
+    const readable = await readableFile(request, fileId)
+    if (!readable.ok) return readable.response
+    const { access, file: typedFileRow, fileName, projectId, projectTitle, requirementName } = readable.value
     const admin = createSupabaseServiceClient()
-
-    const { data: fileRow, error } = await admin
-      .from('files')
-      .select('id, requirement_id, version_number, storage_path, original_name, mime_type, deleted_at, document_requirements(project_id, name, deleted_at, activity_id, visibility, activity:activity_id(visibility, phase:phase_id(visibility)))')
-      .eq('id', fileId)
-      .is('deleted_at', null)
-      .single()
-
-    if (error || !fileRow) {
-      return NextResponse.json({ error: 'File not found' }, { status: 404 })
-    }
-
-    const typedFileRow = fileRow as FileDownloadRow
-    const relation = typedFileRow.document_requirements
-    const requirement = Array.isArray(relation) ? relation[0] : relation
-    if (requirement?.deleted_at) {
-      return NextResponse.json({ error: 'File not found' }, { status: 404 })
-    }
-
-    const projectId = requirement?.project_id ?? undefined
-    if (!projectId) {
-      return NextResponse.json({ error: 'Invalid file relation' }, { status: 500 })
-    }
-
-    const access = await requireProjectAccess(request, projectId)
-    if (!access.ok) return guardToResponse(access)
-    if (access.profile.role === 'client' && !isClientVisibleDocument(requirement)) {
-      return NextResponse.json({ error: 'File not found' }, { status: 404 })
-    }
-
-    if (access.profile.role === 'client') {
-      // Doar rândul cu versiunea maximă, nu toate rândurile cererii: pe un
-      // requirement cu multe fișiere, plafonul de rânduri al PostgREST ar putea
-      // tăia tocmai versiunea curentă și i-am refuza clientului propriul document.
-      const { data: latestFile, error: versionError } = await admin
-        .from('files')
-        .select('version_number')
-        .eq('requirement_id', typedFileRow.requirement_id)
-        .is('deleted_at', null)
-        .order('version_number', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      if (versionError) {
-        console.error('latest file version lookup error:', versionError)
-        return NextResponse.json({ error: 'Failed to validate file access' }, { status: 500 })
-      }
-
-      if (!isLatestFileVersion(typedFileRow, latestFile ? [latestFile] : [])) {
-        return NextResponse.json({ error: 'File not found' }, { status: 404 })
-      }
-    }
-
-    const { data: projectRow } = await admin
-      .from('projects')
-      .select('title')
-      .eq('id', projectId)
-      .maybeSingle()
-    const projectTitle = projectRow?.title ?? projectId
-    const requirementName = requirement?.name || null
 
     // inline doar pentru tipuri afișabile în browser; altfel forțăm descărcarea
     const inline = inlineRequested && isPreviewableFile({
       mimeType: typedFileRow.mime_type,
-      fileName: getDownloadName(typedFileRow),
+      fileName,
     })
 
     const { data, error: signErr } = await admin.storage
       .from(BUCKET)
       .createSignedUrl(typedFileRow.storage_path, expiresIn, {
-        download: inline ? false : getDownloadName(typedFileRow),
+        download: inline ? false : fileName,
       })
 
     if (signErr || !data?.signedUrl) {
@@ -121,7 +43,7 @@ export async function POST(
       actionType: 'download',
       entityType: 'file_access',
       entityId: fileId,
-      entityName: getDownloadName(typedFileRow),
+      entityName: fileName,
       newValues: {
         file_id: fileId,
         project_id: projectId,
@@ -131,7 +53,7 @@ export async function POST(
         expires_in: expiresIn,
         disposition: inline ? 'inline' : 'attachment',
       },
-      description: `${inline ? 'Vizualizare' : 'Descarcare'} fisier "${getDownloadName(typedFileRow)}" din proiectul "${projectTitle}"${requirementName ? ` pentru cererea "${requirementName}"` : ''}`,
+      description: `${inline ? 'Vizualizare' : 'Descarcare'} fisier "${fileName}" din proiectul "${projectTitle}"${requirementName ? ` pentru cererea "${requirementName}"` : ''}`,
       request,
     })
 

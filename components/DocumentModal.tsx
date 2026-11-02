@@ -42,6 +42,7 @@ import { Signal } from '@/components/ui/Signal'
 import { canCloseRequest as isClosable, requestCloseConfirm, requestReopenConfirm } from '@/lib/completion'
 import { closedRequestClientNote, displayedRequestStatus, requestStatusInfo, type RequestStatus } from '@/lib/request-status'
 import { formatClosedDate, PROJECT_CLOSED_CLIENT_NOTE, PROJECT_CLOSED_READ_ONLY_MESSAGE } from '@/lib/project-lifecycle'
+import { EmailFileButton } from '@/components/EmailFileButton'
 import {
   formatFileSize,
   isAllowedUploadFile,
@@ -1317,6 +1318,7 @@ export default function DocumentModal({
                                     <Download className="w-4 h-4" />
                                   )}
                                 </button>
+                                <EmailFileButton fileId={file.id} fileName={fileName} documentName={request.name} apiFetch={apiFetch} />
                               </div>
                             </div>
                           )
