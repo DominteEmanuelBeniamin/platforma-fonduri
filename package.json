@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "node scripts/dev-local.mjs",
     "dev:local": "node scripts/dev-local.mjs",
+    "db:validate": "node --experimental-strip-types scripts/validate-migrations.mjs",
     "db:reset:local": "node --experimental-strip-types scripts/reset-local-db.mjs",
     "build": "next build",
     "start": "next start",

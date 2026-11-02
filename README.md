@@ -165,3 +165,21 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Verificarea migrărilor în CI și deploy
+
+`npm run db:validate` reconstruiește schema într-un proiect Docker temporar, cu
+identificator, port și director propriu. Nu citește `.env.local`, nu resetează
+stack-ul de dezvoltare și nu importă seed-uri. Pornește până înainte de migrarea
+CIF #110, validează snapshot-ul cu validatorul TypeScript, apoi aplică migrarea
+și înregistrează istoricul în aceeași tranzacție. Folosește aceeași funcție de
+aplicare ca `db:reset:local`, după care aplică toate migrările rămase și verifică
+istoricul complet. Containerul și volumele temporare sunt oprite la final.
+
+Înainte de `db push`, deploy-ul execută `production-migrations-preflight.sql`:
+confirmă că rollout-ul CIF coordonat este deja înregistrat și că există coloana
+`creation_pending`, normalizatorul și indexul unic valid. Dacă lipsesc, se oprește
+înainte de aplicarea migrărilor; nu repară automat date reale și nu ocolește
+preflight-ul. Pentru o bază hosted fără #110, urmează
+[procedura de rollout](docs/issue-110-rollout.md), apoi reia deploy-ul. Controlul
+nu înlocuiește backup-ul sau verificările de compatibilitate ale aplicației.

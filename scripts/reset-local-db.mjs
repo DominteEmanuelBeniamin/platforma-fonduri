@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import nextEnv from '@next/env'
 import { createClient } from '@supabase/supabase-js'
-import { inspectCifProfiles } from '../lib/cif-preflight.ts'
+import { applyCifMigration } from './apply-cif-migration.mjs'
 import { assertLocalStack } from './local-account-fixtures.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
@@ -31,18 +31,11 @@ const guarded = migrations.filter(file => file.endsWith('_issue_110_cif_account_
 assert.equal(guarded.length, 1, 'Expected the guarded account migration')
 const position = migrations.indexOf(guarded[0])
 assert.ok(position > 0, 'Account migration requires its baseline')
-const version = guarded[0].split('_')[0]
 
 console.log('Recreez baza Docker locală; datele locale existente vor fi înlocuite.')
 // The guarded migration needs a validated snapshot in its own SQL session.
 cli(['db', 'reset', '--local', '--version', migrations[position - 1].split('_')[0], '--no-seed', '--yes'])
-const snapshot = JSON.parse(sql(`SELECT jsonb_build_object(
-  'profiles', coalesce(jsonb_agg(jsonb_build_object('role',role,'cif',cif) ORDER BY id), '[]'::jsonb),
-  'fingerprint', md5(coalesce(jsonb_agg(jsonb_build_array(id,role,cif) ORDER BY id), '[]'::jsonb)::text)) FROM public.profiles`))
-assert.ok(inspectCifProfiles(snapshot.profiles).valid, 'CIF preflight failed')
-assert.match(snapshot.fingerprint, /^[a-f0-9]{32}$/)
-sql("SET app.issue110_cif_preflight = '" + snapshot.fingerprint + "';\n" + fs.readFileSync(path.join(root, 'supabase/migrations', guarded[0]), 'utf8'))
-cli(['migration', 'repair', version, '--status', 'applied', '--local'])
+applyCifMigration(sql, path.join(root, 'supabase/migrations', guarded[0]))
 cli(['migration', 'up', '--local'])
 const profiles = JSON.parse(sql("SELECT coalesce(jsonb_agg(jsonb_build_object('role',role,'cif',cif,'creation_pending',creation_pending,'is_active',is_active)), '[]'::jsonb) FROM public.profiles"))
 assert.equal(profiles.length, 0, 'Reset must leave a fresh database before the demo seed')
