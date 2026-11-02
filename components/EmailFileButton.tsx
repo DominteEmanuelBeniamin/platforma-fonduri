@@ -198,7 +198,12 @@ export function EmailFileButton({
         <Dialog.Overlay className="fixed inset-0 z-[1000001]" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }} />
         <Dialog.Content
           onClick={event => event.stopPropagation()}
-          onOpenAutoFocus={event => { event.preventDefault(); toRef.current?.focus() }}
+          onOpenAutoFocus={event => {
+            // Pe telefon nu deschidem tastatura peste butonul principal (aplicația de email).
+            if (canShareFile(fileName, mimeType)) return
+            event.preventDefault()
+            toRef.current?.focus()
+          }}
           className="fixed left-1/2 top-1/2 z-[1000001] max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[var(--radius-plate-lg)] border border-rule bg-plate focus:outline-none"
           style={{ boxShadow: 'var(--sg-lift)' }}
         >
@@ -235,7 +240,31 @@ export function EmailFileButton({
               </div>
             </div>
           ) : (
+            <>
+            {/* Pe telefon (și unde browserul poate partaja fișiere) calea firească e
+                aplicația de email a omului: o punem prima și mare. */}
+            {shareable && (
+              <div className="space-y-2 border-b border-rule px-5 py-5">
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="w-full"
+                  onClick={() => void shareInMailApp()}
+                  disabled={sending || shareState !== 'ready'}
+                  data-tooltip="Deschide Gmail, Outlook sau Mail cu documentul atașat; trimiți de pe adresa ta"
+                >
+                  <Share2 className="h-4 w-4" aria-hidden="true" />
+                  {shareState === 'loading' ? 'Se pregătește documentul…' : shareState === 'failed' ? 'Aplicația de email nu e disponibilă' : 'Trimite din aplicația ta de email'}
+                </Button>
+                <p className="text-xs leading-5 text-ink-soft">
+                  {shareState === 'failed'
+                    ? 'Nu am putut pregăti documentul pentru aplicația de email. Trimite-l din Bonie, mai jos.'
+                    : 'Alegi Gmail, Outlook sau Mail; documentul e deja atașat. Scrii adresa și trimiți de pe emailul tău.'}
+                </p>
+              </div>
+            )}
             <form onSubmit={submit} noValidate aria-busy={sending} className="space-y-4 px-5 py-5">
+              {shareable && <p className="text-sm font-semibold text-ink">Sau trimite din Bonie</p>}
               <div>
                 <label htmlFor={`${ids}-catre`} className="mb-1.5 block text-sm font-semibold text-ink">Către</label>
                 <textarea
@@ -287,25 +316,14 @@ export function EmailFileButton({
 
               {error && <p id={errorId} role="alert" className="text-sm text-[var(--sg-danger)]">{error.message}</p>}
 
-              <div className="flex flex-col-reverse gap-3 border-t border-rule pt-4 sm:flex-row sm:items-center sm:justify-between">
-                {shareable ? (
-                  <Button
-                    type="button"
-                    variant="quiet"
-                    onClick={() => void shareInMailApp()}
-                    disabled={sending || shareState !== 'ready'}
-                    data-tooltip="Deschide Gmail, Outlook sau Mail cu documentul atașat; trimiți de pe adresa ta"
-                  >
-                    <Share2 className="h-4 w-4" aria-hidden="true" />
-                    {shareState === 'loading' ? 'Se pregătește…' : shareState === 'failed' ? 'Aplicația de email nu e disponibilă' : 'Deschide în aplicația de email'}
-                  </Button>
-                ) : <span className="hidden sm:block" />}
-                <Button type="submit" variant="primary" disabled={sending} data-tooltip="Trimite emailul din Bonie, cu documentul atașat">
+              <div className="flex justify-end border-t border-rule pt-4">
+                <Button type="submit" variant={shareable ? 'secondary' : 'primary'} disabled={sending} data-tooltip="Trimite emailul din Bonie, cu documentul atașat">
                   <Mail className="h-4 w-4" aria-hidden="true" />
                   {sending ? 'Se trimite…' : 'Trimite'}
                 </Button>
               </div>
             </form>
+            </>
           )}
         </Dialog.Content>
       </Dialog.Portal>
