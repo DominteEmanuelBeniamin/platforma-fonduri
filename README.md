@@ -34,17 +34,18 @@ validează snapshot-ul CIF, aplică migrarea #110 în aceeași sesiune SQL cu am
 verificată, înregistrează versiunea și aplică migrările ulterioare. La final
 verifică schema și bucket-ul privat. Baza rămâne goală până la `seed:local`;
 resetarea nu depinde de dump-ul privat și ignorat `supabase/seed.sql`.
+Importul automat din `supabase/seed.sql` este dezactivat: folosește comenzile de mai sus, nu `supabase db reset` direct. Seed-ul demo verifică toate migrările înainte de creare și generează CIF-uri valide și unice.
 Nu acceptă ținte sau argumente pentru producție.
 
 `dev:local` pornește aplicația pe `http://localhost:3000` și capturarea emailurilor
 pe loopback. Folosește cheia de email sintetică și salvează mesajele în
 `playwright-report/local-mail/resend.jsonl` (ignorat de Git), inclusiv parolele
 temporare ale conturilor create. Oprirea comenzii închide ambele procese.
-`npm run dev` păstrează configurația de email din `.env.local`.
+`npm run dev` folosește același mod local. Inboxul este disponibil la `http://127.0.0.1:4010`: căutare, previzualizare HTML/text și actualizare automată. Emailurile nu sunt trimise prin Resend.
 
 `seed:local` pregătește conturile demo și proiectele; poate fi repetat și recreează
 proiectele și șabloanele demo. Adminul este `admin@test.local`, cu parola
-`Parola123!`. După reset, sesiunile vechi sunt invalide; autentifică-te din nou.
+`ParolaDemo123!`. După reset, sesiunile vechi sunt invalide; autentifică-te din nou.
 
 Pentru verificarea creării conturilor prin API și browser, cu aplicația pornită:
 
@@ -164,3 +165,21 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Verificarea migrărilor în CI și deploy
+
+`npm run db:validate` reconstruiește schema într-un proiect Docker temporar, cu
+identificator, port și director propriu. Nu citește `.env.local`, nu resetează
+stack-ul de dezvoltare și nu importă seed-uri. Pornește până înainte de migrarea
+CIF #110, validează snapshot-ul cu validatorul TypeScript, apoi aplică migrarea
+și înregistrează istoricul în aceeași tranzacție. Folosește aceeași funcție de
+aplicare ca `db:reset:local`, după care aplică toate migrările rămase și verifică
+istoricul complet. Containerul și volumele temporare sunt oprite la final.
+
+Înainte de `db push`, deploy-ul execută `production-migrations-preflight.sql`:
+confirmă că rollout-ul CIF coordonat este deja înregistrat și că există coloana
+`creation_pending`, normalizatorul și indexul unic valid. Dacă lipsesc, se oprește
+înainte de aplicarea migrărilor; nu repară automat date reale și nu ocolește
+preflight-ul. Pentru o bază hosted fără #110, urmează
+[procedura de rollout](docs/issue-110-rollout.md), apoi reia deploy-ul. Controlul
+nu înlocuiește backup-ul sau verificările de compatibilitate ale aplicației.

@@ -28,6 +28,26 @@ function getBearerToken(request: Request) {
   return match?.[1]
 }
 
+const SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Sesiunea Supabase din care vine cererea (claim-ul `session_id` din JWT).
+ * Se citește fără verificare: o folosesc doar rutele care au validat deja
+ * tokenul cu `requireUser`/`requireProfile`, iar funcțiile din baza de date
+ * verifică din nou că sesiunea e a utilizatorului și încă activă.
+ */
+export function bearerSessionId(request: Request): string | null {
+  const payload = getBearerToken(request)?.split('.')[1]
+  if (!payload) return null
+  try {
+    const claims: unknown = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
+    const sessionId = typeof claims === 'object' && claims !== null ? (claims as Record<string, unknown>).session_id : null
+    return typeof sessionId === 'string' && SESSION_UUID.test(sessionId) ? sessionId.toLowerCase() : null
+  } catch {
+    return null
+  }
+}
+
 export async function requireUser(request: Request): Promise<Result<{ user: User }>> {
   const token = getBearerToken(request)
   if (!token) {
@@ -216,27 +236,6 @@ export async function requireTemplateAccess(
     profile: ctx.profile,
     template: { ...template, status },
   }
-}
-
-/**
- * admin poate acționa pe oricine, user doar pe el
- */
-export async function requireUserOrAdmin(
-  request: Request,
-  targetUserId: string
-): Promise<Result<{ user: User; profile: AppProfile; isAdmin: boolean }>> {
-  const ctx = await requireProfile(request)
-  if (!ctx.ok) return ctx
-
-  if (ctx.user.id === targetUserId) {
-    return { ok: true, user: ctx.user, profile: ctx.profile, isAdmin: ctx.profile.role === 'admin' }
-  }
-
-  if (ctx.profile.role !== 'admin') {
-    return { ok: false, status: 403, error: 'Forbidden' }
-  }
-
-  return { ok: true, user: ctx.user, profile: ctx.profile, isAdmin: true }
 }
 
 export type ProjectAccess =

@@ -1,4 +1,4 @@
-import { requireAdmin } from '@/app/api/_utils/auth'
+import { bearerSessionId, requireAdmin } from '@/app/api/_utils/auth'
 import {
   adminPasswordResetResponse,
   executeAdminPasswordReset,
@@ -64,20 +64,6 @@ async function readResetBody(request: Request): Promise<{ attemptId: string; exp
   }
 }
 
-function validatedSessionId(request: Request) {
-  const authorization = request.headers.get('authorization') ?? ''
-  const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1]
-  const payload = token?.split('.')[1]
-  if (!payload) return null
-  try {
-    const claims: unknown = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
-    if (!isObject(claims) || !isResetUuid(claims.session_id)) return null
-    return claims.session_id.toLowerCase()
-  } catch {
-    return null
-  }
-}
-
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ userId: string }> },
@@ -98,7 +84,7 @@ export async function POST(
     const { userId } = await params
     if (!isResetUuid(userId)) return resetTargetError()
 
-    const actorSessionId = validatedSessionId(request)
+    const actorSessionId = bearerSessionId(request)
     if (!actorSessionId) return resetSessionError()
 
     const body = await readResetBody(request)

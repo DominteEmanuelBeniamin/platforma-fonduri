@@ -361,18 +361,24 @@ test('B. Conturi, audit, clienți', async () => {
   }
   verifica(client, 'listează utilizatorii', await call(client, 'GET', '/api/users'), 403)
 
-  rand('Editare profil propriu', 'neschimbat: oricine, pentru el însuși (nume, telefon, CIF)')
+  rand('Editare profil propriu', 'schimbat prin #133: datele contului le modifică doar adminul')
   for (const person of [SA, JA, client]) {
-    verifica(person, 'își schimbă telefonul', await call(person, 'PATCH', `/api/users/${person.id}`, { telefon: '0700000000' }), 200)
+    verifica(person, 'își schimbă telefonul', await call(person, 'PATCH', `/api/users/${person.id}`, { telefon: '0700000000' }), 403)
   }
 
-  rand('Editare profil altcuiva', 'neschimbat: doar adminul; emailul nu se schimbă')
+  rand('Editare profil altcuiva', 'schimbat prin #133: doar adminul, inclusiv emailul de autentificare')
   verifica(SA, 'schimbă numele juniorului', await call(SA, 'PATCH', `/api/users/${JA.id}`, { full_name: 'Schimbat de senior' }), 403)
   verifica(JA, 'schimbă numele seniorului', await call(JA, 'PATCH', `/api/users/${SA.id}`, { full_name: 'Schimbat de junior' }), 403)
   verifica(client, 'schimbă numele juniorului', await call(client, 'PATCH', `/api/users/${JA.id}`, { full_name: 'Schimbat de client' }), 403)
+  // Datele contului le schimbă doar adminul, nici măcar omul pe ale lui.
+  verifica(JA, 'își schimbă singur numele', await call(JA, 'PATCH', `/api/users/${JA.id}`, { full_name: 'Schimbat de el' }), 403)
   verifica(admin, 'schimbă numele juniorului', await call(admin, 'PATCH', `/api/users/${JA.id}`, { full_name: JA.name }), 200)
-  verifica(admin, 'schimbă emailul juniorului', await call(admin, 'PATCH', `/api/users/${JA.id}`, { email: `alt.${JA.email}` }), 400)
-  verifica(JA, 'își schimbă propriul email', await call(JA, 'PATCH', `/api/users/${JA.id}`, { email: `alt.${JA.email}` }), 400)
+  try {
+    verifica(admin, 'schimbă emailul juniorului', await call(admin, 'PATCH', `/api/users/${JA.id}`, { email: `alt.${JA.email}` }), 200)
+    verifica(JA, 'își schimbă propriul email', await call(JA, 'PATCH', `/api/users/${JA.id}`, { email: `alt.${JA.email}` }), 403)
+  } finally {
+    await must(admin, 'PATCH', `/api/users/${JA.id}`, { email: JA.email })
+  }
 
   rand('Schimbare rol', 'neschimbat pentru consultant și client; PDF: „nici adminul pe el însuși”')
   verifica(JA, 'își schimbă singur rolul în admin', await call(JA, 'PATCH', `/api/users/${JA.id}`, { role: 'admin' }), 403)

@@ -12,7 +12,7 @@ import { useToast } from '@/app/providers/ToastProvider'
 import {
   AlertTriangle, Bell, Check, MessageSquare, FileText, Plus, MoreVertical, Trash2,
   SlidersHorizontal, ArrowUpDown, LayoutGrid, List, X, ChevronRight, ChevronDown, Info, Clock,
-  BellOff, Loader2,
+  BellOff, Loader2, KeyRound,
 } from 'lucide-react'
 import { useProjectChatUnread } from '@/app/providers/ProjectChatUnreadProvider'
 import { useNotifications } from '@/app/providers/NotificationsProvider'
@@ -571,7 +571,8 @@ function PriorityDrawer({
 
 export default function Dashboard() {
   const router = useRouter()
-  const { loading: authLoading, token, apiFetch } = useAuth()
+  const { loading: authLoading, token, apiFetch, profile } = useAuth()
+  const mustChangePassword = profile?.must_change_password === true
   const { showToast, confirm } = useToast()
 
   const [loading, setLoading] = useState(true)
@@ -925,6 +926,18 @@ export default function Dashboard() {
           </>
         }
       />
+
+      {mustChangePassword && (
+        <div role="note" className="flex flex-col gap-3 rounded-[var(--radius-plate)] border border-[var(--sg-warn)] bg-[var(--sg-warn-soft)] p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="flex gap-3 text-sm leading-6 text-ink">
+            <KeyRound className="mt-0.5 h-5 w-5 shrink-0 text-[var(--sg-warn)]" aria-hidden="true" />
+            <span>Folosești parola temporară primită pe email. Alege-ți o parolă a ta, pe care doar tu o știi.</span>
+          </p>
+          <ButtonLink href="/cont" variant="secondary" className="shrink-0" data-tooltip="Contul meu: schimbă parola temporară">
+            Schimbă parola
+          </ButtonLink>
+        </div>
+      )}
 
       {projects.length === 0 ? (
         /* EMPTY — niciun proiect deloc */

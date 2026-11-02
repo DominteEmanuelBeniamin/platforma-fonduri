@@ -4,23 +4,22 @@
 //
 // Folosire: pornește `supabase start` și aplicația (`npm run dev`), apoi
 //   npm run seed:local
-// Toate conturile au parola `Parola123!` (admin: admin@test.local).
+// Toate conturile au parola `ParolaDemo123!` (admin: admin@test.local).
 // Se poate rula de mai multe ori: șabloanele de test se recreează de la zero.
 import nextEnv from '@next/env'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import { inspectCifProfiles } from '../lib/cif-preflight.ts'
 import { execFileSync } from 'node:child_process'
 import { createClient } from '@supabase/supabase-js'
-import { fixtureCif, finalizeLocalFixture, localFixtureDatabase } from './local-account-fixtures.mjs'
+import { assertLocalStack, fixtureCif, finalizeLocalFixture, localFixtureDatabase } from './local-account-fixtures.mjs'
 
 nextEnv.loadEnvConfig(process.cwd())
 const env = process.env
-if (!env.NEXT_PUBLIC_SUPABASE_URL || !['127.0.0.1', 'localhost', '[::1]'].includes(new URL(env.NEXT_PUBLIC_SUPABASE_URL).hostname)) {
-  console.error('NEXT_PUBLIC_SUPABASE_URL nu e Supabase-ul local (http://127.0.0.1…). Mă opresc.')
-  process.exit(1)
-}
-
+assertLocalStack(env)
 const APP = env.SEED_APP_URL || 'http://localhost:3000'
 const DB_CONTAINER = env.SEED_DB_CONTAINER || 'supabase_db_platforma-fonduri'
-const PAROLA = 'Parola123!'
+const PAROLA = 'ParolaDemo123!'
 const service = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY)
 const sql = (q) => execFileSync('docker', ['exec', '-i', DB_CONTAINER, 'psql', '-U', 'postgres', '-d', localFixtureDatabase(env.E2E_DB_NAME), '-v', 'ON_ERROR_STOP=1', '-qAt', '-c', q], { encoding: 'utf8' }).trim()
 const esc = (s) => s == null ? 'null' : `'${String(s).replace(/'/g, "''")}'`
@@ -34,14 +33,19 @@ try {
   process.exit(1)
 }
 
+// Refuse an outdated schema before creating any demo accounts.
+const migrations = fs.readdirSync(new URL('../supabase/migrations/', import.meta.url)).filter(file => /^\d+_.+\.sql$/.test(file))
+const applied = new Set(sql('SELECT version FROM supabase_migrations.schema_migrations').split('\n'))
+assert.ok(migrations.every(file => applied.has(file.split('_')[0])), 'Migrări lipsă: rulează npm run db:reset:local înainte de seed:local')
+
 // ---------- Utilizatori ----------
 const users = [
   { key: 'admin', email: 'admin@test.local', role: 'admin', full_name: 'Elena Admin' },
   { key: 'ana', email: 'ana.popescu@test.local', role: 'consultant', full_name: 'Ana Popescu', specializare: 'Fonduri europene' },
   { key: 'mihai', email: 'mihai.ionescu@test.local', role: 'consultant', full_name: 'Mihai Ionescu', specializare: 'Agricultură (AFIR)', consultant_level: 'senior' },
-  { key: 'agro', email: 'client.agroverde@test.local', role: 'client', full_name: 'Ion Vasilescu', nume_firma: 'Agro Verde SRL', telefon: '0744123456' },
-  { key: 'brutaria', email: 'client.brutaria@test.local', role: 'client', full_name: 'Maria Stan', nume_firma: 'Brutăria Moldovei SRL', telefon: '0755987654' },
-  { key: 'tech', email: 'client.technord@test.local', role: 'client', full_name: 'Andrei Rusu', nume_firma: 'TechNord Solutions SRL', telefon: '0766112233' },
+  { key: 'agro', email: 'client.agroverde@test.local', role: 'client', full_name: 'Ion Vasilescu', nume_firma: 'Agro Verde SRL', adresa_firma: 'Str. Câmpului 10, Iași', telefon: '0744123456' },
+  { key: 'brutaria', email: 'client.brutaria@test.local', role: 'client', full_name: 'Maria Stan', nume_firma: 'Brutăria Moldovei SRL', adresa_firma: 'Str. Morii 5, Bacău', telefon: '0755987654' },
+  { key: 'tech', email: 'client.technord@test.local', role: 'client', full_name: 'Andrei Rusu', nume_firma: 'TechNord Solutions SRL', adresa_firma: 'Str. Unirii 20, Suceava', telefon: '0766112233' },
 ]
 const { data: existing } = await service.auth.admin.listUsers({ perPage: 1000 })
 const id = {}
@@ -58,6 +62,8 @@ for (const u of users) {
     ...profile, ...(u.role === 'client' ? { cif: fixtureCif('demo-' + fixtureKey) } : {}),
   })
 }
+const seededProfiles = sql("SELECT coalesce(jsonb_agg(jsonb_build_object('role',role,'cif',cif)), '[]'::jsonb) FROM public.profiles")
+assert.ok(inspectCifProfiles(JSON.parse(seededProfiles)).valid, 'Seed-ul conține CIF-uri lipsă, invalide sau duplicate')
 console.log('utilizatori:', Object.keys(id).length)
 
 const anon = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_ANON_KEY)

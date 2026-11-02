@@ -5,4 +5,4 @@ export const RECOVERY_REQUEST_MESSAGE = 'Dacă există un cont cu această adres
 export const RECOVERY_INVALID_MESSAGE = 'Linkul de resetare nu mai este valid. Solicită un link nou sau contactează administratorul.'
 export const RECOVERY_FALLBACK_MESSAGE = 'Parola a fost schimbată. Autentifică-te cu noua parolă.'
 export const RECOVERY_TEMPORARY_MESSAGE = 'Serviciul este temporar indisponibil. Încearcă din nou.'
-export const RECOVERY_PASSWORD_RULE_MESSAGE = 'Parola trebuie să aibă cel puțin 6 caractere și cel mult 72 de octeți UTF-8.'
+export const RECOVERY_PASSWORD_RULE_MESSAGE = 'Parola trebuie să aibă cel puțin 12 caractere și cel mult 72 de octeți UTF-8.'

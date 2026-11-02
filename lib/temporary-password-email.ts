@@ -16,9 +16,10 @@ export function renderTemporaryPasswordEmail(input: TemporaryPasswordEmailInput)
     ? 'Ai acum acces la Bonie' + (input.companyName ? ' pentru ' + input.companyName : '') +
       '. Folosește datele de mai jos pentru a te autentifica:'
     : 'Un administrator a resetat parola contului tău în Bonie. Folosește parola temporară de mai jos pentru a te autentifica.'
+  // „Contul meu” se deschide din adresa de email din dreapta sus, pe orice pagină.
   const changePassword = input.context === 'welcome'
-    ? 'După autentificare, te rugăm să schimbi parola temporară.'
-    : 'După autentificare, te rugăm să schimbi parola temporară pentru a-ți proteja contul.'
+    ? 'După autentificare, alege-ți o parolă a ta: apasă pe adresa ta de email din dreapta sus („Contul meu”), apoi „Schimbă parola”.'
+    : 'După autentificare, alege-ți o parolă nouă pentru a-ți proteja contul: apasă pe adresa ta de email din dreapta sus („Contul meu”), apoi „Schimbă parola”.'
   const safeEmail = escapeHtml(input.email)
   const safePassword = escapeHtml(input.password)
   const safeLoginUrl = escapeHtml(input.loginUrl)

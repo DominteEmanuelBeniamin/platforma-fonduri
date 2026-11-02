@@ -43,7 +43,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 100))
   }
   assert.ok(ready, 'Local mail capture is unavailable')
-  console.log('Emailurile locale sunt capturate în playwright-report/local-mail/resend.jsonl.')
+  console.log('Inbox emailuri locale: http://127.0.0.1:4010 (capturate în playwright-report/local-mail/resend.jsonl).')
   start([path.join(root, 'node_modules/next/dist/bin/next'), 'dev', '--hostname', '127.0.0.1', '--port', '3000'])
 } catch (error) {
   console.error(error.message)

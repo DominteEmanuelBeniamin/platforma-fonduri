@@ -190,7 +190,7 @@ function readLocalAuthConfig() {
 function authConfigOk(config) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) return false
   checks.authConfigAvailable = true
-  checks.minimumPasswordLength = config.minimumPasswordLength === 6
+  checks.minimumPasswordLength = config.minimumPasswordLength === 12
   checks.passwordRequirements = config.passwordRequirements === ''
   checks.dbEncryptionDisabled = config.dbEncryptionEnabled === false
   checks.otpExpiry = config.otpExpiry === 3600

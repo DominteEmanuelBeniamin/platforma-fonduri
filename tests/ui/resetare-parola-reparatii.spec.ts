@@ -47,11 +47,14 @@ const FAILED_WITH_PASSWORD: ResetReply = {
   },
 }
 
-async function openResetFromList(page: Page, authenticate = true) {
+async function openResetFromUser(page: Page, authenticate = true) {
   if (authenticate) await autentifica(page, 'admin')
   await page.goto('/admin/users', { waitUntil: 'networkidle' })
   const row = page.locator('div.group').filter({ hasText: TARGET_EMAIL }).first()
-  await row.getByRole('button', { name: 'Resetează parola' }).click()
+  await expect(page.getByRole('button', { name: 'Resetează parola' })).toHaveCount(0)
+  await row.getByRole('button', { name: new RegExp('^' + TARGET_EMAIL.replace(/[.]/g, '\\.')) }).click()
+  await page.waitForURL(/\/admin\/users\/[0-9a-f-]{36}$/)
+  await page.getByRole('button', { name: 'Resetează parola' }).click()
   const dialog = page.getByRole('dialog', { name: 'Resetarea parolei' })
   await expect(dialog).toBeVisible()
   return dialog
@@ -78,7 +81,7 @@ async function simulateTokenRefresh(page: Page) {
 test.describe('Dialogul de resetare a parolei', () => {
   test('confirmarea rămâne dezactivată două secunde la fiecare deschidere', async ({ page }) => {
     const seen = await mockReset(page, [FAILED_WITH_PASSWORD])
-    const dialog = await openResetFromList(page)
+    const dialog = await openResetFromUser(page)
     const confirm = dialog.getByRole('button', { name: 'Confirmă resetarea' })
     await expect(confirm).toBeDisabled()
     await page.waitForTimeout(1200)
@@ -86,8 +89,7 @@ test.describe('Dialogul de resetare a parolei', () => {
     expect(seen).toHaveLength(0)
     await dialog.getByRole('button', { name: 'Anulează' }).click()
 
-    await page.locator('div.group').filter({ hasText: TARGET_EMAIL }).first()
-      .getByRole('button', { name: 'Resetează parola' }).click()
+    await page.getByRole('button', { name: 'Resetează parola' }).click()
     await expect(confirm).toBeDisabled()
     await page.waitForTimeout(1000)
     await expect(confirm).toBeDisabled()
@@ -97,10 +99,10 @@ test.describe('Dialogul de resetare a parolei', () => {
 
   test('o confirmare veche din altă filă nu pornește o a doua resetare după terminarea primei', async ({ page, context }) => {
     const firstSeen = await mockReset(page, [FAILED_WITH_PASSWORD])
-    const firstDialog = await openResetFromList(page)
+    const firstDialog = await openResetFromUser(page)
     const secondPage = await context.newPage()
     const secondSeen = await mockReset(secondPage, [FAILED_WITH_PASSWORD])
-    const secondDialog = await openResetFromList(secondPage, false)
+    const secondDialog = await openResetFromUser(secondPage, false)
     await expect(firstDialog.getByRole('button', { name: 'Confirmă resetarea' })).toBeEnabled()
     await expect(secondDialog.getByRole('button', { name: 'Confirmă resetarea' })).toBeEnabled()
 
@@ -125,7 +127,7 @@ test.describe('Dialogul de resetare a parolei', () => {
 
   test('fără Web Locks nu pornește resetarea', async ({ page }) => {
     const seen = await mockReset(page, [FAILED_WITH_PASSWORD])
-    const dialog = await openResetFromList(page)
+    const dialog = await openResetFromUser(page)
     await page.evaluate(() => Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined }))
     await dialog.getByRole('button', { name: 'Confirmă resetarea' }).click()
     await expect(dialog.getByText('Browserul nu poate coordona resetările între file.', { exact: false })).toBeVisible()
@@ -134,7 +136,7 @@ test.describe('Dialogul de resetare a parolei', () => {
 
   test('un refuz al Web Locks este explicat fără să pornească resetarea', async ({ page }) => {
     const seen = await mockReset(page, [FAILED_WITH_PASSWORD])
-    const dialog = await openResetFromList(page)
+    const dialog = await openResetFromUser(page)
     await page.evaluate(() => Object.defineProperty(navigator, 'locks', {
       configurable: true,
       value: { request: () => Promise.reject(new Error('Locks unavailable')) },
@@ -150,14 +152,14 @@ test.describe('Dialogul de resetare a parolei', () => {
       firstRequests++
       await route.abort('connectionreset')
     })
-    const firstDialog = await openResetFromList(page)
+    const firstDialog = await openResetFromUser(page)
     await firstDialog.getByRole('button', { name: 'Confirmă resetarea' }).click()
     await expect(firstDialog.getByRole('button', { name: 'Verifică rezultatul' })).toBeVisible()
     expect(firstRequests).toBe(1)
 
     const secondPage = await context.newPage()
     const secondSeen = await mockReset(secondPage, [FAILED_WITH_PASSWORD])
-    const secondDialog = await openResetFromList(secondPage, false)
+    const secondDialog = await openResetFromUser(secondPage, false)
     await secondDialog.getByRole('button', { name: 'Confirmă resetarea' }).click()
     await expect(secondDialog.getByLabel('Parolă temporară')).toHaveValue(PASSWORD)
     expect(secondSeen).toHaveLength(1)
@@ -169,7 +171,7 @@ test.describe('Dialogul de resetare a parolei', () => {
 
   test('rezultatul necunoscut se verifică pe aceeași încercare dacă nu există alta mai nouă', async ({ page }) => {
     const seen = await mockReset(page, [{ status: 500, body: {} }, FAILED_WITH_PASSWORD])
-    const dialog = await openResetFromList(page)
+    const dialog = await openResetFromUser(page)
     await dialog.getByRole('button', { name: 'Confirmă resetarea' }).click()
     await dialog.getByRole('button', { name: 'Verifică rezultatul' }).click()
     await expect(dialog.getByLabel('Parolă temporară')).toHaveValue(PASSWORD)
@@ -188,7 +190,7 @@ test.describe('Dialogul de resetare a parolei', () => {
         message: 'Această resetare a fost finalizată anterior, dar emailul nu a putut fi trimis.',
       },
     }])
-    const dialog = await openResetFromList(page)
+    const dialog = await openResetFromUser(page)
     await dialog.getByRole('button', { name: 'Confirmă resetarea' }).click()
     const password = dialog.getByLabel('Parolă temporară')
     await expect(password).toHaveValue(PASSWORD)
@@ -203,7 +205,7 @@ test.describe('Dialogul de resetare a parolei', () => {
   for (const status of [500, 502, 504]) {
     test(`un ${status} după confirmare e rezultat necunoscut, nu „parola nu a fost schimbată”`, async ({ page }) => {
       await mockReset(page, [{ status, body: {} }])
-      const dialog = await openResetFromList(page)
+      const dialog = await openResetFromUser(page)
       await dialog.getByRole('button', { name: 'Confirmă resetarea' }).click()
       await expect(dialog.getByText('Rezultatul resetării nu este confirmat', { exact: false })).toBeVisible()
       await expect(dialog.getByRole('button', { name: 'Verifică rezultatul' })).toBeVisible()
@@ -213,18 +215,18 @@ test.describe('Dialogul de resetare a parolei', () => {
 
   test('un 409 rămâne refuz sigur: parola nu a fost schimbată', async ({ page }) => {
     await mockReset(page, [{ status: 409, body: { code: 'conflict', error: 'x', message: 'Adresa contului s-a schimbat. Reîncarcă pagina și încearcă din nou.' } }])
-    const dialog = await openResetFromList(page)
+    const dialog = await openResetFromUser(page)
     await dialog.getByRole('button', { name: 'Confirmă resetarea' }).click()
     await expect(dialog.getByText('Serverul a refuzat resetarea; parola contului nu a fost schimbată.')).toBeVisible()
   })
 
   test('refresh-ul tokenului nu închide dialogul cu parola afișată (lista de utilizatori)', async ({ page }) => {
     await mockReset(page, [FAILED_WITH_PASSWORD])
-    const dialog = await openResetFromList(page)
+    const dialog = await openResetFromUser(page)
     await dialog.getByRole('button', { name: 'Confirmă resetarea' }).click()
     await expect(dialog.getByLabel('Parolă temporară')).toHaveValue(PASSWORD)
 
-    const reloaded = page.waitForRequest(request => request.method() === 'GET' && /\/api\/users\?state=/.test(request.url()))
+    const reloaded = page.waitForRequest(request => request.method() === 'GET' && /\/api\/users$/.test(request.url()))
     await simulateTokenRefresh(page)
     await reloaded
 

@@ -83,7 +83,9 @@ Rezultatul trebuie să aibă `valid=true` și toate cele patru contoare zero. Nu
 
 ## Aplicare coordonată și reluarea scrierilor
 
-Workflow-ul existent `.github/workflows/supabase-migrations.yml` rulează `supabase db push` automat la push pe `main`. Migrarea #110 cere amprenta validată în aceeași sesiune SQL; acel apel automat nu o setează și va fi refuzat de gardă. Înainte de integrarea pe `main`, echipa trebuie să coordoneze acest workflow cu aplicarea SQL și înregistrarea versiunii descrise mai jos. Validarea CI pe o bază nouă trebuie să pregătească explicit preflight-ul bazei de test. Nu elimina garda pentru a face pipeline-ul verde și nu considera un merge drept activare verificată.
+Workflow-ul `.github/workflows/supabase-migrations.yml` validează acum PR-urile prin `npm run db:validate`, într-un proiect Docker temporar: baseline, preflight TypeScript, migrarea CIF cu amprenta verificată și istoricul în aceeași tranzacție, apoi migrările rămase. Nu importă seed-uri și nu resetează stack-ul local.
+
+La deploy, înainte de `supabase db push`, controlul read-only `production-migrations-preflight.sql` cere ca rollout-ul CIF să fie deja înregistrat și verifică existența coloanei pending, normalizatorului și indexului unic valid. Dacă lipsesc, deploy-ul se oprește înainte de modificarea schemei și cere aplicarea coordonată descrisă mai jos. Controlul nu aplică automat #110 pe date reale. Nu elimina garda pentru a face pipeline-ul verde și nu considera un merge drept activare verificată.
 
 1. Confirmă backup-ul, compatibilitatea reală Auth/#105/#107, recepția manuală în preview și pachetul aplicației noi. Pregătește restaurarea și păstrează scrierile oprite pe întreaga fereastră. Aplicația veche nu este compatibilă cu triggerul nou.
 2. În **aceeași conexiune SQL** folosită pentru aplicarea migrației, setează amprenta verificată: `SET app.issue110_cif_preflight = '<amprenta-validată>';`, apoi execută integral `supabase/migrations/20261029130000_issue_110_cif_account_creation.sql`. Fișierul își deschide propria tranzacție și verifică amprenta sub blocare. Orice diferență, eroare de date sau timeout oprește operațiunea; nu ocoli garda.
