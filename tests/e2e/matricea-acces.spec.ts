@@ -370,6 +370,8 @@ test('B. Conturi, audit, clienți', async () => {
   verifica(SA, 'schimbă numele juniorului', await call(SA, 'PATCH', `/api/users/${JA.id}`, { full_name: 'Schimbat de senior' }), 403)
   verifica(JA, 'schimbă numele seniorului', await call(JA, 'PATCH', `/api/users/${SA.id}`, { full_name: 'Schimbat de junior' }), 403)
   verifica(client, 'schimbă numele juniorului', await call(client, 'PATCH', `/api/users/${JA.id}`, { full_name: 'Schimbat de client' }), 403)
+  // Datele contului le schimbă doar adminul, nici măcar omul pe ale lui.
+  verifica(JA, 'își schimbă singur numele', await call(JA, 'PATCH', `/api/users/${JA.id}`, { full_name: 'Schimbat de el' }), 403)
   verifica(admin, 'schimbă numele juniorului', await call(admin, 'PATCH', `/api/users/${JA.id}`, { full_name: JA.name }), 200)
   verifica(admin, 'schimbă emailul juniorului', await call(admin, 'PATCH', `/api/users/${JA.id}`, { email: `alt.${JA.email}` }), 400)
   verifica(JA, 'își schimbă propriul email', await call(JA, 'PATCH', `/api/users/${JA.id}`, { email: `alt.${JA.email}` }), 400)

@@ -13,6 +13,7 @@ import { profileDisplayName } from '@/lib/profile-display'
 import { ResetUserPasswordAction } from '@/components/ResetUserPasswordAction'
 import { Signal } from '@/components/ui/Signal'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
+import { UserProfileEditor } from '@/components/UserProfileEditor'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -235,13 +236,20 @@ export default function UserFilesPage() {
         {profileDisplayName(user, user.full_name || user.email)}
       </h1>
       <p className="mb-6 mt-2 text-sm text-ink-soft">
-        Fișierele acestui utilizator, din toate proiectele lui.
+        Datele contului și fișierele acestui utilizator, din toate proiectele lui.
       </p>
       {user.creation_pending && <FeedbackMessage variant="warning" className="mb-6">
         Acces blocat: crearea contului este incompletă. Revino la lista de utilizatori pentru verificare și remediere. Editarea și reactivarea nu sunt permise; ștergerea este disponibilă numai pentru un cont fără date asociate.
       </FeedbackMessage>}
 
+      <UserProfileEditor
+        user={user}
+        apiFetch={apiFetch}
+        onSaved={saved => setUser((prev: any) => ({ ...prev, ...saved }))}
+      />
+
       <div className="pb-10">
+        <h2 className="mb-3 text-lg font-bold text-ink">Fișiere</h2>
         <div className="overflow-hidden rounded-[var(--radius-plate)] border border-rule bg-plate">
           <DriveFilesView
             rows={driveRows}
