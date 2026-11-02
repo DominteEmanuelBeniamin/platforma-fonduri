@@ -8,6 +8,7 @@ export const AUDIT_ACTION_LABELS = {
   propagate: 'Propagare',
   delete: 'Ștergere',
   download: 'Descărcare',
+  email_send: 'Trimitere pe email',
   notify: 'Notificare',
   deadline_reminder_digest: 'Digest de remindere',
   password_reset_requested: 'Cerere de resetare a parolei',

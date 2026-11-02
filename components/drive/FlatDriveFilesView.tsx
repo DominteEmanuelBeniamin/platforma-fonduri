@@ -17,6 +17,7 @@ import type {
   SortKey, SortDir, ViewMode,
 } from './types'
 import { Spinner } from '@/components/ui/Spinner'
+import { EmailFileButton } from '@/components/EmailFileButton'
 import { formatDate } from '@/lib/signage'
 import {
   getExt, isImageExt, getDisplayName,
@@ -361,6 +362,15 @@ export default function FlatDriveFilesView({
                       : <Download className="h-4 w-4" />
                     }
                   </button>
+                  {row.fileId && row.downloadKind !== 'requestAttachment' && (
+                    <EmailFileButton
+                      fileId={row.fileId}
+                      fileName={getDisplayName(row)}
+                      documentName={row.docName}
+                      apiFetch={apiFetch}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-ink-soft transition-colors hover:bg-paper hover:text-[var(--sg-accent)]"
+                    />
+                  )}
                 </div>
               </div>
             ))}
