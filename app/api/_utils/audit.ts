@@ -11,8 +11,6 @@ type AuditActionType =
   | 'login'
   | 'logout'
   | 'download'
-  // Un fișier trimis pe email ca atașament, din platformă.
-  | 'email_send'
   | 'password_reset_requested'
   | 'password_reset_completed'
   // Schimbarea parolei din „Contul meu”; o scrie doar funcția `self_change_password`.
