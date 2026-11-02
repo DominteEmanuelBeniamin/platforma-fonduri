@@ -1,13 +1,11 @@
 'use client'
 
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { CheckCircle2, Mail, Paperclip, Share2, X } from 'lucide-react'
-import { useToast } from '@/app/providers/ToastProvider'
+import { AlertTriangle, Mail, Paperclip, Share2, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
-import { serverMessage } from '@/lib/api-error'
-import { MAX_EMAIL_ATTACHMENT_BYTES, parseEmailRecipients } from '@/lib/email-recipients'
+import { Spinner } from '@/components/ui/Spinner'
 
 type ApiFetch = (url: string, init?: RequestInit) => Promise<Response>
 
@@ -16,179 +14,137 @@ export type EmailTarget =
   | { kind: 'file'; fileId: string }
   | { kind: 'attachment'; requestId: string; attachmentId?: string | null }
 
-function targetRoutes(target: EmailTarget) {
-  if (target.kind === 'file') {
-    return { send: `/api/files/${target.fileId}/email`, download: `/api/files/${target.fileId}/signed-download`, extra: {} }
-  }
-  return {
-    send: `/api/document-requests/${target.requestId}/attachment/email`,
-    download: `/api/document-requests/${target.requestId}/attachment/signed-download`,
-    extra: target.attachmentId ? { attachment_id: target.attachmentId } : {},
-  }
+function downloadRoute(target: EmailTarget) {
+  return target.kind === 'file'
+    ? { url: `/api/files/${target.fileId}/signed-download`, extra: {} }
+    : { url: `/api/document-requests/${target.requestId}/attachment/signed-download`, extra: target.attachmentId ? { attachment_id: target.attachmentId } : {} }
 }
 
-const field =
-  'w-full rounded-[var(--radius-plate)] border border-rule bg-plate px-3 text-sm text-ink placeholder:text-ink-faint ' +
-  'transition-colors duration-[120ms] focus:border-[var(--sg-accent)] aria-[invalid=true]:border-[var(--sg-danger)]'
-
-function formatSize(bytes: number) {
-  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
+// Tipul fișierului după extensie: atașamentele n-au tipul salvat, iar Chrome pe
+// Android decide după el (și după extensie) dacă îl poate da altei aplicații.
+const MIME_BY_EXTENSION: Record<string, string> = {
+  pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
+  txt: 'text/plain', csv: 'text/csv',
+  doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 }
 
-/** Telefonul sau browserul poate deschide meniul „Partajează” cu un fișier atașat (Gmail, Outlook, Mail). */
-function canShareFile(fileName: string, mimeType: string | null | undefined) {
-  if (typeof navigator === 'undefined' || typeof navigator.canShare !== 'function') return false
+function mimeFor(fileName: string, known?: string | null) {
+  if (known && known !== 'application/octet-stream') return known
+  const extension = fileName.split('.').pop()?.toLowerCase() ?? ''
+  return MIME_BY_EXTENSION[extension] ?? 'application/octet-stream'
+}
+
+function canShareFiles(files: File[]) {
+  if (typeof navigator === 'undefined' || typeof navigator.share !== 'function' || typeof navigator.canShare !== 'function') return false
   try {
-    return navigator.canShare({ files: [new File([''], fileName, { type: mimeType || 'application/octet-stream' })] })
+    return navigator.canShare({ files })
   } catch {
     return false
   }
 }
 
+/** Doar pe telefon: acolo omul trimite din Gmail, Outlook sau Mail, de pe adresa lui. */
+function isPhoneWithShare() {
+  if (typeof window === 'undefined') return false
+  return window.matchMedia('(pointer: coarse)').matches && canShareFiles([new File([''], 'proba.pdf', { type: 'application/pdf' })])
+}
+
+type Stage =
+  | { name: 'loading' }
+  | { name: 'ready'; file: File }
+  | { name: 'unsupported' }
+  | { name: 'failed'; message: string }
+
 /**
- * „Trimite pe email” pentru un document: fișier încărcat sau atașament al
- * cererii. Două căi, în aceeași fereastră:
- * - din Bonie: atașament, Reply-To la cel care trimite, copie la el;
- * - din aplicația de email a omului (Gmail, Outlook, Mail), unde browserul
- *   permite partajarea unui fișier: telefoane, Safari, Chrome/Edge pe Windows.
- *   Un site nu poate deschide Gmail cu un fișier atașat altfel; `mailto:` nu
- *   acceptă atașamente.
+ * „Trimite pe email”, pe telefon: deschide meniul „Partajează” al telefonului
+ * cu documentul atașat, iar omul alege Gmail, Outlook sau Mail și trimite de pe
+ * adresa lui. Un site nu poate deschide aplicația de email cu un fișier atașat
+ * altfel (`mailto:` nu acceptă atașamente). Pe calculator butonul nu apare.
+ *
+ * Fișierul se aduce la deschiderea ferestrei: telefonul cere ca partajarea să
+ * pornească chiar din apăsarea butonului, nu după o descărcare.
  */
 export function EmailFileButton({
   target,
   fileName,
   mimeType,
-  fileSize,
-  documentName,
   apiFetch,
   className = '',
 }: {
   target: EmailTarget
   fileName: string
   mimeType?: string | null
-  fileSize?: number | null
   documentName?: string | null
   apiFetch: ApiFetch
   className?: string
 }) {
-  const { showToast } = useToast()
-  const ids = useId()
+  const [available, setAvailable] = useState(false)
   const [open, setOpen] = useState(false)
-  const [to, setTo] = useState('')
-  const [subject, setSubject] = useState('')
-  const [message, setMessage] = useState('')
-  const [copyToMe, setCopyToMe] = useState(true)
-  const [sending, setSending] = useState(false)
-  const [error, setError] = useState<{ field: 'to' | 'subject' | null; message: string } | null>(null)
-  const [sentTo, setSentTo] = useState<string[] | null>(null)
-  const [shareable, setShareable] = useState(false)
-  const [shareFile, setShareFile] = useState<File | null>(null)
-  const [shareState, setShareState] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle')
-  const toRef = useRef<HTMLTextAreaElement>(null)
-  const tooLarge = typeof fileSize === 'number' && fileSize > MAX_EMAIL_ATTACHMENT_BYTES
-  const routes = targetRoutes(target)
-  const routeKey = routes.send + JSON.stringify(routes.extra)
+  const [stage, setStage] = useState<Stage>({ name: 'loading' })
+  const route = downloadRoute(target)
+  const routeKey = route.url + JSON.stringify(route.extra)
 
-  const reset = () => {
-    setTo('')
-    setSubject(documentName?.trim() || fileName)
-    setMessage('')
-    setCopyToMe(true)
-    setError(null)
-    setSentTo(null)
-  }
-
-  // Partajarea cere fișierul gata în memorie în momentul clicului (Safari
-  // anulează gestul dacă așteptăm descărcarea după el), deci îl aducem la deschidere.
   useEffect(() => {
-    if (!open || tooLarge || !canShareFile(fileName, mimeType)) return
-    setShareable(true)
-    if (shareFile) return
+    setAvailable(isPhoneWithShare())
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
     let cancelled = false
-    setShareState('loading')
+    setStage({ name: 'loading' })
     void (async () => {
       try {
-        const res = await apiFetch(routes.download, {
+        const res = await apiFetch(route.url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ expiresIn: 120, ...routes.extra }),
+          body: JSON.stringify({ expiresIn: 120, ...route.extra }),
         })
         const { url } = res.ok ? await res.json() as { url?: string } : {}
-        if (!url) throw new Error('no url')
-        const blob = await (await fetch(url)).blob()
+        if (!url) throw new Error('Nu am primit documentul de la server.')
+        const response = await fetch(url)
+        if (!response.ok) throw new Error('Documentul nu s-a putut descărca.')
+        const blob = await response.blob()
+        const file = new File([blob], fileName, { type: mimeFor(fileName, mimeType ?? (blob.type || null)) })
         if (cancelled) return
-        setShareFile(new File([blob], fileName, { type: mimeType || blob.type || 'application/octet-stream' }))
-        setShareState('ready')
-      } catch {
-        if (!cancelled) setShareState('failed')
+        setStage(canShareFiles([file]) ? { name: 'ready', file } : { name: 'unsupported' })
+      } catch (error) {
+        if (!cancelled) setStage({ name: 'failed', message: error instanceof Error ? error.message : 'Documentul nu s-a putut pregăti.' })
       }
     })()
     return () => { cancelled = true }
-    // `routeKey` ține locul obiectului `routes`, refăcut la fiecare desenare.
+    // `routeKey` ține locul obiectului `route`, refăcut la fiecare desenare.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, tooLarge, fileName, mimeType, routeKey, apiFetch, shareFile])
+  }, [open, routeKey, fileName, mimeType, apiFetch])
 
-  const shareInMailApp = async () => {
-    if (!shareFile) return
-    try {
-      await navigator.share({ files: [shareFile], title: subject.trim() || fileName, ...(message.trim() ? { text: message.trim() } : {}) })
-      setOpen(false)
-    } catch (shareError) {
-      if (shareError instanceof DOMException && shareError.name === 'AbortError') return
-      showToast('Aplicația de email nu s-a deschis. Trimite din Bonie, cu butonul „Trimite”.', 'warning')
-    }
-  }
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault()
-    if (sending) return
-    const recipients = parseEmailRecipients(to)
-    if (!recipients.ok) {
-      setError({ field: 'to', message: recipients.message })
-      toRef.current?.focus()
-      return
-    }
-    if (!subject.trim()) {
-      setError({ field: 'subject', message: 'Scrie un subiect.' })
-      return
-    }
-    setSending(true)
-    setError(null)
-    try {
-      const res = await apiFetch(routes.send, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to, subject: subject.trim(), message, copyToMe, ...routes.extra }),
-      })
-      if (!res.ok) {
-        const body: unknown = await res.clone().json().catch(() => null)
-        const code = (body as { code?: unknown } | null)?.code
-        setError({
-          field: code === 'invalid_recipients' ? 'to' : code === 'invalid_subject' ? 'subject' : null,
-          message: await serverMessage(res, 'Nu am putut trimite emailul. Încearcă din nou.'),
+  const share = () => {
+    if (stage.name !== 'ready') return
+    // Doar fișierul și titlul: cu text pe lângă, unele aplicații (Gmail pe iPhone)
+    // păstrează textul și pierd atașamentul.
+    navigator.share({ files: [stage.file], title: fileName })
+      .then(() => setOpen(false))
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        const name = error instanceof DOMException ? error.name : 'Error'
+        setStage({
+          name: 'failed',
+          message: name === 'NotAllowedError'
+            ? 'Telefonul n-a permis deschiderea aplicației. Închide fereastra și încearcă din nou.'
+            : `Telefonul n-a putut deschide aplicația de email (${name}).`,
         })
-        return
-      }
-      setSentTo(recipients.emails)
-      showToast(`Documentul a plecat către ${recipients.emails.join(', ')}.`, 'success')
-    } catch {
-      setError({ field: null, message: 'Nu am putut trimite emailul. Verifică legătura la internet și încearcă din nou.' })
-    } finally {
-      setSending(false)
-    }
+      })
   }
 
-  const errorId = `${ids}-eroare`
+  if (!available) return null
 
   return (
-    <Dialog.Root open={open} onOpenChange={next => { if (!sending) setOpen(next) }}>
+    <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
         <button
           type="button"
-          onClick={event => { event.stopPropagation(); reset() }}
+          onClick={event => event.stopPropagation()}
           title="Trimite pe email"
           aria-label={`Trimite pe email ${fileName}`}
-          data-tooltip="Trimite documentul ca atașament, oricui: ANAF, contabil, bancă"
           className={className || 'p-2 rounded-lg text-ink-faint hover:text-[var(--sg-accent)] hover:bg-paper-sunk transition-colors'}
         >
           <Mail className="h-4 w-4" aria-hidden="true" />
@@ -198,13 +154,7 @@ export function EmailFileButton({
         <Dialog.Overlay className="fixed inset-0 z-[1000001]" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }} />
         <Dialog.Content
           onClick={event => event.stopPropagation()}
-          onOpenAutoFocus={event => {
-            // Pe telefon nu deschidem tastatura peste butonul principal (aplicația de email).
-            if (canShareFile(fileName, mimeType)) return
-            event.preventDefault()
-            toRef.current?.focus()
-          }}
-          className="fixed left-1/2 top-1/2 z-[1000001] max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[var(--radius-plate-lg)] border border-rule bg-plate focus:outline-none"
+          className="fixed inset-x-0 bottom-0 z-[1000001] rounded-t-[var(--radius-plate-lg)] border border-rule bg-plate pb-[max(1rem,env(safe-area-inset-bottom))] focus:outline-none"
           style={{ boxShadow: 'var(--sg-lift)' }}
         >
           <div className="flex items-start justify-between gap-3 border-b border-rule px-5 py-4">
@@ -213,118 +163,35 @@ export function EmailFileButton({
               <Dialog.Description className="mt-1 flex items-center gap-1.5 text-sm text-ink-soft">
                 <Paperclip className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 <span className="truncate">{fileName}</span>
-                {typeof fileSize === 'number' && <span className="shrink-0 tabular-nums">· {formatSize(fileSize)}</span>}
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
-              <IconButton label="Închide" disabled={sending}><X className="h-4 w-4" aria-hidden="true" /></IconButton>
+              <IconButton label="Închide"><X className="h-4 w-4" aria-hidden="true" /></IconButton>
             </Dialog.Close>
           </div>
 
-          {tooLarge ? (
-            <p role="alert" className="px-5 py-5 text-sm text-ink">
-              Fișierul are peste 25 MB și nu încape într-un email. Descarcă-l și trimite-l printr-un serviciu de transfer (de exemplu WeTransfer).
-            </p>
-          ) : sentTo ? (
-            <div className="space-y-4 px-5 py-5" role="status" aria-live="polite">
-              <div className="flex gap-3 rounded-[var(--radius-plate)] border border-[var(--sg-ok)] bg-[var(--sg-ok-soft)] p-4">
-                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[var(--sg-ok)]" aria-hidden="true" />
-                <p className="text-sm leading-6 text-ink">
-                  Emailul a plecat către <strong>{sentTo.join(', ')}</strong>, cu documentul atașat.
-                  {copyToMe ? ' Ai primit și tu o copie.' : ''} Răspunsurile vin direct pe adresa ta.
-                </p>
-              </div>
-              <div className="flex justify-end gap-3">
-                <Button variant="secondary" onClick={reset}>Trimite și altcuiva</Button>
-                <Dialog.Close asChild><Button variant="primary">Gata</Button></Dialog.Close>
-              </div>
-            </div>
-          ) : (
-            <>
-            {/* Pe telefon (și unde browserul poate partaja fișiere) calea firească e
-                aplicația de email a omului: o punem prima și mare. */}
-            {shareable && (
-              <div className="space-y-2 border-b border-rule px-5 py-5">
-                <Button
-                  type="button"
-                  variant="primary"
-                  className="w-full"
-                  onClick={() => void shareInMailApp()}
-                  disabled={sending || shareState !== 'ready'}
-                  data-tooltip="Deschide Gmail, Outlook sau Mail cu documentul atașat; trimiți de pe adresa ta"
-                >
-                  <Share2 className="h-4 w-4" aria-hidden="true" />
-                  {shareState === 'loading' ? 'Se pregătește documentul…' : shareState === 'failed' ? 'Aplicația de email nu e disponibilă' : 'Trimite din aplicația ta de email'}
+          <div className="space-y-3 px-5 py-5">
+            {stage.name === 'unsupported' ? (
+              <p role="alert" className="flex gap-3 text-sm leading-6 text-ink">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[var(--sg-warn)]" aria-hidden="true" />
+                <span>Pe acest telefon, browserul nu poate da acest tip de fișier altei aplicații (de obicei Word sau Excel, pe Android). Descarcă-l și atașează-l din aplicația de email.</span>
+              </p>
+            ) : (
+              <>
+                <Button type="button" variant="primary" className="w-full" onClick={share} disabled={stage.name !== 'ready'}>
+                  {stage.name === 'loading' ? <Spinner size="sm" /> : <Share2 className="h-4 w-4" aria-hidden="true" />}
+                  {stage.name === 'loading' ? 'Se pregătește documentul…' : 'Deschide aplicația de email'}
                 </Button>
-                <p className="text-xs leading-5 text-ink-soft">
-                  {shareState === 'failed'
-                    ? 'Nu am putut pregăti documentul pentru aplicația de email. Trimite-l din Bonie, mai jos.'
-                    : 'Alegi Gmail, Outlook sau Mail; documentul e deja atașat. Scrii adresa și trimiți de pe emailul tău.'}
-                </p>
-              </div>
+                {stage.name === 'failed' ? (
+                  <p role="alert" className="text-sm leading-6 text-[var(--sg-danger)]">{stage.message}</p>
+                ) : (
+                  <p className="text-sm leading-6 text-ink-soft">
+                    Alegi Gmail, Outlook sau Mail; documentul e deja atașat. Scrii adresa și trimiți de pe emailul tău.
+                  </p>
+                )}
+              </>
             )}
-            <form onSubmit={submit} noValidate aria-busy={sending} className="space-y-4 px-5 py-5">
-              {shareable && <p className="text-sm font-semibold text-ink">Sau trimite din Bonie</p>}
-              <div>
-                <label htmlFor={`${ids}-catre`} className="mb-1.5 block text-sm font-semibold text-ink">Către</label>
-                <textarea
-                  id={`${ids}-catre`}
-                  ref={toRef}
-                  rows={1}
-                  value={to}
-                  onChange={event => { setTo(event.target.value); if (error?.field === 'to') setError(null) }}
-                  placeholder="registratura@anaf.ro, contabil@firma.ro"
-                  autoComplete="email"
-                  spellCheck={false}
-                  disabled={sending}
-                  aria-invalid={error?.field === 'to' || undefined}
-                  aria-describedby={`${ids}-catre-indiciu${error?.field === 'to' ? ` ${errorId}` : ''}`}
-                  className={`${field} min-h-11 resize-y py-2.5`}
-                />
-                <p id={`${ids}-catre-indiciu`} className="mt-1 text-xs text-ink-soft">Orice adresă, și fără cont în Bonie. Mai multe, despărțite prin virgulă (cel mult 5).</p>
-              </div>
-              <div>
-                <label htmlFor={`${ids}-subiect`} className="mb-1.5 block text-sm font-semibold text-ink">Subiect</label>
-                <input
-                  id={`${ids}-subiect`}
-                  value={subject}
-                  maxLength={200}
-                  onChange={event => { setSubject(event.target.value); if (error?.field === 'subject') setError(null) }}
-                  disabled={sending}
-                  aria-invalid={error?.field === 'subject' || undefined}
-                  aria-describedby={error?.field === 'subject' ? errorId : undefined}
-                  className={`${field} h-11`}
-                />
-              </div>
-              <div>
-                <label htmlFor={`${ids}-mesaj`} className="mb-1.5 block text-sm font-semibold text-ink">Mesaj <span className="font-normal text-ink-soft">(opțional)</span></label>
-                <textarea
-                  id={`${ids}-mesaj`}
-                  rows={4}
-                  maxLength={5000}
-                  value={message}
-                  onChange={event => setMessage(event.target.value)}
-                  placeholder="Bună ziua, vă transmit atașat documentul solicitat."
-                  disabled={sending}
-                  className={`${field} resize-y py-2.5 leading-6`}
-                />
-              </div>
-              <label className="flex min-h-11 items-center gap-3 text-sm text-ink">
-                <input type="checkbox" checked={copyToMe} onChange={event => setCopyToMe(event.target.checked)} disabled={sending} className="h-4 w-4 accent-[var(--sg-accent)]" />
-                Trimite-mi și mie o copie
-              </label>
-
-              {error && <p id={errorId} role="alert" className="text-sm text-[var(--sg-danger)]">{error.message}</p>}
-
-              <div className="flex justify-end border-t border-rule pt-4">
-                <Button type="submit" variant={shareable ? 'secondary' : 'primary'} disabled={sending} data-tooltip="Trimite emailul din Bonie, cu documentul atașat">
-                  <Mail className="h-4 w-4" aria-hidden="true" />
-                  {sending ? 'Se trimite…' : 'Trimite'}
-                </Button>
-              </div>
-            </form>
-            </>
-          )}
+          </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
