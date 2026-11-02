@@ -175,7 +175,7 @@ export default function AccountPage() {
         <AccountSection
           title="Parola"
           description="Cu ea intri în Bonie. Ca s-o schimbi, scrii întâi parola actuală, apoi pe cea nouă de două ori."
-          aside={temporary ? <Signal tone="warn">Parolă temporară</Signal> : undefined}
+          aside={temporary ? <Signal tone="warn" icon={<KeyRound className="h-3 w-3" strokeWidth={2.25} aria-hidden="true" />}>Parolă temporară</Signal> : undefined}
         >
           {temporary && (
             <div className="mb-6 flex gap-3 rounded-[var(--radius-plate)] border border-[var(--sg-warn)] bg-[var(--sg-warn-soft)] p-4" role="note">
