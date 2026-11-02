@@ -20,19 +20,35 @@ function downloadRoute(target: EmailTarget) {
     : { url: `/api/document-requests/${target.requestId}/attachment/signed-download`, extra: target.attachmentId ? { attachment_id: target.attachmentId } : {} }
 }
 
-// Tipul fișierului după extensie: atașamentele n-au tipul salvat, iar Chrome pe
-// Android decide după el (și după extensie) dacă îl poate da altei aplicații.
-const MIME_BY_EXTENSION: Record<string, string> = {
-  pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
-  txt: 'text/plain', csv: 'text/csv',
+// Tipurile pe care Chrome le lasă să plece spre alte aplicații (lista din
+// Chromium, third_party/blink/renderer/modules/webshare/FILE_TYPES.md). Orice
+// altceva — Word, Excel, „application/octet-stream” — primește
+// „NotAllowedError: Permission denied”. Tipul îl dăm noi după extensie: cel
+// venit de la stocare poate fi generic și ar bloca și un PDF.
+const CHROME_SHAREABLE: Record<string, string> = {
+  pdf: 'application/pdf',
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', jfif: 'image/jpeg', pjp: 'image/jpeg', pjpeg: 'image/jpeg',
+  png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp',
+  tif: 'image/tiff', tiff: 'image/tiff', svg: 'image/svg+xml',
+  txt: 'text/plain', text: 'text/plain', csv: 'text/csv',
+  mp3: 'audio/mpeg', m4a: 'audio/x-m4a', wav: 'audio/wav', mp4: 'video/mp4', webm: 'video/webm',
+}
+// Pe iPhone (Safari) pleacă și documentele Office.
+const OTHER_TYPES: Record<string, string> = {
   doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  odt: 'application/vnd.oasis.opendocument.text', ods: 'application/vnd.oasis.opendocument.spreadsheet',
 }
 
-function mimeFor(fileName: string, known?: string | null) {
-  if (known && known !== 'application/octet-stream') return known
-  const extension = fileName.split('.').pop()?.toLowerCase() ?? ''
-  return MIME_BY_EXTENSION[extension] ?? 'application/octet-stream'
+function shareType(fileName: string) {
+  const extension = fileName.includes('.') ? fileName.split('.').pop()!.toLowerCase() : ''
+  const chrome = CHROME_SHAREABLE[extension]
+  return { mime: chrome ?? OTHER_TYPES[extension] ?? null, chromeAllows: !!chrome }
+}
+
+/** Chrome (Android, și Chromium în general) refuză tipurile din afara listei. */
+function isChromium() {
+  return typeof navigator !== 'undefined' && /Chrome|CriOS|Android/i.test(navigator.userAgent) && !/iPhone|iPad|iPod/i.test(navigator.userAgent)
 }
 
 function canShareFiles(files: File[]) {
@@ -68,13 +84,11 @@ type Stage =
 export function EmailFileButton({
   target,
   fileName,
-  mimeType,
   apiFetch,
   className = '',
 }: {
   target: EmailTarget
   fileName: string
-  mimeType?: string | null
   documentName?: string | null
   apiFetch: ApiFetch
   className?: string
@@ -91,6 +105,12 @@ export function EmailFileButton({
 
   useEffect(() => {
     if (!open) return
+    const type = shareType(fileName)
+    // Știm dinainte că telefonul îl va refuza: nu-l mai descărcăm degeaba.
+    if (!type.mime || (isChromium() && !type.chromeAllows)) {
+      setStage({ name: 'unsupported' })
+      return
+    }
     let cancelled = false
     setStage({ name: 'loading' })
     void (async () => {
@@ -105,7 +125,7 @@ export function EmailFileButton({
         const response = await fetch(url)
         if (!response.ok) throw new Error('Documentul nu s-a putut descărca.')
         const blob = await response.blob()
-        const file = new File([blob], fileName, { type: mimeFor(fileName, mimeType ?? (blob.type || null)) })
+        const file = new File([blob], fileName, { type: type.mime })
         if (cancelled) return
         setStage(canShareFiles([file]) ? { name: 'ready', file } : { name: 'unsupported' })
       } catch (error) {
@@ -115,7 +135,7 @@ export function EmailFileButton({
     return () => { cancelled = true }
     // `routeKey` ține locul obiectului `route`, refăcut la fiecare desenare.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, routeKey, fileName, mimeType, apiFetch])
+  }, [open, routeKey, fileName, apiFetch])
 
   const share = () => {
     const file = stage.name === 'ready' || stage.name === 'failed' ? stage.file : undefined
@@ -180,7 +200,7 @@ export function EmailFileButton({
             {stage.name === 'unsupported' ? (
               <p role="alert" className="flex gap-3 text-sm leading-6 text-ink">
                 <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[var(--sg-warn)]" aria-hidden="true" />
-                <span>Pe acest telefon, browserul nu poate da acest tip de fișier altei aplicații (de obicei Word sau Excel, pe Android). Descarcă-l și atașează-l din aplicația de email.</span>
+                <span>Pe acest telefon, browserul nu lasă acest tip de fișier să plece spre aplicația de email (Chrome pe Android acceptă doar PDF, imagini și text, nu Word sau Excel). Descarcă documentul și atașează-l din Gmail sau Outlook.</span>
               </p>
             ) : (
               <>
