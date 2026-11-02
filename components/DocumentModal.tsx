@@ -1081,6 +1081,7 @@ export default function DocumentModal({
                             >
                               {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                             </button>
+                            <EmailFileButton target={{ kind: 'attachment', requestId: request.id, attachmentId: attachment.id || null }} fileName={fileName} documentName={request.name} apiFetch={apiFetch} />
                           </div>
                         </div>
                       )
@@ -1322,7 +1323,7 @@ export default function DocumentModal({
                                     <Download className="w-4 h-4" />
                                   )}
                                 </button>
-                                <EmailFileButton fileId={file.id} fileName={fileName} documentName={request.name} apiFetch={apiFetch} />
+                                <EmailFileButton target={{ kind: 'file', fileId: file.id }} fileName={fileName} documentName={request.name} apiFetch={apiFetch} />
                               </div>
                             </div>
                           )

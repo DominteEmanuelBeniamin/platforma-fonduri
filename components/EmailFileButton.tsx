@@ -11,6 +11,22 @@ import { MAX_EMAIL_ATTACHMENT_BYTES, parseEmailRecipients } from '@/lib/email-re
 
 type ApiFetch = (url: string, init?: RequestInit) => Promise<Response>
 
+/** Ce trimitem: un fișier încărcat sau un atașament al cererii (model, document trimis clientului). */
+export type EmailTarget =
+  | { kind: 'file'; fileId: string }
+  | { kind: 'attachment'; requestId: string; attachmentId?: string | null }
+
+function targetRoutes(target: EmailTarget) {
+  if (target.kind === 'file') {
+    return { send: `/api/files/${target.fileId}/email`, download: `/api/files/${target.fileId}/signed-download`, extra: {} }
+  }
+  return {
+    send: `/api/document-requests/${target.requestId}/attachment/email`,
+    download: `/api/document-requests/${target.requestId}/attachment/signed-download`,
+    extra: target.attachmentId ? { attachment_id: target.attachmentId } : {},
+  }
+}
+
 const field =
   'w-full rounded-[var(--radius-plate)] border border-rule bg-plate px-3 text-sm text-ink placeholder:text-ink-faint ' +
   'transition-colors duration-[120ms] focus:border-[var(--sg-accent)] aria-[invalid=true]:border-[var(--sg-danger)]'
@@ -30,7 +46,8 @@ function canShareFile(fileName: string, mimeType: string | null | undefined) {
 }
 
 /**
- * „Trimite pe email” pentru un fișier încărcat. Două căi, în aceeași fereastră:
+ * „Trimite pe email” pentru un document: fișier încărcat sau atașament al
+ * cererii. Două căi, în aceeași fereastră:
  * - din Bonie: atașament, Reply-To la cel care trimite, copie la el;
  * - din aplicația de email a omului (Gmail, Outlook, Mail), unde browserul
  *   permite partajarea unui fișier: telefoane, Safari, Chrome/Edge pe Windows.
@@ -38,7 +55,7 @@ function canShareFile(fileName: string, mimeType: string | null | undefined) {
  *   acceptă atașamente.
  */
 export function EmailFileButton({
-  fileId,
+  target,
   fileName,
   mimeType,
   fileSize,
@@ -46,7 +63,7 @@ export function EmailFileButton({
   apiFetch,
   className = '',
 }: {
-  fileId: string
+  target: EmailTarget
   fileName: string
   mimeType?: string | null
   fileSize?: number | null
@@ -69,6 +86,8 @@ export function EmailFileButton({
   const [shareState, setShareState] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle')
   const toRef = useRef<HTMLTextAreaElement>(null)
   const tooLarge = typeof fileSize === 'number' && fileSize > MAX_EMAIL_ATTACHMENT_BYTES
+  const routes = targetRoutes(target)
+  const routeKey = routes.send + JSON.stringify(routes.extra)
 
   const reset = () => {
     setTo('')
@@ -89,10 +108,10 @@ export function EmailFileButton({
     setShareState('loading')
     void (async () => {
       try {
-        const res = await apiFetch(`/api/files/${fileId}/signed-download`, {
+        const res = await apiFetch(routes.download, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ expiresIn: 120 }),
+          body: JSON.stringify({ expiresIn: 120, ...routes.extra }),
         })
         const { url } = res.ok ? await res.json() as { url?: string } : {}
         if (!url) throw new Error('no url')
@@ -105,7 +124,9 @@ export function EmailFileButton({
       }
     })()
     return () => { cancelled = true }
-  }, [open, tooLarge, fileName, mimeType, fileId, apiFetch, shareFile])
+    // `routeKey` ține locul obiectului `routes`, refăcut la fiecare desenare.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, tooLarge, fileName, mimeType, routeKey, apiFetch, shareFile])
 
   const shareInMailApp = async () => {
     if (!shareFile) return
@@ -134,10 +155,10 @@ export function EmailFileButton({
     setSending(true)
     setError(null)
     try {
-      const res = await apiFetch(`/api/files/${fileId}/email`, {
+      const res = await apiFetch(routes.send, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to, subject: subject.trim(), message, copyToMe }),
+        body: JSON.stringify({ to, subject: subject.trim(), message, copyToMe, ...routes.extra }),
       })
       if (!res.ok) {
         const body: unknown = await res.clone().json().catch(() => null)
