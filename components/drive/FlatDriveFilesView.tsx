@@ -362,9 +362,11 @@ export default function FlatDriveFilesView({
                       : <Download className="h-4 w-4" />
                     }
                   </button>
-                  {row.fileId && row.downloadKind !== 'requestAttachment' && (
+                  {(row.downloadKind === 'requestAttachment' ? row.requestId : row.fileId) && (
                     <EmailFileButton
-                      fileId={row.fileId}
+                      target={row.downloadKind === 'requestAttachment'
+                        ? { kind: 'attachment', requestId: row.requestId!, attachmentId: row.attachmentId ?? null }
+                        : { kind: 'file', fileId: row.fileId! }}
                       fileName={getDisplayName(row)}
                       documentName={row.docName}
                       apiFetch={apiFetch}

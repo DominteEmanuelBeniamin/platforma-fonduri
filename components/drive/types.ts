@@ -19,6 +19,7 @@ export interface DriveRow {
   id: string           // unique row key
   fileId?: string      // used for file download + image preview API
   requestId?: string   // used for request attachment download
+  attachmentId?: string // which attachment of the request, when it has several
   downloadKind?: 'file' | 'requestAttachment'
   storagePath: string  // determines file type icon + image detection
   displayName?: string
