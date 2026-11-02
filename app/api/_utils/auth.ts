@@ -218,27 +218,6 @@ export async function requireTemplateAccess(
   }
 }
 
-/**
- * admin poate acționa pe oricine, user doar pe el
- */
-export async function requireUserOrAdmin(
-  request: Request,
-  targetUserId: string
-): Promise<Result<{ user: User; profile: AppProfile; isAdmin: boolean }>> {
-  const ctx = await requireProfile(request)
-  if (!ctx.ok) return ctx
-
-  if (ctx.user.id === targetUserId) {
-    return { ok: true, user: ctx.user, profile: ctx.profile, isAdmin: ctx.profile.role === 'admin' }
-  }
-
-  if (ctx.profile.role !== 'admin') {
-    return { ok: false, status: 403, error: 'Forbidden' }
-  }
-
-  return { ok: true, user: ctx.user, profile: ctx.profile, isAdmin: true }
-}
-
 export type ProjectAccess =
   | { role: 'admin'; projectId: string }
   | { role: 'consultant'; projectId: string; membershipId: string; level: ConsultantLevel }

@@ -1,13 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // app/api/users/[userId]/route.ts
-import { requireUserOrAdmin, requireAdmin, guardToResponse } from '../../_utils/auth'
+import { requireAdmin, guardToResponse } from '../../_utils/auth'
 import { createSupabaseServiceClient } from '../../_utils/supabase'
 import { logUserAction, getClientIP, getUserAgent } from '../../_utils/audit'
+import { sendEmailChangedNotices } from '../../_utils/email-changed-email'
 import { userLifecycleConflict } from '../../_utils/user-lifecycle'
 import { cifForbidden, cifValidationFailure, checkCifAvailable, userCifConflict } from '../../_utils/user-creation'
 import { validateCif } from '@/lib/cif'
 import { isUuid } from '@/lib/notification-utils'
-import { NextResponse } from 'next/server'
+import { isEditableRole, normalizeProfileEmail, profileFieldProblem, type ProfileTextField } from '@/lib/profile-edit'
+import { after, NextResponse } from 'next/server'
 
 type PatchBody = Partial<{
   full_name: unknown
@@ -17,14 +19,29 @@ type PatchBody = Partial<{
   cifCountry: unknown
   email: unknown
   consultant_level: unknown
+  nume_firma: unknown
+  adresa_firma: unknown
+  departament: unknown
+  specializare: unknown
 }>
 
-function isStringOrNullOrUndef(x: unknown) {
-  return x === undefined || x === null || typeof x === 'string'
+const TEXT_FIELDS: ProfileTextField[] = ['email', 'full_name', 'telefon', 'nume_firma', 'adresa_firma', 'departament', 'specializare']
+const AUDIT_KEYS = ['full_name', 'role', 'telefon', 'cif', 'consultant_level', 'email', 'nume_firma', 'adresa_firma', 'departament', 'specializare']
+
+// Erorile funcției `update_user_profile_guarded` care țin de datele trimise.
+const PROFILE_ERRORS: Record<string, { status: number; field?: string; message: string }> = {
+  EMAIL_TAKEN: { status: 409, field: 'email', message: 'Există deja un cont cu acest email.' },
+  EMAIL_INVALID: { status: 400, field: 'email', message: 'Completează un email valid.' },
+  PROFILE_FIELD_REQUIRED: { status: 400, message: 'Completează câmpurile obligatorii.' },
+  INVALID_PROFILE_PATCH: { status: 400, message: 'Datele profilului nu sunt valide.' },
+  ACTIVE_ADMIN_REQUIRED: { status: 403, message: 'Doar un administrator activ poate modifica datele conturilor.' },
 }
 
-function normalizePhone(phone: string) {
-  return phone.trim()
+function profileUpdateError(error: { code?: string; message?: string }) {
+  const known = error.code === 'P0001' && error.message ? PROFILE_ERRORS[error.message] : undefined
+  return known
+    ? NextResponse.json({ code: error.message, field: known.field, error: known.message, message: known.message }, { status: known.status })
+    : null
 }
 
 export async function PATCH(
@@ -37,7 +54,8 @@ export async function PATCH(
       return NextResponse.json({ error: 'User ID trebuie să fie UUID valid' }, { status: 400 })
     }
 
-    const ctx = await requireUserOrAdmin(request, targetUserId)
+    // Datele conturilor le modifică doar adminul, inclusiv pe ale lui.
+    const ctx = await requireAdmin(request)
     if (!ctx.ok) return guardToResponse(ctx)
     const body = (await request.json().catch(() => null)) as PatchBody | null
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -45,9 +63,7 @@ export async function PATCH(
     }
     const hasCif = Object.hasOwn(body, 'cif')
     const hasCountry = Object.hasOwn(body, 'cifCountry')
-    if ((hasCif || hasCountry) && !ctx.isAdmin) return NextResponse.json(cifForbidden.body, { status: cifForbidden.status })
     if (hasCountry && !hasCif) return NextResponse.json({ code: 'CIF_INVALID', message: 'Trimite CIF-ul împreună cu țara selectată.', field: 'cifCountry' }, { status: 400 })
-    if (body.email !== undefined) return NextResponse.json({ message: 'Email cannot be updated via this endpoint' }, { status: 400 })
     const admin = createSupabaseServiceClient()
     const { data: oldProfile, error: profileError } = await admin
       .from('profiles')
@@ -66,22 +82,7 @@ export async function PATCH(
     }
 
     const update: Record<string, any> = {}
-    if (body.full_name !== undefined) {
-      if (typeof body.full_name !== 'string' || body.full_name.trim().length === 0) {
-        return NextResponse.json({ error: 'full_name must be a non-empty string' }, { status: 400 })
-      }
-      update.full_name = body.full_name.trim()
-    }
-    if (body.telefon !== undefined) {
-      if (!isStringOrNullOrUndef(body.telefon)) {
-        return NextResponse.json({ error: 'telefon must be a string or null' }, { status: 400 })
-      }
-      update.telefon = typeof body.telefon === 'string' ? normalizePhone(body.telefon) : body.telefon
-    }
     if (body.role !== undefined) {
-      if (!ctx.isAdmin) {
-        return NextResponse.json({ error: 'Forbidden: only admin can update role' }, { status: 403 })
-      }
       if (typeof body.role !== 'string' || body.role.trim().length === 0) {
         return NextResponse.json({ error: 'role must be a non-empty string' }, { status: 400 })
       }
@@ -92,9 +93,6 @@ export async function PATCH(
       update.role = role
     }
     if (body.consultant_level !== undefined) {
-      if (!ctx.isAdmin) {
-        return NextResponse.json({ error: 'Forbidden: only admin can update consultant_level' }, { status: 403 })
-      }
       if (body.consultant_level !== 'junior' && body.consultant_level !== 'senior') {
         return NextResponse.json({ error: 'consultant_level must be junior or senior' }, { status: 400 })
       }
@@ -104,6 +102,17 @@ export async function PATCH(
       update.consultant_level = body.consultant_level
     }
     const finalRole = update.role ?? oldProfile.role
+    const texts: Partial<Record<ProfileTextField, unknown>> = {}
+    for (const key of TEXT_FIELDS) if (body[key] !== undefined) texts[key] = body[key]
+    if (Object.keys(texts).length > 0) {
+      if (!isEditableRole(finalRole)) return NextResponse.json({ code: 'INVALID_PROFILE_PATCH', message: 'Datele profilului nu sunt valide.' }, { status: 400 })
+      const problem = profileFieldProblem(finalRole, texts)
+      if (problem) return NextResponse.json({ code: 'INVALID_PROFILE_PATCH', field: problem.field, error: problem.message, message: problem.message }, { status: 400 })
+      for (const [key, value] of Object.entries(texts)) {
+        const text = typeof value === 'string' ? value.trim() : ''
+        update[key] = key === 'email' ? normalizeProfileEmail(text) : text || null
+      }
+    }
     if (hasCif && finalRole !== 'client') return NextResponse.json(cifForbidden.body, { status: cifForbidden.status })
     if (finalRole === 'client') {
       const result = validateCif(hasCif ? body.cif : oldProfile.cif, hasCif ? body.cifCountry : undefined)
@@ -119,7 +128,7 @@ export async function PATCH(
     }
     if (Object.keys(update).length === 0) {
       return NextResponse.json(
-        { error: 'Nothing to update. Allowed fields: full_name, telefon, cif, role and consultant_level (admin only).' },
+        { error: 'Nothing to update. Allowed fields: ' + AUDIT_KEYS.join(', ') + '.' },
         { status: 400 }
       )
     }
@@ -132,6 +141,8 @@ export async function PATCH(
     if (error) {
       const conflict = userCifConflict(error) ?? userLifecycleConflict(error)
       if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
+      const known = profileUpdateError(error)
+      if (known) return known
       console.error('PATCH guarded profile update failed:', { code: error.code })
       return NextResponse.json({ error: 'Nu am putut actualiza profilul.' }, { status: 500 })
     }
@@ -140,9 +151,8 @@ export async function PATCH(
     const changed = result?.changed
     const oldValues = result?.oldValues
     const newValues = result?.newValues
-    const auditKeys = ['full_name', 'role', 'telefon', 'cif', 'consultant_level']
     const validAudit = [oldValues, newValues].every(values => values && typeof values === 'object'
-      && !Array.isArray(values) && Object.keys(values).every(key => auditKeys.includes(key)))
+      && !Array.isArray(values) && Object.keys(values).every(key => AUDIT_KEYS.includes(key)))
     if (!profile || profile.id !== targetUserId || typeof changed !== 'boolean' || !validAudit) {
       console.error('PATCH guarded profile update returned an invalid result:', { targetUserId })
       return NextResponse.json({ error: 'Nu am putut confirma actualizarea profilului.' }, { status: 500 })
@@ -156,6 +166,8 @@ export async function PATCH(
       } else if (Object.hasOwn(newValues, 'consultant_level')) {
         description = String(ctx.profile.email) + ' a schimbat nivelul consultantului ' + String(profile.email)
           + ' din "' + oldValues.consultant_level + '" în "' + newValues.consultant_level + '"'
+      } else if (Object.hasOwn(newValues, 'email')) {
+        description = String(ctx.profile.email) + ' a schimbat emailul contului din "' + oldValues.email + '" în "' + newValues.email + '"'
       }
 
       await logUserAction({
@@ -169,6 +181,11 @@ export async function PATCH(
         ipAddress: getClientIP(request),
         userAgent: getUserAgent(request),
       })
+    }
+
+    if (changed && Object.hasOwn(newValues, 'email') && typeof oldValues.email === 'string') {
+      const notice = { oldEmail: oldValues.email, newEmail: String(newValues.email), fullName: profile.full_name ?? null }
+      after(() => sendEmailChangedNotices(notice))
     }
 
     return NextResponse.json({ message: 'Profile updated', profile, changed })
