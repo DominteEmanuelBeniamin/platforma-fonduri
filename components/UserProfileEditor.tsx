@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { Pencil } from 'lucide-react'
 import { useToast } from '@/app/providers/ToastProvider'
 import { Button } from '@/components/ui/Button'
@@ -63,8 +63,15 @@ export function UserProfileEditor({
   const [saving, setSaving] = useState(false)
   const [values, setValues] = useState<Record<ProfileTextField, string>>(() => initialValues(user))
   const [cif, setCif] = useState<CifInputValue>(() => cifValue(user.cif))
-  const [cifError, setCifError] = useState<CifInputError | null>(null)
+  const [cifError, setCifError] = useState<(CifInputError & { server?: boolean }) | null>(null)
   const [error, setError] = useState<{ field: string | null; message: string } | null>(null)
+
+  useEffect(() => {
+    if (!cifError?.server || saving) return
+    const input = formRef.current?.querySelector<HTMLElement>(`[name="${cifError.field}"]`)
+    input?.focus()
+    input?.scrollIntoView({ block: 'center' })
+  }, [cifError, saving])
 
   if (!isEditableRole(user.role)) return null
   const role = user.role
@@ -106,8 +113,8 @@ export function UserProfileEditor({
     let cifCountry: string | undefined
     if (isClient) {
       const result = validateCif(cif.number, cif.country)
+      setCifError(result.ok ? null : result)
       if (!result.ok) {
-        setCifError(result)
         focusField(result.field)
         return
       }
@@ -139,11 +146,11 @@ export function UserProfileEditor({
         const field = (body as { field?: unknown } | null)?.field
         const message = await serverMessage(res, 'Nu am putut salva datele. Încearcă din nou.')
         if (field === 'cif' || field === 'cifCountry') {
-          setCifError({ field, message })
+          setCifError({ field, message, server: true })
         } else {
           setError({ field: typeof field === 'string' ? field : null, message })
         }
-        if (typeof field === 'string') focusField(field)
+        if (typeof field === 'string' && field !== 'cif' && field !== 'cifCountry') focusField(field)
         return
       }
       const { profile } = await res.json() as { profile: EditableProfile }
@@ -204,6 +211,7 @@ export function UserProfileEditor({
                 }
               }}
               onBlur={() => {
+                if (cifError?.server) return
                 const result = validateCif(cif.number, cif.country)
                 setCifError(result.ok ? null : result)
               }}

@@ -290,7 +290,7 @@ try {
     await new Promise(resolve=>proxy.listen(preflightPort,'127.0.0.1',resolve))
     const configFile='supabase/.temp/issue107-preflight-config.json',envFile='.env.issue107.preflight.local'
     const databaseRole=decodeURIComponent(new URL(source.Config.Env.find(line=>line.startsWith('GOTRUE_DB_DATABASE_URL=')).slice('GOTRUE_DB_DATABASE_URL='.length)).username)
-    const config={databaseRole,minimumPasswordLength:6,passwordRequirements:'',dbEncryptionEnabled:false,otpExpiry:3600,disableSignup:true,sendEmailHookEnabled:true,sendEmailHookUri:'pg-functions://postgres/account_recovery/send_email_hook',alternativeProvidersDisabled:true,resendLinkTrackingDisabled:true}
+    const config={databaseRole,minimumPasswordLength:12,passwordRequirements:'',dbEncryptionEnabled:false,otpExpiry:3600,disableSignup:true,sendEmailHookEnabled:true,sendEmailHookUri:'pg-functions://postgres/account_recovery/send_email_hook',alternativeProvidersDisabled:true,resendLinkTrackingDisabled:true}
     const explicitEnv={...recoveryEnv,SUPABASE_URL:preflightUrl,NEXT_PUBLIC_SUPABASE_URL:preflightUrl,NEXT_PUBLIC_SUPABASE_ANON_KEY:env.E2E_SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE_KEY:env.E2E_SUPABASE_SERVICE_ROLE_KEY,NODE_ENV:'development',RECOVERY_DISPATCH_EVERY_MINUTE_CONFIGURED:'true'}
     const runPreflight=async(configOverride={},envOverride={})=>{
       fs.writeFileSync(configFile,JSON.stringify({...config,...configOverride}))

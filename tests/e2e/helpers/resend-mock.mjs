@@ -15,7 +15,25 @@ const port = Number(process.argv[2] ?? 4010)
 const file = process.argv[3] ?? path.join('playwright-report', 'dovezi', 'resend.jsonl')
 fs.mkdirSync(path.dirname(file), { recursive: true })
 
-http.createServer((request, response) => {
+const server = http.createServer((request, response) => {
+  response.setHeader('Cache-Control', 'no-store')
+  if (request.method === 'GET') {
+    if (request.url === '/api/emails') {
+      const rows = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)) : []
+      const messages = rows.flatMap((row, index) => {
+        if (row.method !== 'POST' || !row.path?.startsWith('/emails')) return []
+        return (Array.isArray(row.body) ? row.body : [row.body]).filter(body => body && typeof body === 'object').map((body, batch) => ({ id: index + '-' + batch, at: row.at, body }))
+      }).reverse()
+      response.setHeader('Content-Type', 'application/json')
+      response.end(JSON.stringify(messages))
+    } else if (request.url === '/') {
+      response.setHeader('Content-Type', 'text/html; charset=utf-8')
+      response.end(fs.readFileSync(new URL('../../../scripts/local-mail-inbox.html', import.meta.url)))
+    } else {
+      response.writeHead(404).end()
+    }
+    return
+  }
   let raw = ''
   request.on('data', chunk => { raw += chunk })
   request.on('end', () => {
@@ -42,5 +60,5 @@ http.createServer((request, response) => {
     response.end(JSON.stringify({ id: randomUUID() }))
   })
 }).listen(port, '127.0.0.1', () => {
-  console.log(`Resend de test pe http://127.0.0.1:${port}, emailurile în ${file}`)
+  console.log(`Resend de test pe http://127.0.0.1:${server.address().port}, emailurile în ${file}`)
 })

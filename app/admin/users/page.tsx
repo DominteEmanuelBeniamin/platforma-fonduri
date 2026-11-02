@@ -18,7 +18,6 @@ import { formatDate } from '@/lib/signage'
 import { Spinner } from '@/components/ui/Spinner'
 import { Signal } from '@/components/ui/Signal'
 import { profileDisplayName } from '@/lib/profile-display'
-import { ResetUserPasswordAction } from '@/components/ResetUserPasswordAction'
 import CifInput, { type CifInputError, type CifInputValue } from '@/components/CifInput'
 import { validateCif } from '@/lib/cif'
 import { FoundIn, Highlight } from '@/components/ui/Highlight'
@@ -717,10 +716,6 @@ export default function AdminUsersPage() {
                   <span className={`rounded border px-2 py-1 text-xs font-semibold ${user.creation_pending ? 'border-[var(--sg-warn)] text-[var(--sg-warn)]' : user.is_active === false ? 'border-rule text-ink-soft' : 'border-[var(--sg-ok)] text-[var(--sg-ok)]'}`}>
                     {user.creation_pending ? 'Creare incompletă' : user.is_active === false ? 'Dezactivat' : 'Activ'}
                   </span>
-                  <ResetUserPasswordAction
-                    target={{ id: user.id, email: user.email, full_name: user.full_name, is_active: user.is_active }}
-                    onReset={() => fetchUsers(false)}
-                  />
                   {!user.creation_pending && (user.is_active === false ? (
                     <>
                       {/* Sincronizarea neterminată (inclusiv conturile dezactivate înainte de #105)

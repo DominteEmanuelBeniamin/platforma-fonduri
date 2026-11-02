@@ -1,8 +1,8 @@
 import { RECOVERY_PASSWORD_RULE_MESSAGE } from './recovery-messages.ts'
 
 // Aceeași regulă ca la resetarea prin email (#107) și ca în baza de date:
-// cel puțin 6 caractere, cel mult 72 de octeți UTF-8 (limita bcrypt).
-export const PASSWORD_MIN_CHARACTERS = 6
+// cel puțin 12 caractere, cel mult 72 de octeți UTF-8 (limita bcrypt).
+export const PASSWORD_MIN_CHARACTERS = 12
 export const PASSWORD_MAX_BYTES = 72
 export const PASSWORD_RULE_MESSAGE = RECOVERY_PASSWORD_RULE_MESSAGE
 

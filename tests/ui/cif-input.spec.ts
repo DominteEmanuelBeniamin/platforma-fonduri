@@ -11,8 +11,9 @@ const pending = { id: pendingId, email: 'incomplete@example.invalid', full_name:
 const historical = { ...pending, id: historicalId, email: 'consultant@example.invalid', full_name: 'Consultant', role: 'consultant', creation_pending: false, is_active: true, cif: 'DE123456789' }
 
 // Every API/Auth/Realtime request is intercepted; these tests never write to a database.
-async function setup(page: Page) {
+async function setup(page: Page, editing = false) {
   const posts: Record<string, unknown>[] = [], patches: Record<string, unknown>[] = []
+  let patchReply: { status: number; body: Record<string, unknown> } | null = null
   let reply = { status: 201, body: { userId: createdId, emailSent: true } as Record<string, unknown> }
   const user = { id: adminId, email: 'admin@example.invalid', aud: 'authenticated', role: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: '2026-01-01T00:00:00Z' }
   const expires = Math.floor(Date.now() / 1000) + 3600
@@ -30,10 +31,11 @@ async function setup(page: Page) {
     }
     if (url.pathname === '/api/users' && request.method() === 'GET') {
       const state = url.searchParams.get('state') ?? 'all'
-      return route.fulfill({ json: { users: [pending, historical].filter(person => state === 'all' || person.is_active === (state === 'active')) } })
+      return route.fulfill({ json: { users: [editing ? { ...pending, creation_pending: false, is_active: true, cif: 'RO5258486', nume_firma: 'Firma de test', adresa_firma: 'Adresa de test', telefon: '0700000000' } : pending, historical].filter(person => state === 'all' || person.is_active === (state === 'active')) } })
     }
     if (url.pathname.startsWith('/api/users/') && request.method() === 'PATCH') {
       patches.push(request.postDataJSON())
+      if (patchReply) return route.fulfill({ status: patchReply.status, json: patchReply.body })
       return route.fulfill({ json: { changed: true, profile: { ...historical, ...request.postDataJSON() } } })
     }
     if (url.pathname.endsWith('/lifecycle-impact')) return route.fulfill({ json: { impact: {}, blockers: [{ kind: 'public.audit_logs.user_id', count: 1 }] } })
@@ -48,7 +50,7 @@ async function setup(page: Page) {
   await page.waitForURL(url => !url.pathname.startsWith('/login'))
   await page.goto('/admin/users')
   await expect(page.getByRole('heading', { name: 'Utilizatori', exact: true })).toBeVisible()
-  return { posts, patches, respond: (status: number, body: Record<string, unknown>) => { reply = { status, body } } }
+  return { posts, patches, respondPatch: (status: number, body: Record<string, unknown>) => { patchReply = { status, body } }, respond: (status: number, body: Record<string, unknown>) => { reply = { status, body } } }
 }
 
 async function openForm(page: Page) {
@@ -166,7 +168,7 @@ for (const [status, code] of [[500, 'ACCOUNT_CREATION_PENDING'], [503, 'ACCOUNT_
     await expect(form.getByLabel('Parola temporară generată')).toHaveCount(0)
     await form.getByRole('button', { name: 'Verifică lista de utilizatori' }).click()
     await expect(form).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Toate stările', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByRole('group', { name: 'Filtrează după starea contului' }).getByRole('button', { name: 'Toți', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByLabel('Caută utilizatori')).toHaveValue('new@example.invalid')
     expect(api.posts).toHaveLength(1)
   })
@@ -203,7 +205,7 @@ test('CIF: internal roles hide CIF and omit it from the request; role change res
 
 test('CIF: pending accounts cannot change role or reactivate and deletion stays protected', async ({ page }) => {
   const api = await setup(page)
-  await page.getByRole('button', { name: 'Toate stările', exact: true }).click()
+  await page.getByRole('group', { name: 'Filtrează după starea contului' }).getByRole('button', { name: 'Toți', exact: true }).click()
   await expect(page.getByText('Creare incompletă', { exact: true })).toBeVisible()
   await expect(page.getByLabel('Rolul lui ' + pending.email, { exact: true })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Reactivează ' + pending.email, exact: true })).toHaveCount(0)
@@ -253,4 +255,83 @@ test('CIF: long country hints and errors fit narrow phones', async ({ page }) =>
     expect(await form.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
     await page.screenshot({ path: test.info().outputPath('cif-error-' + width + '.png') })
   }
+})
+
+async function editClient(page: Page) {
+  const api = await setup(page, true)
+  await page.goto(`/admin/users/${pendingId}`)
+  await page.getByRole('button', { name: 'Editează datele' }).click()
+  const form = page.locator('form').filter({ has: page.getByLabel('Țara firmei') })
+  await expect(form.getByLabel('Țara firmei')).toHaveValue('RO')
+  await expect(form.getByRole('textbox', { name: 'CUI / CIF' })).toHaveValue('5258486')
+  return { api, form }
+}
+
+test('CIF edit: checksum errors prevent saving and focus the field', async ({ page }) => {
+  const { api, form } = await editClient(page)
+  const number = form.getByRole('textbox', { name: 'CUI / CIF' })
+  await number.fill('12345678')
+  await number.press('Tab')
+  await expect(number).toHaveAttribute('aria-invalid', 'true')
+  await expect(form.getByRole('alert')).toHaveText('CUI-ul nu e valid. Verifică cifrele.')
+  await form.getByRole('button', { name: 'Salvează', exact: true }).click()
+  await expect(number).toBeFocused()
+  expect(api.patches).toHaveLength(0)
+})
+
+for (const field of ['cif', 'cifCountry'] as const) {
+  test(`CIF edit: server error for ${field} persists on blur and focuses the enabled field`, async ({ page }) => {
+    const { api, form } = await editClient(page)
+    const number = form.getByRole('textbox', { name: 'CUI / CIF' })
+    await number.fill('RO18547290')
+    const message = field === 'cif' ? duplicateMessage : 'Alege o țară din Uniunea Europeană.'
+    api.respondPatch(field === 'cif' ? 409 : 400, { code: field === 'cif' ? 'CIF_DUPLICATE' : 'CIF_COUNTRY_UNSUPPORTED', message, field })
+    await form.getByRole('button', { name: 'Salvează', exact: true }).click()
+    const invalid = field === 'cif' ? number : form.getByLabel('Țara firmei')
+    await expect(invalid).toBeFocused()
+    await expect(invalid).toHaveAttribute('aria-invalid', 'true')
+    await expect(invalid).toHaveAccessibleDescription(new RegExp(message.replaceAll('.', '\\.')))
+    await invalid.press('Tab')
+    await expect(form.getByRole('alert')).toHaveText(message)
+    await expect(number).toHaveValue('RO18547290')
+    await expect(form.getByLabel('Nume firmă')).toHaveValue('Firma de test')
+    await number.fill('ro 0005.258.486')
+    await expect(form.getByRole('alert')).toHaveCount(0)
+    expect(api.patches).toHaveLength(1)
+  })
+}
+
+test('CIF edit: country mismatch is corrected and canonical EU CIF is saved', async ({ page }) => {
+  const { api, form } = await editClient(page)
+  await form.getByRole('textbox', { name: 'CUI / CIF' }).fill('DE123456789')
+  await form.getByRole('button', { name: 'Salvează', exact: true }).click()
+  await expect(form.getByRole('alert')).toContainText('nu corespunde')
+  expect(api.patches).toHaveLength(0)
+  await form.getByLabel('Țara firmei').selectOption('DE')
+  await expect(form.getByRole('textbox', { name: 'Număr TVA' })).toHaveValue('DE123456789')
+  await expect(form.getByRole('alert')).toHaveCount(0)
+  await form.getByLabel('Țara firmei').selectOption('FR')
+  api.respondPatch(200, { profile: { id: pendingId, cif: 'FRDE123456789' } })
+  await form.getByRole('button', { name: 'Salvează', exact: true }).click()
+  await expect(form).toHaveCount(0)
+  expect(api.patches).toEqual([{ cif: 'FRDE123456789', cifCountry: 'FR' }])
+  await page.getByRole('button', { name: 'Editează datele' }).click()
+  await expect(page.getByLabel('Țara firmei')).toHaveValue('FR')
+  await expect(page.getByRole('textbox', { name: 'Număr TVA' })).toHaveValue('DE123456789')
+})
+
+test('CIF edit: equivalent formatting and cancellation do not send changes', async ({ page }) => {
+  const { api, form } = await editClient(page)
+  await form.getByRole('textbox', { name: 'CUI / CIF' }).fill('ro 0005.258.486')
+  await form.getByRole('button', { name: 'Salvează', exact: true }).click()
+  await expect(form).toHaveCount(0)
+  expect(api.patches).toHaveLength(0)
+  await page.getByRole('button', { name: 'Editează datele' }).click()
+  await form.getByLabel('Țara firmei').selectOption('DE')
+  await form.getByRole('textbox', { name: 'Număr TVA' }).fill('123456789')
+  await form.getByRole('button', { name: 'Renunță', exact: true }).click()
+  await page.getByRole('button', { name: 'Editează datele' }).click()
+  await expect(form.getByLabel('Țara firmei')).toHaveValue('RO')
+  await expect(form.getByRole('textbox', { name: 'CUI / CIF' })).toHaveValue('5258486')
+  expect(api.patches).toHaveLength(0)
 })

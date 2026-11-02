@@ -10,6 +10,8 @@ import { PASSWORD_MAX_BYTES, PASSWORD_RULE_MESSAGE, newPasswordProblem, password
 // cu parola actuală; scrierea trece prin `public.self_change_password`, care
 // închide celelalte sesiuni și scrie auditul în aceeași tranzacție.
 
+const RATE_LIMIT_MESSAGE = 'Prea multe încercări cu parola actuală greșită. Încearcă din nou peste 15 minute sau folosește „Ai uitat parola?” de pe pagina de autentificare.'
+
 const JSON_LIMIT = 4096
 const RPC_TIMEOUT_MS = 10_000
 
@@ -80,12 +82,13 @@ export async function POST(request: Request) {
     }
     case 'wrong_password': {
       const left = typeof result.attempts_left === 'number' ? result.attempts_left : null
+      if (left !== null && left <= 0) return reply(429, 'rate_limited', RATE_LIMIT_MESSAGE, { attemptsLeft: 0 })
       return reply(400, 'wrong_password', left !== null && left <= 2
         ? `Parola actuală nu este corectă. Mai ai ${left === 1 ? 'o încercare' : `${left} încercări`} înainte de o pauză de 15 minute.`
         : 'Parola actuală nu este corectă.', { attemptsLeft: left })
     }
     case 'rate_limited':
-      return reply(429, 'rate_limited', 'Prea multe încercări cu parola actuală greșită. Încearcă din nou peste 15 minute sau folosește „Ai uitat parola?” de pe pagina de autentificare.')
+      return reply(429, 'rate_limited', RATE_LIMIT_MESSAGE)
     case 'same_password':
       return reply(400, 'same_password', 'Parola nouă e la fel cu cea actuală. Alege alta.')
     case 'password_invalid':

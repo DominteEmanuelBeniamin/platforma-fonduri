@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/dev-local.mjs",
     "dev:local": "node scripts/dev-local.mjs",
     "db:reset:local": "node --experimental-strip-types scripts/reset-local-db.mjs",
     "build": "next build",
@@ -13,7 +13,7 @@
     "smoke:supabase": "node scripts/smoke-supabase.mjs",
     "dev:create-admin": "node scripts/create-local-admin.mjs",
     "smoke:duplicare": "node --experimental-strip-types scripts/smoke-duplicare.mjs",
-    "seed:local": "node scripts/seed-local-demo.mjs",
+    "seed:local": "node --experimental-strip-types scripts/seed-local-demo.mjs",
     "test:e2e": "playwright test",
     "test:e2e:local-conturi": "playwright test tests/e2e/local-accounts.spec.ts",
     "test:e2e:sabloane": "E2E_ENV_FILE=${E2E_ENV_FILE:-.env.e2e.localdb} playwright test tests/e2e/sabloane.spec.ts",

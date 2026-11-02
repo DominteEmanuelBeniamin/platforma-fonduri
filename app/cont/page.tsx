@@ -11,9 +11,9 @@ import { IconButton } from '@/components/ui/IconButton'
 import { Signal } from '@/components/ui/Signal'
 import { Spinner } from '@/components/ui/Spinner'
 import { serverMessage } from '@/lib/api-error'
-import { newPasswordProblem } from '@/lib/password-rules'
+import { PASSWORD_MIN_CHARACTERS, newPasswordProblem } from '@/lib/password-rules'
 
-const FIELD = 'h-12 w-full rounded-[var(--radius-plate)] border border-rule bg-plate px-3 pr-14 text-sm text-ink placeholder:text-ink-faint transition-colors duration-[120ms] focus:border-[var(--sg-accent)] aria-[invalid=true]:border-[var(--sg-danger)]'
+const FIELD = '[&::-ms-reveal]:hidden h-12 w-full rounded-[var(--radius-plate)] border border-rule bg-plate px-3 pr-14 text-sm text-ink placeholder:text-ink-faint transition-colors duration-[120ms] focus:border-[var(--sg-accent)] aria-[invalid=true]:border-[var(--sg-danger)]'
 
 function roleLabel(role: string | undefined, level: string | null | undefined) {
   if (role === 'admin') return 'Administrator'
@@ -38,7 +38,7 @@ function AccountSection({ title, description, aside, children }: { title: string
 }
 
 function PasswordField({
-  id, label, value, onChange, autoComplete, describedBy, invalid, hint,
+  id, label, value, onChange, autoComplete, describedBy, invalid, hint, validationError,
 }: {
   id: string
   label: string
@@ -47,6 +47,7 @@ function PasswordField({
   autoComplete: 'current-password' | 'new-password'
   describedBy?: string
   invalid?: boolean
+  validationError?: string | null
   hint?: ReactNode
 }) {
   const [shown, setShown] = useState(false)
@@ -63,8 +64,8 @@ function PasswordField({
           required
           value={value}
           onChange={event => onChange(event.target.value)}
-          aria-invalid={invalid || undefined}
-          aria-describedby={[hintId, describedBy].filter(Boolean).join(' ') || undefined}
+          aria-invalid={invalid || Boolean(validationError) || undefined}
+          aria-describedby={[hintId, validationError ? `${id}-eroare` : undefined, describedBy].filter(Boolean).join(' ') || undefined}
           className={FIELD}
         />
         <IconButton
@@ -77,6 +78,7 @@ function PasswordField({
           {shown ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
         </IconButton>
       </span>
+      {validationError && <p id={`${id}-eroare`} role="alert" className="mt-1.5 text-sm text-[var(--sg-danger)]">{validationError}</p>}
       {hint && <p id={hintId} className="mt-1.5 text-xs leading-5 text-ink-soft">{hint}</p>}
     </div>
   )
@@ -88,6 +90,7 @@ export default function AccountPage() {
   const { showToast } = useToast()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
+  const [nextEdited, setNextEdited] = useState(false)
   const [confirmation, setConfirmation] = useState('')
   const [error, setError] = useState<{ field: 'current' | 'next' | 'confirmation' | null; message: string } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -107,13 +110,18 @@ export default function AccountPage() {
 
   const temporary = profile.must_change_password === true && !changed
   const errorId = 'cont-parola-eroare'
+  const nextValidation = nextEdited ? newPasswordProblem(next) : null
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (busy) return
     if (!current) return setError({ field: 'current', message: 'Scrie parola cu care ai intrat acum în cont.' })
     const problem = newPasswordProblem(next)
-    if (problem) return setError({ field: 'next', message: problem })
+    if (problem) {
+      setNextEdited(true)
+      setError(null)
+      return
+    }
     if (next !== confirmation) return setError({ field: 'confirmation', message: 'Parolele noi nu coincid.' })
     if (next === current) return setError({ field: 'next', message: 'Parola nouă e la fel cu cea actuală. Alege alta.' })
 
@@ -139,6 +147,7 @@ export default function AccountPage() {
       const body = await res.json().catch(() => ({})) as { otherSessionsRevoked?: number }
       setCurrent('')
       setNext('')
+      setNextEdited(false)
       setConfirmation('')
       setChanged({ otherSessions: typeof body.otherSessionsRevoked === 'number' ? body.otherSessionsRevoked : 0 })
       markPasswordChanged()
@@ -217,11 +226,12 @@ export default function AccountPage() {
               id="parola-noua"
               label="Parola nouă"
               value={next}
-              onChange={value => { setNext(value); setError(null) }}
+              onChange={value => { setNext(value); setNextEdited(true); setError(null) }}
+              validationError={nextValidation}
               autoComplete="new-password"
               invalid={error?.field === 'next'}
               describedBy={error?.field === 'next' ? errorId : undefined}
-              hint="Cel puțin 6 caractere. O frază de câteva cuvinte se ține minte ușor și se ghicește greu."
+              hint={`Cel puțin ${PASSWORD_MIN_CHARACTERS} caractere. O frază de câteva cuvinte se ține minte ușor și se ghicește greu.`}
             />
             <PasswordField
               id="parola-confirmare"

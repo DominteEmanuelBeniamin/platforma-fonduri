@@ -14,6 +14,8 @@ import {
   RECOVERY_TEMPORARY_MESSAGE as TEMPORARY_MESSAGE,
 } from '@/lib/recovery-messages'
 
+import { PASSWORD_MIN_CHARACTERS } from '@/lib/password-rules'
+
 const ATTEMPT_STORAGE_KEY = 'bonie:recovery-attempt'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[A-Za-z0-9_-]{43}$/i
@@ -314,7 +316,7 @@ export default function ResetPasswordPage() {
                   type={showPassword ? 'text' : 'password'}
                   autoComplete="new-password"
                   required
-                  minLength={6}
+                  minLength={PASSWORD_MIN_CHARACTERS}
                   value={password}
                   onChange={(event) => {
                     setPassword(event.target.value)
@@ -344,7 +346,7 @@ export default function ResetPasswordPage() {
                   type={showConfirmation ? 'text' : 'password'}
                   autoComplete="new-password"
                   required
-                  minLength={6}
+                  minLength={PASSWORD_MIN_CHARACTERS}
                   value={confirmation}
                   onChange={(event) => {
                     setConfirmation(event.target.value)

@@ -34,17 +34,18 @@ validează snapshot-ul CIF, aplică migrarea #110 în aceeași sesiune SQL cu am
 verificată, înregistrează versiunea și aplică migrările ulterioare. La final
 verifică schema și bucket-ul privat. Baza rămâne goală până la `seed:local`;
 resetarea nu depinde de dump-ul privat și ignorat `supabase/seed.sql`.
+Importul automat din `supabase/seed.sql` este dezactivat: folosește comenzile de mai sus, nu `supabase db reset` direct. Seed-ul demo verifică toate migrările înainte de creare și generează CIF-uri valide și unice.
 Nu acceptă ținte sau argumente pentru producție.
 
 `dev:local` pornește aplicația pe `http://localhost:3000` și capturarea emailurilor
 pe loopback. Folosește cheia de email sintetică și salvează mesajele în
 `playwright-report/local-mail/resend.jsonl` (ignorat de Git), inclusiv parolele
 temporare ale conturilor create. Oprirea comenzii închide ambele procese.
-`npm run dev` păstrează configurația de email din `.env.local`.
+`npm run dev` folosește același mod local. Inboxul este disponibil la `http://127.0.0.1:4010`: căutare, previzualizare HTML/text și actualizare automată. Emailurile nu sunt trimise prin Resend.
 
 `seed:local` pregătește conturile demo și proiectele; poate fi repetat și recreează
 proiectele și șabloanele demo. Adminul este `admin@test.local`, cu parola
-`Parola123!`. După reset, sesiunile vechi sunt invalide; autentifică-te din nou.
+`ParolaDemo123!`. După reset, sesiunile vechi sunt invalide; autentifică-te din nou.
 
 Pentru verificarea creării conturilor prin API și browser, cu aplicația pornită:
 

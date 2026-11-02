@@ -213,9 +213,6 @@ export default function UserFilesPage() {
           <>
             <RoleBadge role={user.role} />
             {user.creation_pending && <Signal tone="warn">Creare incompletă</Signal>}
-            <ResetUserPasswordAction
-              target={{ id: user.id, email: user.email, full_name: user.full_name, is_active: user.is_active }}
-            />
             {user.role === 'consultant' && !user.creation_pending && (
               <LevelSwitch
                 level={user.consultant_level === 'senior' ? 'senior' : 'junior'}
@@ -232,12 +229,19 @@ export default function UserFilesPage() {
         }
       />
 
-      <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">
-        {profileDisplayName(user, user.full_name || user.email)}
-      </h1>
-      <p className="mb-6 mt-2 text-sm text-ink-soft">
-        Datele contului și fișierele acestui utilizator, din toate proiectele lui.
-      </p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-3xl font-bold tracking-tight text-ink md:text-4xl">
+            {profileDisplayName(user, user.full_name || user.email)}
+          </h1>
+          <p className="mt-2 text-sm text-ink-soft">
+            Datele contului și fișierele acestui utilizator, din toate proiectele lui.
+          </p>
+        </div>
+        <ResetUserPasswordAction
+          target={{ id: user.id, email: user.email, full_name: user.full_name, is_active: user.is_active }}
+        />
+      </div>
       {user.creation_pending && <FeedbackMessage variant="warning" className="mb-6">
         Acces blocat: crearea contului este incompletă. Revino la lista de utilizatori pentru verificare și remediere. Editarea și reactivarea nu sunt permise; ștergerea este disponibilă numai pentru un cont fără date asociate.
       </FeedbackMessage>}
