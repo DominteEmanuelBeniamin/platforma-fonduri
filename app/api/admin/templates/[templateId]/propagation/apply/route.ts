@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
+import { userLifecycleConflict } from '@/app/api/_utils/user-lifecycle'
 import { createClient } from '@supabase/supabase-js'
 import { requireAdmin } from '@/app/api/_utils/auth'
 import { createStoragePathChecker, loadTemplateTree } from '@/app/api/_utils/template-tree'
@@ -796,7 +797,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         return await applyToProject(projectId, templatePhases, auth.profile.id, ctx)
       } catch (error: any) {
         console.error('propagation apply project error:', { projectId, error })
-        return { project_id: projectId, status: 'failed', error: error.message ?? 'Server error' }
+        const conflict = userLifecycleConflict(error)
+        return { project_id: projectId, status: 'failed', error: conflict?.body.message ?? error.message ?? 'Server error' }
       }
     })
 

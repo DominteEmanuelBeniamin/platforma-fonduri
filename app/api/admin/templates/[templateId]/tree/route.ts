@@ -5,6 +5,7 @@ import { requireTemplateAccess } from '@/app/api/_utils/auth'
 import { saveTemplateTree, TemplateSaveError } from '@/app/api/_utils/template-save'
 import { markTemplateChanged } from '@/app/api/_utils/template-changes'
 import { templateNameErrorResponse, templateNameRefusal } from '@/app/api/_utils/template-name'
+import { userLifecycleConflict } from '@/app/api/_utils/user-lifecycle'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -44,6 +45,8 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       : template
     return NextResponse.json({ template: saved })
   } catch (error: any) {
+    const conflict = userLifecycleConflict(error)
+    if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
     const nameError = templateNameErrorResponse(error)
     if (nameError) return nameError
     if (error instanceof TemplateSaveError) {

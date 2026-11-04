@@ -10,6 +10,7 @@ import { logAction } from './audit'
 import { createSupabaseServiceClient } from './supabase'
 import { requestCloseRefusal, requestReopenParentRefusal, requestReopenRefusal } from '@/lib/completion'
 import { isUuid } from '@/lib/notification-utils'
+import { userLifecycleConflict } from './user-lifecycle'
 
 type Action = 'close' | 'reopen'
 
@@ -88,7 +89,11 @@ export async function changeRequestClosure(request: Request, requestId: string, 
       .is('deleted_at', null)
       .select(COLUMNS)
       .maybeSingle()
-    if (updateError) throw updateError
+    if (updateError) {
+      const conflict = userLifecycleConflict(updateError)
+      if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
+      throw updateError
+    }
     if (!updated) {
       return NextResponse.json(
         { error: 'Concurrent status change', message: 'Cererea s-a schimbat între timp. Reîncarcă pagina.' },

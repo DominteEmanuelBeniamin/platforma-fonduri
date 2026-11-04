@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { applyCifMigration } from './apply-cif-migration.mjs'
+import { checkRoleChangeConcurrency } from './check-role-change-concurrency.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 assert.equal(process.argv.length, 2, 'No database target arguments are accepted')
@@ -35,6 +36,7 @@ fs.writeFileSync(path.join(workdir, 'supabase/config.toml'), `project_id = "${pr
 [db]
 port = ${port}
 major_version = 17
+health_timeout = "10m"
 [db.seed]
 enabled = false
 `)
@@ -56,6 +58,12 @@ try {
   assert.throws(() => sql('BEGIN; DROP INDEX public.profiles_cif_unique;\n' + productionGate), /CIF_SCHEMA_INCOMPLETE/, 'Deploy must refuse an incomplete schema')
   sql(productionGate) // The failed transaction must have restored the index.
   assert.equal(sql('SELECT count(*) FROM public.profiles'), '0', 'CI must not import private seeds')
+  const roleTests = path.join(root, 'tests/sql/safe-role-switch.sql')
+  assert.ok(fs.existsSync(roleTests), 'Role-change SQL checks must accompany the migration')
+  sql(fs.readFileSync(roleTests, 'utf8'))
+  sql(fs.readFileSync(path.join(root, 'tests/sql/safe-role-switch-transitions.sql'), 'utf8'))
+  sql(fs.readFileSync(path.join(root, 'scripts/role-change-anomalies.sql'), 'utf8'))
+  await checkRoleChangeConcurrency(container, sql)
   console.log(`Validated ${versions.length} migrations on an isolated database; production preflight passed.`)
 } finally {
   // The generated project ID prevents touching any existing local Docker stack.

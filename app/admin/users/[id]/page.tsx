@@ -14,6 +14,8 @@ import { ResetUserPasswordAction } from '@/components/ResetUserPasswordAction'
 import { Signal } from '@/components/ui/Signal'
 import { FeedbackMessage } from '@/components/FeedbackMessage'
 import { UserProfileEditor } from '@/components/UserProfileEditor'
+import { UserRoleChangeDialog } from '@/components/UserRoleChangeDialog'
+import { Button } from '@/components/ui/Button'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -71,42 +73,16 @@ export default function UserFilesPage() {
   const params  = useParams()
   const userId  = params?.id as string
 
-  const { apiFetch, loading: authLoading, token, profile } = useAuth()
-  const { showToast, confirm } = useToast()
+  const { apiFetch, loading: authLoading, token, profile, refreshProfile } = useAuth()
+  const { showToast } = useToast()
 
   const [user,     setUser]     = useState<any>(null)
   const [allFiles, setAllFiles] = useState<any[]>([])
   const [loading,  setLoading]  = useState(true)
-  const [savingLevel, setSavingLevel] = useState(false)
+  const [roleDialog, setRoleDialog] = useState(false)
+  const [targetLevel, setTargetLevel] = useState<'junior' | 'senior' | undefined>()
   // Utilizatorul pentru care pagina e deja afișată.
   const loadedUserIdRef = useRef<string | null>(null)
-
-  async function changeLevel(level: 'junior' | 'senior') {
-    const name = user?.full_name || user?.email
-    if (!await confirm({
-      title: level === 'senior' ? 'Promovezi consultantul la senior?' : 'Retrogradezi consultantul la junior?',
-      description: level === 'senior'
-        ? `${name} va putea edita proiectele în care e membru, șterge faze și activități, gestiona echipa și modera chatul, plus edita, șterge și duplica șabloane.`
-        : `${name} pierde drepturile de senior de la următoarea acțiune, fără să fie nevoie să se reconecteze.`,
-      confirmText: level === 'senior' ? 'Promovează' : 'Retrogradează',
-    })) return
-    setSavingLevel(true)
-    try {
-      const res = await apiFetch(`/api/users/${userId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ consultant_level: level }),
-      })
-      if (!res.ok) throw new Error()
-      const { profile } = await res.json()
-      setUser((prev: any) => ({ ...prev, consultant_level: profile?.consultant_level ?? level }))
-      showToast(level === 'senior' ? 'Consultantul e acum senior.' : 'Consultantul e acum junior.', 'success')
-    } catch {
-      showToast('Nu am putut schimba nivelul. Reîncearcă.', 'error')
-    } finally {
-      setSavingLevel(false)
-    }
-  }
 
   useEffect(() => {
     if (authLoading) return
@@ -216,8 +192,8 @@ export default function UserFilesPage() {
             {user.role === 'consultant' && !user.creation_pending && (
               <LevelSwitch
                 level={user.consultant_level === 'senior' ? 'senior' : 'junior'}
-                saving={savingLevel}
-                onChange={level => { void changeLevel(level) }}
+                saving={false}
+                onChange={level => { setTargetLevel(level); setRoleDialog(true) }}
               />
             )}
             {user.role === 'client' && user.cif && (
@@ -238,13 +214,23 @@ export default function UserFilesPage() {
             Datele contului și fișierele acestui utilizator, din toate proiectele lui.
           </p>
         </div>
+        <div className="flex flex-wrap gap-2">
+          {(user.role === 'admin' || user.role === 'consultant') && !user.creation_pending && <Button type="button" data-tooltip="Verifică impactul și schimbă rolul contului" onClick={() => { setTargetLevel(undefined); setRoleDialog(true) }}>Schimbă rolul</Button>}
         <ResetUserPasswordAction
           target={{ id: user.id, email: user.email, full_name: user.full_name, is_active: user.is_active }}
         />
+        </div>
       </div>
       {user.creation_pending && <FeedbackMessage variant="warning" className="mb-6">
         Acces blocat: crearea contului este incompletă. Revino la lista de utilizatori pentru verificare și remediere. Editarea și reactivarea nu sunt permise; ștergerea este disponibilă numai pentru un cont fără date asociate.
       </FeedbackMessage>}
+
+      {roleDialog && <UserRoleChangeDialog user={user} apiFetch={apiFetch} targetLevel={targetLevel} onClose={() => setRoleDialog(false)} onSaved={async saved => {
+        setRoleDialog(false)
+        setUser((previous: any) => ({ ...previous, ...(saved as object) }))
+        if (profile?.id === user.id) { await refreshProfile(); router.replace('/') }
+        showToast(targetLevel ? 'Nivelul consultantului a fost actualizat.' : 'Rolul utilizatorului a fost actualizat.', 'success')
+      }} />}
 
       <UserProfileEditor
         user={user}

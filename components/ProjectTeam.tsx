@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
 import { profileDisplayName } from '@/lib/profile-display'
 
-type Person = { id: string; full_name: string | null; email: string; is_active?: boolean | null }
+type Person = { id: string; full_name: string | null; email: string; is_active?: boolean | null; role?: string | null; creation_pending?: boolean | null }
 
 type Member = {
   id: string
@@ -48,6 +48,8 @@ export default function ProjectTeam({
   canManage,
   canRemoveAny,
   closed = false,
+  prepareReopen = false,
+  openOnLoad = false,
   onChange,
 }: {
   projectId: string
@@ -58,11 +60,13 @@ export default function ProjectTeam({
   canRemoveAny: boolean
   /** Proiectul e încheiat: echipa se vede, dar nu se schimbă până la redeschidere. */
   closed?: boolean
+  prepareReopen?: boolean
+  openOnLoad?: boolean
   onChange: () => void
 }) {
   const { apiFetch, userId } = useAuth()
 
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(openOnLoad)
   const [team, setTeam] = useState<Member[]>([])
   const [available, setAvailable] = useState<Person[]>([])
   const [loading, setLoading] = useState(false)
@@ -80,7 +84,7 @@ export default function ProjectTeam({
     try {
       const [membersRes, availRes] = await Promise.all([
         apiFetch(`/api/projects/${projectId}/members`),
-        canManage ? apiFetch(`/api/projects/${projectId}/available-consultants`) : Promise.resolve(null),
+        (canManage || prepareReopen) ? apiFetch(`/api/projects/${projectId}/available-consultants`) : Promise.resolve(null),
       ])
       if (membersRes.ok) setTeam((await membersRes.json()).members ?? [])
       if (availRes?.ok) setAvailable(((await availRes.json()).consultants ?? []).filter((person: Person) => person.is_active !== false))
@@ -89,7 +93,7 @@ export default function ProjectTeam({
     } finally {
       setLoading(false)
     }
-  }, [apiFetch, projectId, canManage])
+  }, [apiFetch, projectId, canManage, prepareReopen])
 
   useEffect(() => {
     if (open) void load()
@@ -108,7 +112,7 @@ export default function ProjectTeam({
       const res = await apiFetch(`/api/projects/${projectId}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ consultant_id: selectedId }),
+        body: JSON.stringify({ consultant_id: selectedId, ...(prepareReopen ? { prepare_reopen: true } : {}) }),
       })
       const json = await res.json().catch(() => null)
       if (!res.ok || !json?.member) throw new Error()
@@ -227,6 +231,7 @@ export default function ProjectTeam({
                             {person?.consultant_level === 'senior' && (
                               <span className="shrink-0 rounded-[var(--radius-plate)] border border-rule-strong px-1.5 text-[11px] font-semibold text-ink-soft">Senior</span>
                             )}
+                            {person?.role && person.role !== 'consultant' && <span className="text-xs text-ink-soft">Nu mai este consultant</span>}
                             {isSelf && (
                               <span className="shrink-0 rounded-[var(--radius-plate)] border border-rule px-1.5 text-[11px] font-semibold text-ink-soft">tu</span>
                             )}
@@ -269,7 +274,7 @@ export default function ProjectTeam({
           </div>
 
           <div className="border-t border-rule bg-paper px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            {canManage ? (
+            {(canManage || prepareReopen) ? (
               <>
                 <label htmlFor="echipa-adauga" className="text-sm font-semibold text-ink">Adaugă în echipă</label>
                 {!loading && available.length === 0 ? (

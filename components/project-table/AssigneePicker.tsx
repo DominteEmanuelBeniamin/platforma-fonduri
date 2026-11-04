@@ -13,6 +13,8 @@ export type Member = {
   full_name: string | null
   email: string
   is_active?: boolean | null
+  role?: string | null
+  creation_pending?: boolean | null
 }
 
 type Person = { full_name?: string | null; email?: string | null; is_active?: boolean | null }
@@ -80,7 +82,7 @@ export function AssigneePicker({
   const panelRef = useRef<HTMLDivElement>(null)
   const emptyReasonId = useId()
 
-  const active = members.filter(m => m.is_active !== false)
+  const active = members.filter(m => m.is_active !== false && (!m.role || m.role === 'consultant') && !m.creation_pending)
   const searching = !isEmptyQuery(query)
   const shown = filterItems(active, query, m => [
     { key: 'name', label: 'Nume', value: profileDisplayName(m) },

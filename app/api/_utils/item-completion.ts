@@ -10,6 +10,7 @@ import { logAction } from './audit'
 import { createSupabaseServiceClient } from './supabase'
 import { activityCompletionBlocker, activityReopenParentRefusal, completeRefusal, phaseCompletionBlocker, reopenRefusal } from '@/lib/completion'
 import { isUuid } from '@/lib/notification-utils'
+import { userLifecycleConflict } from './user-lifecycle'
 
 type Target =
   | { kind: 'phase'; projectId: string; phaseId: string }
@@ -113,7 +114,11 @@ export async function changeItemCompletion(request: Request, target: Target, act
       .eq('status', before.status)
       .select(COLUMNS)
       .maybeSingle()
-    if (updateError) throw updateError
+    if (updateError) {
+      const conflict = userLifecycleConflict(updateError)
+      if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
+      throw updateError
+    }
     if (!item) {
       return NextResponse.json(
         { error: 'Concurrent status change', message: 'Starea s-a schimbat între timp. Reîncarcă pagina.' },

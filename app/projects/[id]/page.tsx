@@ -149,6 +149,7 @@ function ProjectDetailsContent() {
   const targetPhaseId = searchParams.get('phase')
   const targetActivityId = searchParams.get('activity')
   const targetDocumentId = searchParams.get('document')
+  const targetGeneralConsultant = searchParams.get('general_consultant') === '1'
   const targetView = searchParams.get('view')
   // Doar un deep-link duce direct în „Fazele proiectului"; `?view=` singur nu.
   // Altfel, o dată deschis tabul Documente sau Calendar, reîncărcarea ar fi
@@ -171,7 +172,7 @@ function ProjectDetailsContent() {
   const [selectedDocumentRequestId, setSelectedDocumentRequestId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [documentsError, setDocumentsError] = useState<string | null>(null)
-  const [projectMembers, setProjectMembers] = useState<{ id: string; full_name: string | null; email: string; is_active?: boolean | null }[]>([])
+  const [projectMembers, setProjectMembers] = useState<{ id: string; full_name: string | null; email: string; is_active?: boolean | null; role?: string | null; creation_pending?: boolean | null }[]>([])
   const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set())
   const [expandedActivityIds, setExpandedActivityIds] = useState<Set<string>>(new Set())
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
@@ -606,6 +607,8 @@ function ProjectDetailsContent() {
           full_name: m.profiles?.full_name ?? null,
           email: m.profiles?.email ?? '',
           is_active: m.profiles?.is_active ?? null,
+          role: m.profiles?.role ?? null,
+          creation_pending: m.profiles?.creation_pending ?? null,
         }))
       )
     } catch (e) { console.error(e) }
@@ -685,7 +688,7 @@ function ProjectDetailsContent() {
   )
 
   const handleAssignActivity = (phaseId: string, activityId: string, assignedTo: string | null) =>
-    patchActivityField(phaseId, activityId, { assigned_to: assignedTo }, 'Nu am putut atribui consultantul. Reîncearcă.')
+    patchActivityField(phaseId, activityId, { assigned_to: assignedTo, ...(projectClosed ? { prepare_reopen: true } : {}) }, 'Nu am putut atribui consultantul. Reîncearcă.')
 
   const saveActivityDeadline = async (phaseId: string, activityId: string, deadline: string) => {
     await patchActivityField(
@@ -928,7 +931,7 @@ function ProjectDetailsContent() {
       const res = await apiFetch(`/api/projects/${projectId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ general_consultant_id: assignedTo }),
+        body: JSON.stringify({ general_consultant_id: assignedTo, ...(projectClosed ? { prepare_reopen: true } : {}) }),
       })
       if (res.ok) {
         const data = await res.json().catch(() => null)
@@ -1134,13 +1137,13 @@ function ProjectDetailsContent() {
       ? `request-${targetDocumentId}`
       : targetActivityId
         ? `activity-${targetActivityId}`
-        : targetPhaseId === GENERAL_ID ? 'general-requests' : `phase-${targetPhaseId}`
+        : targetPhaseId === GENERAL_ID ? (targetGeneralConsultant ? 'general-consultant' : 'general-requests') : `phase-${targetPhaseId}`
 
     if (targetActivityId) setExpandedActivityIds(prev => new Set(prev).add(targetActivityId))
     handledDeepLink.current = deepLinkKey
     revealTarget(anchor, 250)
     if (targetDocumentId) setSelectedDocumentRequestId(targetDocumentId)
-  }, [authLoading, loading, profile, profileError, targetActivityId, targetPhaseId, targetDocumentId, activePhaseId, revealTarget])
+  }, [authLoading, loading, profile, profileError, targetActivityId, targetPhaseId, targetDocumentId, targetGeneralConsultant, activePhaseId, revealTarget])
 
   // Sari direct la o activitate (din panoul "Ce e de făcut"), fără reload.
   // Cu requestId, deschide direct fișa cererii — zero click-uri suplimentare
@@ -1450,6 +1453,8 @@ function ProjectDetailsContent() {
                 canManage={perms.manage_team}
                 canRemoveAny={perms.remove_any_member}
                 closed={projectClosed}
+                prepareReopen={projectClosed && profile?.role === 'admin'}
+                openOnLoad={searchParams.get('team') === '1'}
                 onChange={fetchProjectMembers}
               />
             )}
@@ -1944,7 +1949,7 @@ function ProjectDetailsContent() {
                           progress={activityProgress(activity.id, allDocRequests)}
                           open={expandedActivityIds.has(activity.id)}
                           onToggle={() => handleToggleActivity(activity.id)}
-                          canAssign={canChange}
+                          canAssign={canChange || (projectClosed && profile?.role === 'admin')}
                           projectMembers={projectMembers}
                           onAssign={assignedTo => { handleAssignActivity(phase.id, activity.id, assignedTo).catch(() => {}) }}
                           canPublish={canChange}
@@ -2021,6 +2026,7 @@ function ProjectDetailsContent() {
                             autoOpenRequestId={autoOpenRequestId}
                             canCloseRequests={perms.complete_items}
                             readOnly={projectClosed}
+                            prepareReopen={projectClosed && profile?.role === 'admin'}
                             hiddenRequestIds={hidden.requests}
                             onRevealRequests={ids => reveal(...ids)}
                           />
@@ -2133,8 +2139,8 @@ function ProjectDetailsContent() {
                     onToggle={() => toggleGroup(GENERAL_ID)}
                     meta="Cereri de documente care nu țin de o anumită fază."
                     badges={
-                      perms.reassign_project ? (
-                        <AssigneePicker
+                      (perms.reassign_project || (projectClosed && profile?.role === 'admin')) ? (
+                        <span id="general-consultant" className="scroll-mt-24 md:scroll-mt-48"><AssigneePicker
                           value={project?.general_consultant_id}
                           person={project?.general_consultant}
                           members={projectMembers}
@@ -2142,7 +2148,7 @@ function ProjectDetailsContent() {
                           label="Atribuie consultant pentru cererile generale"
                           title="Consultant pentru cererile generale"
                           emptyLabel="Neatribuit"
-                        />
+                        /></span>
                       ) : (
                         <span className="text-xs text-ink-soft">
                           {project?.general_consultant ? profileDisplayName(project.general_consultant) : 'Neatribuit'}
@@ -2172,6 +2178,7 @@ function ProjectDetailsContent() {
                         autoOpenRequestId={autoOpenRequestId}
                         canCloseRequests={perms.complete_items}
                         readOnly={projectClosed}
+                        prepareReopen={projectClosed && profile?.role === 'admin'}
                         hiddenRequestIds={hidden.requests}
                         onRevealRequests={ids => reveal(...ids)}
                       />

@@ -3,6 +3,7 @@ import { guardToResponse, requireProjectAccess, requireProjectManager } from '..
 import { createSupabaseServiceClient } from '../../../_utils/supabase'
 import { logAction } from '../../../_utils/audit'
 import { inactiveReferenceConflict } from '../../../_utils/inactive-reference'
+import { userLifecycleConflict } from '../../../_utils/user-lifecycle'
 
 function isNonEmptyString(x: unknown): x is string {
   return typeof x === 'string' && x.trim().length > 0
@@ -44,7 +45,8 @@ export async function GET(
           full_name,
           role,
           consultant_level,
-          is_active
+          is_active,
+          creation_pending
         )
       `
       )
@@ -77,13 +79,17 @@ export async function POST(
       return NextResponse.json({ error: 'Project ID lipsește din URL' }, { status: 400 })
     }
 
-    const ctx = await requireProjectManager(request, projectId, { write: true })
-    if (!ctx.ok) return guardToResponse(ctx)
-
     const body = await request.json().catch(() => null)
-    if (!body || typeof body !== 'object') {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
+    const preparing = body.prepare_reopen === true
+    if (preparing && Object.keys(body).some(key => !['prepare_reopen', 'consultant_id'].includes(key))) {
+      return NextResponse.json({ error: 'Pregătirea redeschiderii permite doar adăugarea unui membru.' }, { status: 400 })
+    }
+    const ctx = await requireProjectManager(request, projectId, { write: !preparing })
+    if (!ctx.ok) return guardToResponse(ctx)
+    if (preparing && ctx.access.role !== 'admin') return NextResponse.json({ error: 'Doar administratorul pregătește redeschiderea.' }, { status: 403 })
 
     const consultant_id = (body as { consultant_id?: unknown }).consultant_id
     if (!isNonEmptyString(consultant_id)) {
@@ -112,7 +118,7 @@ export async function POST(
     // 2) Verificăm consultantul există și are rol consultant
     const { data: consultantProfile, error: consultantErr } = await admin
       .from('profiles')
-      .select('id, role, email, full_name, is_active')
+      .select('id, role, email, full_name, is_active, creation_pending')
       .eq('id', cleanConsultantId)
       .maybeSingle()
 
@@ -126,7 +132,7 @@ export async function POST(
     if (consultantProfile.role !== 'consultant') {
       return NextResponse.json({ error: 'User is not a consultant' }, { status: 400 })
     }
-    if (consultantProfile.is_active === false) {
+    if (consultantProfile.is_active !== true || consultantProfile.creation_pending) {
       return NextResponse.json({ error: 'Doar consultanții activi pot fi adăugați în proiect.' }, { status: 409 })
     }
 
@@ -170,13 +176,16 @@ export async function POST(
           full_name,
           role,
           consultant_level,
-          is_active
+          is_active,
+          creation_pending
         )
       `
       )
       .single()
 
     if (insertErr) {
+      const conflict = userLifecycleConflict(insertErr)
+      if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
       console.error('Insert membership error:', insertErr)
       const inactive = inactiveReferenceConflict(insertErr, 'Nu poți adăuga un cont dezactivat în echipa proiectului.')
       if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })

@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { canManageProject, requireProjectAccess } from '@/app/api/_utils/auth'
 import { logAction } from '@/app/api/_utils/audit'
 import { inactiveReferenceConflict } from '@/app/api/_utils/inactive-reference'
+import { userLifecycleConflict } from '@/app/api/_utils/user-lifecycle'
 import { sendActivityAssignedEmail } from '@/app/api/_utils/activity-assignment-email'
 import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
 import { buildAssignmentEmailIdempotencyKey, isRealAssignmentChange } from '@/lib/notification-utils'
@@ -33,7 +34,13 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   try {
     const { id: projectId, phaseId, activityId } = await params
     
-    const auth = await requireProjectAccess(req, projectId, { write: true })
+    const body = await req.json().catch(() => null)
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    const preparing = body.prepare_reopen === true
+    if (preparing && (Object.keys(body).some(key => !['prepare_reopen', 'assigned_to'].includes(key)) || !Object.hasOwn(body, 'assigned_to'))) {
+      return NextResponse.json({ error: 'Pregătirea redeschiderii permite doar schimbarea responsabilului.' }, { status: 400 })
+    }
+    const auth = await requireProjectAccess(req, projectId, { write: !preparing })
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error, message: auth.message }, { status: auth.status })
     }
@@ -41,8 +48,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (auth.access.role === 'client') {
       return NextResponse.json({ error: 'Nu ai permisiunea' }, { status: 403 })
     }
+    if (preparing && auth.access.role !== 'admin') return NextResponse.json({ error: 'Doar administratorul pregătește redeschiderea.' }, { status: 403 })
 
-    const body = await req.json()
     const { name, description, order_index, status, assigned_to, deadline_at, visibility } = body
     const isPublishing = visibility === 'published'
 
@@ -103,7 +110,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (assignmentChanged && typeof assigned_to === 'string') {
       const { data: consultant, error: consultantError } = await supabaseAdmin
         .from('profiles')
-        .select('id, role, is_active')
+        .select('id, role, is_active, creation_pending')
         .eq('id', assigned_to)
         .maybeSingle()
 
@@ -114,7 +121,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       if (!consultant || consultant.role !== 'consultant') {
         return NextResponse.json({ error: 'Alege un consultant valid.' }, { status: 400 })
       }
-      if (consultant.is_active === false) {
+      if (consultant.is_active !== true || consultant.creation_pending) {
         return NextResponse.json({ error: 'Alege un consultant activ pentru o atribuire nouă.' }, { status: 409 })
       }
     }
@@ -206,6 +213,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const { data: activity, error } = await activityUpdate.select().maybeSingle()
 
     if (error) {
+      const conflict = userLifecycleConflict(error)
+      if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
       const inactive = inactiveReferenceConflict(error, 'Nu poți atribui activitatea unui cont dezactivat.')
       if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
       throw error

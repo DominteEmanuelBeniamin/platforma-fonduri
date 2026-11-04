@@ -5,6 +5,7 @@ import { requireProfile, requireTemplateAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
 import { markTemplateChanged } from '@/app/api/_utils/template-changes'
 import { inactiveReferenceConflict } from '@/app/api/_utils/inactive-reference'
+import { userLifecycleConflict } from '@/app/api/_utils/user-lifecycle'
 
 async function loadActivityChain(templatePhaseId: string | null | undefined) {
   if (!templatePhaseId) return { phaseName: '', templateName: '' }
@@ -100,6 +101,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       .single()
 
     if (error) {
+      const conflict = userLifecycleConflict(error)
+      if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
       const inactive = inactiveReferenceConflict(error, 'Nu poți seta un consultant implicit dezactivat.')
       if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
       throw error

@@ -14,6 +14,7 @@ import {
   PROJECT_NOT_CLOSED_MESSAGE,
 } from '@/lib/project-lifecycle'
 import { isUuid } from '@/lib/notification-utils'
+import { userLifecycleConflict } from './user-lifecycle'
 
 type Action = 'close' | 'reopen'
 
@@ -75,7 +76,11 @@ export async function changeProjectLifecycle(request: Request, projectId: string
       .eq('lifecycle_status', from)
       .select(COLUMNS)
       .maybeSingle()
-    if (updateError) throw updateError
+    if (updateError) {
+      const conflict = userLifecycleConflict(updateError)
+      if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
+      throw updateError
+    }
     if (!project) {
       return NextResponse.json({ error: 'Invalid lifecycle transition', message: refusalMessage }, { status: 409 })
     }
