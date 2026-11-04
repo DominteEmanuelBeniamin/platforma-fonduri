@@ -2,9 +2,9 @@ name: Supabase migrations
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, demo]
   push:
-    branches: [main]
+    branches: [main, demo]
   workflow_dispatch:
 
 permissions:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   validate:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +26,7 @@ jobs:
 
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: validate
     runs-on: ubuntu-latest
     concurrency:
       group: supabase-production-migrations
@@ -47,3 +48,31 @@ jobs:
       - run: npx supabase db push --linked --skip-vault --yes
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+  deploy-demo:
+    if: github.ref == 'refs/heads/demo' && github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    concurrency:
+      group: supabase-demo-migrations
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 3.0.0
+      - run: supabase link --project-ref xaqzumvylwkzjlmhrztq
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_DEMO_ACCESS_TOKEN }}
+      - name: Verify CIF rollout
+        run: supabase db query --file scripts/production-migrations-preflight.sql --yes --remote
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_DEMO_ACCESS_TOKEN }}
+      - run: supabase db push --skip-vault --yes --remote
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_DEMO_ACCESS_TOKEN }}
