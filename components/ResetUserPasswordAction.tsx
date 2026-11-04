@@ -505,7 +505,7 @@ export function ResetUserPasswordAction({
 
                   {result.superseded ? (
                     <FeedbackMessage variant="warning">
-                      Această încercare nu mai este cea curentă, așa că parola temporară nu este afișată. Dacă utilizatorul nu se poate autentifica, poate folosi „Am uitat parola” sau poți porni o resetare nouă.
+                      Această încercare nu mai este cea curentă, așa că parola temporară nu este afișată. Dacă utilizatorul nu se poate autentifica, poate folosi „Ai uitat parola?” de pe pagina de autentificare sau poți porni o resetare nouă.
                     </FeedbackMessage>
                   ) : result.deliveryStatus === 'sent' ? (
                     <FeedbackMessage variant="success">
@@ -536,7 +536,7 @@ export function ResetUserPasswordAction({
                   {fallbackPassword && (
                     <div className="space-y-2 rounded-[var(--radius-plate)] border border-[var(--sg-warn)] bg-[var(--sg-warn-soft)] p-4">
                       <p className="text-sm font-semibold text-ink">Parolă temporară, disponibilă numai acum</p>
-                      <p className="text-sm text-ink-soft">Copiaz-o și transmite-o utilizatorului printr-un canal sigur. Este temporară; dacă dorește, poate alege o altă parolă prin „Am uitat parola”.</p>
+                      <p className="text-sm text-ink-soft">Copiaz-o și transmite-o utilizatorului printr-un canal sigur. Este temporară: după ce intră în cont, își alege una a lui din „Contul meu”.</p>
                       <label className="block text-sm font-semibold text-ink" htmlFor="reset-temporary-password">Parolă temporară</label>
                       <div className="flex gap-2">
                         <input
