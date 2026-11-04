@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { templateNameErrorResponse } from '@/app/api/_utils/template-name'
+import { userLifecycleConflict } from '@/app/api/_utils/user-lifecycle'
 import { buildCopyName } from '@/lib/duplicate-name'
 import { normalizeTemplateName } from '@/lib/template-name'
 import { createClient } from '@supabase/supabase-js'
@@ -225,6 +226,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ template: newTemplate }, { status: 201 })
   } catch (error: any) {
+    const conflict = userLifecycleConflict(error)
+    if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
     const nameError = templateNameErrorResponse(error)
     if (nameError) return nameError
     console.error('POST /api/admin/templates/[templateId]/duplicate error:', error)

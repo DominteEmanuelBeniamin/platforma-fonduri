@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireProjectManager, guardToResponse } from '../../../../_utils/auth'
 import { createSupabaseServiceClient } from '../../../../_utils/supabase'
 import { logAction } from '../../../../_utils/audit'
+import { userLifecycleConflict } from '../../../../_utils/user-lifecycle'
 
 
 export async function DELETE(
@@ -72,6 +73,8 @@ export async function DELETE(
     })
 
     if (delErr) {
+      const conflict = userLifecycleConflict(delErr)
+      if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
       if (delErr.code === 'P0002') {
         return NextResponse.json({ error: delErr.message }, { status: 404 })
       }

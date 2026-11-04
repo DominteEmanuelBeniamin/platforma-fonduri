@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
+import { userLifecycleConflict } from '@/app/api/_utils/user-lifecycle'
 import { createClient } from '@supabase/supabase-js'
 import { requireProjectManager } from '@/app/api/_utils/auth'
 import { logActions, type LogActionParams } from '@/app/api/_utils/audit'
@@ -452,6 +453,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           error: 'Importul a eșuat și nu am putut curăța toate datele create. Contactează un administrator.',
         }, { status: 500 })
       }
+
+      const conflict = userLifecycleConflict(error)
+      if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
 
       const invalid = inactiveAssignmentDetails(error)
       if (invalid) {

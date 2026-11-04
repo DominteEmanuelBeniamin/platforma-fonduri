@@ -7,6 +7,7 @@ import { parseTemplateDuplication } from '@/app/api/_utils/template-duplication'
 import type { TemplateDuplication } from '@/app/api/_utils/template-duplication'
 import { markTemplateChanged } from '@/app/api/_utils/template-changes'
 import { inactiveReferenceConflict } from '@/app/api/_utils/inactive-reference'
+import { userLifecycleConflict } from '@/app/api/_utils/user-lifecycle'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -112,6 +113,8 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (error) {
+      const conflict = userLifecycleConflict(error)
+      if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
       const inactive = inactiveReferenceConflict(error, 'Nu poți seta un consultant implicit dezactivat.')
       if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
       throw error

@@ -5,6 +5,7 @@ import { guardToResponse, requireProjectAccess } from '@/app/api/_utils/auth'
 import { computeDiff, logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { inactiveReferenceConflict } from '@/app/api/_utils/inactive-reference'
+import { userLifecycleConflict } from '@/app/api/_utils/user-lifecycle'
 import { escapeHtml, resendFromAddress, sanitizeHeaderText } from '@/app/api/_utils/email'
 import { isRequirementType, requirementTypeToMandatory } from '@/lib/requirement-type'
 import { blockersIntroducedBy, publishBlockedError, publishBlockers } from '@/lib/publish-rules'
@@ -21,8 +22,12 @@ export async function PATCH(
     const { requestId } = await params
 
     const body = await request.json().catch(() => null)
-    if (!body || typeof body !== 'object') {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    }
+    const preparing = body.prepare_reopen === true
+    if (preparing && (Object.keys(body).some(key => !['prepare_reopen', 'assigned_to'].includes(key)) || !Object.hasOwn(body, 'assigned_to'))) {
+      return NextResponse.json({ error: 'Pregătirea redeschiderii permite doar schimbarea responsabilului.' }, { status: 400 })
     }
 
     const rawName = (body as any).name
@@ -126,16 +131,17 @@ export async function PATCH(
 
     const currentRequest = req
     const assignmentChanged = assigned_to !== undefined && assigned_to !== req.assigned_to
-    const access = await requireProjectAccess(request, req.project_id, { write: true })
+    const access = await requireProjectAccess(request, req.project_id, { write: !preparing })
     if (!access.ok) return guardToResponse(access)
     if (access.profile.role === 'client') {
       return NextResponse.json({ error: 'Nu ai permisiunea să modifici cereri' }, { status: 403 })
     }
+    if (preparing && access.profile.role !== 'admin') return NextResponse.json({ error: 'Doar administratorul pregătește redeschiderea.' }, { status: 403 })
 
     // O cerere închisă nu se modifică până la redeschidere (#109, D13): nici
     // nume, termen, atribuire, fișiere-model sau publicare. Reordonarea,
     // duplicarea și ștergerea au rutele lor și rămân permise.
-    if (req.status === 'closed') {
+    if (req.status === 'closed' && !preparing) {
       return NextResponse.json({ error: 'Document request is closed', message: REQUEST_CLOSED_EDIT_MESSAGE }, { status: 409 })
     }
 
@@ -232,7 +238,7 @@ export async function PATCH(
     if (assignmentChanged && typeof assigned_to === 'string') {
       const { data: consultant, error: consultantError } = await admin
         .from('profiles')
-        .select('id, role, is_active')
+        .select('id, role, is_active, creation_pending')
         .eq('id', assigned_to)
         .maybeSingle()
 
@@ -243,7 +249,7 @@ export async function PATCH(
       if (!consultant || consultant.role !== 'consultant') {
         return NextResponse.json({ error: 'Alege un consultant valid.' }, { status: 400 })
       }
-      if (consultant.is_active === false) {
+      if (consultant.is_active !== true || consultant.creation_pending) {
         return NextResponse.json({ error: 'Alege un consultant activ pentru o atribuire nouă.' }, { status: 409 })
       }
     }
@@ -326,7 +332,7 @@ export async function PATCH(
       .update(updatePayload)
       .eq('id', requestId)
       .is('deleted_at', null)
-      .neq('status', 'closed')
+    requestUpdate = preparing ? requestUpdate.eq('status', req.status) : requestUpdate.neq('status', 'closed')
     if (assignmentChanged) {
       requestUpdate = req.assigned_to === null
         ? requestUpdate.is('assigned_to', null)
@@ -337,6 +343,8 @@ export async function PATCH(
       .maybeSingle()
 
     if (updateError) {
+      const conflict = userLifecycleConflict(updateError)
+      if (conflict) return NextResponse.json(conflict.body, { status: conflict.status })
       const inactive = inactiveReferenceConflict(updateError, 'Nu poți atribui cererea unui cont dezactivat.')
       if (inactive) return NextResponse.json(inactive.body, { status: inactive.status })
       console.error('PATCH document-requests update error:', updateError)

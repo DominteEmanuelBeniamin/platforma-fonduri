@@ -262,6 +262,11 @@ input:-webkit-autofill:active {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+  /* Încărcarea rămâne vizibilă; reducem viteza, nu o înghețăm după primul cadru. */
+  .animate-spin {
+    animation-duration: 2s !important;
+    animation-iteration-count: infinite !important;
+  }
 }
 
 /* Săritul la conținut, pentru tastatură. Vizibil doar când e focalizat. */

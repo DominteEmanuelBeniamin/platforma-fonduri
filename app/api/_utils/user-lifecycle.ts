@@ -13,6 +13,11 @@ const lifecycleMessages: Record<string, string> = {
   USER_NOT_FOUND: 'Utilizatorul nu a fost găsit.',
   USER_HAS_RELATED_DATA: 'Contul are date asociate și nu poate fi șters.',
   ACCOUNT_CREATION_PENDING: 'Contul are crearea incompletă. Editarea și reactivarea nu sunt permise.',
+  USER_ROLE_CHANGE_BLOCKED: 'Responsabilitățile s-au schimbat. Reverifică impactul înainte de a continua.',
+  PROJECT_SENIOR_REQUIRED: 'Proiectul trebuie să păstreze un consultant senior activ.',
+  CLIENT_ROLE_CONVERSION_FORBIDDEN: 'Conturile de client nu pot fi convertite în conturi interne sau invers.',
+  ROLE_CONVERSION_FORBIDDEN: 'Conturile de client nu pot fi convertite în conturi interne sau invers.',
+  INELIGIBLE_CONSULTANT: 'Alege un consultant activ, cu contul finalizat și membru al proiectului.',
 }
 
 function parseBlockers(value: unknown): Array<{ kind: string; count: number }> | null {
