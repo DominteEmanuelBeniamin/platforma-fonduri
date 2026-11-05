@@ -3,7 +3,7 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { AlertCircle, Bell, CheckCheck, LoaderCircle, X } from 'lucide-react'
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useNotifications } from '@/app/providers/NotificationsProvider'
 import NotificationRow from '@/components/notifications/NotificationRow'
@@ -25,8 +25,10 @@ export default function NotificationsBell() {
   const [open, setOpen] = useState(false)
   const [projectFilter, setProjectFilter] = useState('')
   const [projects, setProjects] = useState<ProjectOption[]>([])
+  const closeAfterNavigation = useCallback(() => setOpen(false), [])
   const feed = useNotificationFeed({
     limit: PANEL_SIZE,
+    onNavigated: closeAfterNavigation,
     active: open,
     filters: { status: 'all', type: '', projectId: projectFilter },
   })
@@ -150,6 +152,7 @@ export default function NotificationsBell() {
                     key={item.id}
                     item={item}
                     disabled={busy}
+                    opening={feed.pendingId === item.id}
                     onOpen={(current) => void feed.openTarget(current)}
                   />
                 ))}

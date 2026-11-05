@@ -146,6 +146,7 @@ function ProjectDetailsContent() {
   const router = useRouter()
   const params = useParams()
   const searchParams = useSearchParams()
+  const fromNotification = searchParams.get('fromNotification') === '1'
   const targetPhaseId = searchParams.get('phase')
   const targetActivityId = searchParams.get('activity')
   const targetDocumentId = searchParams.get('document')
@@ -406,13 +407,18 @@ function ProjectDetailsContent() {
     setLoading(true)
     setDocumentsError(null)
     try {
+      const requestOptions = fromNotification ? { signal: AbortSignal.timeout(15000) } : undefined
       const [projRes, phasesRes, docsRes] = await Promise.all([
-        apiFetch(`/api/projects/${projectId}`),
-        apiFetch(`/api/projects/${projectId}/phases`),
-        apiFetch(`/api/projects/${projectId}/document-requests`),
+        apiFetch(`/api/projects/${projectId}`, requestOptions),
+        apiFetch(`/api/projects/${projectId}/phases`, requestOptions),
+        apiFetch(`/api/projects/${projectId}/document-requests`, requestOptions),
       ])
 
-      if (!projRes.ok) { router.replace('/'); return }
+      if (!projRes.ok) {
+        if (fromNotification) showToast('Nu am putut deschide proiectul din notificare.', 'error')
+        router.replace('/')
+        return
+      }
       const projJson = await projRes.json()
       setProject(projJson.project)
       setPermissions(projJson.permissions ?? NO_PROJECT_PERMISSIONS)
@@ -459,6 +465,7 @@ function ProjectDetailsContent() {
       }
     } catch (error) {
       console.error('Project data load error:', error)
+      if (fromNotification) showToast('Nu am putut încărca proiectul din notificare. Reîncearcă.', 'error')
       setDocumentsError('Reîncearcă încărcarea documentelor.')
     } finally {
       setLoading(false)
@@ -1089,6 +1096,22 @@ function ProjectDetailsContent() {
     setActiveView(targetView === 'documents' || targetView === 'calendar' ? targetView : 'phases')
   }, [targetView, hasDeepLink])
 
+  const notificationWasActive = useRef(fromNotification)
+  const refreshingNotification = useRef(false)
+  useEffect(() => {
+    if (fromNotification && !notificationWasActive.current && project) {
+      refreshingNotification.current = true
+      void fetchAll().finally(() => { refreshingNotification.current = false })
+    }
+    notificationWasActive.current = fromNotification
+  }, [fromNotification])
+
+  useEffect(() => {
+    if (!fromNotification) return
+    appliedDeepLink.current = null
+    handledDeepLink.current = null
+  }, [fromNotification, targetPhaseId, targetActivityId, targetDocumentId])
+
   // Un deep-link ales din tabul „Calendar" schimbă doar parametrii aceleiași
   // rute, deci pagina nu se remontează și `fetchAll` nu mai rulează: tabul și
   // faza activă trebuie mutate aici, altfel selectarea unui eveniment n-ar
@@ -1100,6 +1123,7 @@ function ProjectDetailsContent() {
   // și ar fi reaplicat linkul — sărind utilizatorul înapoi în faza din URL și
   // redeschizând-o pe cea tocmai restrânsă.
   useEffect(() => {
+    if (refreshingNotification.current || loading) return
     if (!targetPhaseId) {
       appliedDeepLink.current = null
       return
@@ -1122,7 +1146,29 @@ function ProjectDetailsContent() {
     setExpandedPhases(prev => (prev.has(targetPhaseId) ? prev : new Set(prev).add(targetPhaseId)))
     // Un document trimis clientului stă în grupul lui, nu în „Cereri generale”.
     focusPhase(targetPhaseId === GENERAL_ID && isSentDocument(targetDocumentId) ? SENT_ID : targetPhaseId)
-  }, [targetPhaseId, targetActivityId, targetDocumentId, phases, reveal, focusPhase])
+  }, [fromNotification, loading, targetPhaseId, targetActivityId, targetDocumentId, phases, reveal, focusPhase])
+
+  const failedNotificationTarget = useRef<string | null>(null)
+  useEffect(() => {
+    if (!fromNotification || !targetPhaseId || authLoading || loading || refreshingNotification.current || !profile || profileError || !project) return
+    const key = `${targetPhaseId}:${targetActivityId}:${targetDocumentId}`
+    if (failedNotificationTarget.current === key) return
+    const phase = phases.find(item => item.id === targetPhaseId)
+    const missing = (targetPhaseId !== GENERAL_ID && !phase)
+      || (targetActivityId && !phase?.activities?.some(item => item.id === targetActivityId))
+      || (targetDocumentId && !allDocRequests.some(item => item.id === targetDocumentId))
+    if (missing) {
+      failedNotificationTarget.current = key
+      showToast('Nu am putut deschide elementul din notificare. Este posibil să nu mai existe sau să nu poată fi încărcat.', 'error')
+    }
+  }, [fromNotification, targetPhaseId, targetActivityId, targetDocumentId, authLoading, loading, profile, profileError, project, phases, allDocRequests, showToast])
+
+  useEffect(() => {
+    if (!fromNotification || authLoading || loading || refreshingNotification.current || !profile || profileError || !project) return
+    const url = new URL(window.location.href)
+    url.searchParams.delete('fromNotification')
+    window.history.replaceState(null, '', url)
+  }, [fromNotification, authLoading, loading, profile, profileError, project])
 
   // ─── Deep-link: scroll + highlight zona țintă din URL ───────────────────────
   useEffect(() => {
@@ -1132,7 +1178,7 @@ function ProjectDetailsContent() {
       return
     }
     if (handledDeepLink.current === deepLinkKey) return
-    if (authLoading || loading || !profile || profileError || activePhaseId !== targetPhaseId) return
+    if (authLoading || loading || refreshingNotification.current || !profile || profileError || activePhaseId !== targetPhaseId) return
     const anchor = targetDocumentId
       ? `request-${targetDocumentId}`
       : targetActivityId
@@ -1143,7 +1189,7 @@ function ProjectDetailsContent() {
     handledDeepLink.current = deepLinkKey
     revealTarget(anchor, 250)
     if (targetDocumentId) setSelectedDocumentRequestId(targetDocumentId)
-  }, [authLoading, loading, profile, profileError, targetActivityId, targetPhaseId, targetDocumentId, targetGeneralConsultant, activePhaseId, revealTarget])
+  }, [fromNotification, authLoading, loading, profile, profileError, targetActivityId, targetPhaseId, targetDocumentId, targetGeneralConsultant, activePhaseId, revealTarget])
 
   // Sari direct la o activitate (din panoul "Ce e de făcut"), fără reload.
   // Cu requestId, deschide direct fișa cererii — zero click-uri suplimentare
