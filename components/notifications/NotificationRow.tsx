@@ -1,5 +1,6 @@
 'use client'
 
+import { createPortal } from 'react-dom'
 import {
   AlertCircle,
   Bell,
@@ -9,6 +10,7 @@ import {
   FileText,
   FileX,
   Megaphone,
+  LoaderCircle,
   Trash2,
   Undo2,
   Upload,
@@ -50,17 +52,28 @@ type Props = {
   item: NotificationItem
   onOpen: (item: NotificationItem) => void
   disabled?: boolean
+  opening?: boolean
   /** Controalele per rând stau pe pagină; panoul rămâne o listă scurtă. */
   onToggleRead?: (item: NotificationItem) => void
   onDismiss?: (item: NotificationItem) => void
 }
 
-export default function NotificationRow({ item, onOpen, disabled, onToggleRead, onDismiss }: Props) {
+export default function NotificationRow({ item, onOpen, disabled, opening, onToggleRead, onDismiss }: Props) {
   const { Icon, iconClassName } = notificationVisual(item)
   const context = notificationContext(item)
   const hasActions = !!onToggleRead || !!onDismiss
 
   return (
+    <>
+    {opening && createPortal(
+      <div className="fixed inset-0 z-[1000000] flex items-center justify-center bg-black/30" role="status" aria-live="polite">
+        <div className="flex items-center gap-3 rounded-2xl border border-rule bg-plate px-5 py-4 text-sm font-semibold text-ink shadow-lg">
+          <LoaderCircle className="h-5 w-5 animate-spin text-[var(--sg-accent)]" aria-hidden="true" />
+          Se deschide notificarea…
+        </div>
+      </div>,
+      document.body,
+    )}
     <div
       className={`flex items-start gap-1 rounded-2xl border transition-colors ${item.readAt
         ? 'border-rule bg-white hover:border-rule hover:bg-paper-sunk'
@@ -73,14 +86,14 @@ export default function NotificationRow({ item, onOpen, disabled, onToggleRead, 
         className={`flex min-w-0 flex-1 items-start gap-3 rounded-2xl px-3.5 py-3 text-left focus:outline-none focus:ring-2 focus:ring-[var(--sg-accent)] ${hasActions ? '' : 'pr-3.5'}`}
       >
         <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${iconClassName}`}>
-          <Icon className="h-4 w-4" aria-hidden="true" />
+          {opening ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Icon className="h-4 w-4" aria-hidden="true" />}
         </span>
-        <span className="min-w-0 flex-1">
+        <span className="min-w-0 flex-1" aria-busy={opening}>
           <span className="block truncate text-sm font-semibold leading-snug text-ink">
             {notificationSubject(item)}
           </span>
-          <span className="mt-1 block text-xs leading-relaxed text-ink-soft" title={formatNotificationDate(item.createdAt)}>
-            {context.join(' · ')}
+          <span className="mt-1 block text-xs leading-relaxed text-ink-soft" title={formatNotificationDate(item.createdAt)} role={opening ? "status" : undefined}>
+            {opening ? 'Se deschide…' : context.join(' · ')}
           </span>
         </span>
         {!item.readAt && <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[var(--sg-accent)]" aria-label="Necitită" />}
@@ -115,5 +128,6 @@ export default function NotificationRow({ item, onOpen, disabled, onToggleRead, 
         </div>
       )}
     </div>
+    </>
   )
 }

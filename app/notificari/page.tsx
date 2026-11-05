@@ -188,6 +188,7 @@ export default function NotificationsPage() {
                   key={item.id}
                   item={item}
                   disabled={busy}
+                  opening={feed.pendingId === item.id}
                   onOpen={(current) => void feed.openTarget(current)}
                   onToggleRead={(current) => void feed.setRead([current.id], !current.readAt)}
                   onDismiss={(current) => void feed.dismiss([current.id])}

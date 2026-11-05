@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useNotifications } from '@/app/providers/NotificationsProvider'
 import { useToast } from '@/app/providers/ToastProvider'
@@ -41,6 +42,7 @@ type FeedOptions = {
   filters?: NotificationFilters
   /** Numai pagina are „Încarcă mai multe”. */
   paginate?: boolean
+  onNavigated?: () => void
 }
 
 type LoadMode = 'replace' | 'append' | 'merge'
@@ -60,7 +62,9 @@ function sortByNewest(items: NotificationItem[]) {
  * cereri, aceleași mesaje de eroare, aceeași reîmprospătare a contorului.
  * Diferă doar câte rânduri cer și ce controale arată.
  */
-export function useNotificationFeed({ limit, active, filters = ALL_NOTIFICATIONS, paginate = false }: FeedOptions) {
+export function useNotificationFeed({ limit, active, filters = ALL_NOTIFICATIONS, paginate = false, onNavigated }: FeedOptions) {
+  const router = useRouter()
+  const [isNavigating, startNavigation] = useTransition()
   const { apiFetch } = useAuth()
   const { refresh, revision } = useNotifications()
   const { showToast } = useToast()
@@ -69,9 +73,39 @@ export function useNotificationFeed({ limit, active, filters = ALL_NOTIFICATIONS
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
   const [pendingId, setPendingId] = useState<string | null>(null)
+  const navigationTimer = useRef<number | null>(null)
+  const navigationTarget = useRef<string | null>(null)
   const requestSequence = useRef(0)
   const seenRevision = useRef(revision)
   const { status, type, projectId } = filters
+
+  useEffect(() => {
+    const stopWaiting = () => {
+      if (navigationTimer.current) clearTimeout(navigationTimer.current)
+      navigationTimer.current = null
+      setPendingId(null)
+    }
+    window.addEventListener('pagehide', stopWaiting)
+    return () => {
+      window.removeEventListener('pagehide', stopWaiting)
+      if (navigationTimer.current) clearTimeout(navigationTimer.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isNavigating || !navigationTarget.current) return
+    const target = navigationTarget.current
+    navigationTarget.current = null
+    if (navigationTimer.current) clearTimeout(navigationTimer.current)
+    navigationTimer.current = null
+    setPendingId(null)
+    const currentUrl = new URL(window.location.href)
+    const targetUrl = new URL(target)
+    currentUrl.searchParams.delete('fromNotification')
+    targetUrl.searchParams.delete('fromNotification')
+    if (currentUrl.href === targetUrl.href) onNavigated?.()
+    else showToast('Nu am putut deschide notificarea. Reîncearcă.', 'error')
+  }, [isNavigating, onNavigated, showToast])
 
   // 'replace' reîncarcă lista de la zero, 'append' adaugă pagina următoare, iar
   // 'merge' aduce doar prima pagină peste ce e deja afișat: o notificare nouă
@@ -143,13 +177,14 @@ export function useNotificationFeed({ limit, active, filters = ALL_NOTIFICATIONS
     void loadPage('append', nextCursor)
   }, [loadPage, loading, nextCursor])
 
-  const setRead = useCallback(async (ids: string[] | null, read: boolean) => {
+  const setRead = useCallback(async (ids: string[] | null, read: boolean, forNavigation = false) => {
     if (ids && ids.length === 0) return true
 
     try {
       const res = await apiFetch('/api/notifications/read', {
         method: 'POST',
         body: JSON.stringify(ids ? { ids, read } : {}),
+        ...(forNavigation ? { signal: AbortSignal.timeout(15000) } : {}),
       })
       if (!res.ok) throw new Error('failed')
 
@@ -157,7 +192,8 @@ export function useNotificationFeed({ limit, active, filters = ALL_NOTIFICATIONS
       setItems((current) => current.map((item) => (
         !ids || ids.includes(item.id) ? { ...item, readAt } : item
       )))
-      await refresh()
+      if (forNavigation) void refresh()
+      else await refresh()
       // „Marchează tot ca citit” sub filtrul „Necitite” golește lista. Un merge
       // n-ar scoate niciun rând — aduce doar ce vine de la server — așa că
       // rândurile tocmai citite ar rămâne afișate sub un filtru care le exclude.
@@ -193,14 +229,14 @@ export function useNotificationFeed({ limit, active, filters = ALL_NOTIFICATIONS
 
   /**
    * Ținta se rezolvă la clic, nu se ține ca URL în baza de date. Citirea se
-   * marchează înainte de navigare: după `assign` nu mai rulează nimic din
-   * pagina asta.
+   * marchează înainte de navigare, ca starea să fie salvată înainte de plecare.
    */
   const openTarget = useCallback(async (item: NotificationItem) => {
     if (pendingId) return
     setPendingId(item.id)
+    let navigating = false
     try {
-      const res = await apiFetch(`/api/notifications/${encodeURIComponent(item.id)}/target`, { method: 'GET' })
+      const res = await apiFetch(`/api/notifications/${encodeURIComponent(item.id)}/target`, { method: 'GET', signal: AbortSignal.timeout(15000) })
       const json = (await res.json().catch(() => null)) as { href?: string; error?: string } | null
       if (res.status === 404) {
         showToast('Ținta acestei notificări nu mai există.', 'error')
@@ -211,19 +247,29 @@ export function useNotificationFeed({ limit, active, filters = ALL_NOTIFICATIONS
         return
       }
 
-      if (!item.readAt) await setRead([item.id], true)
+      if (!item.readAt && !await setRead([item.id], true, true)) return
       const targetUrl = new URL(json.href, window.location.origin)
-      if (targetUrl.href === window.location.href) {
-        window.location.reload()
-      } else {
-        window.location.assign(targetUrl.href)
-      }
+      if (targetUrl.origin !== window.location.origin || !targetUrl.pathname.startsWith('/projects/')) throw new Error('Invalid target')
+      targetUrl.searchParams.set('fromNotification', '1')
+      navigating = true
+      navigationTarget.current = targetUrl.href
+      navigationTimer.current = window.setTimeout(() => {
+        navigationTimer.current = null
+        navigationTarget.current = null
+        setPendingId(null)
+        showToast('Nu am putut deschide notificarea. Reîncearcă.', 'error')
+      }, 20000)
+      startNavigation(() => router.push(`${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`))
     } catch {
+      navigating = false
+      if (navigationTimer.current) clearTimeout(navigationTimer.current)
+      navigationTimer.current = null
+      navigationTarget.current = null
       showToast('Nu am putut deschide notificarea.', 'error')
     } finally {
-      setPendingId(null)
+      if (!navigating) setPendingId(null)
     }
-  }, [apiFetch, pendingId, setRead, showToast])
+  }, [apiFetch, pendingId, router, setRead, showToast])
 
   return {
     items,
