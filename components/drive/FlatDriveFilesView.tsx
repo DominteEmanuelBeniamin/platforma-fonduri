@@ -17,7 +17,7 @@ import type {
   SortKey, SortDir, ViewMode,
 } from './types'
 import { Spinner } from '@/components/ui/Spinner'
-import { EmailFileButton } from '@/components/EmailFileButton'
+import { ShareFileButton } from '@/components/ShareFileButton'
 import { formatDate } from '@/lib/signage'
 import {
   getExt, isImageExt, getDisplayName,
@@ -363,7 +363,7 @@ export default function FlatDriveFilesView({
                     }
                   </button>
                   {(row.downloadKind === 'requestAttachment' ? row.requestId : row.fileId) && (
-                    <EmailFileButton
+                    <ShareFileButton
                       target={row.downloadKind === 'requestAttachment'
                         ? { kind: 'attachment', requestId: row.requestId!, attachmentId: row.attachmentId ?? null }
                         : { kind: 'file', fileId: row.fileId! }}

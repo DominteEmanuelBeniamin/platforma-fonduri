@@ -17,7 +17,7 @@ import type {
   SortKey, SortDir,
 } from './types'
 import { Spinner } from '@/components/ui/Spinner'
-import { EmailFileButton } from '@/components/EmailFileButton'
+import { ShareFileButton } from '@/components/ShareFileButton'
 import { formatDate } from '@/lib/signage'
 import {
   FilePreview, StatusPill, PublicationPill,
@@ -176,7 +176,7 @@ export default function LogicalDriveFilesView({
             {downloading === actionId ? <Spinner size="sm" /> : <Download className="h-4 w-4" />}
           </button>
           {(asset.downloadKind === 'requestAttachment' ? asset.requestId : asset.fileId) && (
-            <EmailFileButton
+            <ShareFileButton
               target={asset.downloadKind === 'requestAttachment'
                 ? { kind: 'attachment', requestId: asset.requestId!, attachmentId: asset.attachmentId ?? null }
                 : { kind: 'file', fileId: asset.fileId! }}

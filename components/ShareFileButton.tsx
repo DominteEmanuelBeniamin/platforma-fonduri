@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { AlertTriangle, Mail, Paperclip, Share2, X } from 'lucide-react'
+import { AlertTriangle, Paperclip, Share2, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
 import { Spinner } from '@/components/ui/Spinner'
@@ -10,11 +10,11 @@ import { Spinner } from '@/components/ui/Spinner'
 type ApiFetch = (url: string, init?: RequestInit) => Promise<Response>
 
 /** Ce trimitem: un fișier încărcat sau un atașament al cererii (model, document trimis clientului). */
-export type EmailTarget =
+export type ShareTarget =
   | { kind: 'file'; fileId: string }
   | { kind: 'attachment'; requestId: string; attachmentId?: string | null }
 
-function downloadRoute(target: EmailTarget) {
+function downloadRoute(target: ShareTarget) {
   return target.kind === 'file'
     ? { url: `/api/files/${target.fileId}/signed-download`, extra: {} }
     : { url: `/api/document-requests/${target.requestId}/attachment/signed-download`, extra: target.attachmentId ? { attachment_id: target.attachmentId } : {} }
@@ -73,21 +73,21 @@ type Stage =
   | { name: 'failed'; message: string; file?: File; detail?: string }
 
 /**
- * „Trimite pe email”, pe telefon: deschide meniul „Partajează” al telefonului
- * cu documentul atașat, iar omul alege Gmail, Outlook sau Mail și trimite de pe
+ * „Partajează”, pe telefon: deschide meniul „Partajează” al telefonului
+ * cu documentul atașat, iar omul alege Gmail, Outlook, WhatsApp etc. și trimite de pe
  * adresa lui. Un site nu poate deschide aplicația de email cu un fișier atașat
  * altfel (`mailto:` nu acceptă atașamente). Pe calculator butonul nu apare.
  *
  * Fișierul se aduce la deschiderea ferestrei: telefonul cere ca partajarea să
  * pornească chiar din apăsarea butonului, nu după o descărcare.
  */
-export function EmailFileButton({
+export function ShareFileButton({
   target,
   fileName,
   apiFetch,
   className = '',
 }: {
-  target: EmailTarget
+  target: ShareTarget
   fileName: string
   documentName?: string | null
   apiFetch: ApiFetch
@@ -155,7 +155,7 @@ export function EmailFileButton({
           file,
           message: name === 'NotAllowedError'
             ? 'Telefonul n-a permis deschiderea aplicației. Apasă din nou butonul.'
-            : `Telefonul n-a putut deschide aplicația de email (${name}).`,
+            : `Telefonul n-a putut deschide meniul de partajare (${name}).`,
           detail: `${name}: ${error instanceof Error ? error.message : String(error)}`,
         })
       })
@@ -169,11 +169,11 @@ export function EmailFileButton({
         <button
           type="button"
           onClick={event => event.stopPropagation()}
-          title="Trimite pe email"
-          aria-label={`Trimite pe email ${fileName}`}
+          title="Partajează"
+          aria-label={`Partajează ${fileName}`}
           className={className || 'p-2 rounded-lg text-ink-faint hover:text-[var(--sg-accent)] hover:bg-paper-sunk transition-colors'}
         >
-          <Mail className="h-4 w-4" aria-hidden="true" />
+          <Share2 className="h-4 w-4" aria-hidden="true" />
         </button>
       </Dialog.Trigger>
       <Dialog.Portal>
@@ -185,7 +185,7 @@ export function EmailFileButton({
         >
           <div className="flex items-start justify-between gap-3 border-b border-rule px-5 py-4">
             <div className="min-w-0">
-              <Dialog.Title className="text-lg font-bold text-ink">Trimite pe email</Dialog.Title>
+              <Dialog.Title className="text-lg font-bold text-ink">Partajează documentul</Dialog.Title>
               <Dialog.Description className="mt-1 flex items-center gap-1.5 text-sm text-ink-soft">
                 <Paperclip className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 <span className="truncate">{fileName}</span>
@@ -200,13 +200,13 @@ export function EmailFileButton({
             {stage.name === 'unsupported' ? (
               <p role="alert" className="flex gap-3 text-sm leading-6 text-ink">
                 <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[var(--sg-warn)]" aria-hidden="true" />
-                <span>Pe acest telefon, browserul nu lasă acest tip de fișier să plece spre aplicația de email (Chrome pe Android acceptă doar PDF, imagini și text, nu Word sau Excel). Descarcă documentul și atașează-l din Gmail sau Outlook.</span>
+                <span>Pe acest telefon, browserul nu lasă acest tip de fișier să plece spre alte aplicații (Chrome pe Android acceptă doar PDF, imagini și text, nu Word sau Excel). Descarcă documentul și atașează-l din aplicația în care vrei să-l trimiți.</span>
               </p>
             ) : (
               <>
                 <Button type="button" variant="primary" className="w-full" onClick={share} disabled={stage.name === 'loading' || (stage.name === 'failed' && !stage.file)}>
                   {stage.name === 'loading' ? <Spinner size="sm" /> : <Share2 className="h-4 w-4" aria-hidden="true" />}
-                  {stage.name === 'loading' ? 'Se pregătește documentul…' : 'Deschide aplicația de email'}
+                  {stage.name === 'loading' ? 'Se pregătește documentul…' : 'Alege aplicația'}
                 </Button>
                 {stage.name === 'failed' ? (
                   <div role="alert" className="space-y-1">
@@ -215,7 +215,7 @@ export function EmailFileButton({
                   </div>
                 ) : (
                   <p className="text-sm leading-6 text-ink-soft">
-                    Alegi Gmail, Outlook sau Mail; documentul e deja atașat. Scrii adresa și trimiți de pe emailul tău.
+                    Alegi Gmail, Outlook, WhatsApp sau altă aplicație; documentul e deja atașat.
                   </p>
                 )}
               </>
