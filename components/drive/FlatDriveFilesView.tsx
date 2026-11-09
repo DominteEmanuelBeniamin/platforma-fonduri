@@ -370,7 +370,6 @@ export default function FlatDriveFilesView({
                       fileName={getDisplayName(row)}
                       documentName={row.docName}
                       apiFetch={apiFetch}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-ink-soft transition-colors hover:bg-paper hover:text-[var(--sg-accent)]"
                     />
                   )}
                 </div>
