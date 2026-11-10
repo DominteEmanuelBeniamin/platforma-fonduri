@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Download, FileText, Loader2, Pencil, Plus, RotateCcw, Trash2, Upload, X } from 'lucide-react'
+import { Download, Eye, FileText, Loader2, Pencil, Plus, RotateCcw, Trash2, Upload, X } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { Button } from '@/components/ui/Button'
@@ -12,6 +12,7 @@ import { Highlight } from '@/components/ui/Highlight'
 import { rangesOf, searchItems, snippetAround, type SearchHit } from '@/lib/search'
 import { bandFor, bandVar } from '@/lib/signage'
 import RowActionsMenu from '@/components/RowActionsMenu'
+import { isPreviewableFile, openInNewTab } from '@/lib/file-preview'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
 
@@ -70,6 +71,8 @@ interface ProjectInternalDossierProps {
   role: string | null
   consultantLevel?: string | null
   selectedEntryId?: string | null
+  requestFilterId?: string | null
+  onClearRequestFilter?: () => void
   onEntriesChange?: (entries: InternalEntry[]) => void
 }
 
@@ -112,6 +115,8 @@ export default function ProjectInternalDossier({
   role,
   consultantLevel,
   selectedEntryId,
+  requestFilterId,
+  onClearRequestFilter,
   onEntriesChange,
 }: ProjectInternalDossierProps) {
   const { apiFetch } = useAuth()
@@ -159,12 +164,12 @@ export default function ProjectInternalDossier({
   const contextLabel = useCallback((entry: InternalEntry) => entry.context
     ? contextOptions.find(option => option.key === contextKey(entry))?.label || `${entry.context.type === 'phase' ? 'Fază' : entry.context.type === 'activity' ? 'Activitate' : 'Cerere'}: ${entry.context.label}`
     : '', [contextOptions])
-  const hits = useMemo(() => searchItems(entries, query, entry => [
+  const hits = useMemo(() => searchItems(requestFilterId ? entries.filter(entry => entry.document_requirement_id === requestFilterId) : entries, query, entry => [
     { key: 'title', label: 'Titlu', value: entry.title },
     { key: 'context', label: 'Context', value: contextLabel(entry) },
     { key: 'body', label: 'Notă', value: entry.body },
     ...entry.attachments.map(file => ({ key: `file:${file.id}`, label: 'Fișier', value: file.original_name })),
-  ]), [entries, query, contextLabel])
+  ]), [entries, query, contextLabel, requestFilterId])
 
   const groups = useMemo(() => {
     type Hit = SearchHit<InternalEntry>
@@ -213,6 +218,12 @@ export default function ProjectInternalDossier({
   }, [apiFetch, baseUrl, onEntriesChange])
 
   useEffect(() => { void loadEntries() }, [loadEntries])
+
+  useEffect(() => {
+    if (loading || (!selectedEntryId && !requestFilterId)) return
+    const target = selectedEntryId ? document.getElementById(`internal-entry-${selectedEntryId}`) : document.getElementById('internal-dossier-results')
+    target?.scrollIntoView({ block: 'start' })
+  }, [loading, selectedEntryId, requestFilterId, entries])
 
   const resetForm = () => {
     setFormOpen(false)
@@ -460,7 +471,7 @@ export default function ProjectInternalDossier({
             const notePreview = entry.body?.split('\n').slice(0, 3).join('\n').slice(0, 240) ?? ''
             const noteTruncated = !!entry.body && notePreview.length < entry.body.length
             return (
-              <li key={entry.id} className="relative rounded-[var(--radius-plate-lg)] border border-rule bg-plate p-4 md:p-5">
+              <li id={`internal-entry-${entry.id}`} key={entry.id} className={`relative scroll-mt-32 rounded-[var(--radius-plate-lg)] border bg-plate p-4 md:p-5 ${selectedEntryId === entry.id || requestFilterId ? 'border-[var(--sg-accent)]' : 'border-rule'}`}>
                 {canEdit && <RowActionsMenu className="absolute right-3 top-3 md:right-4 md:top-4" label={`Acțiuni pentru ${entry.title}`} actions={[
                   { label: 'Editează', icon: <Pencil className="h-4 w-4" />, onSelect: () => openEditForm(entry) },
                   { label: 'Retrage', icon: <Trash2 className="h-4 w-4" />, danger: true, onSelect: () => void removeEntry(entry) },
@@ -483,10 +494,10 @@ export default function ProjectInternalDossier({
                       <li key={attachment.id} className="flex min-w-0 flex-wrap items-center gap-2 rounded-[var(--radius-plate)] bg-paper-sunk px-3 py-2">
                         <FileText className="h-4 w-4 shrink-0 text-ink-faint" aria-hidden="true" />
                         <span className="min-w-0 flex-1 break-all text-sm text-ink"><Highlight text={attachment.original_name} ranges={rangesOf(matches, `file:${attachment.id}`)} /><span className="ml-2 text-xs text-ink-faint">{fileSizeLabel(attachment.file_size)}</span></span>
-                        <Button variant="secondary" size="sm" disabled={busyAttachmentId === attachment.id} onClick={() => void downloadAttachment(entry, attachment)}>
+                        {isPreviewableFile({ mimeType: attachment.mime_type, fileName: attachment.original_name }) && <button type="button" data-tooltip="Previzualizează" aria-label={`Deschide ${attachment.original_name}`} className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-ink-faint hover:bg-paper hover:text-[var(--sg-accent)]" onClick={() => openInNewTab(`/preview/internal/${attachment.id}?${new URLSearchParams({ projectId, entryId: entry.id, name: attachment.original_name })}`)}><Eye className="h-4 w-4" aria-hidden="true" /></button>}
+                        <button type="button" data-tooltip="Descarcă" aria-label={`Descarcă ${attachment.original_name}`} className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-ink-faint hover:bg-paper hover:text-[var(--sg-accent)] disabled:opacity-50" disabled={busyAttachmentId === attachment.id} onClick={() => void downloadAttachment(entry, attachment)}>
                           {busyAttachmentId === attachment.id ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Download className="h-4 w-4" aria-hidden="true" />}
-                          <span className="hidden sm:inline">Descarcă</span>
-                        </Button>
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -497,8 +508,8 @@ export default function ProjectInternalDossier({
           })}
         </ul>
   )
-  const shouldOpen = (groupHits: SearchHit<InternalEntry>[]) => Boolean(query.trim()) || groupHits.some(hit => hit.item.id === selectedEntryId)
-  const countLabel = (count: number) => `${count} ${count === 1 ? 'raport' : 'rapoarte'}`
+  const shouldOpen = (groupHits: SearchHit<InternalEntry>[]) => Boolean(query.trim()) || Boolean(requestFilterId) || groupHits.some(hit => hit.item.id === selectedEntryId)
+  const countLabel = (count: number) => `${count} ${count === 1 ? 'înregistrare' : 'înregistrări'}`
   const renderLooseGroup = (label: string, groupHits: SearchHit<InternalEntry>[]) => groupHits.length > 0 && (
     <details key={`${label}:${Boolean(query.trim())}:${shouldOpen(groupHits)}`} open className="space-y-2">
       <summary className="cursor-pointer py-2 font-bold text-ink">{label} <span className="ml-2 text-xs font-normal text-ink-faint">{countLabel(groupHits.length)}</span></summary>
@@ -507,7 +518,7 @@ export default function ProjectInternalDossier({
   )
 
   return (
-    <section className="max-w-4xl px-4 py-5 md:px-6" aria-labelledby="internal-dossier-heading">
+    <section className="mx-auto w-full max-w-5xl px-4 py-5 md:px-6" aria-labelledby="internal-dossier-heading">
       <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 id="internal-dossier-heading" className="text-lg font-bold text-ink">Dosar intern</h2>
@@ -646,6 +657,11 @@ export default function ProjectInternalDossier({
 
       <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Caută în dosarul intern" aria-label="Caută în dosarul intern" className="mb-4 w-full rounded-[var(--radius-plate)] border border-rule bg-paper px-3 py-2 text-sm" />
 
+      {requestFilterId && <div id="internal-dossier-results" className="mb-4 flex scroll-mt-32 flex-wrap items-center gap-3 text-sm text-ink-soft">
+        <span>Înregistrări pentru cererea „{requests.find(request => request.id === requestFilterId)?.name ?? 'selectată'}”</span>
+        <button type="button" className="font-semibold text-[var(--sg-accent)]" onClick={onClearRequestFilter}>Arată tot dosarul</button>
+      </div>}
+
       {loading ? (
         <div role="status" className="flex items-center gap-2 py-8 text-sm text-ink-soft"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Se încarcă dosarul intern…</div>
       ) : loadError ? (
@@ -659,7 +675,7 @@ export default function ProjectInternalDossier({
           <p className="mx-auto mt-2 max-w-[55ch] text-sm leading-6 text-ink-soft">Adaugă note și fișiere de lucru pentru echipa proiectului. Acestea nu sunt trimise clientului.</p>
         </div>
       ) : hits.length === 0 ? (
-        <p className="py-6 text-center text-sm text-ink-soft">Niciun rezultat pentru „{query}”.</p>
+        <p className="py-6 text-center text-sm text-ink-soft">{query.trim() ? `Niciun rezultat pentru „${query}”.` : 'Nu există înregistrări pentru această cerere.'}</p>
       ) : (
         <div className="space-y-5">
           {renderLooseGroup('Fără context', groups.noContext)}

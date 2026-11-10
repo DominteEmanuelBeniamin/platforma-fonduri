@@ -68,6 +68,9 @@ export interface DriveAsset {
   versionNumber?: number
   uploadedAt: string
   entryLabel?: string
+  onDownload?: () => Promise<void>
+  previewUrl?: string
+  mimeType?: string | null
 }
 
 export interface DriveVersion {
@@ -92,6 +95,7 @@ export interface DriveDocument {
   versions: DriveVersion[]
   /** Adăugat de stratul de UI — biblioteca nu îl produce. */
   onRowClick?: () => void
+  internal?: boolean
 }
 
 export interface DriveFolder {

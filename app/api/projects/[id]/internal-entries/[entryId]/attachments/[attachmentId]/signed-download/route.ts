@@ -3,6 +3,7 @@ import { logAction } from '@/app/api/_utils/audit'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { INTERNAL_ATTACHMENT_BUCKET, INTERNAL_DOWNLOAD_TTL_SECONDS, internalAttachmentNotFound, internalEntryNotFound, loadInternalEntry, requireInternalProjectAccess } from '@/app/api/_utils/internal-entries'
 import { isInternalEntryUuid } from '@/lib/internal-entry-security'
+import { isPreviewableFile } from '@/lib/file-preview'
 
 export async function POST(
   request: Request,
@@ -29,8 +30,12 @@ export async function POST(
     if (error) throw error
     if (!attachment) return internalAttachmentNotFound()
 
+    const body = await request.json().catch(() => ({}))
+    const inline = body.disposition === 'inline' && isPreviewableFile({ mimeType: attachment.mime_type, fileName: attachment.original_name })
+    if (body.disposition === 'inline' && !inline) return NextResponse.json({ error: 'Formatul nu poate fi previzualizat' }, { status: 400 })
+
     const { data, error: signError } = await admin.storage.from(INTERNAL_ATTACHMENT_BUCKET)
-      .createSignedUrl(attachment.storage_path, INTERNAL_DOWNLOAD_TTL_SECONDS, { download: attachment.original_name })
+      .createSignedUrl(attachment.storage_path, INTERNAL_DOWNLOAD_TTL_SECONDS, { download: inline ? false : attachment.original_name })
     if (signError || !data) throw signError ?? new Error('Storage did not return a signed download URL')
     const expiresAt = new Date(Date.now() + INTERNAL_DOWNLOAD_TTL_SECONDS * 1000).toISOString()
 

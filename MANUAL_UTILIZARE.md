@@ -246,6 +246,7 @@ Pe pagina unui proiect (`/projects/[id]`), consultantul poate:
 **Dosar intern:**
 - Tabul **Dosar intern** este disponibil adminului și consultanților din echipa proiectului. Adaugă o înregistrare cu titlu, notă opțională și, dacă e util, un context asociat: o fază, activitate sau cerere de document.
 - Poți atașa unul sau mai multe fișiere de până la 25 MiB fiecare. Dacă un fișier nu s-a încărcat, formularul îl păstrează pentru o nouă încercare.
+- În tabul **Documente**, fișierele interne sunt marcate „Intern” și apar în dosarul fazei asociate sau în General. Dosarul **Documente interne** le adună pe toate; apasă pe titlu pentru a deschide înregistrarea originală.
 - Autorul își poate edita sau retrage înregistrarea; administratorul și consultantul senior din echipa proiectului le pot gestiona pe toate. Înregistrările afișează autorul, data și fișierele atașate.
 - Clientul nu vede tabul, înregistrările ori fișierele. Proiectul încheiat permite doar consultarea dosarului.
 

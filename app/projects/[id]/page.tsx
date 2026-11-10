@@ -63,6 +63,7 @@ import DocumentRequests from '@/components/DocumentRequests'
 import DocumentModal from '@/components/DocumentModal'
 import ProjectDocumentsView from '@/components/ProjectDocumentsView'
 import ProjectInternalDossier, { type InternalEntry } from '@/components/ProjectInternalDossier'
+import { downloadUrl } from '@/lib/file-preview'
 import TableGroup, { ColumnHeader, GroupSummary, activityColumnsTemplate, type SummarySegment } from '@/components/project-table/TableGroup'
 import ActivityRow from '@/components/project-table/ActivityRow'
 import { AssigneePicker } from '@/components/project-table/AssigneePicker'
@@ -297,19 +298,6 @@ function ProjectDetailsContent() {
   const [showAddActivity, setShowAddActivity] = useState<Record<string, boolean>>({})
   const [addingActivity, setAddingActivity] = useState<Record<string, boolean>>({})
 
-  // Aceeași regulă ca `buildDriveDocuments`: dacă există rânduri în
-  // `attachments`, doar ele contează — altfel badge-ul ar număra un atașament
-  // legacy pe care Drive-ul nu-l arată, și cifrele n-ar mai corespunde.
-  const documentEntriesCount = useMemo(() => {
-    return allDocRequests.filter(req => {
-      const hasAttachment = req.attachments?.length
-        ? req.attachments.some((attachment: any) => !attachment.missing_at)
-        : Boolean(req.attachment_path && !req.attachment_missing_at)
-      const hasFile = (req.files ?? []).some((file: any) => !file.deleted_at)
-      return hasAttachment || hasFile
-    }).length
-  }, [allDocRequests])
-
   // Indicatorul de pe tabul „Calendar": termene depășite sau din următoarele 7
   // zile. Se calculează din datele deja încărcate — filtrate de vizibilitate pe
   // server — ca badge-ul să fie corect fără o a treia cerere.
@@ -407,17 +395,21 @@ function ProjectDetailsContent() {
   )
 
   const [internalEntries, setInternalEntries] = useState<InternalEntry[]>([])
+  const [internalEntriesError, setInternalEntriesError] = useState(false)
+  const [internalEntriesRetry, setInternalEntriesRetry] = useState(0)
   const [selectedInternalId, setSelectedInternalId] = useState<string | null>(null)
+  const [internalRequestId, setInternalRequestId] = useState<string | null>(null)
   useEffect(() => {
     let cancelled = false
-    if (!canUseInternal || !projectId) { setInternalEntries([]); return }
+    if (!canUseInternal || !projectId) { setInternalEntries([]); setInternalEntriesError(false); return }
+    setInternalEntriesError(false)
     apiFetch(`/api/projects/${projectId}/internal-entries`).then(async response => {
       if (!response.ok) throw new Error('Dosarul nu a putut fi încărcat')
       const data = await response.json()
       if (!cancelled) setInternalEntries(data.entries ?? [])
-    }).catch(() => { if (!cancelled) setInternalEntries([]) })
+    }).catch(() => { if (!cancelled) setInternalEntriesError(true) })
     return () => { cancelled = true }
-  }, [apiFetch, projectId, canUseInternal, activeView])
+  }, [apiFetch, projectId, canUseInternal, activeView, internalEntriesRetry])
 
   const downloadInternal = async (entryId: string, attachmentId: string) => {
     try {
@@ -425,7 +417,7 @@ function ProjectDetailsContent() {
       if (!response.ok) throw new Error()
       const data = await response.json()
       if (typeof data.url !== 'string') throw new Error()
-      window.location.assign(data.url)
+      downloadUrl(data.url)
     } catch { showToast('Nu am putut descărca fișierul intern.', 'error') }
   }
 
@@ -1417,7 +1409,7 @@ function ProjectDetailsContent() {
   )
 
   const handleSearchSelect = (result: SearchResult) => {
-    if (result.type === 'internal_entry') { setSelectedInternalId(result.id); selectView('internal'); return }
+    if (result.type === 'internal_entry') { setInternalRequestId(null); setSelectedInternalId(result.id); selectView('internal'); return }
     if (result.type === 'phase') {
       reveal(result.id)
       selectView('phases')
@@ -1747,9 +1739,9 @@ function ProjectDetailsContent() {
                   view: 'documents',
                   label: 'Documente',
                   Icon: FolderOpen,
-                  count: documentEntriesCount,
+                  count: 0,
                   urgent: false,
-                  hint: `${documentEntriesCount} fișiere`,
+                  hint: '',
                   tip: 'Toate fișierele proiectului, pe dosare — câte unul pe fază',
                 },
                 {
@@ -1922,10 +1914,18 @@ function ProjectDetailsContent() {
             </div>
           ) : activeView === 'documents' ? (
             <>
+            {canUseInternal && internalEntriesError && <div role="alert" className="mx-4 mt-4 rounded border border-[var(--sg-danger)] p-3 text-sm">Fișierele interne nu au putut fi încărcate. <button type="button" className="font-semibold text-[var(--sg-accent)]" onClick={() => setInternalEntriesRetry(value => value + 1)}>Reîncearcă</button></div>}
             <ProjectDocumentsView
               projectId={projectId}
               requests={allDocRequests}
               phases={phases}
+              internalEntries={canUseInternal ? internalEntries.filter(entry => entry.project_id === projectId) : undefined}
+              onDownloadInternal={canUseInternal ? downloadInternal : undefined}
+              onOpenInternalEntry={canUseInternal ? entryId => {
+                setInternalRequestId(null)
+                setSelectedInternalId(entryId)
+                selectView('internal')
+              } : undefined}
               error={documentsError}
               onRetry={refreshDocs}
               activeFolderId={targetFolderId}
@@ -1934,11 +1934,6 @@ function ProjectDetailsContent() {
               // „Faze & Activități", nu în modal. Fără handler, rândul nu se deschide.
               onOpenRequest={canEdit ? handleOpenDocumentRequest : undefined}
             />
-            {canUseInternal && internalEntries.some(entry => entry.attachments.length > 0) && <section className="mx-4 my-5 max-w-5xl rounded-[var(--radius-plate)] border border-rule bg-plate p-4 md:mx-6" aria-label="Documente interne">
-              <h2 className="font-semibold text-ink">Documente interne</h2>
-              <p className="mb-3 text-sm text-ink-soft">Vizibile doar echipei proiectului</p>
-              <ul className="space-y-2">{internalEntries.flatMap(entry => entry.attachments.map(file => <li key={file.id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-paper-sunk px-3 py-2 text-sm"><span className="break-all">{file.original_name} <span className="text-ink-faint">· Intern · {entry.title}</span></span><button type="button" className="font-medium text-[var(--sg-accent)]" onClick={() => void downloadInternal(entry.id, file.id)}>Descarcă</button></li>))}</ul>
-            </section>}
             </>
           ) : activeView === 'internal' && canUseInternal ? (
             <ProjectInternalDossier
@@ -1950,6 +1945,8 @@ function ProjectDetailsContent() {
               role={profile?.role ?? null}
               consultantLevel={profile?.consultant_level}
               selectedEntryId={selectedInternalId}
+              requestFilterId={internalRequestId}
+              onClearRequestFilter={() => setInternalRequestId(null)}
               onEntriesChange={setInternalEntries}
             />
           ) : landingView === 'action-needed' ? (
@@ -2336,6 +2333,14 @@ function ProjectDetailsContent() {
       {selectedDocumentRequest && (
         <DocumentModal
           request={selectedDocumentRequest}
+          internalEntriesCount={canUseInternal ? internalEntries.filter(entry => entry.document_requirement_id === selectedDocumentRequest.id).length : 0}
+          onOpenInternalEntries={canUseInternal ? () => {
+            setSelectedDocumentRequestId(null)
+            pendingRevealAnchor.current = null
+            setSelectedInternalId(null)
+            setInternalRequestId(selectedDocumentRequest.id)
+            selectView('internal')
+          } : undefined}
           projectId={projectId!}
           onClose={() => {
             setSelectedDocumentRequestId(null)

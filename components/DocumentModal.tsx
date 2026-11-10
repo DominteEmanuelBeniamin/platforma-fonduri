@@ -137,6 +137,8 @@ export default function DocumentModal({
   canCloseRequest = false,
   readOnly = false,
   prepareReopen = false,
+  internalEntriesCount = 0,
+  onOpenInternalEntries,
 }: {
   request: DocumentRequest
   /** Închide și redeschide cererea: adminul și seniorul membru (#109, D1). */
@@ -144,6 +146,8 @@ export default function DocumentModal({
   /** Proiectul e încheiat: fișa se poate doar citi, de oricine (8 octombrie 2026). */
   readOnly?: boolean
   prepareReopen?: boolean
+  internalEntriesCount?: number
+  onOpenInternalEntries?: () => void
   projectId: string
   /** Consultanții proiectului, pentru atribuirea cererii */
   projectMembers?: { id: string; full_name: string | null; email: string; is_active?: boolean | null; role?: string | null; creation_pending?: boolean | null }[]
@@ -787,6 +791,11 @@ export default function DocumentModal({
 
         {/* Body - Scrollable */}
         <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-6 py-4 space-y-3 bg-white">
+          {internalEntriesCount > 0 && onOpenInternalEntries && (
+            <button type="button" className={inlineActionClass} onClick={onOpenInternalEntries}>
+              {internalEntriesCount} {internalEntriesCount === 1 ? 'înregistrare' : 'înregistrări'} în dosarul intern
+            </button>
+          )}
           {request.description && (
             <p className="text-sm text-ink-soft leading-relaxed whitespace-pre-line break-words max-h-52 overflow-y-auto">
               {request.description}

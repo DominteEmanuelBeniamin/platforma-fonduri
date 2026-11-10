@@ -224,6 +224,14 @@ test.describe('Dosar intern — acces, atașamente și citire în proiect înche
     const complete = await must(junior, 'POST', `${base}/attachments/complete`, { attachmentId: uploadedAttachment })
     expect(complete.attachment).toMatchObject({ id: uploadedAttachment, original_name: 'nota-interna.pdf' })
     expect(complete.attachment).not.toHaveProperty('storage_path')
+    const second = await must(junior, 'POST', `${base}/attachments/init`, {
+      originalName: 'anexa-interna.pdf', mimeType: 'application/pdf', fileSize: bytes.length,
+    })
+    const secondUpload = await fetch(second.uploadUrl, {
+      method: 'PUT', headers: { Authorization: `Bearer ${second.token}`, 'Content-Type': 'application/pdf' }, body: bytes,
+    })
+    expect(secondUpload.status).toBeLessThan(300)
+    await must(junior, 'POST', `${base}/attachments/complete`, { attachmentId: second.attachmentId })
 
     for (const member of [admin, senior, junior]) {
       const download = await must(member, 'POST', `${base}/attachments/${uploadedAttachment}/signed-download`, {})
@@ -233,6 +241,7 @@ test.describe('Dosar intern — acces, atașamente și citire în proiect înche
     }
     for (const blocked of [client, outsider]) {
       expect((await call(blocked, 'POST', `${base}/attachments/${uploadedAttachment}/signed-download`, {})).status).toBe(403)
+      expect((await call(blocked, 'POST', `${base}/attachments/${uploadedAttachment}/signed-download`, { disposition: 'inline' })).status).toBe(403)
     }
     expect((await call(junior, 'POST', `${base}/attachments/${randomUUID()}/signed-download`, {})).status).toBe(404)
     expect((await call(junior, 'POST', `${base}/attachments/init`, {
@@ -276,7 +285,7 @@ test.describe('Dosar intern — acces, atașamente și citire în proiect înche
     await waitForProject(staffPage, own.title)
     const internalTab = staffPage.getByRole('button', { name: 'Dosar intern' })
     await expect(internalTab).toBeVisible({ timeout: 20_000 })
-    await expect(staffPage.locator('summary').filter({ hasText: 'Fază: Fază E2E' }).first()).toContainText('3 rapoarte')
+    await expect(staffPage.locator('summary').filter({ hasText: 'Fază: Fază E2E' }).first()).toContainText('3 înregistrări')
     const activityGroup = staffPage.locator('summary').filter({ hasText: /^Activitate: Activitate E2E/ }).locator('..')
     await expect(activityGroup).not.toHaveAttribute('open', '')
     await expect(staffPage.getByText('Raport pentru fază', { exact: true })).toBeVisible()
@@ -287,6 +296,12 @@ test.describe('Dosar intern — acces, atașamente și citire în proiect înche
     await expect(existingEntry.locator('details')).not.toHaveAttribute('open', '')
     await expect(existingEntry.getByText(/Fază:.*Activitate:/)).toBeVisible()
     await expect(existingEntry.getByText(/Dosar intern junior/)).toBeVisible()
+    await existingEntry.locator('summary').first().click()
+    const dossierPreviewPromise = staffPage.waitForEvent('popup')
+    await existingEntry.getByRole('button', { name: 'Deschide nota-interna.pdf' }).click()
+    const dossierPreview = await dossierPreviewPromise
+    await expect(dossierPreview.locator('iframe')).toBeVisible({ timeout: 20_000 })
+    await dossierPreview.close()
     await activityGroup.locator('summary').first().click()
     await staffPage.getByLabel('Caută în dosarul intern').fill('Raport pentru cerere')
     await expect(staffPage.getByText('Raport pentru cerere', { exact: true })).toBeVisible()
@@ -313,7 +328,23 @@ test.describe('Dosar intern — acces, atașamente și citire în proiect înche
     await staffPage.getByLabel('Caută în dosarul intern').fill('finalul ascuns')
     await expect(staffPage.locator('summary mark').filter({ hasText: 'Finalul' })).toBeVisible()
     await staffPage.getByRole('button', { name: /^Documente/ }).click()
-    await expect(staffPage.getByText('nota-interna.pdf', { exact: false })).toBeVisible()
+    await staffPage.getByRole('button', { name: /Fază E2E/ }).click()
+    const internalCard = staffPage.locator('article').filter({ hasText: 'nota-interna.pdf' })
+    await expect(internalCard).toHaveCount(1)
+    await expect(internalCard).toContainText('Intern')
+    await expect(internalCard).toContainText('anexa-interna.pdf')
+    await expect(internalCard.getByRole('button', { name: 'Descarcă nota-interna.pdf' })).toBeVisible()
+    const popupPromise = staffPage.waitForEvent('popup')
+    await internalCard.getByRole('button', { name: 'Deschide nota-interna.pdf' }).click()
+    const preview = await popupPromise
+    await expect(preview.locator('iframe')).toBeVisible({ timeout: 20_000 })
+    await preview.close()
+    await expect(internalCard.getByRole('button', { name: 'Descarcă anexa-interna.pdf' })).toBeVisible()
+    await staffPage.getByRole('button', { name: 'Înapoi la lista de dosare' }).click()
+    await staffPage.getByRole('button', { name: /Documente interne/ }).click()
+    await expect(internalCard).toBeVisible()
+    await internalCard.getByRole('button', { name: /Deschide înregistrarea/ }).click()
+    await expect(staffPage.getByText('Nota juniorului — corectată', { exact: true })).toBeVisible()
     await staffPage.getByRole('button', { name: 'Caută în proiect' }).click()
     await staffPage.getByPlaceholder('Caută faze, activități, cereri de documente...').fill('Notă creată din browser')
     await staffPage.getByRole('button', { name: /Notă creată din browser/ }).click()
@@ -348,8 +379,54 @@ test.describe('Dosar intern — acces, atașamente și citire în proiect înche
     await clientPage.goto(`/projects/${own.project.projectId}?view=internal`)
     await waitForProject(clientPage, own.title)
     await expect(clientPage.getByRole('button', { name: 'Dosar intern' })).toHaveCount(0)
+    await clientPage.getByRole('button', { name: /^Documente/ }).click()
+    await expect(clientPage.getByRole('button', { name: /Documente interne/ })).toHaveCount(0)
+    await expect(clientPage.getByText('nota-interna.pdf')).toHaveCount(0)
     expect(internalRequests).toEqual([])
     await clientContext.close()
+  })
+
+  test('modelele aceleiași cereri rămân grupate și apar înaintea fișierelor interne', async ({ browser }) => {
+    const path = `test-fixtures/${own.project.projectId}/model-secundar.pdf`
+    const id = randomUUID()
+    const model = Buffer.from('%PDF-1.4\nAl doilea model\n%%EOF')
+    try {
+      const uploaded = await service.storage.from('project-files').upload(path, model, { contentType: 'application/pdf' })
+      expect(uploaded.error).toBeNull()
+      const inserted = await service.from('document_requirement_attachments').insert({
+        id, document_requirement_id: own.project.requestId, storage_path: path,
+        original_name: 'model-secundar.pdf', mime_type: 'application/pdf', file_size: model.length, order_index: 1, created_by: senior.id,
+      })
+      expect(inserted.error).toBeNull()
+      const signed = await must(junior, 'POST', `/api/document-requests/${own.project.requestId}/attachment/signed-download`, { attachment_id: id })
+      const downloaded = await fetch(signed.url)
+      expect(downloaded.status).toBe(200)
+      expect(Buffer.from(await downloaded.arrayBuffer())).toEqual(model)
+      const { context, page } = await authenticatedPage(browser, junior)
+      try {
+        await page.goto(`/projects/${own.project.projectId}?view=documents`)
+        await waitForProject(page, own.title)
+        await page.getByRole('button', { name: /Fază E2E/ }).click()
+        const cards = page.locator('article')
+        const requestCard = cards.filter({ hasText: 'Cerere E2E' })
+        await expect(requestCard).toHaveCount(1)
+        await expect(requestCard).toContainText('model.pdf')
+        await expect(requestCard).toContainText('model-secundar.pdf')
+        await expect(requestCard.getByRole('button', { name: 'Descarcă model.pdf' })).toBeVisible()
+        await expect(requestCard.getByRole('button', { name: 'Descarcă model-secundar.pdf' })).toBeVisible()
+        await expect(cards.first()).toContainText('Cerere E2E')
+        await expect(cards.last()).toContainText('Nota juniorului — corectată')
+        await page.getByLabel('Sortează documentele').selectOption('name:desc')
+        await expect(cards.first()).toContainText('Cerere E2E')
+        await expect(cards.last()).toContainText('Nota juniorului — corectată')
+        await page.getByLabel('Caută în documente').fill('pdf')
+        await expect(cards.first()).toContainText('Cerere E2E')
+        await expect(cards.last()).toContainText('Nota juniorului — corectată')
+      } finally { await context.close() }
+    } finally {
+      await service.from('document_requirement_attachments').delete().eq('id', id)
+      await service.storage.from('project-files').remove([path])
+    }
   })
 
   test('atașamentele pot fi retrase doar de managerii autorizați', async ({ browser }) => {
