@@ -25,6 +25,7 @@ import {
   Archive,
   RotateCcw,
   CheckCircle2,
+  NotebookPen,
   Table2,
   ListTodo,
   ChevronsDownUp,
@@ -61,6 +62,7 @@ import type { ProjectActivity, ProjectPhase } from '@/components/ProjectPhasesSi
 import DocumentRequests from '@/components/DocumentRequests'
 import DocumentModal from '@/components/DocumentModal'
 import ProjectDocumentsView from '@/components/ProjectDocumentsView'
+import ProjectInternalDossier, { type InternalEntry } from '@/components/ProjectInternalDossier'
 import TableGroup, { ColumnHeader, GroupSummary, activityColumnsTemplate, type SummarySegment } from '@/components/project-table/TableGroup'
 import ActivityRow from '@/components/project-table/ActivityRow'
 import { AssigneePicker } from '@/components/project-table/AssigneePicker'
@@ -129,7 +131,7 @@ const SENT_ID = '__trimise__'
 
 // Tabul curent. Se reflectă în `?view=`, ca vederea să poată fi trimisă mai
 // departe ca link; „phases" e implicitul, deci nu ajunge în URL.
-type ProjectView = 'phases' | 'documents' | 'calendar'
+type ProjectView = 'phases' | 'documents' | 'calendar' | 'internal'
 
 /**
  * Comutatorul „Arată și ce e finalizat" (#109): o preferință a browserului,
@@ -377,6 +379,7 @@ function ProjectDetailsContent() {
   // reselectarea aceluiași eveniment din calendar n-ar mai fi schimbat niciun
   // parametru, deci n-ar fi părut să facă nimic.
   const selectView = (view: ProjectView) => {
+    if (view === 'internal' && !canUseInternal) return
     setActiveView(view)
     // Altă vedere, alt context: redenumirea începută nu rămâne agățată (S-11).
     setRenamingId(null)
@@ -399,6 +402,32 @@ function ProjectDetailsContent() {
   const isConsultant = profile?.role === 'consultant'
   const isClient = profile?.role === 'client'
   const canEdit = isAdmin || isConsultant
+  const canUseInternal = isAdmin || (
+    isConsultant && !!profile?.id && projectMembers.some(member => member.id === profile.id)
+  )
+
+  const [internalEntries, setInternalEntries] = useState<InternalEntry[]>([])
+  const [selectedInternalId, setSelectedInternalId] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    if (!canUseInternal || !projectId) { setInternalEntries([]); return }
+    apiFetch(`/api/projects/${projectId}/internal-entries`).then(async response => {
+      if (!response.ok) throw new Error('Dosarul nu a putut fi încărcat')
+      const data = await response.json()
+      if (!cancelled) setInternalEntries(data.entries ?? [])
+    }).catch(() => { if (!cancelled) setInternalEntries([]) })
+    return () => { cancelled = true }
+  }, [apiFetch, projectId, canUseInternal, activeView])
+
+  const downloadInternal = async (entryId: string, attachmentId: string) => {
+    try {
+      const response = await apiFetch(`/api/projects/${projectId}/internal-entries/${entryId}/attachments/${attachmentId}/signed-download`, { method: 'POST', body: JSON.stringify({}) })
+      if (!response.ok) throw new Error()
+      const data = await response.json()
+      if (typeof data.url !== 'string') throw new Error()
+      window.location.assign(data.url)
+    } catch { showToast('Nu am putut descărca fișierul intern.', 'error') }
+  }
 
   // ─── Fetch ────────────────────────────────────────────────────────────────
 
@@ -628,8 +657,14 @@ function ProjectDetailsContent() {
   }, [authLoading, token, projectId])
 
   useEffect(() => {
-    setActiveView(targetView === 'documents' ? 'documents' : 'phases')
-  }, [targetView])
+    setActiveView(
+      targetView === 'documents' || targetView === 'calendar'
+        ? targetView
+        : targetView === 'internal' && canUseInternal
+          ? 'internal'
+          : 'phases',
+    )
+  }, [targetView, canUseInternal])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -1093,8 +1128,14 @@ function ProjectDetailsContent() {
   // în efectul de mai jos.
   useEffect(() => {
     if (hasDeepLink) return
-    setActiveView(targetView === 'documents' || targetView === 'calendar' ? targetView : 'phases')
-  }, [targetView, hasDeepLink])
+    setActiveView(
+      targetView === 'documents' || targetView === 'calendar'
+        ? targetView
+        : targetView === 'internal' && canUseInternal
+          ? 'internal'
+          : 'phases',
+    )
+  }, [targetView, hasDeepLink, canUseInternal])
 
   const notificationWasActive = useRef(fromNotification)
   const refreshingNotification = useRef(false)
@@ -1363,15 +1404,20 @@ function ProjectDetailsContent() {
   }, [requestsByPhase, todayTs, projectClosed, isClient])
 
   const searchIndex = useMemo(
-    () => buildSearchIndex(phases, allDocRequests, {
+    () => [...buildSearchIndex(phases, allDocRequests, {
       isClient,
       todayTs,
       generalConsultant: projectMembers.find(member => member.id === project?.general_consultant_id),
-    }),
-    [phases, allDocRequests, isClient, todayTs, projectMembers, project?.general_consultant_id]
+    }), ...(canUseInternal ? internalEntries.map((entry): SearchResult => ({
+      id: entry.id, type: 'internal_entry', title: entry.title, description: entry.body,
+      phaseId: null, phaseName: null, activityId: null, activityName: null, status: null,
+      fields: [{ key: 'title', label: 'Nume', value: entry.title }, { key: 'description', label: 'Notă', value: entry.body }, { key: 'files', label: 'Fișiere', value: entry.attachments.map(file => file.original_name).join(', '), shown: false }],
+    })) : [])],
+    [phases, allDocRequests, isClient, todayTs, projectMembers, project?.general_consultant_id, canUseInternal, internalEntries]
   )
 
   const handleSearchSelect = (result: SearchResult) => {
+    if (result.type === 'internal_entry') { setSelectedInternalId(result.id); selectView('internal'); return }
     if (result.type === 'phase') {
       reveal(result.id)
       selectView('phases')
@@ -1717,6 +1763,15 @@ function ProjectDetailsContent() {
                     ? `Termenele proiectului — ${calendarUrgentCount} depășite sau în următoarele 7 zile`
                     : 'Termenele proiectului, pe zile',
                 },
+                ...(canUseInternal ? [{
+                  view: 'internal' as const,
+                  label: 'Dosar intern',
+                  Icon: NotebookPen,
+                  count: 0,
+                  urgent: false,
+                  hint: '',
+                  tip: 'Note și fișiere accesibile echipei proiectului',
+                }] : []),
               ] as const).map(({ view, label, Icon, count, urgent, hint, tip }) => (
                 <button
                   key={view}
@@ -1866,6 +1921,7 @@ function ProjectDetailsContent() {
               <CalendarSurface projectId={projectId} />
             </div>
           ) : activeView === 'documents' ? (
+            <>
             <ProjectDocumentsView
               projectId={projectId}
               requests={allDocRequests}
@@ -1877,6 +1933,24 @@ function ProjectDetailsContent() {
               // Clientul n-are ce face în fișa cererii — încărcarea trăiește în
               // „Faze & Activități", nu în modal. Fără handler, rândul nu se deschide.
               onOpenRequest={canEdit ? handleOpenDocumentRequest : undefined}
+            />
+            {canUseInternal && internalEntries.some(entry => entry.attachments.length > 0) && <section className="mx-4 my-5 max-w-5xl rounded-[var(--radius-plate)] border border-rule bg-plate p-4 md:mx-6" aria-label="Documente interne">
+              <h2 className="font-semibold text-ink">Documente interne</h2>
+              <p className="mb-3 text-sm text-ink-soft">Vizibile doar echipei proiectului</p>
+              <ul className="space-y-2">{internalEntries.flatMap(entry => entry.attachments.map(file => <li key={file.id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-paper-sunk px-3 py-2 text-sm"><span className="break-all">{file.original_name} <span className="text-ink-faint">· Intern · {entry.title}</span></span><button type="button" className="font-medium text-[var(--sg-accent)]" onClick={() => void downloadInternal(entry.id, file.id)}>Descarcă</button></li>))}</ul>
+            </section>}
+            </>
+          ) : activeView === 'internal' && canUseInternal ? (
+            <ProjectInternalDossier
+              projectId={projectId!}
+              phases={phases}
+              requests={allDocRequests}
+              readOnly={projectClosed}
+              userId={profile?.id ?? null}
+              role={profile?.role ?? null}
+              consultantLevel={profile?.consultant_level}
+              selectedEntryId={selectedInternalId}
+              onEntriesChange={setInternalEntries}
             />
           ) : landingView === 'action-needed' ? (
             <ActionNeededPanel items={pendingUploads} waitingItems={waitingOnClient} isClient={isClient} projectClosed={projectClosed} onJump={jumpToActivity} />
@@ -2247,7 +2321,7 @@ function ProjectDetailsContent() {
           canEditOthers={perms.edit_others_messages}
           readOnly={projectClosed}
           onUnreadCountChange={setUnreadCount}
-          searchIndex={searchIndex}
+          searchIndex={searchIndex.filter(result => result.type !== 'internal_entry')}
           onNavigate={handleChatNavigate}
         />
       )}

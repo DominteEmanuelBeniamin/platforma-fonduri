@@ -569,6 +569,42 @@ export interface ProjectActivityUpdate {
   visibility?: ProjectItemVisibility;
 }
 
+export interface ProjectInternalEntry {
+  id: string;
+  project_id: string;
+  title: string;
+  body: string;
+  phase_id: string | null;
+  activity_id: string | null;
+  document_requirement_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type ProjectInternalEntryCreate = Pick<ProjectInternalEntry, 'project_id' | 'title' | 'created_by'> &
+  Partial<Omit<ProjectInternalEntry, 'id' | 'project_id' | 'title' | 'created_by'>>;
+
+export interface ProjectInternalAttachment {
+  id: string;
+  entry_id: string;
+  storage_path: string;
+  original_name: string;
+  mime_type: string;
+  file_size: number;
+  uploaded_by: string | null;
+  created_at: string;
+  uploaded_at: string | null;
+  deleted_at: string | null;
+}
+
+export type ProjectInternalAttachmentCreate = Pick<
+  ProjectInternalAttachment,
+  'entry_id' | 'storage_path' | 'original_name' | 'mime_type' | 'file_size' | 'uploaded_by'
+> & Partial<Pick<ProjectInternalAttachment, 'id' | 'created_at' | 'uploaded_at' | 'deleted_at'>>;
+
 // CERINȚĂ DOCUMENT
 export interface ActivityDocumentRequirement {
   id: string;
@@ -1042,6 +1078,16 @@ export interface Database {
       // Faze și activități proiect (actualizate)
       project_phases: { Row: ProjectPhase; Insert: ProjectPhaseCreate; Update: ProjectPhaseUpdate };
       project_activities: { Row: ProjectActivity; Insert: ProjectActivityCreate; Update: ProjectActivityUpdate };
+      project_internal_entries: {
+        Row: ProjectInternalEntry;
+        Insert: ProjectInternalEntryCreate;
+        Update: Partial<Omit<ProjectInternalEntry, 'id' | 'project_id' | 'created_by' | 'created_at'>>;
+      };
+      project_internal_attachments: {
+        Row: ProjectInternalAttachment;
+        Insert: ProjectInternalAttachmentCreate;
+        Update: Partial<Pick<ProjectInternalAttachment, 'uploaded_at' | 'deleted_at'>>;
+      };
       document_request_reviews: { Row: DocumentRequestReview; Insert: DocumentRequestReviewCreate; Update: DocumentRequestReviewUpdate };
       
       audit_logs: { Row: AuditLog; Insert: Omit<AuditLog, 'id' | 'created_at'>; Update: never };
