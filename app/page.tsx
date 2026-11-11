@@ -476,7 +476,7 @@ function TaskRow({ req, todayTs, mode }: { req: any; todayTs: number; mode: 'cli
 function DocRow({ doc }: { doc: any }) {
   const date = doc.created_at ? new Date(doc.created_at).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' }) : null
   return (
-    <Link data-tooltip="Deschide documentul în proiect" href={`/projects/${doc.project_id}?phase=${GENERAL_PHASE_ID}&document=${doc.id}#general-requests`} className="group flex min-h-11 items-center gap-3 px-4 py-3 transition-colors duration-[120ms] hover:bg-paper-sunk">
+    <Link data-tooltip="Deschide documentul în proiect" href={buildRequestHref(doc)} className="group flex min-h-11 items-center gap-3 px-4 py-3 transition-colors duration-[120ms] hover:bg-paper-sunk">
       <span aria-hidden="true" className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[var(--radius-plate)] bg-[var(--sg-accent-soft)] text-[var(--sg-accent)]">
         <FileText className="h-3.5 w-3.5" />
       </span>

@@ -293,6 +293,38 @@ test.describe('Flux 5 — pagina proiectului ca tabel, ca echipă', () => {
     await expect(client.group('Cereri generale')).not.toContainText('Ghid pentru client')
     await expect(client.group('Documente trimise clientului')).toHaveCount(0)
   })
+
+  test('un document trimis pus într-o activitate (ca din șablon) stă sub activitatea lui, nu în grupul de jos', async ({ team, as, seeds }) => {
+    const project = await seedProject({
+      label: 'trimis-in-activitate',
+      client: team.client,
+      members: [team.senior],
+      generalConsultant: team.senior,
+      phases: [{
+        name: 'Pregătire',
+        activities: [{ name: 'Documentație', assignedTo: team.senior.id, deadline: FAR, requests: [{ name: 'Certificat constatator' }, { name: 'Model declarație', outgoing: true }] }],
+      }],
+      general: [{ name: 'Ghid pentru client', outgoing: true }],
+    })
+    seeds.projects.add(project.id)
+    const activityId = project.activities.get('Documentație')!
+    const sentId = project.requests.get('Model declarație')!
+
+    const table = await openTable(as, team, project)
+    await table.expandActivity(activityId, 'Documentație')
+    const row = table.activity(activityId).locator(`#request-${sentId}`)
+    await expect(row).toBeVisible()
+    await expect(row).toContainText('Trimis clientului')
+    const sent = table.group('Documente trimise clientului')
+    await expect(sent).toContainText('Ghid pentru client')
+    await expect(sent).not.toContainText('Model declarație')
+
+    const client = new ProjectTablePage(await as(team.client))
+    await client.goto(project.id)
+    await client.expandActivity(activityId, 'Documentație')
+    await expect(client.activity(activityId).locator(`#request-${sentId}`)).toContainText('De la consultant')
+    await expect(client.group('Documente de la consultant')).not.toContainText('Model declarație')
+  })
 })
 
 function centerY(box: { y: number; height: number }) { return box.y + box.height / 2 }
