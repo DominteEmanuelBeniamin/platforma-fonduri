@@ -18,6 +18,7 @@ import type {
 } from './types'
 import { Spinner } from '@/components/ui/Spinner'
 import { formatDate } from '@/lib/signage'
+import { visibleDriveFileCount } from '@/lib/drive-grouping'
 import {
   FilePreview, StatusPill, PublicationPill,
   getAssetDisplayName, assetActionId, driveStatusLabel,
@@ -114,6 +115,7 @@ export default function LogicalDriveFilesView({
       { key: 'status', label: 'Status', value: driveStatusLabel(document.docStatus, isClient), shown: false },
     ]
   }).sort((a, b) => Number(Boolean(a.item.internal)) - Number(Boolean(b.item.internal))), [sortedDocuments, search, isClient])
+  const visibleFileCount = documentHits.reduce((count, hit) => count + visibleDriveFileCount(hit.item), 0)
 
   // Un singur pas înapoi: întâi ieșim din căutare, apoi din folder.
   const goBack = () => {
@@ -297,7 +299,7 @@ export default function LogicalDriveFilesView({
           <option value="status:asc">După status</option>
         </select>
         <span className="flex-1" />
-        <span className="text-xs text-ink-soft">{documentHits.length} {documentHits.length === 1 ? 'document' : 'documente'}</span>
+        <span className="text-xs text-ink-soft">{visibleFileCount} {visibleFileCount === 1 ? 'fișier' : 'fișiere'}</span>
       </div>
     </div>
   )
@@ -371,7 +373,7 @@ export default function LogicalDriveFilesView({
             <div className="flex flex-col items-center justify-center py-24 text-center"><FolderOpen className="mb-4 h-16 w-16 text-ink-faint" /><p className="font-semibold text-ink">Nu există foldere</p><p className="text-sm text-ink-soft">Documentele vor apărea aici când vor fi disponibile.</p></div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {folders.map(folder => <button data-tooltip="Deschide dosarul" type="button" key={folder.id} onClick={() => onFolderChange?.(folder.id)} className="flex items-center gap-3 rounded-xl border border-rule p-4 text-left transition hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)]"><FolderOpen className="h-8 w-8 flex-shrink-0 text-[var(--sg-accent)]" /><span className="min-w-0 flex-1"><span className="block truncate font-semibold text-ink">{folder.name}</span><span className="text-xs text-ink-soft">{folder.documentCount} {folder.documentCount === 1 ? 'document' : 'documente'}</span></span><span className="text-ink-faint">›</span></button>)}
+              {folders.map(folder => <button data-tooltip="Deschide dosarul" type="button" key={folder.id} onClick={() => onFolderChange?.(folder.id)} className="flex items-center gap-3 rounded-xl border border-rule p-4 text-left transition hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)]"><FolderOpen className="h-8 w-8 flex-shrink-0 text-[var(--sg-accent)]" /><span className="min-w-0 flex-1"><span className="block truncate font-semibold text-ink">{folder.name}</span><span className="text-xs text-ink-soft">{folder.documentCount} {folder.documentCount === 1 ? 'fișier' : 'fișiere'}</span></span><span className="text-ink-faint">›</span></button>)}
             </div>
           )
         ) : noResults ? (

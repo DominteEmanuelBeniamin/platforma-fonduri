@@ -5,6 +5,7 @@ import { useAuth } from '@/app/providers/AuthProvider'
 import {
   buildDriveDocuments,
   buildDriveFolders,
+  visibleDriveFileCount,
   type DriveDocument,
   type DriveFolder,
   type DriveSourcePhase,
@@ -76,7 +77,7 @@ export default function ProjectDocumentsView({
 
   const folders = useMemo((): DriveFolder[] => {
     const result = buildDriveFolders(documents, phases)
-    if (internalEntries) result.push({ id: 'internal', name: 'Documente interne', documentCount: documents.filter(document => document.internal).length })
+    if (internalEntries) result.push({ id: 'internal', name: 'Documente interne', documentCount: documents.filter(document => document.internal).reduce((count, document) => count + visibleDriveFileCount(document), 0) })
     return result
   }, [documents, phases, internalEntries])
 

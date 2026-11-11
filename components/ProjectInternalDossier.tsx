@@ -1,8 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Download, Eye, FileText, Loader2, Pencil, Plus, RotateCcw, Trash2, Upload, X } from 'lucide-react'
+import { ChevronsDownUp, ChevronsUpDown, Download, Eye, FileText, Loader2, Pencil, Plus, RotateCcw, Trash2, Upload, X } from 'lucide-react'
 import { useAuth } from '@/app/providers/AuthProvider'
 import { useToast } from '@/app/providers/ToastProvider'
 import { Button } from '@/components/ui/Button'
@@ -13,6 +13,9 @@ import { rangesOf, searchItems, snippetAround, type SearchHit } from '@/lib/sear
 import { bandFor, bandVar } from '@/lib/signage'
 import RowActionsMenu from '@/components/RowActionsMenu'
 import { isPreviewableFile, openInNewTab } from '@/lib/file-preview'
+import { ALLOWED_UPLOAD_EXTENSIONS, getFileExtension } from '@/lib/upload-file-types'
+import SelectFilter from '@/components/SelectFilter'
+import { AutoGrowTextarea } from '@/components/template-editor/AutoGrowTextarea'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
 
@@ -56,6 +59,7 @@ interface PendingFile {
   file: File
   error?: string
   tooLarge?: boolean
+  invalidType?: boolean
   attachmentId?: string
   uploadUrl?: string
   token?: string
@@ -71,9 +75,13 @@ interface ProjectInternalDossierProps {
   role: string | null
   consultantLevel?: string | null
   selectedEntryId?: string | null
-  requestFilterId?: string | null
-  onClearRequestFilter?: () => void
+  contextFilter?: string | null
+  onClearContextFilter?: () => void
+  onOpenContext?: (context: string) => void
   onEntriesChange?: (entries: InternalEntry[]) => void
+  initialContext?: string
+  onFormClose?: () => void
+  onCreated?: (entryId: string) => void
 }
 
 function dateLabel(value: string) {
@@ -115,29 +123,35 @@ export default function ProjectInternalDossier({
   role,
   consultantLevel,
   selectedEntryId,
-  requestFilterId,
-  onClearRequestFilter,
+  contextFilter,
+  onClearContextFilter,
+  onOpenContext,
   onEntriesChange,
+  initialContext,
+  onFormClose,
+  onCreated,
 }: ProjectInternalDossierProps) {
   const { apiFetch } = useAuth()
   const { showToast, confirm } = useToast()
   const [entries, setEntries] = useState<InternalEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
-  const [formOpen, setFormOpen] = useState(false)
+  const [formOpen, setFormOpen] = useState(Boolean(initialContext))
   const [editingEntry, setEditingEntry] = useState<InternalEntry | null>(null)
   const [createdEntryId, setCreatedEntryId] = useState<string | null>(null)
   const [metadataSaved, setMetadataSaved] = useState(false)
   const [formDirty, setFormDirty] = useState(false)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
-  const [context, setContext] = useState('')
+  const [context, setContext] = useState(initialContext ?? '')
   const [files, setFiles] = useState<PendingFile[]>([])
   const [query, setQuery] = useState('')
-  const [contextQuery, setContextQuery] = useState('')
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
   const [busyAttachmentId, setBusyAttachmentId] = useState<string | null>(null)
+  const sectionRef = useRef<HTMLElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const [allGroupsCollapsed, setAllGroupsCollapsed] = useState(true)
 
   const baseUrl = `/api/projects/${projectId}/internal-entries`
   const isManager = role === 'admin' || (role === 'consultant' && consultantLevel === 'senior')
@@ -164,12 +178,12 @@ export default function ProjectInternalDossier({
   const contextLabel = useCallback((entry: InternalEntry) => entry.context
     ? contextOptions.find(option => option.key === contextKey(entry))?.label || `${entry.context.type === 'phase' ? 'Fază' : entry.context.type === 'activity' ? 'Activitate' : 'Cerere'}: ${entry.context.label}`
     : '', [contextOptions])
-  const hits = useMemo(() => searchItems(requestFilterId ? entries.filter(entry => entry.document_requirement_id === requestFilterId) : entries, query, entry => [
+  const hits = useMemo(() => searchItems(contextFilter ? entries.filter(entry => contextKey(entry) === contextFilter) : entries, query, entry => [
     { key: 'title', label: 'Titlu', value: entry.title },
     { key: 'context', label: 'Context', value: contextLabel(entry) },
     { key: 'body', label: 'Notă', value: entry.body },
     ...entry.attachments.map(file => ({ key: `file:${file.id}`, label: 'Fișier', value: file.original_name })),
-  ]), [entries, query, contextLabel, requestFilterId])
+  ]), [entries, query, contextLabel, contextFilter])
 
   const groups = useMemo(() => {
     type Hit = SearchHit<InternalEntry>
@@ -202,6 +216,7 @@ export default function ProjectInternalDossier({
   }, [hits, phases, requests])
 
   const loadEntries = useCallback(async () => {
+    setLoading(true)
     setLoadError(false)
     try {
       const response = await apiFetch(baseUrl)
@@ -220,10 +235,14 @@ export default function ProjectInternalDossier({
   useEffect(() => { void loadEntries() }, [loadEntries])
 
   useEffect(() => {
-    if (loading || (!selectedEntryId && !requestFilterId)) return
+    if (loading || (!selectedEntryId && !contextFilter)) return
     const target = selectedEntryId ? document.getElementById(`internal-entry-${selectedEntryId}`) : document.getElementById('internal-dossier-results')
     target?.scrollIntoView({ block: 'start' })
-  }, [loading, selectedEntryId, requestFilterId, entries])
+    const cards = selectedEntryId ? (target ? [target] : []) : Array.from(sectionRef.current?.querySelectorAll<HTMLElement>('[data-internal-result]') ?? [])
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      for (const card of cards) card.animate([{ boxShadow: '0 0 0 0 transparent' }, { boxShadow: '0 0 0 3px var(--sg-accent)', offset: 0.18 }, { boxShadow: '0 0 0 3px var(--sg-accent)', offset: 0.68 }, { boxShadow: '0 0 0 0 transparent' }], { duration: 1800, easing: 'ease-out' })
+    }
+  }, [loading, selectedEntryId, contextFilter, entries])
 
   const resetForm = () => {
     setFormOpen(false)
@@ -262,7 +281,7 @@ export default function ProjectInternalDossier({
   }
 
   const closeForm = async () => {
-    if (saving || busyAttachmentId) return
+    if (saving || busyAttachmentId) return false
     if (files.length > 0 || formDirty) {
       const persistedEntryId = editingEntry?.id ?? createdEntryId
       const description = metadataSaved
@@ -275,9 +294,11 @@ export default function ProjectInternalDossier({
         description,
         confirmText: metadataSaved ? 'Renunță la fișiere' : 'Elimină modificările',
       })
-      if (!discard) return
+      if (!discard) return false
     }
     resetForm()
+    onFormClose?.()
+    return true
   }
 
   const selectFiles = (selected: FileList | null) => {
@@ -287,6 +308,8 @@ export default function ProjectInternalDossier({
       file,
       error: file.size > MAX_FILE_SIZE ? 'Fișierul depășește limita de 25 MiB.' : undefined,
       tooLarge: file.size > MAX_FILE_SIZE,
+      invalidType: !ALLOWED_UPLOAD_EXTENSIONS.includes(getFileExtension(file.name)),
+      ...(!ALLOWED_UPLOAD_EXTENSIONS.includes(getFileExtension(file.name)) ? { error: 'Tip de fișier nepermis' } : {}),
     }))
     setFiles(current => [...current, ...additions])
   }
@@ -355,7 +378,7 @@ export default function ProjectInternalDossier({
 
   const submitForm = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (saving || readOnly || files.some(file => file.tooLarge)) return
+    if (saving || readOnly || files.some(file => file.tooLarge || file.invalidType)) return
     setSaving(true)
     try {
       let entryId = editingEntry?.id ?? createdEntryId
@@ -395,7 +418,8 @@ export default function ProjectInternalDossier({
       }
 
       resetForm()
-      showToast(editingEntry ? 'Înregistrarea a fost actualizată.' : 'Înregistrarea a fost adăugată în dosar.', 'success')
+      if (onCreated && entryId && !editingEntry) onCreated(entryId)
+      else showToast(editingEntry ? 'Înregistrarea a fost actualizată.' : 'Înregistrarea a fost adăugată în dosar.', 'success')
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Nu am putut salva în dosarul intern.', 'error')
     } finally {
@@ -471,7 +495,7 @@ export default function ProjectInternalDossier({
             const notePreview = entry.body?.split('\n').slice(0, 3).join('\n').slice(0, 240) ?? ''
             const noteTruncated = !!entry.body && notePreview.length < entry.body.length
             return (
-              <li id={`internal-entry-${entry.id}`} key={entry.id} className={`relative scroll-mt-32 rounded-[var(--radius-plate-lg)] border bg-plate p-4 md:p-5 ${selectedEntryId === entry.id || requestFilterId ? 'border-[var(--sg-accent)]' : 'border-rule'}`}>
+              <li data-internal-result id={`internal-entry-${entry.id}`} key={entry.id} className={`relative scroll-mt-32 rounded-[var(--radius-plate-lg)] border bg-plate p-4 md:p-5 ${selectedEntryId === entry.id || contextFilter ? 'border-[var(--sg-accent)]' : 'border-rule'}`}>
                 {canEdit && <RowActionsMenu className="absolute right-3 top-3 md:right-4 md:top-4" label={`Acțiuni pentru ${entry.title}`} actions={[
                   { label: 'Editează', icon: <Pencil className="h-4 w-4" />, onSelect: () => openEditForm(entry) },
                   { label: 'Retrage', icon: <Trash2 className="h-4 w-4" />, danger: true, onSelect: () => void removeEntry(entry) },
@@ -484,7 +508,7 @@ export default function ProjectInternalDossier({
                   {bodySnippet && <span className="mt-2 block truncate text-xs text-ink-soft">Găsit în notă: <Highlight text={bodySnippet.text} ranges={bodySnippet.ranges} /></span>}
                   {matchingFiles.map(file => <span key={file.id} className="mt-2 block truncate text-xs text-ink-soft">Găsit în fișier: <Highlight text={file.original_name} ranges={rangesOf(matches, `file:${file.id}`)} /></span>)}
                 </summary>
-                {entry.body && <div className="mt-3 text-sm leading-6 text-ink-soft">
+                {entry.body && <div className="mt-3 text-sm font-normal leading-6 text-ink">
                   <p className="whitespace-pre-wrap break-words"><Highlight text={expandedNotes.has(entry.id) ? entry.body : notePreview} query={query} />{noteTruncated && !expandedNotes.has(entry.id) ? '…' : ''}</p>
                   {noteTruncated && <button type="button" className="mt-1 font-medium text-[var(--sg-accent)]" aria-expanded={expandedNotes.has(entry.id)} onClick={() => setExpandedNotes(current => { const next = new Set(current); if (next.has(entry.id)) next.delete(entry.id); else next.add(entry.id); return next })}>{expandedNotes.has(entry.id) ? 'Restrânge nota' : 'Citește toată nota'}</button>}
                 </div>}
@@ -508,17 +532,26 @@ export default function ProjectInternalDossier({
           })}
         </ul>
   )
-  const shouldOpen = (groupHits: SearchHit<InternalEntry>[]) => Boolean(query.trim()) || Boolean(requestFilterId) || groupHits.some(hit => hit.item.id === selectedEntryId)
+  const shouldOpen = (groupHits: SearchHit<InternalEntry>[]) => Boolean(query.trim()) || Boolean(contextFilter) || groupHits.some(hit => hit.item.id === selectedEntryId)
   const countLabel = (count: number) => `${count} ${count === 1 ? 'înregistrare' : 'înregistrări'}`
+  const updateGroupState = () => {
+    const groups = Array.from(sectionRef.current?.querySelectorAll<HTMLDetailsElement>('details[data-dossier-group]') ?? [])
+    setAllGroupsCollapsed(groups.length > 0 && groups.every(group => !group.open))
+  }
+  const toggleAllGroups = () => {
+    const groups = sectionRef.current?.querySelectorAll<HTMLDetailsElement>('details[data-dossier-group]') ?? []
+    for (const group of groups) group.open = allGroupsCollapsed
+    setAllGroupsCollapsed(!allGroupsCollapsed)
+  }
   const renderLooseGroup = (label: string, groupHits: SearchHit<InternalEntry>[]) => groupHits.length > 0 && (
-    <details key={`${label}:${Boolean(query.trim())}:${shouldOpen(groupHits)}`} open className="space-y-2">
+    <details data-dossier-group onToggle={updateGroupState} key={`${label}:${Boolean(query.trim())}:${shouldOpen(groupHits)}`} open={shouldOpen(groupHits)} className="space-y-2">
       <summary className="cursor-pointer py-2 font-bold text-ink">{label} <span className="ml-2 text-xs font-normal text-ink-faint">{countLabel(groupHits.length)}</span></summary>
       {renderEntries(groupHits)}
     </details>
   )
 
   return (
-    <section className="mx-auto w-full max-w-5xl px-4 py-5 md:px-6" aria-labelledby="internal-dossier-heading">
+    <section ref={sectionRef} className={initialContext ? 'hidden' : 'mx-auto w-full max-w-5xl px-4 py-5 md:px-6'} aria-labelledby="internal-dossier-heading">
       <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 id="internal-dossier-heading" className="text-lg font-bold text-ink">Dosar intern</h2>
@@ -543,6 +576,7 @@ export default function ProjectInternalDossier({
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-[999999]" style={{ backgroundColor: 'rgb(22 24 28 / 0.45)' }} />
           <Dialog.Content
+            onEscapeKeyDown={event => { if (document.querySelector('[role="combobox"][aria-label="Context asociat (opțional)"][aria-expanded="true"]')) event.preventDefault() }}
             className="fixed left-1/2 top-1/2 z-[999999] max-h-[90vh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[var(--radius-plate-lg)] border border-rule bg-plate p-5 focus:outline-none sm:p-6"
             style={{ boxShadow: 'var(--sg-lift)' }}
           >
@@ -567,30 +601,22 @@ export default function ProjectInternalDossier({
                 value={title}
                 onChange={event => { setTitle(event.target.value); setFormDirty(true) }}
                 disabled={saving}
-                className="min-h-11 rounded-[var(--radius-plate)] border border-rule-strong bg-paper px-3 text-sm font-normal focus:border-[var(--sg-accent)] focus:outline-none"
+                className="min-h-11 rounded-[var(--radius-plate)] border border-rule bg-plate px-4 text-sm font-normal focus:border-[var(--sg-accent)] focus:outline-none sm:min-h-10"
               />
             </label>
             <label className="grid gap-1.5 text-sm font-medium text-ink">
               Notă (opțional)
-              <textarea
-                rows={4}
+              <AutoGrowTextarea
                 value={body}
-                onChange={event => { setBody(event.target.value); setFormDirty(true) }}
+                onChange={value => { setBody(value); setFormDirty(true) }}
                 disabled={saving}
-                className="min-h-24 resize-y rounded-[var(--radius-plate)] border border-rule-strong bg-paper px-3 py-2 text-sm font-normal leading-6 focus:border-[var(--sg-accent)] focus:outline-none"
+                className="font-normal"
               />
             </label>
             <div className="grid gap-1.5 text-sm font-medium text-ink">
               Context asociat (opțional)
-              <details className="relative font-normal" aria-label="Context asociat (opțional)">
-                <summary className="min-h-11 cursor-pointer list-none rounded-[var(--radius-plate)] border border-rule-strong bg-paper px-3 py-3 text-sm">{contextOptions.find(option => option.key === context)?.label || 'Fără context'} ▾</summary>
-                <div className="absolute z-20 mt-1 w-full rounded-[var(--radius-plate)] border border-rule bg-plate p-2 shadow-lg">
-                  <input aria-label="Caută context" value={contextQuery} onChange={event => setContextQuery(event.target.value)} placeholder="Caută fază, activitate sau cerere" className="w-full rounded border border-rule bg-paper px-3 py-2 text-sm" />
-                  <div className="max-h-56 overflow-y-auto">
-                    {[{ key: '', label: 'Fără context' }, ...contextOptions].filter(option => option.label.toLocaleLowerCase('ro').includes(contextQuery.toLocaleLowerCase('ro'))).map(option => <button key={option.key} type="button" className="block w-full rounded px-3 py-2 text-left text-sm hover:bg-paper-sunk" onClick={event => { setContext(option.key); setFormDirty(true); event.currentTarget.closest('details')?.removeAttribute('open') }}>{option.label}</button>)}
-                  </div>
-                </div>
-              </details>
+              <SelectFilter value={context} onChange={value => { setContext(value); if (editingEntry || createdEntryId) setFormDirty(true) }} placeholder="Fără context" ariaLabel="Context asociat (opțional)" searchable searchPlaceholder="Caută context" options={contextOptions.map(option => ({ value: option.key, label: option.label }))} className="w-full font-normal" />
+              {context && <p role="status" aria-live="polite" className="text-xs font-normal text-[var(--sg-accent)]">{loading ? 'Se verifică înregistrările asociate…' : loadError ? <>Nu am putut verifica înregistrările asociate. <button type="button" className="font-semibold underline" onClick={() => void loadEntries()}>Reîncearcă</button></> : (() => { const count = entries.filter(entry => contextKey(entry) === context).length; return count === 0 ? 'Nu există încă înregistrări asociate direct acestui context.' : <>{count} {count === 1 ? 'înregistrare asociată' : 'înregistrări asociate'} direct acestui context. {onOpenContext && <button type="button" className="font-semibold underline underline-offset-2 hover:text-[var(--sg-accent-ink)]" onClick={() => { void (async () => { if (await closeForm()) { setQuery(''); onOpenContext(context) } })() }}>Vezi în dosarul intern</button>}</> })()}</p>}
             </div>
             <div>
               {editingEntry && editingEntry.attachments.length > 0 && (
@@ -613,6 +639,7 @@ export default function ProjectInternalDossier({
                 <span className="text-xs font-normal">până la 25 MiB fiecare</span>
                 <input
                   type="file"
+                  accept={ALLOWED_UPLOAD_EXTENSIONS.map(extension => `.${extension}`).join(',')}
                   multiple
                   disabled={saving}
                   onChange={event => { selectFiles(event.target.files); event.currentTarget.value = '' }}
@@ -620,6 +647,7 @@ export default function ProjectInternalDossier({
                   aria-label="Atașează fișiere"
                 />
               </label>
+              <p className="mt-1 text-xs text-ink-faint">PDF, Word, Excel, CSV sau imagini JPG, PNG, GIF și WebP.</p>
               {files.length > 0 && (
                 <ul className="mt-2 space-y-2">
                   {files.map(pending => (
@@ -645,9 +673,9 @@ export default function ProjectInternalDossier({
 
           <div className="mt-5 flex flex-wrap justify-end gap-2">
             {!createdEntryId && <Button variant="quiet" size="sm" type="button" onClick={() => void closeForm()} disabled={saving || busyAttachmentId !== null}>Renunță</Button>}
-            <Button variant="primary" size="sm" type="submit" disabled={saving || busyAttachmentId !== null || !title.trim() || files.some(file => file.tooLarge)}>
+            <Button variant="primary" size="sm" type="submit" disabled={saving || busyAttachmentId !== null || !title.trim() || files.some(file => file.tooLarge || file.invalidType)}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : files.some(file => file.error) ? <RotateCcw className="h-4 w-4" aria-hidden="true" /> : <Upload className="h-4 w-4" aria-hidden="true" />}
-              {saving ? 'Se salvează…' : files.some(file => file.tooLarge) ? 'Elimină fișierele prea mari' : files.length && (createdEntryId || editingEntry) ? `Reîncearcă fișierele (${files.length})` : editingEntry ? 'Salvează modificările' : 'Adaugă în dosar'}
+              {saving ? 'Se salvează…' : files.some(file => file.tooLarge || file.invalidType) ? 'Elimină fișierele nepermise' : files.length && (createdEntryId || editingEntry) ? `Reîncearcă fișierele (${files.length})` : editingEntry ? 'Salvează modificările' : 'Adaugă în dosar'}
             </Button>
           </div>
           </form>
@@ -655,11 +683,17 @@ export default function ProjectInternalDossier({
         </Dialog.Portal>
       </Dialog.Root>
 
-      <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Caută în dosarul intern" aria-label="Caută în dosarul intern" className="mb-4 w-full rounded-[var(--radius-plate)] border border-rule bg-paper px-3 py-2 text-sm" />
+      <div className="relative mb-4">
+        <input ref={searchRef} value={query} onChange={event => setQuery(event.target.value)} placeholder="Caută în dosarul intern" aria-label="Caută în dosarul intern" className="w-full rounded-[var(--radius-plate)] border border-rule bg-paper py-2 pl-3 pr-11 text-sm" />
+        {query && <button type="button" aria-label="Golește căutarea" data-tooltip="Golește căutarea" onClick={() => { setQuery(''); searchRef.current?.focus() }} className="absolute right-0 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-[var(--radius-plate)] text-ink-faint hover:text-ink"><X className="h-4 w-4" aria-hidden="true" /></button>}
+      </div>
 
-      {requestFilterId && <div id="internal-dossier-results" className="mb-4 flex scroll-mt-32 flex-wrap items-center gap-3 text-sm text-ink-soft">
-        <span>Înregistrări pentru cererea „{requests.find(request => request.id === requestFilterId)?.name ?? 'selectată'}”</span>
-        <button type="button" className="font-semibold text-[var(--sg-accent)]" onClick={onClearRequestFilter}>Arată tot dosarul</button>
+      {(contextFilter || (!loading && !loadError && hits.length > 0)) && <div id="internal-dossier-results" className="mb-3 flex scroll-mt-32 flex-wrap items-center justify-between gap-2">
+        {contextFilter && <span className="inline-flex min-w-0 items-center gap-2 rounded-[var(--radius-plate)] border border-[var(--sg-accent)] bg-[var(--sg-accent-soft)] px-3 py-1.5 text-xs font-medium text-[var(--sg-accent)]">
+          <span className="break-words">{contextOptions.find(option => option.key === contextFilter)?.label ?? 'Context indisponibil'}</span>
+          <button type="button" onClick={onClearContextFilter} aria-label="Elimină filtrul de context" data-tooltip="Arată tot dosarul" className="shrink-0 hover:text-[var(--sg-accent-ink)]"><X className="h-3 w-3" aria-hidden="true" /></button>
+        </span>}
+        {!loading && !loadError && hits.length > 0 && <Button className="ml-auto" variant="quiet" size="sm" onClick={toggleAllGroups} data-tooltip={allGroupsCollapsed ? 'Deschide toate grupurile' : 'Restrânge toate grupurile'}>{allGroupsCollapsed ? <ChevronsUpDown className="h-4 w-4" aria-hidden="true" /> : <ChevronsDownUp className="h-4 w-4" aria-hidden="true" />}{allGroupsCollapsed ? 'Extinde toate grupurile' : 'Restrânge toate grupurile'}</Button>}
       </div>}
 
       {loading ? (
@@ -684,12 +718,12 @@ export default function ProjectInternalDossier({
             const all = [...direct, ...activities.flatMap(activity => activity.hits)]
             if (!all.length) return null
             return (
-              <details key={`${phase.id}:${Boolean(query.trim())}:${shouldOpen(all)}`} open className="space-y-2">
+              <details data-dossier-group onToggle={updateGroupState} key={`${phase.id}:${Boolean(query.trim())}:${shouldOpen(all)}`} open={shouldOpen(all)} className="space-y-2">
                 <summary className="cursor-pointer py-2 font-bold" style={{ color: bandVar(bandFor(index)) }}>Fază: {phase.name} <span className="ml-2 text-xs font-normal text-ink-faint">{countLabel(all.length)}</span></summary>
                 <div className="space-y-3 border-l-4 pl-3" style={{ borderColor: bandVar(bandFor(index)) }}>
                   {direct.length > 0 && renderEntries(direct)}
                   {activities.filter(activity => activity.hits.length > 0).map(({ activity, hits: activityHits }) => (
-                    <details key={`${activity.id}:${Boolean(query.trim())}:${shouldOpen(activityHits)}`} open={shouldOpen(activityHits)} className="rounded-[var(--radius-plate)] bg-paper-sunk/60 px-3 py-1 sm:px-4">
+                    <details data-dossier-group onToggle={updateGroupState} key={`${activity.id}:${Boolean(query.trim())}:${shouldOpen(activityHits)}`} open={shouldOpen(activityHits)} className="rounded-[var(--radius-plate)] bg-paper-sunk/60 px-3 py-1 sm:px-4">
                       <summary className="cursor-pointer py-2 text-sm font-semibold text-ink">Activitate: {activity.name} <span className="ml-2 text-xs font-normal text-ink-faint">{countLabel(activityHits.length)}</span></summary>
                       <div className="mb-3 ml-1 border-l-2 border-[var(--sg-accent)] pl-3 sm:ml-2 sm:pl-4">
                         {renderEntries(activityHits)}

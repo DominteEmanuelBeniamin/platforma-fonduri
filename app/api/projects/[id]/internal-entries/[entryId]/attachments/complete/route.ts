@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createSupabaseServiceClient } from '@/app/api/_utils/supabase'
 import { INTERNAL_ATTACHMENT_BUCKET, internalAttachmentNotFound, internalEntryNotFound, loadInternalEntry, requireInternalProjectAccess } from '@/app/api/_utils/internal-entries'
 import type { Database } from '@/lib/database.types'
-import { isInternalEntryUuid, canEditInternalEntry, INTERNAL_ATTACHMENT_MAX_BYTES } from '@/lib/internal-entry-security'
+import { isInternalEntryUuid, canEditInternalEntry, INTERNAL_ATTACHMENT_MAX_BYTES, isAllowedInternalAttachmentName } from '@/lib/internal-entry-security'
 import { logAction } from '@/app/api/_utils/audit'
 
 type AttachmentRow = Database['public']['Tables']['project_internal_attachments']['Row']
@@ -57,6 +57,9 @@ export async function POST(
     if (error) throw error
     if (!attachment || attachment.uploaded_by !== access.user.id) return internalAttachmentNotFound()
     if (attachment.uploaded_at) return NextResponse.json({ attachment: attachmentResponse(attachment) })
+    if (!isAllowedInternalAttachmentName(attachment.original_name)) {
+      return NextResponse.json({ error: 'Tip de fișier nepermis', code: 'VALIDATION_ERROR' }, { status: 400 })
+    }
 
     const { data: info, error: infoError } = await admin.storage
       .from(INTERNAL_ATTACHMENT_BUCKET)

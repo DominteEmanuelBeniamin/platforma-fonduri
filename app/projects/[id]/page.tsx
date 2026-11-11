@@ -368,6 +368,7 @@ function ProjectDetailsContent() {
   // parametru, deci n-ar fi părut să facă nimic.
   const selectView = (view: ProjectView) => {
     if (view === 'internal' && !canUseInternal) return
+    if (view !== 'internal') { setSelectedInternalId(null); setInternalRequestId(null) }
     setActiveView(view)
     // Altă vedere, alt context: redenumirea începută nu rămâne agățată (S-11).
     setRenamingId(null)
@@ -399,6 +400,8 @@ function ProjectDetailsContent() {
   const [internalEntriesRetry, setInternalEntriesRetry] = useState(0)
   const [selectedInternalId, setSelectedInternalId] = useState<string | null>(null)
   const [internalRequestId, setInternalRequestId] = useState<string | null>(null)
+  const [newInternalContext, setNewInternalContext] = useState<string | null>(null)
+  const [createdInternalId, setCreatedInternalId] = useState<string | null>(null)
   useEffect(() => {
     let cancelled = false
     if (!canUseInternal || !projectId) { setInternalEntries([]); setInternalEntriesError(false); return }
@@ -1682,6 +1685,7 @@ function ProjectDetailsContent() {
         {activeView === 'phases' && (
           <ProjectPhasesSidebar
             phases={phases}
+            onAddInternal={canUseInternal && !projectClosed ? context => { setCreatedInternalId(null); setNewInternalContext(context) } : undefined}
             activePhaseId={landingView === 'table' ? focusedPhaseId : null}
             expandedPhases={expandedPhases}
             canEdit={canEdit}
@@ -1945,8 +1949,9 @@ function ProjectDetailsContent() {
               role={profile?.role ?? null}
               consultantLevel={profile?.consultant_level}
               selectedEntryId={selectedInternalId}
-              requestFilterId={internalRequestId}
-              onClearRequestFilter={() => setInternalRequestId(null)}
+              contextFilter={internalRequestId}
+              onClearContextFilter={() => setInternalRequestId(null)}
+              onOpenContext={context => { setSelectedInternalId(null); setInternalRequestId(context); selectView('internal') }}
               onEntriesChange={setInternalEntries}
             />
           ) : landingView === 'action-needed' ? (
@@ -2006,6 +2011,7 @@ function ProjectDetailsContent() {
                           tooltip="Acțiuni fază"
                           busy={duplicatingId === phase.id || deletingId === phase.id || completingId === phase.id}
                           actions={[
+                            { label: 'Adaugă în dosarul intern', icon: <NotebookPen className="w-3 h-3" />, hidden: !canUseInternal, onSelect: () => { setCreatedInternalId(null); setNewInternalContext(`phase:${phase.id}`) } },
                             {
                               label: 'Marchează faza ca finalizată',
                               icon: <CheckCircle2 className="w-3 h-3" />,
@@ -2089,6 +2095,7 @@ function ProjectDetailsContent() {
                               tooltip="Acțiuni activitate"
                               busy={duplicatingId === activity.id || deletingId === activity.id || completingId === activity.id}
                               actions={[
+                                { label: 'Adaugă în dosarul intern', icon: <NotebookPen className="w-3 h-3" />, hidden: !canUseInternal, onSelect: () => { setCreatedInternalId(null); setNewInternalContext(`activity:${activity.id}`) } },
                                 {
                                   label: 'Marchează activitatea ca finalizată',
                                   icon: <CheckCircle2 className="w-3 h-3" />,
@@ -2128,6 +2135,7 @@ function ProjectDetailsContent() {
                         >
                           <DocumentRequests
                             projectId={projectId}
+                            onAddInternal={canUseInternal && !projectClosed ? id => { setCreatedInternalId(null); setNewInternalContext(`requirement:${id}`) } : undefined}
                             activityId={activity.id}
                             activityName={activity.name}
                             parentActivityVisibility={activity.visibility}
@@ -2277,6 +2285,7 @@ function ProjectDetailsContent() {
                       <DocumentRequests
                         key="__general__"
                         projectId={projectId}
+                        onAddInternal={canUseInternal && !projectClosed ? id => { setCreatedInternalId(null); setNewInternalContext(`requirement:${id}`) } : undefined}
                         activityId={null}
                         activityName="Cereri generale"
                         generalConsultantId={
@@ -2308,6 +2317,15 @@ function ProjectDetailsContent() {
         </main>
       </div>
 
+      {newInternalContext && canUseInternal && !projectClosed && projectId && (
+        <ProjectInternalDossier projectId={projectId} phases={phases} requests={allDocRequests} readOnly={projectClosed} userId={profile?.id ?? null} role={profile?.role ?? null} consultantLevel={profile?.consultant_level} initialContext={newInternalContext} onEntriesChange={setInternalEntries} onFormClose={() => setNewInternalContext(null)} onCreated={id => { setNewInternalContext(null); setCreatedInternalId(id) }} onOpenContext={context => { setSelectedInternalId(null); setInternalRequestId(context); selectView('internal') }} />
+      )}
+      {createdInternalId && <div role="status" className="fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-lg border border-rule bg-plate p-3 shadow-lg text-sm">
+        <span>Adăugat în dosarul intern.</span>
+        <button type="button" className="font-semibold text-[var(--sg-accent)]" onClick={() => { setSelectedInternalId(createdInternalId); setInternalRequestId(null); setCreatedInternalId(null); selectView('internal') }}>Vezi înregistrarea</button>
+        <button type="button" aria-label="Închide" onClick={() => setCreatedInternalId(null)}>×</button>
+      </div>}
+
       {projectId && (
         <ProjectChatDrawer
           open={chatOpen}
@@ -2338,7 +2356,7 @@ function ProjectDetailsContent() {
             setSelectedDocumentRequestId(null)
             pendingRevealAnchor.current = null
             setSelectedInternalId(null)
-            setInternalRequestId(selectedDocumentRequest.id)
+            setInternalRequestId(`requirement:${selectedDocumentRequest.id}`)
             selectView('internal')
           } : undefined}
           projectId={projectId!}

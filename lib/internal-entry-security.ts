@@ -1,4 +1,5 @@
 import type { AppProfile } from '@/app/api/_utils/auth'
+import { ALLOWED_UPLOAD_EXTENSIONS, getFileExtension } from './upload-file-types.ts'
 
 export const INTERNAL_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024
 export const INTERNAL_ENTRY_TITLE_MAX_LENGTH = 200
@@ -93,6 +94,10 @@ export function normalizeInternalAttachmentName(name: string) {
   return filename.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 255)
 }
 
+export function isAllowedInternalAttachmentName(name: string) {
+  return ALLOWED_UPLOAD_EXTENSIONS.includes(getFileExtension(name))
+}
+
 export function parseInternalAttachmentInput(value: unknown):
   | { ok: true; value: { originalName: string; mimeType: string; fileSize: number } }
   | { ok: false; error: string } {
@@ -108,6 +113,9 @@ export function parseInternalAttachmentInput(value: unknown):
   if (!originalName) return { ok: false, error: 'originalName is required' }
   if (typeof body.mimeType !== 'string' || body.mimeType.length > 255) {
     return { ok: false, error: 'mimeType must be a string of at most 255 characters' }
+  }
+  if (!isAllowedInternalAttachmentName(originalName)) {
+    return { ok: false, error: 'Tip de fișier nepermis' }
   }
   if (typeof body.fileSize !== 'number' || !Number.isSafeInteger(body.fileSize) ||
       body.fileSize < 0 || body.fileSize > INTERNAL_ATTACHMENT_MAX_BYTES) {
