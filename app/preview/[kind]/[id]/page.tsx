@@ -43,7 +43,10 @@ export default function PreviewPage({
   const [downloading, setDownloading] = useState(false)
   const startedRef = useRef(false)
 
-  const endpoint = kind === 'attachment'
+  const query = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+  const endpoint = kind === 'internal'
+    ? `/api/projects/${encodeURIComponent(query?.get('projectId') ?? '')}/internal-entries/${encodeURIComponent(query?.get('entryId') ?? '')}/attachments/${encodeURIComponent(id)}/signed-download`
+    : kind === 'attachment'
     ? `/api/document-requests/${id}/attachment/signed-download`
     : `/api/files/${id}/signed-download`
 
@@ -55,7 +58,7 @@ export default function PreviewPage({
 
   useEffect(() => {
     if (authLoading || !token) return
-    if (kind !== 'file' && kind !== 'attachment') {
+    if (kind !== 'file' && kind !== 'attachment' && kind !== 'internal') {
       setError('Adresă de vizualizare invalidă')
       setStatus('error')
       return

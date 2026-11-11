@@ -18,6 +18,7 @@ import type {
 } from './types'
 import { Spinner } from '@/components/ui/Spinner'
 import { formatDate } from '@/lib/signage'
+import { visibleDriveFileCount } from '@/lib/drive-grouping'
 import {
   FilePreview, StatusPill, PublicationPill,
   getAssetDisplayName, assetActionId, driveStatusLabel,
@@ -83,7 +84,7 @@ export default function LogicalDriveFilesView({
 
   const filteredDocuments = useMemo(() => {
     const source = !hasSearch && browseMode === 'folders' && effectiveFolderId
-      ? documents.filter(document => document.folderId === effectiveFolderId)
+      ? documents.filter(document => effectiveFolderId === 'internal' ? document.internal : document.folderId === effectiveFolderId)
       : documents
     return source.filter(document => filterStatus === 'all' || document.docStatus === filterStatus)
   }, [browseMode, documents, effectiveFolderId, filterStatus, hasSearch])
@@ -113,7 +114,8 @@ export default function LogicalDriveFilesView({
       { key: 'older', label: 'Versiuni vechi', value: names(older.flatMap(version => version.assets)), shown: false },
       { key: 'status', label: 'Status', value: driveStatusLabel(document.docStatus, isClient), shown: false },
     ]
-  }), [sortedDocuments, search, isClient])
+  }).sort((a, b) => Number(Boolean(a.item.internal)) - Number(Boolean(b.item.internal))), [sortedDocuments, search, isClient])
+  const visibleFileCount = documentHits.reduce((count, hit) => count + visibleDriveFileCount(hit.item), 0)
 
   // Un singur pas înapoi: întâi ieșim din căutare, apoi din folder.
   const goBack = () => {
@@ -125,6 +127,7 @@ export default function LogicalDriveFilesView({
     const actionId = assetActionId(asset)
     setDownloading(actionId)
     try {
+      if (asset.onDownload) { await asset.onDownload(); return }
       const url = await fetchDriveSignedUrl(apiFetch, asset)
       if (!url) { showToast(DOWNLOAD_ERROR, 'error'); return }
       downloadUrl(url)
@@ -134,6 +137,7 @@ export default function LogicalDriveFilesView({
   }
 
   const openAsset = (asset: DriveAsset) => {
+    if (asset.previewUrl) { openInNewTab(asset.previewUrl); return }
     if (!isPreviewableFile({ fileName: getAssetDisplayName(asset) })) return
     openInNewTab(buildPreviewPageUrl({
       type: asset.downloadKind === 'requestAttachment' ? 'attachment' : 'file',
@@ -152,7 +156,7 @@ export default function LogicalDriveFilesView({
 
   const renderAsset = (asset: DriveAsset) => {
     const actionId = assetActionId(asset)
-    const previewable = isPreviewableFile({ fileName: getAssetDisplayName(asset) })
+    const previewable = (!asset.onDownload || !!asset.previewUrl) && isPreviewableFile({ mimeType: asset.mimeType, fileName: getAssetDisplayName(asset) })
     return (
       <div key={asset.id} className="flex items-center gap-3 border-t border-rule px-3 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -200,7 +204,7 @@ export default function LogicalDriveFilesView({
               size="sm"
             />
             <div className="min-w-0 flex-1">
-              <button type="button" onClick={() => selectDocument(document)} className="block w-full cursor-pointer text-left" aria-label={`Deschide cererea ${document.docName}`} title="Deschide cererea de document">
+              <button type="button" onClick={() => selectDocument(document)} className="block w-full cursor-pointer text-left" aria-label={`${document.internal ? 'Deschide înregistrarea' : 'Deschide cererea'} ${document.docName}`} title={document.internal ? 'Deschide înregistrarea din dosarul intern' : 'Deschide cererea de document'}>
                 <p className="break-words text-sm font-semibold text-ink hover:text-[var(--sg-accent)] hover:underline sm:truncate"><Highlight text={document.docName} ranges={rangesOf(matches, 'title')} /></p>
               </button>
               <div className="flex min-w-0 items-center gap-1 truncate text-xs text-ink-soft">
@@ -219,8 +223,7 @@ export default function LogicalDriveFilesView({
             </div>
           </div>
           <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
-            {document.publicationStatus === 'unpublished' && <PublicationPill reason={document.publicationReason} />}
-            <StatusPill status={document.docStatus} />
+            {document.internal ? <span className="rounded-full bg-[var(--sg-accent-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--sg-accent)]">Intern</span> : <>{document.publicationStatus === 'unpublished' && <PublicationPill reason={document.publicationReason} />}<StatusPill status={document.docStatus} /></>}
             {hasHistory && (
               <button type="button" onClick={() => toggleExpanded(document.id)} className="max-w-full rounded-lg px-2 py-1 text-left text-xs font-semibold text-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)]" aria-expanded={expanded} aria-controls={`drive-document-${document.id}`} aria-label={expanded ? 'Ascunde istoricul' : `Vezi istoricul: ${document.versions.length} versiuni, ${totalAssetCount} fișiere`}>
                 <span className="sm:hidden">{expanded ? 'Ascunde istoricul' : `Istoric (${document.versions.length})`}</span>
@@ -296,7 +299,7 @@ export default function LogicalDriveFilesView({
           <option value="status:asc">După status</option>
         </select>
         <span className="flex-1" />
-        <span className="text-xs text-ink-soft">{documentHits.length} {documentHits.length === 1 ? 'document' : 'documente'}</span>
+        <span className="text-xs text-ink-soft">{visibleFileCount} {visibleFileCount === 1 ? 'fișier' : 'fișiere'}</span>
       </div>
     </div>
   )
@@ -370,7 +373,7 @@ export default function LogicalDriveFilesView({
             <div className="flex flex-col items-center justify-center py-24 text-center"><FolderOpen className="mb-4 h-16 w-16 text-ink-faint" /><p className="font-semibold text-ink">Nu există foldere</p><p className="text-sm text-ink-soft">Documentele vor apărea aici când vor fi disponibile.</p></div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {folders.map(folder => <button data-tooltip="Deschide dosarul" type="button" key={folder.id} onClick={() => onFolderChange?.(folder.id)} className="flex items-center gap-3 rounded-xl border border-rule p-4 text-left transition hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)]"><FolderOpen className="h-8 w-8 flex-shrink-0 text-[var(--sg-accent)]" /><span className="min-w-0 flex-1"><span className="block truncate font-semibold text-ink">{folder.name}</span><span className="text-xs text-ink-soft">{folder.documentCount} {folder.documentCount === 1 ? 'document' : 'documente'}</span></span><span className="text-ink-faint">›</span></button>)}
+              {folders.map(folder => <button data-tooltip="Deschide dosarul" type="button" key={folder.id} onClick={() => onFolderChange?.(folder.id)} className="flex items-center gap-3 rounded-xl border border-rule p-4 text-left transition hover:border-[var(--sg-accent)] hover:bg-[var(--sg-accent-soft)]"><FolderOpen className="h-8 w-8 flex-shrink-0 text-[var(--sg-accent)]" /><span className="min-w-0 flex-1"><span className="block truncate font-semibold text-ink">{folder.name}</span><span className="text-xs text-ink-soft">{folder.documentCount} {folder.documentCount === 1 ? 'fișier' : 'fișiere'}</span></span><span className="text-ink-faint">›</span></button>)}
             </div>
           )
         ) : noResults ? (

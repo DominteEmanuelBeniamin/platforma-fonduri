@@ -192,6 +192,7 @@ interface DocumentRequestsProps {
   externalRequests?: any[]
   /** Callback refresh pentru pagina părinte */
   onRefresh?: () => void | Promise<void>
+  onAddInternal?: (requestId: string) => void
   /** Date client pentru reminder-uri — transmise din pagina proiectului */
   clientEmail?: string | null
   clientName?: string | null
@@ -239,6 +240,7 @@ export default function DocumentRequests({
   projectMembers = [],
   externalRequests,
   onRefresh,
+  onAddInternal,
   clientEmail,
   clientName,
   projectTitle,
@@ -1238,6 +1240,7 @@ export default function DocumentRequests({
                           tooltip="Acțiuni cerere"
                           size="sm"
                           actions={[
+                            { label: 'Adaugă în dosarul intern', icon: <FileText className="w-3 h-3" />, hidden: !onAddInternal, onSelect: () => onAddInternal?.(req.id) },
                             {
                               label: 'Modifică cererea',
                               icon: <Pencil className="w-3 h-3" />,

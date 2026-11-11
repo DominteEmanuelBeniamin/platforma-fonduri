@@ -15,12 +15,14 @@ export function AutoGrowTextarea({
   placeholder,
   id,
   className = '',
+  disabled = false,
 }: {
   value: string
   onChange: (value: string) => void
   placeholder?: string
   id?: string
   className?: string
+  disabled?: boolean
 }) {
   const ref = useRef<HTMLTextAreaElement>(null)
 
@@ -40,6 +42,7 @@ export function AutoGrowTextarea({
       onChange={event => onChange(event.target.value)}
       placeholder={placeholder}
       rows={2}
+      disabled={disabled}
       className={`block min-h-[calc(2lh+1rem)] max-h-[calc(8lh+1rem)] w-full resize-none overflow-y-auto rounded-[var(--radius-plate)] border border-rule bg-plate px-3 py-2 text-sm leading-5 text-ink placeholder:text-ink-faint transition-colors duration-[120ms] [field-sizing:content] focus:border-[var(--sg-accent)] ${className}`}
     />
   )
