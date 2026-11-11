@@ -419,10 +419,17 @@ export default function DocumentRequests({
     profile?.role === 'admin' || profile?.role === 'consultant',
   )
 
-  // Documente trimise de consultant CĂTRE client (informative) — nivel proiect
+  // Documente trimise de consultant CĂTRE client (informative). Stau unde au
+  // fost puse: cele dintr-o activitate (de obicei venite din șablon) sub
+  // activitatea lor, cele trimise direct din proiect în grupul „Documente
+  // trimise clientului”. Un document apare într-un singur loc.
   const outgoingDocs = useMemo(() => {
-    return (externalRequests ?? internalRequests).filter((r: any) => r.is_outgoing && !r.deleted_at)
-  }, [externalRequests, internalRequests])
+    return (externalRequests ?? internalRequests).filter((r: any) =>
+      r.is_outgoing && !r.deleted_at && (activityId ? r.activity_id === activityId : !r.activity_id)
+    )
+  }, [externalRequests, internalRequests, activityId])
+  /** Documentele trimise care se desenează sub activitatea asta. */
+  const activityOutgoing = section === 'requests' && activityId ? outgoingDocs : []
 
   useEffect(() => {
     if (!autoOpenRequestId) return
@@ -1104,7 +1111,7 @@ export default function DocumentRequests({
           </div>
         ) : (
         <div style={{ '--req-cols': requestColumns } as CSSProperties}>
-          {requests.length === 0 ? (
+          {requests.length === 0 && activityOutgoing.length === 0 ? (
             <p className={`px-3 py-3 text-sm text-ink-soft ${activityId ? '@min-[50rem]:pl-9' : ''}`}>
               {isClient ? 'Nicio cerere publicată încă. Cererile de documente vor apărea aici după ce sunt publicate.' : 'Nicio cerere de document încă.'}
             </p>
@@ -1130,7 +1137,7 @@ export default function DocumentRequests({
               const statusInfo = requestStatusInfo(displayedRequestStatus(req))
               const isClosed = req.status === 'closed'
               const uploadedAt = lastUploadAt(req)
-              const isLast = index === displayRequests.length - 1
+              const isLast = index === displayRequests.length - 1 && activityOutgoing.length === 0
               // Motivul respingerii nu mai stă într-o casetă sub rând: coloana
               // de status spune deja „Respins”, motivul e în tooltip-ul ei și
               // în dialogul cererii.
@@ -1334,6 +1341,88 @@ export default function DocumentRequests({
                       </button>
                     </div>
                   ) : null} */}
+                  </div>
+                </div>
+              )
+            })}
+            {/* Documentele trimise clientului puse în activitate (din șablon):
+                stau sub cererile ei, pe aceleași coloane. Nu așteaptă răspuns,
+                deci nu au status de cerere, termen sau încărcare. */}
+            {activityOutgoing.map((doc, index) => {
+              const isLast = index === activityOutgoing.length - 1
+              const files = getRequestAttachments(doc)
+              const fileNames = files.map(attachment => attachment.original_name || attachment.storage_path.split('/').pop() || 'document').join(', ')
+              return (
+                <div
+                  key={doc.id}
+                  id={`request-${doc.id}`}
+                  data-sent-document="true"
+                  onClick={() => setSelectedOutgoingDoc(doc)}
+                  className="group relative scroll-mt-24 cursor-pointer border-b border-rule/70 transition-colors duration-[120ms] hover:bg-paper/60 md:scroll-mt-48"
+                >
+                  {!isLast && (
+                    <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 -left-2 border-l @min-[50rem]:left-[1.3rem]" style={TREE_LINE} />
+                  )}
+                  <div className="relative grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1.5 px-1 py-2 @min-[50rem]:grid-cols-(--req-cols) @min-[50rem]:gap-0 @min-[50rem]:p-0">
+                    <span aria-hidden="true" className="pointer-events-none absolute -left-2 top-0 h-[1.15rem] w-2.5 rounded-bl-[6px] border-b border-l @min-[50rem]:left-[1.3rem] @min-[50rem]:h-1/2 @min-[50rem]:w-3" style={TREE_LINE} />
+                    <div className="flex min-w-0 items-start gap-1.5 @min-[50rem]:col-span-2 @min-[50rem]:items-center @min-[50rem]:py-1.5 @min-[50rem]:pl-9 @min-[50rem]:pr-2">
+                      <FileText className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint @min-[50rem]:mt-0" aria-hidden="true" />
+                      <div className="min-w-0">
+                        <button
+                          type="button"
+                          data-tooltip={isClient ? 'Vezi și descarcă documentul' : 'Vezi documentul trimis clientului'}
+                          onClick={e => { e.stopPropagation(); setSelectedOutgoingDoc(doc) }}
+                          className="min-w-0 break-words text-left text-[13px] leading-snug text-ink hover:underline"
+                        >
+                          {doc.name}
+                        </button>
+                        {fileNames && fileNames !== doc.name && <p className="line-clamp-1 text-xs leading-5 text-ink-faint">{fileNames}</p>}
+                      </div>
+                    </div>
+                    <div className="col-span-2 row-start-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 pl-6 @min-[50rem]:contents">
+                      <div className={CELL}>
+                        <StatusCell
+                          tone="neutral"
+                          label={isClient ? 'De la consultant' : 'Trimis clientului'}
+                          hint={isClient ? 'Document de citit sau de completat; nu trebuie încărcat nimic înapoi.' : 'Document de citit sau de completat; clientul nu trebuie să răspundă.'}
+                        />
+                      </div>
+                      <div className={CELL}>
+                        <span className="text-xs tabular-nums text-ink-soft">{countLabel(files.length, 'fișier', 'fișiere')}</span>
+                      </div>
+                      <div className={CELL}>
+                        <span aria-hidden="true" className="text-xs text-ink-faint">—</span>
+                        <span className="sr-only">Fără termen</span>
+                      </div>
+                      {isAdminOrConsultant && (
+                        <div className={`${CELL} @min-[50rem]:px-2`}>
+                          <PublishStatusControl
+                            status={doc.visibility ?? 'draft'}
+                            canPublish={canChange}
+                            showPublishedStatus
+                            onPublish={() => publishRequest(doc.id)}
+                            compact
+                            size="sm"
+                          />
+                        </div>
+                      )}
+                    </div>
+                    {canChange && (
+                      <div
+                        className={`col-start-2 row-start-1 flex items-start justify-center transition-opacity duration-[120ms] pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 has-[:focus-visible]:opacity-100 has-[[data-open=true]]:opacity-100 @min-[50rem]:col-start-auto @min-[50rem]:row-start-auto ${CELL}`}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <RowActionsMenu
+                          label={`Acțiuni pentru documentul ${doc.name}`}
+                          tooltip="Acțiuni document"
+                          size="sm"
+                          actions={[
+                            { label: 'Deschide', icon: <Eye className="w-3 h-3" />, onSelect: () => setSelectedOutgoingDoc(doc) },
+                            { label: 'Șterge documentul', icon: <Trash2 className="w-3 h-3" />, danger: true, onSelect: () => setRequestToDelete(doc) },
+                          ]}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               )

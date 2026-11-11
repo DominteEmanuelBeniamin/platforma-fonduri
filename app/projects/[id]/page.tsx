@@ -995,9 +995,10 @@ function ProjectDetailsContent() {
     revealTarget(`activity-${activityId}`, 120, 'start')
   }
 
-  /** Id-ul e al unui document trimis clientului (grupul lui, nu „Cereri generale”). */
+  /** Id-ul e al unui document trimis direct din proiect (grupul lui, nu „Cereri
+   *  generale”). Cel pus într-o activitate stă sub activitatea lui. */
   const isSentDocument = (id: string | null | undefined) =>
-    !!id && allDocRequests.some((r: any) => r.id === id && r.is_outgoing)
+    !!id && allDocRequests.some((r: any) => r.id === id && r.is_outgoing && !(r.activity?.id ?? r.activity_id))
 
   const handleSelectSent = () => {
     selectView('phases')
@@ -1339,7 +1340,7 @@ function ProjectDetailsContent() {
 
   // Un grup selectat rămâne vizibil și gol, ca să poată explica lipsa conținutului.
   const showGeneralGroup = focusId === GENERAL_ID || canChange || allDocRequests.some((r: any) => !r.deleted_at && !r.is_outgoing && !(r.activity?.id ?? r.activity_id))
-  const showSentGroup = focusId === SENT_ID || canChange || allDocRequests.some((r: any) => !r.deleted_at && r.is_outgoing)
+  const showSentGroup = focusId === SENT_ID || canChange || allDocRequests.some((r: any) => !r.deleted_at && r.is_outgoing && !(r.activity?.id ?? r.activity_id))
   const sentTitle = isClient ? 'Documente de la consultant' : 'Documente trimise clientului'
   const [sendOpen, setSendOpen] = useState(false)
 

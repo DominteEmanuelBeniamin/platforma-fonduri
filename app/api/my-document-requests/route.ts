@@ -75,7 +75,7 @@ export async function GET(request: Request) {
       // Documente informative recente (trimise clientului) — pentru secțiunea „Documente recente"
       const { data: infoRows } = await admin
         .from('document_requirements')
-        .select('id, name, project_id, created_at, visibility, activity:activity_id(visibility, phase:phase_id(visibility)), project:project_id(title)')
+        .select('id, name, project_id, activity_id, created_at, visibility, activity:activity_id(visibility, phase_id, phase:phase_id(visibility)), project:project_id(title)')
         .in('project_id', clientProjectIds)
         .eq('is_outgoing', true)
         .eq('visibility', 'published')
@@ -89,6 +89,9 @@ export async function GET(request: Request) {
         project_id: d.project_id,
         project_title: (d.project as any)?.title ?? null,
         created_at: d.created_at,
+        // Un document pus într-o activitate se deschide acolo, nu în grupul de jos.
+        activity_id: d.activity_id ?? null,
+        phase_id: (d.activity as any)?.phase_id ?? null,
       }))
 
       return NextResponse.json({ requests, informativeDocs })
