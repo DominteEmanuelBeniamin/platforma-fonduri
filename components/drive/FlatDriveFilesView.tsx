@@ -17,6 +17,7 @@ import type {
   SortKey, SortDir, ViewMode,
 } from './types'
 import { Spinner } from '@/components/ui/Spinner'
+import { ShareFileButton } from '@/components/ShareFileButton'
 import { formatDate } from '@/lib/signage'
 import {
   getExt, isImageExt, getDisplayName,
@@ -361,6 +362,16 @@ export default function FlatDriveFilesView({
                       : <Download className="h-4 w-4" />
                     }
                   </button>
+                  {(row.downloadKind === 'requestAttachment' ? row.requestId : row.fileId) && (
+                    <ShareFileButton
+                      target={row.downloadKind === 'requestAttachment'
+                        ? { kind: 'attachment', requestId: row.requestId!, attachmentId: row.attachmentId ?? null }
+                        : { kind: 'file', fileId: row.fileId! }}
+                      fileName={getDisplayName(row)}
+                      documentName={row.docName}
+                      apiFetch={apiFetch}
+                    />
+                  )}
                 </div>
               </div>
             ))}
@@ -429,6 +440,16 @@ export default function FlatDriveFilesView({
                     >
                       <Download className="h-3.5 w-3.5" />
                     </button>
+                    {(row.downloadKind === 'requestAttachment' ? row.requestId : row.fileId) && (
+                      <ShareFileButton
+                        target={row.downloadKind === 'requestAttachment'
+                          ? { kind: 'attachment', requestId: row.requestId!, attachmentId: row.attachmentId ?? null }
+                          : { kind: 'file', fileId: row.fileId! }}
+                        fileName={getDisplayName(row)}
+                        documentName={row.docName}
+                        apiFetch={apiFetch}
+                      />
+                    )}
                   </div>
                 </div>
 

@@ -17,6 +17,7 @@ import type {
   SortKey, SortDir,
 } from './types'
 import { Spinner } from '@/components/ui/Spinner'
+import { ShareFileButton } from '@/components/ShareFileButton'
 import { formatDate } from '@/lib/signage'
 import {
   FilePreview, StatusPill, PublicationPill,
@@ -174,6 +175,15 @@ export default function LogicalDriveFilesView({
           <button type="button" onClick={() => downloadAsset(asset)} disabled={downloading === actionId} className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-ink-faint hover:bg-paper-sunk hover:text-[var(--sg-accent)] disabled:opacity-50" title="Descarcă" aria-label={`Descarcă ${getAssetDisplayName(asset)}`}>
             {downloading === actionId ? <Spinner size="sm" /> : <Download className="h-4 w-4" />}
           </button>
+          {(asset.downloadKind === 'requestAttachment' ? asset.requestId : asset.fileId) && (
+            <ShareFileButton
+              target={asset.downloadKind === 'requestAttachment'
+                ? { kind: 'attachment', requestId: asset.requestId!, attachmentId: asset.attachmentId ?? null }
+                : { kind: 'file', fileId: asset.fileId! }}
+              fileName={getAssetDisplayName(asset)}
+              apiFetch={apiFetch}
+            />
+          )}
         </div>
       </div>
     )
