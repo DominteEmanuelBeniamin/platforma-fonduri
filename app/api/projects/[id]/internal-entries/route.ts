@@ -11,14 +11,22 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     if (!access.ok) return access.response
 
     const admin = createSupabaseServiceClient()
-    const { data, error } = await admin.from('project_internal_entries')
-      .select('*')
-      .eq('project_id', projectId)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false })
-    if (error) throw error
+    const entries = []
+    const pageSize = 200
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await admin.from('project_internal_entries')
+        .select('*')
+        .eq('project_id', projectId)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(from, from + pageSize - 1)
+      if (error) throw error
+      entries.push(...await formatInternalEntries(admin, projectId, data ?? []))
+      if (!data || data.length < pageSize) break
+    }
 
-    return NextResponse.json({ entries: await formatInternalEntries(admin, projectId, data ?? []) }, {
+    return NextResponse.json({ entries }, {
       headers: { 'Cache-Control': 'private, no-store' },
     })
   } catch (error) {

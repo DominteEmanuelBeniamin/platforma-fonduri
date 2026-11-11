@@ -64,13 +64,23 @@ export async function formatInternalEntries(
   const activityIds = [...new Set(rows.map(row => row.activity_id).filter((id): id is string => Boolean(id)))]
   const requirementIds = [...new Set(rows.map(row => row.document_requirement_id).filter((id): id is string => Boolean(id)))]
 
-  const [attachmentsResult, authorsResult, phasesResult, activitiesResult, requirementsResult] = await Promise.all([
-    admin.from('project_internal_attachments')
+  const attachments: (InternalAttachmentResponse & { entry_id: string })[] = []
+  const pageSize = 200
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await admin.from('project_internal_attachments')
       .select('id, entry_id, original_name, mime_type, file_size, created_at, uploaded_by')
       .in('entry_id', entryIds)
       .is('deleted_at', null)
       .not('uploaded_at', 'is', null)
-      .order('created_at', { ascending: true }),
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, from + pageSize - 1)
+    if (error) throw error
+    attachments.push(...(data ?? []))
+    if (!data || data.length < pageSize) break
+  }
+
+  const [authorsResult, phasesResult, activitiesResult, requirementsResult] = await Promise.all([
     authorIds.length
       ? admin.from('profiles').select('id, full_name').in('id', authorIds)
       : Promise.resolve({ data: [], error: null }),
@@ -84,7 +94,7 @@ export async function formatInternalEntries(
       ? admin.from('document_requirements').select('id, name').eq('project_id', projectId).in('id', requirementIds)
       : Promise.resolve({ data: [], error: null }),
   ])
-  const queryError = attachmentsResult.error || authorsResult.error || phasesResult.error || activitiesResult.error || requirementsResult.error
+  const queryError = authorsResult.error || phasesResult.error || activitiesResult.error || requirementsResult.error
   if (queryError) throw queryError
 
   const activities = activitiesResult.data ?? []
@@ -102,7 +112,7 @@ export async function formatInternalEntries(
     .map(activity => [activity.id, activity.name]))
   const requirements = new Map((requirementsResult.data ?? []).map(requirement => [requirement.id, requirement.name]))
   const attachmentsByEntry = new Map<string, InternalAttachmentResponse[]>()
-  for (const row of attachmentsResult.data ?? []) {
+  for (const row of attachments) {
     const list = attachmentsByEntry.get(row.entry_id) ?? []
     list.push({
       id: row.id,
