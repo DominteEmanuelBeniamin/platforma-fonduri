@@ -373,3 +373,15 @@ html body[data-scroll-locked] { margin-right: 0 !important; }
   font-family: var(--font-display);
 }
 /* ── Coada moștenită de mai sus deservește rutele încă nemigrate. Dispare pe măsură ce fiecare rută trece pe programul de semnalizare. ── */
+
+/* Foaia de jos (`components/ui/Sheet.tsx`) urcă scurt; fundalul apare odată cu ea. */
+@keyframes sheetSlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes sheetFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.sheet-slide-up { animation: sheetSlideUp 0.22s cubic-bezier(0.32, 0.72, 0, 1); }
+.sheet-fade-in { animation: sheetFadeIn 0.22s ease-out; }
