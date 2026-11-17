@@ -7,6 +7,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { finalizeLocalFixture } from '../../../scripts/local-account-fixtures.mjs'
 import { BUCKET, e2eEnv, requireE2EConfig } from '../helpers/project-state'
 
 export const env = e2eEnv()
@@ -89,12 +90,14 @@ export class AccountRegistry {
     if (made.error || !made.data.user) throw new Error('Nu am putut crea contul de test: ' + made.error?.message)
     const account: Account = { id: made.data.user.id, email, password, fullName, role }
     this.created.push(account)
-    const profile = await service.from('profiles').update({
-      role: role === 'senior' || role === 'junior' ? 'consultant' : role,
-      consultant_level: role === 'senior' ? 'senior' : 'junior',
+    // De la #110 un cont nou pornește „în creare” și inactiv; contul de test
+    // se finalizează ca după ruta adminului (client cu CIF valid).
+    const dbRole = role === 'senior' || role === 'junior' ? 'consultant' : role
+    await finalizeLocalFixture(service, account.id, {
+      role: dbRole,
+      ...(dbRole === 'consultant' ? { consultant_level: role === 'senior' ? 'senior' : 'junior' } : {}),
       full_name: fullName,
-    }).eq('id', account.id)
-    if (profile.error) throw new Error('Nu am putut pregăti profilul de test: ' + profile.error.message)
+    }).catch((error: Error) => { throw new Error('Nu am putut pregăti profilul de test: ' + error.message) })
     return account
   }
 
