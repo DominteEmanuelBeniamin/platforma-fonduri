@@ -19,6 +19,7 @@ import {
   Check,
   AlertTriangle,
   PanelLeftClose,
+  NotebookPen,
 } from 'lucide-react'
 
 import InlineDateEditor from '@/components/InlineDateEditor'
@@ -116,6 +117,7 @@ interface ProjectPhasesSidebarProps {
   onShowAll?: () => void
   /** Tabelul arată acum toate fazele — „Toate fazele” e alegerea curentă. */
   showingAll?: boolean
+  onAddInternal?: (context: string) => void
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -175,6 +177,7 @@ export default function ProjectPhasesSidebar({
   onCollapsedChange,
   onShowAll,
   showingAll = false,
+  onAddInternal,
   activityHint,
   sent,
 }: ProjectPhasesSidebarProps) {
@@ -654,6 +657,7 @@ export default function ProjectPhasesSidebar({
                         // pe telefon rămâne vizibil.
                         className="md:opacity-0 md:group-hover:opacity-100 pointer-coarse:opacity-100 has-[:focus-visible]:opacity-100 data-[open=true]:opacity-100 transition-opacity"
                         actions={[
+                          { label: 'Adaugă în dosarul intern', icon: <NotebookPen className="w-3 h-3" />, hidden: !onAddInternal, onSelect: () => onAddInternal?.(`phase:${phase.id}`) },
                           {
                             label: 'Redenumește',
                             icon: <Pencil className="w-3 h-3" />,
@@ -790,6 +794,7 @@ export default function ProjectPhasesSidebar({
                               busy={duplicatingActivity === act.id || deletingActivity === act.id}
                               className="md:opacity-0 md:group-hover/act:opacity-100 pointer-coarse:opacity-100 has-[:focus-visible]:opacity-100 data-[open=true]:opacity-100 transition-opacity"
                               actions={[
+                                { label: 'Adaugă în dosarul intern', icon: <NotebookPen className="w-3 h-3" />, hidden: !onAddInternal, onSelect: () => onAddInternal?.(`activity:${act.id}`) },
                                 {
                                   label: 'Redenumește',
                                   icon: <Pencil className="w-3 h-3" />,

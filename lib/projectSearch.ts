@@ -5,7 +5,7 @@ import { formatDate } from './signage.ts'
 import { isEmptyQuery, searchItems, type SearchField, type SearchHit } from './search.ts'
 import type { ProjectPhase } from '@/components/ProjectPhasesSidebar'
 
-export type SearchResultType = 'phase' | 'activity' | 'document_request'
+export type SearchResultType = 'phase' | 'activity' | 'document_request' | 'internal_entry'
 
 export interface SearchResult {
   id: string

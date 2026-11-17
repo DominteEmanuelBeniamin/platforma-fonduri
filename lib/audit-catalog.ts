@@ -22,6 +22,8 @@ export const AUDIT_ENTITY_LABELS = {
   user: 'Utilizator',
   project: 'Proiect',
   document: 'Document',
+  project_internal_entry: 'Înregistrare în dosarul intern',
+  project_internal_attachment: 'Fișier din dosarul intern',
   document_request: 'Cerere de document',
   document_review: 'Verificare document',
   request: 'Cerere',
