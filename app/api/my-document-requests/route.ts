@@ -75,11 +75,15 @@ export async function GET(request: Request) {
       // Documente informative recente (trimise clientului) — pentru secțiunea „Documente recente"
       const { data: infoRows } = await admin
         .from('document_requirements')
-        .select('id, name, project_id, activity_id, created_at, visibility, activity:activity_id(visibility, phase_id, phase:phase_id(visibility)), project:project_id(title)')
+        .select('id, name, project_id, activity_id, created_at, visibility, activity:activity_id(visibility, phase_id, phase:phase_id!inner(visibility)), project:project_id(title)')
         .in('project_id', clientProjectIds)
         .eq('is_outgoing', true)
         .eq('visibility', 'published')
         .is('deleted_at', null)
+        // Aplică vizibilitatea înainte de limită, inclusiv pentru documentele fără activitate.
+        .eq('activity.visibility', 'published')
+        .eq('activity.phase.visibility', 'published')
+        .or('activity_id.is.null,activity.not.is.null')
         .order('created_at', { ascending: false })
         .limit(6)
 

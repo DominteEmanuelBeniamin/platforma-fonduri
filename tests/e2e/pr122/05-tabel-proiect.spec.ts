@@ -325,6 +325,48 @@ test.describe('Flux 5 — pagina proiectului ca tabel, ca echipă', () => {
     await expect(client.activity(activityId).locator(`#request-${sentId}`)).toContainText('De la consultant')
     await expect(client.group('Documente de la consultant')).not.toContainText('Model declarație')
   })
+
+  test('Documente recente păstrează documentele vizibile când cele mai noi au părinți nepublicați', async ({ team, as, seeds }) => {
+    const project = await seedProject({
+      label: 'documente-recente-vizibile',
+      client: team.client,
+      members: [team.senior],
+      phases: [
+        {
+          name: 'Fază publicată',
+          activities: [
+            { name: 'Activitate publicată', requests: [{ name: 'Model vizibil în activitate', outgoing: true }] },
+            {
+              name: 'Activitate nepublicată',
+              visibility: 'draft',
+              requests: Array.from({ length: 3 }, (_, i) => ({ name: `Model din activitatea nepublicată ${i}`, outgoing: true })),
+            },
+          ],
+        },
+        {
+          name: 'Fază nepublicată',
+          visibility: 'draft',
+          activities: [{
+            name: 'Altă activitate publicată',
+            requests: Array.from({ length: 3 }, (_, i) => ({ name: `Model din faza nepublicată ${i}`, outgoing: true })),
+          }],
+        },
+      ],
+      general: [{ name: 'Ghid general vizibil', outgoing: true }],
+    })
+    seeds.projects.add(project.id)
+
+    const page = await as(team.client)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Documente: 2' }).click()
+    const phaseId = project.phases.get('Fază publicată')
+    const activityId = project.activities.get('Activitate publicată')
+    const documentId = project.requests.get('Model vizibil în activitate')
+    await expect(page.getByRole('link', { name: /Model vizibil în activitate/ })).toHaveAttribute(
+      'href', `/projects/${project.id}?phase=${phaseId}&activity=${activityId}&document=${documentId}#activity-${activityId}`,
+    )
+    await expect(page.getByRole('link', { name: /Ghid general vizibil/ })).toBeVisible()
+  })
 })
 
 function centerY(box: { y: number; height: number }) { return box.y + box.height / 2 }
