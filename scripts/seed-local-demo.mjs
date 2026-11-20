@@ -1,6 +1,7 @@
 // Date de test pentru Supabase-ul LOCAL: conturi, statusuri, programe,
 // 3 șabloane mici, un șablon mare (9 faze, ~118 cereri de document) și
-// proiecte în stadii diferite. Refuză să ruleze pe altă bază decât cea locală.
+// proiecte în stadii diferite. Refuză să ruleze pe altă bază decât cea locală,
+// cu o excepție: proiectul demo, prin `npm run demo:populeaza`.
 //
 // Folosire: pornește `supabase start` și aplicația (`npm run dev`), apoi
 //   npm run seed:local
@@ -13,15 +14,19 @@ import { inspectCifProfiles } from '../lib/cif-preflight.ts'
 import { execFileSync } from 'node:child_process'
 import { createClient } from '@supabase/supabase-js'
 import { assertLocalStack, fixtureCif, finalizeLocalFixture, localFixtureDatabase } from './local-account-fixtures.mjs'
+import { assertDemoStack, eDemo, finalizeDemoFixture, sqlDemo } from './demo/tinta.mjs'
 
 nextEnv.loadEnvConfig(process.cwd())
 const env = process.env
-assertLocalStack(env)
+// SEED_TINTA=demo vine doar de la scripts/demo/populeaza.mjs (proiectul demo, nu producția).
+const DEMO = eDemo(env)
+if (DEMO) assertDemoStack(env)
+else assertLocalStack(env)
 const APP = env.SEED_APP_URL || 'http://localhost:3000'
 const DB_CONTAINER = env.SEED_DB_CONTAINER || 'supabase_db_platforma-fonduri'
 const PAROLA = 'ParolaDemo123!'
 const service = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY)
-const sql = (q) => execFileSync('docker', ['exec', '-i', DB_CONTAINER, 'psql', '-U', 'postgres', '-d', localFixtureDatabase(env.E2E_DB_NAME), '-v', 'ON_ERROR_STOP=1', '-qAt', '-c', q], { encoding: 'utf8' }).trim()
+const sql = DEMO ? q => sqlDemo(env, q) : (q) => execFileSync('docker', ['exec', '-i', DB_CONTAINER, 'psql', '-U', 'postgres', '-d', localFixtureDatabase(env.E2E_DB_NAME), '-v', 'ON_ERROR_STOP=1', '-qAt', '-c', q], { encoding: 'utf8' }).trim()
 const esc = (s) => s == null ? 'null' : `'${String(s).replace(/'/g, "''")}'`
 const slugify = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
@@ -58,7 +63,7 @@ for (const u of users) {
   }
   id[u.key] = authUser.id
   const { key: fixtureKey, ...profile } = u
-  await finalizeLocalFixture(service, authUser.id, {
+  await (DEMO ? finalizeDemoFixture : finalizeLocalFixture)(service, authUser.id, {
     ...profile, ...(u.role === 'client' ? { cif: fixtureCif('demo-' + fixtureKey) } : {}),
   })
 }
