@@ -3,6 +3,7 @@
 import { ChevronDown } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { FloatingSurface } from './ui/Surface'
+import { searchItems } from '@/lib/search'
 
 export type SelectFilterOption = { value: string; label: string }
 
@@ -16,7 +17,7 @@ export type SelectFilterOption = { value: string; label: string }
  * Enter/Space și Escape fac ce ar fi făcut un `select`.
  */
 export default function SelectFilter({
-  value, onChange, placeholder, options, ariaLabel, className,
+  value, onChange, placeholder, options, ariaLabel, className, searchable = false, searchPlaceholder = 'Caută',
 }: {
   value: string
   onChange: (v: string) => void
@@ -24,16 +25,21 @@ export default function SelectFilter({
   options: SelectFilterOption[]
   ariaLabel?: string
   className?: string
+  searchable?: boolean
+  searchPlaceholder?: string
 }) {
   const [open, setOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const [query, setQuery] = useState('')
   const listboxId = useId()
 
   // Prima intrare golește filtrul, deci lista are cu una mai mult decât `options`.
-  const items: SelectFilterOption[] = [{ value: '', label: placeholder }, ...options]
+  const filtered = searchable && query.trim() ? searchItems(options, query, option => [{ key: 'label', label: 'Opțiune', value: option.label }]).map(hit => hit.item) : options
+  const items: SelectFilterOption[] = [{ value: '', label: placeholder }, ...filtered]
   const selectedIndex = Math.max(items.findIndex(option => option.value === value), 0)
   const selected = options.find(option => option.value === value)
   const optionId = (index: number) => `${listboxId}-option-${index}`
@@ -57,7 +63,10 @@ export default function SelectFilter({
     listRef.current?.children[active]?.scrollIntoView({ block: 'nearest' })
   }, [open, active])
 
+  useEffect(() => { if (open && searchable) searchRef.current?.focus() }, [open, searchable])
+
   const openAt = (index: number) => {
+    setQuery('')
     setActiveIndex(Math.min(Math.max(index, 0), items.length - 1))
     setOpen(true)
   }
@@ -68,11 +77,13 @@ export default function SelectFilter({
     buttonRef.current?.focus()
   }
 
-  const onKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+  const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
     if (event.key === 'Escape') {
       if (open) {
         event.preventDefault()
+        event.stopPropagation()
         setOpen(false)
+        buttonRef.current?.focus()
       }
       return
     }
@@ -108,6 +119,7 @@ export default function SelectFilter({
         break
       case 'Enter':
       case ' ':
+        if (event.key === ' ' && event.target === searchRef.current) break
         event.preventDefault()
         commit(active)
         break
@@ -125,7 +137,7 @@ export default function SelectFilter({
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
         aria-activedescendant={open ? optionId(active) : undefined}
-        onClick={() => (open ? setOpen(false) : openAt(selectedIndex))}
+        onClick={() => (open ? setOpen(false) : openAt(Math.max([{ value: '', label: placeholder }, ...options].findIndex(option => option.value === value), 0)))}
         onKeyDown={onKeyDown}
         className="flex h-11 w-full items-center justify-between gap-2 rounded-[var(--radius-plate)] border border-rule bg-plate px-4 text-left text-sm transition-colors duration-[120ms] focus:border-[var(--sg-accent)] sm:h-10"
       >
@@ -139,6 +151,7 @@ export default function SelectFilter({
         <FloatingSurface
           className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-[var(--radius-plate-lg)] py-1"
         >
+          {searchable && <div className="px-2 pb-1 pt-1"><input ref={searchRef} value={query} onChange={event => { setQuery(event.target.value); setActiveIndex(1) }} onKeyDown={onKeyDown} placeholder={searchPlaceholder} aria-label={searchPlaceholder} className="w-full rounded-[var(--radius-plate)] border border-rule bg-paper px-3 py-2 text-sm text-ink" /></div>}
           <div ref={listRef} id={listboxId} role="listbox" aria-label={ariaLabel}>
             {items.map((option, index) => (
               <button
@@ -160,6 +173,7 @@ export default function SelectFilter({
               </button>
             ))}
           </div>
+          {searchable && query.trim() && filtered.length === 0 && <p className="px-4 py-2 text-sm text-ink-soft">Niciun context găsit.</p>}
         </FloatingSurface>
       )}
     </div>

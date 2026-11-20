@@ -26,12 +26,14 @@ const TYPE_LABEL: Record<SearchResultType, string> = {
   phase: 'Fază',
   activity: 'Activitate',
   document_request: 'Cerere document',
+  internal_entry: 'Dosar intern',
 }
 
 const TYPE_ICON: Record<SearchResultType, typeof Layers> = {
   phase: Layers,
   activity: ListChecks,
   document_request: FileText,
+  internal_entry: FileText,
 }
 
 /** Semnul unui rezultat finalizat: fază sau activitate gata, cerere aprobată sau închisă. */
@@ -134,7 +136,7 @@ export default function UnifiedSearchDialog({
                 {hits.map(({ item: r, matches }, i) => {
                   const Icon = TYPE_ICON[r.type]
                   const context =
-                    r.type === 'phase'
+                    (r.type === 'phase' || r.type === 'internal_entry')
                       ? null
                       : r.type === 'activity'
                       ? r.phaseName
